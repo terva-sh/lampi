@@ -173,7 +173,12 @@ func runAgentLoop(ctx context.Context, env Env) error {
 			}
 			return err
 		case <-kick:
-			err := runAgentSync(ctx, env, opt, "")
+			// A kick that was already queued must not start a sync once
+			// shutdown has begun. The drain below is the last push.
+			var err error
+			if ctx.Err() == nil {
+				err = runAgentSync(ctx, env, opt, "")
+			}
 			if ctx.Err() != nil {
 				disarmRetry()
 				watchCancel()
