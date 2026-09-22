@@ -17,7 +17,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,8 +46,14 @@ type Queue interface {
 
 // DB is one SQLite file.
 type DB struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
+
+// testEnqueueGate runs immediately before the upsert. A test uses it to
+// commit a competing version from another connection, which is the
+// interleaving that used to lose an update. It is nil outside tests.
+var testEnqueueGate func()
 
 var _ Queue = (*DB)(nil)
 
@@ -80,11 +85,14 @@ func Open(path string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("outbox: %w", err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	// The parent directory is 0700. The database and its WAL sidecars
+	// are 0600: rows name private transcripts. Sidecars appear when WAL
+	// mode is turned on; a missing one is fine.
+	if err := chmodPrivate(path); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("outbox: %w", err)
 	}
-	return &DB{db: db}, nil
+	return &DB{db: db, path: path}, nil
 }
 
 const schema = `
@@ -105,6 +113,10 @@ func (q *DB) Close() error {
 
 // Enqueue records item. The same Identity at an equal or lower Version
 // is a no-op. A higher Version replaces the pending body.
+//
+// The compare-and-write is one statement. Two connections sharing the
+// file cannot observe a stale version and then overwrite a newer row:
+// the update applies only when the stored version is still lower.
 func (q *DB) Enqueue(ctx context.Context, item Item) error {
 	ident, err := identityOf(item)
 	if err != nil {
@@ -119,36 +131,22 @@ func (q *DB) Enqueue(ctx context.Context, item Item) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 
-	tx, err := q.db.BeginTx(ctx, nil)
-	if err != nil {
+	if testEnqueueGate != nil {
+		testEnqueueGate()
+	}
+	if _, err := q.db.ExecContext(ctx, `
+		INSERT INTO items (identity, digest, manifest, version, enqueued_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(identity) DO UPDATE SET
+			digest = excluded.digest,
+			manifest = excluded.manifest,
+			version = excluded.version,
+			enqueued_at = excluded.enqueued_at
+		WHERE excluded.version > items.version`,
+		ident, item.Digest, manifest, item.Version, now); err != nil {
 		return fmt.Errorf("outbox: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
-
-	var curVer int64
-	err = tx.QueryRowContext(ctx, `SELECT version FROM items WHERE identity = ?`, ident).Scan(&curVer)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO items (identity, digest, manifest, version, enqueued_at)
-			VALUES (?, ?, ?, ?, ?)`,
-			ident, item.Digest, manifest, item.Version, now); err != nil {
-			return fmt.Errorf("outbox: %w", err)
-		}
-	case err != nil:
-		return fmt.Errorf("outbox: %w", err)
-	case item.Version > curVer:
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE items
-			SET digest = ?, manifest = ?, version = ?, enqueued_at = ?
-			WHERE identity = ?`,
-			item.Digest, manifest, item.Version, now, ident); err != nil {
-			return fmt.Errorf("outbox: %w", err)
-		}
-	default:
-		// Equal or older generation: the pending row is already the work.
-	}
-	if err := tx.Commit(); err != nil {
+	if err := chmodPrivate(q.path); err != nil {
 		return fmt.Errorf("outbox: %w", err)
 	}
 	return nil
@@ -195,6 +193,26 @@ func (q *DB) Ack(ctx context.Context, item Item) error {
 	}
 	if err != nil {
 		return fmt.Errorf("outbox: %w", err)
+	}
+	if err := chmodPrivate(q.path); err != nil {
+		return fmt.Errorf("outbox: %w", err)
+	}
+	return nil
+}
+
+// chmodPrivate keeps the database and its WAL sidecars owner-read.
+// SQLite creates path-wal and path-shm after journal_mode=WAL; they
+// follow the process umask unless tightened here. A sidecar that does
+// not exist yet is not an error.
+func chmodPrivate(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		err := os.Chmod(path+suffix, 0o600)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
 	return nil
 }

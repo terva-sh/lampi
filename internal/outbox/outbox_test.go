@@ -171,6 +171,94 @@ func TestSharedByTwoOpeners(t *testing.T) {
 	}
 }
 
+// TestEnqueueLostUpdate is the interleaving from review: one connection
+// has already decided to write version 2, and before that write lands
+// another connection commits version 3. The version compare has to be
+// in the write itself. A stale read of version 1 would store 2 and drop 3.
+func TestEnqueueLostUpdate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox.db")
+	ctx := context.Background()
+	low, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer low.Close()
+	high, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer high.Close()
+
+	id := "session:s"
+	if err := low.Enqueue(ctx, Item{Identity: id, Manifest: []byte("v1"), Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { testEnqueueGate = nil })
+	var gateErr error
+	testEnqueueGate = func() {
+		// Run once, on the version-2 enqueue. Commit 3 before that write.
+		testEnqueueGate = nil
+		gateErr = high.Enqueue(ctx, Item{Identity: id, Manifest: []byte("v3"), Version: 3})
+	}
+	if err := low.Enqueue(ctx, Item{Identity: id, Manifest: []byte("v2"), Version: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if gateErr != nil {
+		t.Fatal(gateErr)
+	}
+	pending, err := high.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Version != 3 || string(pending[0].Manifest) != "v3" {
+		t.Fatalf("lost update: %+v", pending)
+	}
+}
+
+func TestWALSidecarsArePrivate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, "outbox.db")
+	q, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if err := q.Enqueue(context.Background(), Item{Digest: repeat('d', 64)}); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("state dir mode %o", dirInfo.Mode().Perm())
+	}
+	// Loosen a sidecar and write again. Enqueue has to put it back.
+	wal := path + "-wal"
+	if _, err := os.Stat(wal); err != nil {
+		t.Fatalf("wal sidecar: %v", err)
+	}
+	if err := os.Chmod(wal, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Enqueue(context.Background(), Item{Digest: repeat('e', 64)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(p)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode %o", p, info.Mode().Perm())
+		}
+	}
+}
+
 func TestRejectsBadDigest(t *testing.T) {
 	q, err := Open(filepath.Join(t.TempDir(), "outbox.db"))
 	if err != nil {

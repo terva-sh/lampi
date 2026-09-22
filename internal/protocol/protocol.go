@@ -108,8 +108,9 @@ type Lineage struct {
 }
 
 // ManifestAck is the 200 body of POST /v1/manifests.
-// A client may advance its watermark only after it sees this. This scaffold
-// does not store watermarks yet; the ACK is still the contract.
+// A client may advance its watermark only after it sees this.
+// internal/watermark.Commit refuses to store a mark without a session
+// uid from this ACK. terva-lampi sync does not write a watermark yet.
 type ManifestAck struct {
 	SessionUID  string   `json:"session_uid"`
 	ArtifactIDs []string `json:"artifact_ids"`

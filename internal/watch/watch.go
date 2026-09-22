@@ -128,6 +128,9 @@ func (w *Watcher) Mode() string {
 }
 
 // WaitReady returns when the first directory walk has seeded cursors.
+// It returns ctx.Err() if ctx ends first. Run closes the ready channel
+// only after a successful seed, so a failed Run does not unblock this
+// with a nil error. Cancel ctx when Run has failed.
 func (w *Watcher) WaitReady(ctx context.Context) error {
 	ready := w.ensure()
 	select {
@@ -156,14 +159,6 @@ func (w *Watcher) Tracked() []string {
 // Run watches until ctx is cancelled. A normal stop returns nil.
 func (w *Watcher) Run(ctx context.Context) error {
 	ready := w.ensure()
-	closed := false
-	closeReady := func() {
-		if !closed {
-			close(ready)
-			closed = true
-		}
-	}
-	defer closeReady()
 
 	if w.Root == "" {
 		return fmt.Errorf("watch: root is empty")
@@ -207,7 +202,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 		return err
 	}
-	closeReady()
+	close(ready)
 
 	if err := ctx.Err(); err != nil {
 		if fsw != nil {

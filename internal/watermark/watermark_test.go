@@ -163,6 +163,76 @@ func TestPlanTruncateAndRewrite(t *testing.T) {
 	}
 }
 
+func TestCommitRejectsOffsetPastSize(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "watermarks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	mark := Mark{
+		MachineID: "m",
+		Harness:   "terva",
+		Root:      "/t",
+		RelPath:   "sessions/a/s.jsonl",
+		Size:      4,
+		Offset:    10,
+		SHA256:    repeatHex('a'),
+	}
+	err = s.Commit(context.Background(), mark, protocol.ManifestAck{SessionUID: "uid"})
+	if err == nil {
+		t.Fatal("expected offset past size to fail")
+	}
+	if _, ok, getErr := s.Get(context.Background(), mark); getErr != nil || ok {
+		t.Fatalf("stored bad mark: ok=%v err=%v", ok, getErr)
+	}
+}
+
+func TestWALSidecarsArePrivate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, "watermarks.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	mark := Mark{
+		MachineID: "m",
+		Harness:   "terva",
+		Root:      "/t",
+		RelPath:   "sessions/a/s.jsonl",
+		Size:      1,
+		Offset:    1,
+		SHA256:    repeatHex('c'),
+	}
+	ack := protocol.ManifestAck{SessionUID: "uid"}
+	if err := s.Commit(context.Background(), mark, ack); err != nil {
+		t.Fatal(err)
+	}
+	wal := path + "-wal"
+	if _, err := os.Stat(wal); err != nil {
+		t.Fatalf("wal sidecar: %v", err)
+	}
+	if err := os.Chmod(wal, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mark.RelPath = "sessions/a/t.jsonl"
+	if err := s.Commit(context.Background(), mark, ack); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(p)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode %o", p, info.Mode().Perm())
+		}
+	}
+}
+
 func TestFilePath(t *testing.T) {
 	if got := File("/var/state"); got != filepath.Join("/var/state", "watermarks.db") {
 		t.Fatalf("File = %s", got)

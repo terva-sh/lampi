@@ -45,6 +45,11 @@ const (
 )
 
 // Mark is one file's upload cursor.
+//
+// SHA256 is the sha256 of the file bytes in [0:Offset] at commit time.
+// When Offset equals Size, that is the hash of the whole file. Plan
+// compares both a full-file hash and a prefix hash against this value;
+// they are the same hash only for that snapshot.
 type Mark struct {
 	MachineID string
 	Harness   string
@@ -84,7 +89,8 @@ type Store interface {
 
 // DB is one SQLite file.
 type DB struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 var _ Store = (*DB)(nil)
@@ -117,11 +123,13 @@ func Open(path string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("watermark: %w", err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	// The parent directory is 0700. The database and its WAL sidecars
+	// are 0600. Sidecars appear when WAL mode is turned on.
+	if err := chmodPrivate(path); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("watermark: %w", err)
 	}
-	return &DB{db: db}, nil
+	return &DB{db: db, path: path}, nil
 }
 
 const schema = `
@@ -178,6 +186,9 @@ func (s *DB) Commit(ctx context.Context, mark Mark, ack protocol.ManifestAck) er
 	if mark.Size < 0 || mark.Offset < 0 {
 		return fmt.Errorf("watermark: negative size or offset")
 	}
+	if mark.Offset > mark.Size {
+		return fmt.Errorf("watermark: offset %d past size %d", mark.Offset, mark.Size)
+	}
 	if !protocol.ValidDigest(mark.SHA256) {
 		return fmt.Errorf("watermark: invalid sha256")
 	}
@@ -199,14 +210,34 @@ func (s *DB) Commit(ctx context.Context, mark Mark, ack protocol.ManifestAck) er
 	if err != nil {
 		return fmt.Errorf("watermark: %w", err)
 	}
+	if err := chmodPrivate(s.path); err != nil {
+		return fmt.Errorf("watermark: %w", err)
+	}
+	return nil
+}
+
+// chmodPrivate keeps the database and its WAL sidecars owner-read.
+// A sidecar that does not exist yet is not an error.
+func chmodPrivate(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		err := os.Chmod(path+suffix, 0o600)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	return nil
 }
 
 // Plan decides what a caller should upload for mark given the file now.
 // A zero mark (Get returned false) is KindNew. A matching full hash, or
 // the same size and mtime with no hash supplied, is KindUnchanged.
-// Growth whose prefix hash equals the stored content hash is KindTail:
-// the upload starts at Offset and does not resend the prefix.
+// Growth whose prefix hash equals mark.SHA256 is KindTail: the upload
+// starts at Offset and does not resend the prefix. mark.SHA256 is the
+// hash of bytes [0:Offset], so a full-file hash matches it when the
+// file is still that snapshot (Offset == Size).
 func Plan(mark Mark, st Stat) Decision {
 	if mark.SHA256 == "" && mark.Offset == 0 && mark.Size == 0 {
 		return Decision{Offset: 0, Length: st.Size, Kind: KindNew}

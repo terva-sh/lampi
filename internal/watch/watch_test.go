@@ -253,6 +253,46 @@ func TestPollCoalescesBurst(t *testing.T) {
 	}
 }
 
+func TestWaitReadyDoesNotSucceedWhenRunFails(t *testing.T) {
+	w := &Watcher{}
+	errCh := make(chan error, 1)
+	go func() { errCh <- w.Run(context.Background()) }()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("empty root should fail")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	if err := w.WaitReady(ctx); err == nil {
+		t.Fatal("WaitReady succeeded after Run failed")
+	}
+
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "sessions"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w = &Watcher{Root: home, ForcePoll: true}
+	errCh = make(chan error, 1)
+	go func() { errCh <- w.Run(context.Background()) }()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("sessions file should fail the seed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return")
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	if err := w.WaitReady(ctx); err == nil {
+		t.Fatal("WaitReady succeeded after seed failed")
+	}
+}
+
 func startWatch(t *testing.T, home string, poll bool) (*Watcher, <-chan Change) {
 	t.Helper()
 	ch := make(chan Change, 16)
