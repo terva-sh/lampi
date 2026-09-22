@@ -142,7 +142,7 @@ usage:
   terva-lampi serve     run the lake (health, blob check/put, manifests)
   terva-lampi agent     local capture agent
   terva-lampi sync      push new bytes once
-  terva-lampi status    machine identity and lake health
+  terva-lampi status    agent state and lake health
   terva-lampi login     write a device token file
 
 The command is terva-lampi. An optional ` + "`lampi`" + ` symlink is not the

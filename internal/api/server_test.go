@@ -173,6 +173,68 @@ func TestPutRejectsMismatchAndStorage(t *testing.T) {
 	}
 }
 
+func TestStats(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	s.Token = "sekret"
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if rr.Code != http.StatusOK || bytes.Contains(rr.Body.Bytes(), []byte("sessions")) {
+		t.Fatalf("healthz leaked catalog data: %d %s", rr.Code, rr.Body)
+	}
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/stats", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("stats without token: %d %s", rr.Code, rr.Body)
+	}
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	req.Header.Set("Authorization", "Bearer sekret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("empty stats %d %s", rr.Code, rr.Body)
+	}
+	var counts protocol.StatsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &counts); err != nil {
+		t.Fatal(err)
+	}
+	if counts != (protocol.StatsResponse{}) {
+		t.Fatalf("empty %+v", counts)
+	}
+
+	if _, err := s.Catalog.Ingest(t.Context(), protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessTerva,
+		NativeSessionID: "sid-1",
+		Artifacts: []protocol.Artifact{{
+			Kind:    protocol.KindTranscriptJSONL,
+			RelPath: "sessions/x/sid-1.jsonl",
+			Size:    3,
+			SHA256:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+	}, time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	req.Header.Set("Authorization", "Bearer sekret")
+	h.ServeHTTP(rr, req)
+	if err := json.Unmarshal(rr.Body.Bytes(), &counts); err != nil {
+		t.Fatal(err)
+	}
+	if counts.Sessions != 1 || counts.Artifacts != 1 || counts.Machines != 1 {
+		t.Fatalf("counts %+v", counts)
+	}
+}
+
 func postManifest(t *testing.T, h http.Handler, m protocol.Manifest) protocol.ManifestAck {
 	t.Helper()
 	rr := httptest.NewRecorder()

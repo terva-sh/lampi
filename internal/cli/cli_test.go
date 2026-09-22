@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/outbox"
 )
 
 func TestRootHelpListsCommands(t *testing.T) {
@@ -133,6 +135,7 @@ func TestLoginDoesNotPrintToken(t *testing.T) {
 func TestAgentDiscover(t *testing.T) {
 	home := t.TempDir()
 	cfg := t.TempDir()
+	state := t.TempDir()
 	dir := filepath.Join(home, "sessions", "abcd")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -150,6 +153,8 @@ func TestAgentDiscover(t *testing.T) {
 				return home
 			case "XDG_CONFIG_HOME":
 				return cfg
+			case "XDG_STATE_HOME":
+				return state
 			default:
 				return ""
 			}
@@ -187,6 +192,9 @@ func TestAgentDiscover(t *testing.T) {
 	if !strings.Contains(status, "sessions: 1") {
 		t.Fatalf("status: %s", status)
 	}
+	if !strings.Contains(status, "outbox: 0") || !strings.Contains(status, "last_sync: never") {
+		t.Fatalf("status: %s", status)
+	}
 }
 
 func TestStatusHealth(t *testing.T) {
@@ -200,26 +208,238 @@ func TestStatusHealth(t *testing.T) {
 
 	cfg := t.TempDir()
 	home := t.TempDir()
+	state := t.TempDir()
 	var out bytes.Buffer
 	err = Run([]string{"status", "--server", srv.URL}, Env{
 		Stdout: &out,
 		Stderr: ioDiscard(),
-		Getenv: func(k string) string {
-			switch k {
-			case "XDG_CONFIG_HOME":
-				return cfg
-			case "TERVA_HOME":
-				return home
-			default:
-				return ""
-			}
-		},
+		Getenv: statusEnv(cfg, home, state),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "health: ok") {
+	text := out.String()
+	for _, want := range []string{
+		"health: ok",
+		"outbox: 0",
+		"watermarks: 0",
+		"last_sync: never",
+		"catalog_sessions: 0",
+		"catalog_artifacts: 0",
+		"catalog_machines: 0",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestStatusReportsAgentAndServer(t *testing.T) {
+	data := t.TempDir()
+	lake, err := api.Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	tok := "abc123"
+	if err := auth.Write(filepath.Join(data, "token"), tok); err != nil {
+		t.Fatal(err)
+	}
+	lake.Token = tok
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	cfg := t.TempDir()
+	state := t.TempDir()
+	dir := filepath.Join(home, "sessions", "abcd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"sess-1\",\"cwd\":\"/work/app\"}}\n")
+	if err := os.WriteFile(filepath.Join(dir, "sess-1.jsonl"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tokenCopy := filepath.Join(cfg, "token")
+	if err := auth.Write(tokenCopy, tok); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	allow := []byte("{\"projects\":{\"allow\":[{\"cwd_prefix\":\"/work/app\"}]}}\n")
+	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), allow, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{
+		Stdout: ioDiscard(),
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(cfg, home, state),
+	}
+	if err := Run([]string{"sync", "--server", srv.URL, "--token-file", tokenCopy}, env); err != nil {
+		t.Fatal(err)
+	}
+	q, err := outbox.Open(outbox.File(filepath.Join(state, "terva-lampi")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Enqueue(context.Background(), outbox.Item{Digest: strings.Repeat("ab", 32)}); err != nil {
+		t.Fatal(err)
+	}
+	q.Close()
+
+	var out bytes.Buffer
+	env.Stdout = &out
+	if err := Run([]string{"status", "--server", srv.URL, "--token-file", tokenCopy}, env); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"machine_id: ",
+		"outbox: 1",
+		"watermarks: 1 paths,",
+		"newest ",
+		"uploaded=1 manifests=1 refused=0 quarantined=0",
+		"health: ok",
+		"catalog_sessions: 1",
+		"catalog_artifacts: 1",
+		"catalog_machines: 1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "last_sync: never") {
+		t.Fatalf("status:\n%s", text)
+	}
+	if !strings.Contains(text, "last_sync: 20") {
+		t.Fatalf("status:\n%s", text)
+	}
+}
+
+func TestStatusCatalogUnauthorized(t *testing.T) {
+	lake, err := api.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	lake.Token = "sekret"
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+
+	var out bytes.Buffer
+	err = Run([]string{"status", "--server", srv.URL}, Env{
+		Stdout: &out,
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(t.TempDir(), t.TempDir(), t.TempDir()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "health: ok") || !strings.Contains(text, "catalog: unauthorized") {
+		t.Fatalf("status:\n%s", text)
+	}
+	if strings.Contains(text, "catalog_sessions:") {
+		t.Fatalf("unauthorized status printed counts:\n%s", text)
+	}
+}
+
+func TestStatusLakeDownStillPrintsLocal(t *testing.T) {
+	var out bytes.Buffer
+	err := Run([]string{"status", "--server", "http://127.0.0.1:1"}, Env{
+		Stdout: &out,
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(t.TempDir(), t.TempDir(), t.TempDir()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"outbox: 0",
+		"watermarks: 0",
+		"last_sync: never",
+		"health: unreachable",
+		"catalog: unreachable",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestStatusPrintsRefusalOnLastSync(t *testing.T) {
+	home := t.TempDir()
+	cfg := t.TempDir()
+	state := t.TempDir()
+	dir := filepath.Join(home, "sessions", "abcd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"sess-1\",\"cwd\":\"/work/app\"}}\n")
+	if err := os.WriteFile(filepath.Join(dir, "sess-1.jsonl"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{
+		Stdout: ioDiscard(),
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(cfg, home, state),
+	}
+	err := Run([]string{"sync", "--server", "http://127.0.0.1:1"}, env)
+	if err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("err %v", err)
+	}
+	var out bytes.Buffer
+	env.Stdout = &out
+	if err := Run([]string{"status", "--server", "http://127.0.0.1:1"}, env); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "uploaded=0 manifests=0 refused=1 quarantined=0") {
 		t.Fatalf("status:\n%s", out.String())
+	}
+}
+
+func TestStatusUnreadableLastSync(t *testing.T) {
+	cfg := t.TempDir()
+	home := t.TempDir()
+	state := t.TempDir()
+	dir := filepath.Join(state, "terva-lampi")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "last_sync.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := Run([]string{"status", "--server", "http://127.0.0.1:1"}, Env{
+		Stdout: &out,
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(cfg, home, state),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"last_sync: unreadable", "outbox: 0", "health: unreachable"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q\n%s", want, text)
+		}
+	}
+}
+
+func statusEnv(cfg, home, state string) func(string) string {
+	return func(k string) string {
+		switch k {
+		case "XDG_CONFIG_HOME":
+			return cfg
+		case "TERVA_HOME":
+			return home
+		case "XDG_STATE_HOME":
+			return state
+		default:
+			return ""
+		}
 	}
 }
 

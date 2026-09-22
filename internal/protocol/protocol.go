@@ -124,6 +124,15 @@ type ManifestAck struct {
 	HeadSHA256  string   `json:"head_sha256"`
 }
 
+// StatsResponse is the body of GET /v1/stats.
+// These are catalog row counts. healthz stays free of them so a process
+// probe does not need the device token and does not learn what is stored.
+type StatsResponse struct {
+	Sessions  int `json:"sessions"`
+	Artifacts int `json:"artifacts"`
+	Machines  int `json:"machines"`
+}
+
 // ErrorBody is the JSON error shape every non-2xx response uses.
 type ErrorBody struct {
 	Error   string   `json:"error"`

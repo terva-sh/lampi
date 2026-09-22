@@ -100,6 +100,67 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 	}
 }
 
+func TestLastSyncStampSurvivesAFailedRetry(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	writeSession(t, home, "abcd", "s.jsonl", []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n"))
+	state := t.TempDir()
+	opt := allowAll(srv, home, state, "/tmp/p")
+	if _, err := Sync(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	st, ok, err := ReadLastSync(state)
+	if err != nil || !ok {
+		t.Fatalf("stamp ok=%v err=%v", ok, err)
+	}
+	if st.Uploaded != 1 || st.Manifests != 1 || st.Server != srv.URL || st.At.IsZero() {
+		t.Fatalf("stamp %+v", st)
+	}
+	info, err := os.Stat(LastSyncFile(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %o", info.Mode().Perm())
+	}
+	leftover, err := filepath.Glob(filepath.Join(state, ".last-sync-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftover) != 0 {
+		t.Fatalf("temp stamps left behind: %v", leftover)
+	}
+
+	// A lake error is not a finished sync. The previous stamp stays.
+	opt.ServerURL = "http://127.0.0.1:1"
+	opt.Client = nil
+	if _, err := Sync(context.Background(), opt); err == nil {
+		t.Fatal("expected lake failure")
+	}
+	again, ok, err := ReadLastSync(state)
+	if err != nil || !ok {
+		t.Fatalf("reread ok=%v err=%v", ok, err)
+	}
+	if !again.At.Equal(st.At) || again.Uploaded != 1 {
+		t.Fatalf("stamp moved: %+v", again)
+	}
+
+	// A refusal finishes the pass, so the stamp records that run.
+	opt.ServerURL = srv.URL
+	opt.Client = srv.Client()
+	opt.Projects = config.Projects{}
+	if _, err := Sync(context.Background(), opt); err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("refuse: %v", err)
+	}
+	refused, ok, err := ReadLastSync(state)
+	if err != nil || !ok || refused.Refused != 1 || refused.Uploaded != 0 {
+		t.Fatalf("refusal stamp %+v ok=%v err=%v", refused, ok, err)
+	}
+}
+
 func TestSyncRefusesNonAllowlisted(t *testing.T) {
 	lake, data := openLake(t)
 	srv := httptest.NewServer(lake.Handler())

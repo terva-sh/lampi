@@ -8,16 +8,24 @@
 // blob: the lake does not assemble tails yet. The manifest matches that
 // body, with byte_watermark_prev 0 and tail_sha256 equal to sha256.
 // A distinct tail hash waits until the PUT body is the suffix.
+//
+// A finished run rewrites last_sync.json in the state directory. That
+// includes a pass that refused or quarantined every session. A lake
+// error leaves the previous stamp, so status does not report the failed
+// attempt as the last sync.
 package upload
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -86,7 +94,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		return Result{}, err
 	}
 	if len(bundle.Manifests) == 0 {
-		return Result{}, nil
+		return finish(opt, Result{}, nil)
 	}
 	if opt.StateDir == "" {
 		return Result{}, fmt.Errorf("upload: state dir is empty")
@@ -113,7 +121,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		return res, err
 	}
 	if len(work) == 0 {
-		return res, rejected
+		return finish(opt, res, rejected)
 	}
 
 	client := opt.Client
@@ -177,7 +185,118 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 			return res, err
 		}
 	}
-	return res, rejected
+	return finish(opt, res, rejected)
+}
+
+// LastSync is the stamp Sync rewrites when a run finishes.
+type LastSync struct {
+	At          time.Time `json:"at"`
+	Server      string    `json:"server"`
+	Checked     int       `json:"checked"`
+	Missing     int       `json:"missing"`
+	Uploaded    int       `json:"uploaded"`
+	Manifests   int       `json:"manifests"`
+	Refused     int       `json:"refused"`
+	Quarantined int       `json:"quarantined"`
+}
+
+// LastSyncFile is the stamp path inside a lampi state directory.
+func LastSyncFile(stateDir string) string {
+	return filepath.Join(stateDir, "last_sync.json")
+}
+
+// ReadLastSync loads the stamp. A missing file is (zero, false, nil).
+func ReadLastSync(stateDir string) (LastSync, bool, error) {
+	b, err := os.ReadFile(LastSyncFile(stateDir))
+	if os.IsNotExist(err) {
+		return LastSync{}, false, nil
+	}
+	if err != nil {
+		return LastSync{}, false, err
+	}
+	var st LastSync
+	if err := json.Unmarshal(b, &st); err != nil {
+		return LastSync{}, false, fmt.Errorf("upload: last sync: %w", err)
+	}
+	if st.At.IsZero() {
+		return LastSync{}, false, fmt.Errorf("upload: last sync has no timestamp")
+	}
+	st.At = st.At.UTC()
+	return st, true, nil
+}
+
+// finish records a completed pass. A *Rejected is complete: the allowlist
+// and the scan ran, and any approved session was pushed. A lake error is
+// not complete, and the previous stamp stays.
+func finish(opt Options, res Result, err error) (Result, error) {
+	if !runFinished(err) {
+		return res, err
+	}
+	if stampErr := saveLastSync(opt, res); stampErr != nil {
+		if err != nil {
+			return res, errors.Join(err, stampErr)
+		}
+		return res, stampErr
+	}
+	return res, err
+}
+
+func runFinished(err error) bool {
+	if err == nil {
+		return true
+	}
+	var rejected *Rejected
+	return errors.As(err, &rejected)
+}
+
+func saveLastSync(opt Options, res Result) error {
+	if opt.StateDir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(opt.StateDir, 0o700); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	raw, err := json.MarshalIndent(LastSync{
+		At:          time.Now().UTC(),
+		Server:      opt.ServerURL,
+		Checked:     res.Checked,
+		Missing:     res.Missing,
+		Uploaded:    res.Uploaded,
+		Manifests:   res.Manifests,
+		Refused:     res.Refused,
+		Quarantined: res.Quarantined,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	// Rename a complete file over the stamp. A crash mid-write leaves the
+	// previous document in place; readers never see a truncated one.
+	tmp, err := os.CreateTemp(opt.StateDir, ".last-sync-*")
+	if err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if tmpName != "" {
+			os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(raw); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	if err := os.Rename(tmpName, LastSyncFile(opt.StateDir)); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	tmpName = ""
+	return nil
 }
 
 func requireScanned(m protocol.Manifest) error {

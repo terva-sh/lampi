@@ -17,7 +17,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put |
 | Catalog | `internal/catalog` | SQLite. Session uid, artifacts, provenance |
-| HTTP | `internal/api` | healthz, hello, blob check/put, manifests |
+| HTTP | `internal/api` | healthz, catalog stats, hello, blob check/put, manifests |
 | Device token | `internal/auth` | 256-bit file, mode 0600. Plaintext compare |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
@@ -26,7 +26,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
 | Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
-| Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK |
+| Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
 `upload.Sync`. `terva-lampi sync` is the same function, once. A grown

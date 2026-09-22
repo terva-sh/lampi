@@ -90,6 +90,28 @@ func (c *Catalog) Close() error {
 	return c.db.Close()
 }
 
+// Counts is the size of the catalog. Machines is the number of distinct
+// machine ids in provenance, not one row per session.
+type Counts struct {
+	Sessions  int
+	Artifacts int
+	Machines  int
+}
+
+// Counts reads how many sessions, artifacts, and machines are stored.
+func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
+	var n Counts
+	err := c.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM sessions),
+			(SELECT COUNT(*) FROM artifacts),
+			(SELECT COUNT(DISTINCT machine_id) FROM provenance)`).Scan(&n.Sessions, &n.Artifacts, &n.Machines)
+	if err != nil {
+		return Counts{}, fmt.Errorf("catalog: %w", err)
+	}
+	return n, nil
+}
+
 // Ingest records m and returns the stable session uid. Repeating the same
 // manifest returns the same ids. A new digest for an existing relpath adds
 // an artifact and moves head_sha256; the previous blob stays in the CAS.

@@ -152,6 +152,15 @@ func (q *DB) Enqueue(ctx context.Context, item Item) error {
 	return nil
 }
 
+// Depth is how many rows are still waiting for Ack.
+func (q *DB) Depth(ctx context.Context) (int, error) {
+	var n int
+	if err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM items`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("outbox: %w", err)
+	}
+	return n, nil
+}
+
 // Pending returns queued work in id order. A row is pending until Ack,
 // including one this process already tried to upload.
 func (q *DB) Pending(ctx context.Context) ([]Item, error) {

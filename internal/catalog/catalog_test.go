@@ -63,6 +63,50 @@ func TestIngestStableIDs(t *testing.T) {
 	}
 }
 
+func TestCounts(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	n, err := c.Counts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != (Counts{}) {
+		t.Fatalf("empty %+v", n)
+	}
+	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	if _, err := c.Ingest(ctx, sampleManifest(), now); err != nil {
+		t.Fatal(err)
+	}
+	n, err = c.Counts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Sessions != 1 || n.Artifacts != 1 || n.Machines != 1 {
+		t.Fatalf("after one %+v", n)
+	}
+	other := sampleManifest()
+	other.MachineID = "machine-b"
+	if _, err := c.Ingest(ctx, other, now); err != nil {
+		t.Fatal(err)
+	}
+	grown := sampleManifest()
+	grown.Artifacts[0].SHA256 = strings.Repeat("ab", 32)
+	if _, err := c.Ingest(ctx, grown, now); err != nil {
+		t.Fatal(err)
+	}
+	n, err = c.Counts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Sessions != 1 || n.Artifacts != 2 || n.Machines != 2 {
+		t.Fatalf("after join and growth %+v", n)
+	}
+}
+
 func sampleManifest() protocol.Manifest {
 	sha := strings.Repeat("a", 64)
 	return protocol.Manifest{
