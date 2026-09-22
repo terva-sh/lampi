@@ -1,11 +1,11 @@
 ---
 schema: 3
-id: TKT-01M3558DS31QVJ6Y6XH6HK8S4V
-title: systemd user unit + launchd agent examples
+id: TKT-01M3558DSRBXEECGW3HCFWX6AA
+title: Optional lampi alias installer with neurobin warn
 type: task
-status: draft
+status: ready
 status_reason: null
-priority: normal
+priority: low
 due_on: null
 labels:
   - area/ops
@@ -14,24 +14,22 @@ assignees: []
 milestone: mvp
 parent: TKT-01M3558DP1WFP9WNHEP6BDVGN3
 origin: null
-dependencies:
-  - TKT-01M3558DDS1NVWKCC2S36TYPZV
-  - TKT-01M3558D7M09TNZYEJ961WC4AK
+dependencies: []
 blocks_on: none
 references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:11Z
+updated_at: 2026-09-22T22:06:13Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: human:sothr
-  name: Drew Short
+  id: agent:cursor/d73b
+  name: Cursor cloud agent
 extensions: {}
 ---
 
 ## Description
 
-Example unit files for `terva-lampi agent` once lake host is known.
+Optional `lampi` symlink; warn if existing lampi looks like neurobin LAMP installer. Primary binary remains terva-lampi.

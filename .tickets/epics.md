@@ -6,8 +6,7 @@ tickets, and the next fix pass overwrites it.
 
 | Epic | Title | Status |
 |---|---|---|
-| [TKT-01M3558D72YST7VYN39EFK272P](draft/TKT-01M3558D72YST7VYN39EFK272P.md) | Phase 0 policy & lake placement | draft |
-| [TKT-01M3558D9Z1ZWHXB3V14A4AJGR](tickets/TKT-01M3558D9Z1ZWHXB3V14A4AJGR.md) | MVP client pipeline (fill stubs) | ready |
+| [TKT-01M3558D72YST7VYN39EFK272P](tickets/TKT-01M3558D72YST7VYN39EFK272P.md) | Phase 0 policy & lake placement | ready |
 | [TKT-01M3558DF4KG977332Q7NG30VB](tickets/TKT-01M3558DF4KG977332Q7NG30VB.md) | MVP protocol & dedup Layer B | ready |
 | [TKT-01M3558DM7F4PV6QVHXR8CGFVG](tickets/TKT-01M3558DM7F4PV6QVHXR8CGFVG.md) | MVP normalize + search proof | ready |
 | [TKT-01M3558DP1WFP9WNHEP6BDVGN3](tickets/TKT-01M3558DP1WFP9WNHEP6BDVGN3.md) | MVP acceptance, status, ops | ready |

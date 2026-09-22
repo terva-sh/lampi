@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558D9Z1ZWHXB3V14A4AJGR
 title: MVP client pipeline (fill stubs)
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: urgent
 due_on: null
@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T20:21:17Z
+updated_at: 2026-09-22T22:06:21Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: human:sothr
-  name: Drew Short
+  id: agent:cursor/d73b
+  name: Cursor cloud agent
 extensions: {}
 ---
 
