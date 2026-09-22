@@ -130,6 +130,20 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 	return false, nil
 }
 
+// Read returns the stored bytes for digest.
+func (s *Store) Read(digest string) ([]byte, error) {
+	f, err := s.OpenBlob(digest)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("cas: %w", err)
+	}
+	return b, nil
+}
+
 // OpenBlob opens a stored object for reading.
 func (s *Store) OpenBlob(digest string) (*os.File, error) {
 	p, err := s.Path(digest)

@@ -167,36 +167,17 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
 		return
 	}
-	if m.CaptureProtocol != protocol.Version {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: fmt.Sprintf("capture_protocol %d is not supported", m.CaptureProtocol)})
+	if err := validateManifest(&m); err != nil {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
 		return
 	}
-	var missing []string
-	for i, a := range m.Artifacts {
-		if len(a.ChunkSHA256s) > 0 {
-			writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "chunked artifacts are not implemented"})
-			return
-		}
-		d := strings.ToLower(a.SHA256)
-		if !protocol.ValidDigest(d) {
-			writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "invalid artifact digest"})
-			return
-		}
-		m.Artifacts[i].SHA256 = d
-		ok, err := s.CAS.Has(d)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
-			return
-		}
-		if !ok {
-			missing = append(missing, d)
-		}
-	}
-	if len(missing) > 0 {
-		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: "missing blobs", Missing: missing})
+	decisions, err := s.resolve(r.Context(), &m)
+	if err != nil {
+		code, body := manifestStatus(err)
+		writeJSON(w, code, body)
 		return
 	}
-	ack, err := s.Catalog.Ingest(r.Context(), m, s.now())
+	ack, err := s.Catalog.Ingest(r.Context(), m, s.now(), decisions)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
 		return

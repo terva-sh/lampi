@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -28,9 +29,11 @@ redaction.upload_hits is set.
 
 Unchanged files upload no new blobs. The watermark moves only after the
 lake ACKs the manifest. Pending digests sit in the outbox until that ACK.
-A grown file is still uploaded whole. The manifest says so:
-byte_watermark_prev is 0 and tail_sha256 equals the full sha256. The
-lake does not assemble tails yet.
+A grown file uploads only the new tail. byte_watermark_prev is the
+previous length and tail_sha256 is the hash of those bytes. The lake
+assembles the tail onto the stored prefix. A clock that disagrees with
+hello's server_time by more than five minutes is warned about and the
+push still runs.
 
 --server defaults to the URL in config.json, or http://127.0.0.1:8787.
 The token is read from a file, never from an argument.
@@ -84,7 +87,14 @@ func runSync(env Env, args []string) error {
 		Projects:   file.Projects,
 		UploadHits: file.Redaction.UploadHits,
 	})
-	fmt.Fprintf(env.stdout(), "checked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d\n",
-		res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined)
+	printSync(env.stdout(), env.stderr(), "", res)
 	return err
+}
+
+func printSync(stdout, stderr io.Writer, prefix string, res upload.Result) {
+	if res.Warning != "" {
+		fmt.Fprintf(stderr, "terva-lampi: %s\n", res.Warning)
+	}
+	fmt.Fprintf(stdout, "%schecked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d\n",
+		prefix, res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined)
 }

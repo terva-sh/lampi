@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
@@ -77,26 +78,46 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
+	cap.reset()
+	before := blobCount(t, filepath.Join(data, "cas"))
 	third, err := Sync(ctx, opt)
 	if err != nil {
 		t.Fatal(err)
-	}
-	// The lake does not assemble tails, so growth is one new full blob.
-	// The watermark still moved only because the manifest was ACKed.
-	if third.Uploaded != 1 || third.Sessions[0] != first.Sessions[0] {
-		t.Fatalf("third: %+v", third)
 	}
 	grown, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	tail := grown[len(body):]
+	tailSum := sha256.Sum256(tail)
 	grownSum := sha256.Sum256(grown)
+	if third.Uploaded != 1 || third.Sessions[0] != first.Sessions[0] {
+		t.Fatalf("third: %+v", third)
+	}
+	if cap.puts != 1 || len(cap.putBodies) != 1 || !bytes.Equal(cap.putBodies[0], tail) {
+		t.Fatalf("tail put: puts=%d bodies=%d", cap.puts, len(cap.putBodies))
+	}
+	art := cap.manifests[len(cap.manifests)-1].Artifacts[0]
+	if art.ByteWatermarkPrev != int64(len(body)) || art.TailSHA256 != hex.EncodeToString(tailSum[:]) || art.SHA256 != hex.EncodeToString(grownSum[:]) {
+		t.Fatalf("tail wire: %+v", art)
+	}
+	// Previous head, the tail object, and the assembled full file.
+	if blobCount(t, filepath.Join(data, "cas")) != before+2 {
+		t.Fatalf("blobs %d, want %d", blobCount(t, filepath.Join(data, "cas")), before+2)
+	}
 	assertWatermark(t, opt, "sessions/abcd/s.jsonl", int64(len(grown)), hex.EncodeToString(grownSum[:]))
-	// Growth is a local tail, but the PUT is the new full file.
-	// prev stays 0 and tail_sha256 is that full digest, not the suffix.
-	assertFullFileWire(t, cap.manifests)
-	if cap.manifests[len(cap.manifests)-1].Artifacts[0].SHA256 != hex.EncodeToString(grownSum[:]) {
-		t.Fatalf("growth digest: %+v", cap.manifests[len(cap.manifests)-1].Artifacts[0])
+
+	cap.reset()
+	after := blobCount(t, filepath.Join(data, "cas"))
+	fourth, err := Sync(ctx, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fourth.Uploaded != 0 || fourth.Missing != 0 || cap.puts != 0 || fourth.Sessions[0] != first.Sessions[0] {
+		t.Fatalf("re-sync after tail: %+v puts=%d", fourth, cap.puts)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != after {
+		t.Fatal("unchanged re-sync stored a blob")
 	}
 }
 
@@ -343,6 +364,232 @@ func TestSyncDoesNotCommitWithoutAck(t *testing.T) {
 	}
 }
 
+func TestClockSkewWarns(t *testing.T) {
+	lake, _ := openLake(t)
+	serverNow := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	lake.Now = func() time.Time { return serverNow }
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	writeSession(t, home, "abcd", "s.jsonl", []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n"))
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	opt.Now = func() time.Time { return serverNow.Add(10 * time.Minute) }
+	res, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Warning, "clock skew") || !strings.Contains(res.Warning, "server_time") {
+		t.Fatalf("warning %q", res.Warning)
+	}
+	if res.Uploaded != 1 {
+		t.Fatalf("skew still uploads: %+v", res)
+	}
+
+	opt.Now = func() time.Time { return serverNow.Add(time.Minute) }
+	res, err = Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Warning != "" {
+		t.Fatalf("within five minutes: %q", res.Warning)
+	}
+
+	opt.Now = func() time.Time { return serverNow.Add(-10 * time.Minute) }
+	res, err = Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Warning, "clock skew") {
+		t.Fatalf("client behind: %q", res.Warning)
+	}
+}
+
+func TestSyncDivergentCopy(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	home := t.TempDir()
+	path := writeSession(t, home, "abcd", "s.jsonl", []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n"))
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	first, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same native id and cwd, but not a prefix of the stored head.
+	if err := os.WriteFile(path, []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\",\"x\":1}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Uploaded != 1 || second.Sessions[0] != first.Sessions[0] {
+		t.Fatalf("second: %+v", second)
+	}
+	arts, err := lake.Catalog.Artifacts(context.Background(), first.Sessions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 2 || arts[1].Relation != protocol.RelationDivergentCopy || arts[1].Current || !arts[0].Current {
+		t.Fatalf("artifacts: %+v", arts)
+	}
+	uid, current, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessTerva, "s")
+	if err != nil || !ok || uid != first.Sessions[0] || len(current) != 1 || current[0].SHA256 != arts[0].SHA256 {
+		t.Fatalf("head moved: uid=%s ok=%v err=%v current=%+v", uid, ok, err, current)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 2 {
+		t.Fatal("divergent copies were merged into one blob")
+	}
+}
+
+func TestSecondMachineSameBytes(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	home := t.TempDir()
+	writeSession(t, home, "abcd", "s.jsonl", []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n"))
+	optA := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	first, err := Sync(context.Background(), optA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optB := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	optB.MachineID = "machine-2"
+	second, err := Sync(context.Background(), optB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Uploaded != 0 || second.Missing != 0 || second.Sessions[0] != first.Sessions[0] {
+		t.Fatalf("second machine: %+v", second)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 1 {
+		t.Fatal("same bytes stored a second blob")
+	}
+	ctx := context.Background()
+	for _, id := range []string{optA.MachineID, optB.MachineID} {
+		uid, ok, err := lake.Catalog.Alias(ctx, protocol.HarnessTerva, "s", id)
+		if err != nil || !ok || uid != first.Sessions[0] {
+			t.Fatalf("alias %s: %q ok=%v err=%v", id, uid, ok, err)
+		}
+	}
+	prov, err := lake.Catalog.Provenance(ctx, first.Sessions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prov) != 2 {
+		t.Fatalf("provenance: %+v", prov)
+	}
+}
+
+func TestStaleClientAdvancesWatermark(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	full := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n{\"type\":\"message\"}\n")
+	prefix := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n")
+	homeA := t.TempDir()
+	homeB := t.TempDir()
+	writeSession(t, homeA, "abcd", "s.jsonl", full)
+	writeSession(t, homeB, "abcd", "s.jsonl", prefix)
+	optA := allowAll(srv, homeA, t.TempDir(), "/tmp/p")
+	first, err := Sync(context.Background(), optA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optB := allowAll(srv, homeB, t.TempDir(), "/tmp/p")
+	optB.MachineID = "machine-2"
+	second, err := Sync(context.Background(), optB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Sessions[0] != first.Sessions[0] {
+		t.Fatalf("stale session: %+v", second)
+	}
+	sum := sha256.Sum256(full)
+	assertWatermark(t, optB, "sessions/abcd/s.jsonl", int64(len(full)), hex.EncodeToString(sum[:]))
+	arts, err := lake.Catalog.Artifacts(context.Background(), first.Sessions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 || arts[0].SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("stale stored a second head: %+v", arts)
+	}
+}
+
+func TestTailMismatchFallsBackToFullFile(t *testing.T) {
+	lake, _ := openLake(t)
+	var rejected int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/manifests" && r.Body != nil {
+			b, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			var m protocol.Manifest
+			if json.Unmarshal(b, &m) == nil && len(m.Artifacts) > 0 && m.Artifacts[0].ByteWatermarkPrev > 0 {
+				rejected++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"error":"prefix mismatch"}`))
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(b))
+			r.ContentLength = int64(len(b))
+		}
+		lake.Handler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+	home := t.TempDir()
+	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/tmp/p\"}}\n")
+	path := writeSession(t, home, "abcd", "s.jsonl", body)
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	opt.Client = cap.client
+	if _, err := Sync(context.Background(), opt); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("{\"type\":\"message\"}\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	cap.reset()
+	res, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected != 1 || res.Uploaded != 2 {
+		t.Fatalf("fallback uploaded=%d rejected=%d res=%+v", res.Uploaded, rejected, res)
+	}
+	grown, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawTail := false
+	sawFull := false
+	for _, b := range cap.putBodies {
+		if bytes.Equal(b, grown[len(body):]) {
+			sawTail = true
+		}
+		if bytes.Equal(b, grown) {
+			sawFull = true
+		}
+	}
+	if !sawTail || !sawFull {
+		t.Fatalf("puts tail=%v full=%v lens=%d", sawTail, sawFull, len(cap.putBodies))
+	}
+	sum := sha256.Sum256(grown)
+	uid, current, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessTerva, "s")
+	if err != nil || !ok || uid != res.Sessions[0] || len(current) != 1 || current[0].SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("head: uid=%s ok=%v err=%v current=%+v", uid, ok, err, current)
+	}
+}
+
 func openLake(t *testing.T) (*api.Server, string) {
 	t.Helper()
 	data := t.TempDir()
@@ -469,6 +716,7 @@ type capture struct {
 	base      http.RoundTripper
 	mu        sync.Mutex
 	puts      int
+	putBodies [][]byte
 	manifests []protocol.Manifest
 }
 
@@ -481,6 +729,7 @@ func wrapClient(c *http.Client) *capture {
 func (c *capture) reset() {
 	c.mu.Lock()
 	c.puts = 0
+	c.putBodies = nil
 	c.manifests = nil
 	c.mu.Unlock()
 }
@@ -505,6 +754,7 @@ func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 		if req.Method == http.MethodPut {
 			c.mu.Lock()
 			c.puts++
+			c.putBodies = append(c.putBodies, append([]byte(nil), b...))
 			c.mu.Unlock()
 		}
 	}

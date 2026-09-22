@@ -4,10 +4,12 @@
 // The order is fixed. Allowlist, then ruleset v1, then watermark.Plan,
 // then the outbox, then the network. A manifest ACK is what commits the
 // watermark and acks the outbox. A file whose bytes match the stored
-// watermark is checked and not PUT again. A grown file is still one whole
-// blob: the lake does not assemble tails yet. The manifest matches that
-// body, with byte_watermark_prev 0 and tail_sha256 equal to sha256.
-// A distinct tail hash waits until the PUT body is the suffix.
+// watermark is checked and not PUT again. Plan KindTail PUTs only the
+// suffix: byte_watermark_prev is the stored offset, tail_sha256 is the
+// suffix, and sha256 is the full file. The lake assembles that tail onto
+// the stored prefix. A tail the lake rejects is sent again as the whole
+// file. Hello's server_time is compared to the local clock; a skew past
+// protocol.ClockSkewWarn is a warning on Result, and the push still runs.
 //
 // A finished run rewrites last_sync.json in the state directory. That
 // includes a pass that refused or quarantined every session. A lake
@@ -50,6 +52,8 @@ type Options struct {
 	Client     *http.Client
 	Projects   config.Projects
 	UploadHits bool
+	// Now is the client clock for the hello skew check. Nil uses time.Now.
+	Now func() time.Time
 }
 
 // Result counts what this run did. Sessions are the uids the server ACKed,
@@ -63,6 +67,9 @@ type Result struct {
 	Refused     int
 	Quarantined int
 	Sessions    []string
+	// Warning is set when hello's server_time disagrees with the client
+	// clock by more than protocol.ClockSkewWarn. The push still runs.
+	Warning string
 }
 
 // Rejected is one or more sessions that stayed on the machine.
@@ -132,6 +139,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
+	res.Warning = clockWarning(opt.now(), hello.ServerTime)
 	supported := false
 	for _, v := range hello.ProtocolVersions {
 		if v == protocol.Version {
@@ -143,39 +151,28 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	}
 
 	bodies := map[string][]byte{}
-	var digests []string
+	var arts []protocol.Artifact
 	for _, w := range work {
-		for _, a := range w.manifest.Artifacts {
-			if int64(len(w.bodies[a.SHA256])) > hello.MaxBlobBytes {
-				return res, fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", a.RelPath, len(w.bodies[a.SHA256]), hello.MaxBlobBytes)
-			}
-			if _, ok := bodies[a.SHA256]; ok {
-				continue
-			}
-			bodies[a.SHA256] = w.bodies[a.SHA256]
-			digests = append(digests, a.SHA256)
+		for d, b := range w.bodies {
+			bodies[d] = b
 		}
+		arts = append(arts, w.manifest.Artifacts...)
 	}
-	res.Checked = len(digests)
-	missing, err := postCheck(ctx, client, opt, digests)
-	if err != nil {
+	if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, arts, bodies); err != nil {
 		return res, err
 	}
-	res.Missing = len(missing)
-	for _, d := range missing {
-		put, err := putBlob(ctx, client, opt, d, bodies[d])
-		if err != nil {
-			return res, err
-		}
-		if !put.Exists {
-			res.Uploaded++
-		}
-	}
-	for _, w := range work {
+	for i := range work {
+		w := &work[i]
 		if err := requireScanned(w.manifest); err != nil {
 			return res, err
 		}
 		ack, err := postManifest(ctx, client, opt, w.manifest)
+		if prefixMismatch(err) && widenToFullFile(w) {
+			if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, w.manifest.Artifacts, w.bodies); err != nil {
+				return res, err
+			}
+			ack, err = postManifest(ctx, client, opt, w.manifest)
+		}
 		if err != nil {
 			return res, err
 		}
@@ -299,6 +296,80 @@ func saveLastSync(opt Options, res Result) error {
 	return nil
 }
 
+func (opt Options) now() time.Time {
+	if opt.Now != nil {
+		return opt.Now()
+	}
+	return time.Now()
+}
+
+func clockWarning(client, server time.Time) string {
+	if server.IsZero() {
+		return ""
+	}
+	skew := client.Sub(server)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew <= protocol.ClockSkewWarn {
+		return ""
+	}
+	return fmt.Sprintf("upload: clock skew %s from server_time %s", skew.Truncate(time.Second), server.UTC().Format(time.RFC3339))
+}
+
+func prefixMismatch(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "prefix mismatch")
+}
+
+func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte) error {
+	if max <= 0 {
+		max = protocol.MaxBlobBytes
+	}
+	seen := map[string]bool{}
+	var digests []string
+	for _, a := range arts {
+		d := putDigest(a)
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		b, ok := bodies[d]
+		if !ok {
+			return fmt.Errorf("upload: %s: no bytes for %s", a.RelPath, d)
+		}
+		if int64(len(b)) > max {
+			return fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", a.RelPath, len(b), max)
+		}
+		digests = append(digests, d)
+	}
+	if len(digests) == 0 {
+		return nil
+	}
+	res.Checked += len(digests)
+	missing, err := postCheck(ctx, client, opt, digests)
+	if err != nil {
+		return err
+	}
+	res.Missing += len(missing)
+	for _, d := range missing {
+		put, err := putBlob(ctx, client, opt, d, bodies[d])
+		if err != nil {
+			return err
+		}
+		if !put.Exists {
+			res.Uploaded++
+		}
+	}
+	return nil
+}
+
+func putDigest(a protocol.Artifact) string {
+	if a.ByteWatermarkPrev > 0 {
+		return a.TailSHA256
+	}
+	return a.SHA256
+}
+
 func requireScanned(m protocol.Manifest) error {
 	for _, a := range m.Artifacts {
 		if a.Redaction.Ruleset != redact.RulesetV1 {
@@ -322,15 +393,29 @@ func requireScanned(m protocol.Manifest) error {
 
 func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, m protocol.Manifest, ack protocol.ManifestAck) error {
 	for _, a := range m.Artifacts {
+		size := a.Size
+		sum := a.SHA256
+		offset := a.Size
+		// The lake head is a strict extension of this file. The cursor
+		// moves to that head so the shorter prefix is not posted again
+		// as a new head. The bytes past the local file are not pulled.
+		if ack.Relation == protocol.RelationStale &&
+			a.Kind == protocol.KindTranscriptJSONL &&
+			ack.HeadSize > a.Size &&
+			protocol.ValidDigest(ack.HeadSHA256) {
+			size = ack.HeadSize
+			offset = ack.HeadSize
+			sum = ack.HeadSHA256
+		}
 		mark := watermark.Mark{
 			MachineID: opt.MachineID,
 			Harness:   protocol.HarnessTerva,
 			Root:      opt.TervaHome,
 			RelPath:   a.RelPath,
-			Size:      a.Size,
+			Size:      size,
 			ModTime:   a.MTime,
-			SHA256:    a.SHA256,
-			Offset:    a.Size,
+			SHA256:    sum,
+			Offset:    offset,
 		}
 		if err := wm.Commit(ctx, mark, ack); err != nil {
 			return err

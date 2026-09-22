@@ -29,10 +29,12 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
-`upload.Sync`. `terva-lampi sync` is the same function, once. A grown
-file is still one whole blob; the lake does not assemble a tail yet.
-The manifest agrees: `byte_watermark_prev` is 0 and `tail_sha256` is the
-full digest. An unchanged file uploads nothing. A failed push is tried
+`upload.Sync`. `terva-lampi sync` is the same function, once. An unchanged
+file uploads nothing. A strict append uploads only the new tail;
+`byte_watermark_prev` is the previous length and `tail_sha256` is the
+hash of those bytes. The lake assembles the tail onto the stored prefix
+and moves the head. Bytes that are not a prefix either way are stored
+as `divergent_copy` and the previous head stays. A failed push is tried
 again after a short wait. SIGTERM stops the watch and drains the outbox
 best-effort. The server URL, token, and allowlist are read at start.
 
@@ -56,13 +58,17 @@ is not in this tree. Restart the agent to reload config.
 `hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
 source of truth. The directory walk is.
 
-Dedup that **is** implemented is layer A: `sha256` of the bytes. A second
-put of the same digest stores nothing. The same native session id keeps
-one `session_uid` and records each machine in provenance.
+Dedup that **is** implemented is layer A and layer B. Layer A is
+`sha256` of the bytes: a second put of the same digest stores nothing.
+Layer B is the logical session. `session_uid` is assigned once per
+`(harness, native_session_id)`. An alias maps
+`(harness, native_id, machine_id)` to that uid. The same digest from a
+second machine adds a provenance row and no blob. A strict prefix
+extension moves the head (`grown_from`). Anything else is
+`divergent_copy` and is not merged.
 
-Dedup that is **not** implemented is the append-only prefix merge and
-`divergent_copy`. A grown JSONL is uploaded whole under a new digest.
-Near-duplicate detection is out of scope.
+Near-duplicate detection is out of scope. Chunked upload is not
+implemented.
 
 ## Flow
 

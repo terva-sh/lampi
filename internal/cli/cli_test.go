@@ -12,6 +12,7 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/outbox"
+	"terva.sh/lampi/internal/upload"
 )
 
 func TestRootHelpListsCommands(t *testing.T) {
@@ -440,6 +441,20 @@ func statusEnv(cfg, home, state string) func(string) string {
 		default:
 			return ""
 		}
+	}
+}
+
+func TestPrintSyncWarnsOnClockSkew(t *testing.T) {
+	var out, errb bytes.Buffer
+	printSync(&out, &errb, "", upload.Result{
+		Warning: "upload: clock skew 10m0s from server_time 2026-09-22T16:00:00Z",
+		Checked: 1,
+	})
+	if !strings.Contains(errb.String(), "clock skew") || !strings.Contains(errb.String(), "server_time") {
+		t.Fatalf("stderr: %s", errb.String())
+	}
+	if !strings.Contains(out.String(), "checked 1") {
+		t.Fatalf("stdout: %s", out.String())
 	}
 }
 

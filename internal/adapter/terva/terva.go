@@ -1,9 +1,10 @@
 // Package terva is the reference harness adapter.
 //
 // It walks $TERVA_HOME/sessions, reads the first JSONL line when it is a
-// meta record, and builds capture-protocol manifests. It does not follow
-// tail growth: every changed digest is a whole-file blob. When the session
-// cwd still has a .git, the manifest records origin's URL and HEAD.
+// meta record, and builds capture-protocol manifests. Digests here are of
+// the whole file. internal/upload turns a strict append into a tail put.
+// When the session cwd still has a .git, the manifest records origin's
+// URL and HEAD.
 // Cross-machine project identity is a later step. Redaction is not stamped
 // here; upload scans the bytes before they leave the machine.
 package terva

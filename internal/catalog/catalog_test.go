@@ -10,7 +10,7 @@ import (
 	"terva.sh/lampi/internal/protocol"
 )
 
-func TestIngestStableIDs(t *testing.T) {
+func TestSessionUIDAliasAndProvenance(t *testing.T) {
 	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -20,25 +20,100 @@ func TestIngestStableIDs(t *testing.T) {
 	m := sampleManifest()
 	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
 	ctx := context.Background()
-	first, err := c.Ingest(ctx, m, now)
+	first, err := c.Ingest(ctx, m, now, []Decision{{
+		Relation: protocol.RelationHead,
+		Record:   true,
+		Head:     true,
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.SessionUID == "" || len(first.ArtifactIDs) != 1 || first.HeadSHA256 != m.Artifacts[0].SHA256 {
 		t.Fatalf("ack: %+v", first)
 	}
-	second, err := c.Ingest(ctx, m, now.Add(time.Minute))
+	if first.Relation != protocol.RelationHead || first.HeadSize != m.Artifacts[0].Size {
+		t.Fatalf("ack head: %+v", first)
+	}
+	alias, ok, err := c.Alias(ctx, m.Harness, m.NativeSessionID, m.MachineID)
+	if err != nil || !ok || alias != first.SessionUID {
+		t.Fatalf("alias %q ok=%v err=%v", alias, ok, err)
+	}
+
+	second, err := c.Ingest(ctx, m, now.Add(time.Minute), []Decision{{
+		Relation: protocol.RelationUnchanged,
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if second.SessionUID != first.SessionUID || second.ArtifactIDs[0] != first.ArtifactIDs[0] {
 		t.Fatalf("repeat changed ids: %+v then %+v", first, second)
 	}
+	if second.HeadSHA256 != first.HeadSHA256 || second.Relation != protocol.RelationUnchanged {
+		t.Fatalf("repeat ack: %+v", second)
+	}
+
+	other := sampleManifest()
+	other.MachineID = "machine-b"
+	fourth, err := c.Ingest(ctx, other, now.Add(2*time.Minute), []Decision{{
+		Relation: protocol.RelationUnchanged,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fourth.SessionUID != first.SessionUID {
+		t.Fatal("second machine did not join the logical session")
+	}
+	if fourth.ArtifactIDs[0] != first.ArtifactIDs[0] || fourth.HeadSHA256 != first.HeadSHA256 {
+		t.Fatalf("same bytes minted a blob row: %+v", fourth)
+	}
+	bAlias, ok, err := c.Alias(ctx, other.Harness, other.NativeSessionID, other.MachineID)
+	if err != nil || !ok || bAlias != first.SessionUID {
+		t.Fatalf("machine-b alias %q ok=%v err=%v", bAlias, ok, err)
+	}
+	prov, err := c.Provenance(ctx, first.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prov) != 2 || prov[0].MachineID != "machine-a" || prov[1].MachineID != "machine-b" {
+		t.Fatalf("provenance: %+v", prov)
+	}
+	if prov[0].SHA256 != m.Artifacts[0].SHA256 || prov[1].SHA256 != m.Artifacts[0].SHA256 {
+		t.Fatalf("provenance digests: %+v", prov)
+	}
+	arts, err := c.Artifacts(ctx, first.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 {
+		t.Fatalf("artifacts: %+v", arts)
+	}
+}
+
+func TestGrownFromMovesHeadDivergentDoesNot(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	m := sampleManifest()
+	first, err := c.Ingest(ctx, m, now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	grown := sampleManifest()
 	grown.Artifacts[0].SHA256 = strings.Repeat("ab", 32)
 	grown.Artifacts[0].Size = 4
-	third, err := c.Ingest(ctx, grown, now.Add(2*time.Minute))
+	third, err := c.Ingest(ctx, grown, now.Add(time.Minute), []Decision{{
+		Relation:  protocol.RelationGrownFrom,
+		GrownFrom: m.Artifacts[0].SHA256,
+		Record:    true,
+		Head:      true,
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,18 +123,39 @@ func TestIngestStableIDs(t *testing.T) {
 	if third.ArtifactIDs[0] == first.ArtifactIDs[0] {
 		t.Fatal("new digest reused the old artifact id")
 	}
-	if third.HeadSHA256 != grown.Artifacts[0].SHA256 {
-		t.Fatalf("head: %s", third.HeadSHA256)
+	if third.HeadSHA256 != grown.Artifacts[0].SHA256 || third.Relation != protocol.RelationGrownFrom {
+		t.Fatalf("head: %+v", third)
 	}
-
-	other := sampleManifest()
-	other.MachineID = "machine-b"
-	fourth, err := c.Ingest(ctx, other, now)
+	arts, err := c.Artifacts(ctx, first.SessionUID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fourth.SessionUID != first.SessionUID {
-		t.Fatal("second machine did not join the logical session")
+	if len(arts) != 2 || arts[1].Relation != protocol.RelationGrownFrom || arts[1].GrownFrom != m.Artifacts[0].SHA256 || !arts[1].Current || arts[0].Current {
+		t.Fatalf("grown artifacts: %+v", arts)
+	}
+
+	fork := sampleManifest()
+	fork.Artifacts[0].SHA256 = strings.Repeat("cd", 32)
+	fork.Artifacts[0].Size = 9
+	div, err := c.Ingest(ctx, fork, now.Add(2*time.Minute), []Decision{{
+		Relation: protocol.RelationDivergentCopy,
+		Record:   true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if div.SessionUID != first.SessionUID || div.HeadSHA256 != grown.Artifacts[0].SHA256 {
+		t.Fatalf("divergent moved the head: %+v", div)
+	}
+	if div.Relation != protocol.RelationDivergentCopy || div.ArtifactIDs[0] == third.ArtifactIDs[0] {
+		t.Fatalf("divergent ack: %+v", div)
+	}
+	arts, err = c.Artifacts(ctx, first.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 3 || arts[2].Relation != protocol.RelationDivergentCopy || arts[2].Current || !arts[1].Current {
+		t.Fatalf("divergent artifacts: %+v", arts)
 	}
 }
 
@@ -78,7 +174,9 @@ func TestCounts(t *testing.T) {
 		t.Fatalf("empty %+v", n)
 	}
 	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
-	if _, err := c.Ingest(ctx, sampleManifest(), now); err != nil {
+	if _, err := c.Ingest(ctx, sampleManifest(), now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	n, err = c.Counts(ctx)
@@ -90,12 +188,19 @@ func TestCounts(t *testing.T) {
 	}
 	other := sampleManifest()
 	other.MachineID = "machine-b"
-	if _, err := c.Ingest(ctx, other, now); err != nil {
+	if _, err := c.Ingest(ctx, other, now, []Decision{{
+		Relation: protocol.RelationUnchanged,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	grown := sampleManifest()
 	grown.Artifacts[0].SHA256 = strings.Repeat("ab", 32)
-	if _, err := c.Ingest(ctx, grown, now); err != nil {
+	if _, err := c.Ingest(ctx, grown, now, []Decision{{
+		Relation:  protocol.RelationGrownFrom,
+		GrownFrom: sampleManifest().Artifacts[0].SHA256,
+		Record:    true,
+		Head:      true,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	n, err = c.Counts(ctx)
