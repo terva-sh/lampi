@@ -162,6 +162,67 @@ func TestAgentRetriesFailedSyncWithoutGrowth(t *testing.T) {
 	}
 }
 
+func TestAgentCancelSkipsFailedSyncRetry(t *testing.T) {
+	lake, err := api.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	var mu sync.Mutex
+	var hellos int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/hello" {
+			mu.Lock()
+			hellos++
+			mu.Unlock()
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+		lake.Handler().ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	home, cfg, state, _ := agentFixture(t, srv.URL)
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{
+			Stdout: &buf,
+			Stderr: &buf,
+			Getenv: agentGetenv(home, cfg, state),
+		})
+	}()
+
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "503")
+	})
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(syncRetryAfter / 2):
+		t.Fatalf("cancel waited on the retry timer\n%s", buf.String())
+	}
+	text := buf.String()
+	if strings.Count(text, "\nchecked ") != 1 {
+		t.Fatalf("syncs before drain:\n%s", text)
+	}
+	if !strings.Contains(text, "drain: ") {
+		t.Fatalf("no drain:\n%s", text)
+	}
+	mu.Lock()
+	n := hellos
+	mu.Unlock()
+	// The failed push, then the shutdown drain. Not a third hello from the timer.
+	if n != 2 {
+		t.Fatalf("hellos %d\n%s", n, text)
+	}
+}
+
 func TestAgentUploadsGrowthAndUsesMachineID(t *testing.T) {
 	lake, err := api.Open(t.TempDir())
 	if err != nil {
