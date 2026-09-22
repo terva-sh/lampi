@@ -1,0 +1,49 @@
+schema: 3
+actors:
+  - id: human:sothr
+    name: Drew Short
+labels:
+  - area/agent
+  - area/server
+  - area/protocol
+  - area/cas
+  - area/catalog
+  - area/auth
+  - area/adapter
+  - area/redact
+  - area/normalize
+  - area/search
+  - area/ops
+  - area/docs
+  - area/ci
+  - phase/0-policy
+  - phase/1-mvp
+  - phase/2-harness
+  - phase/3-export
+  - phase/4-cursor
+  - phase/5-train
+  - policy
+  - question
+  - scaffold-done
+milestones:
+  - mvp
+  - phase-2
+  - phase-3
+  - phase-4
+  - phase-5
+series: []
+defaults:
+  type: task
+  priority: normal
+  actor: human:sothr
+  claim_expiry: null
+lock:
+  timeout: 10s
+doctor:
+  rules:
+    label_order:
+      params:
+        confidence: 0.9
+        sample: 10
+        min: 3
+        visible: 3
