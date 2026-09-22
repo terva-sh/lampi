@@ -113,18 +113,18 @@ func runAgentLoop(ctx context.Context, env Env) error {
 	defer watchCancel()
 	watchErr := make(chan error, 1)
 	go func() { watchErr <- w.Run(watchCtx) }()
-
-	if err := waitWatch(watchCtx, w, watchErr); err != nil {
-		if ctx.Err() != nil {
-			return drainAgent(env, opt)
+	// watchErr is read in exactly one place per shutdown. WaitReady
+	// does not read it: a failed Run never closes the ready channel,
+	// and a nil return from Run is a clean stop, not a second result.
+	go func() {
+		if err := w.WaitReady(watchCtx); err != nil {
+			return
 		}
-		drainAgent(env, opt)
-		return err
-	}
-	fmt.Fprintln(env.stdout(), "watching")
-	// Files already on disk are not a watch event. One sync at start
-	// is how they reach the lake before the next append.
-	wake()
+		fmt.Fprintln(env.stdout(), "watching")
+		// Files already on disk are not a watch event. One sync at
+		// start is how they reach the lake before the next append.
+		wake()
+	}()
 
 	for {
 		select {
@@ -134,6 +134,9 @@ func runAgentLoop(ctx context.Context, env Env) error {
 			return drainAgent(env, opt)
 		case err := <-watchErr:
 			drainAgent(env, opt)
+			if ctx.Err() != nil {
+				return nil
+			}
 			return err
 		case <-kick:
 			err := runAgentSync(ctx, env, opt, "")
@@ -179,20 +182,6 @@ func loadAgent(env Env) (upload.Options, int, error) {
 		Projects:   file.Projects,
 		UploadHits: file.Redaction.UploadHits,
 	}, len(files), nil
-}
-
-// waitWatch blocks until the first walk has seeded cursors, the watcher
-// has failed, or ctx is done. A failed Run does not close the ready
-// channel, so this selects on both.
-func waitWatch(ctx context.Context, w *watch.Watcher, watchErr <-chan error) error {
-	ready := make(chan error, 1)
-	go func() { ready <- w.WaitReady(ctx) }()
-	select {
-	case err := <-watchErr:
-		return err
-	case err := <-ready:
-		return err
-	}
 }
 
 func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string) error {

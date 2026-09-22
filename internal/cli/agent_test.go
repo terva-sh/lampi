@@ -44,9 +44,16 @@ func TestAgentSIGTERMDrainsOutbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { lake.Close() })
-	held := &holdHello{next: lake.Handler(), held: make(chan struct{})}
+	held := &holdHello{next: lake.Handler(), held: make(chan struct{}), stop: make(chan struct{})}
 	srv := httptest.NewServer(held)
 	t.Cleanup(srv.Close)
+	t.Cleanup(func() {
+		select {
+		case <-held.stop:
+		default:
+			close(held.stop)
+		}
+	})
 
 	home, cfg, state, _ := agentFixture(t, srv.URL)
 	outFile, err := os.CreateTemp(t.TempDir(), "agent-out")
@@ -321,11 +328,14 @@ func (m *memBuf) String() string {
 	return m.b.String()
 }
 
-// holdHello stalls the first hello until the client gives up, which is
-// the in-flight sync SIGTERM cancels. Later hellos reach the lake.
+// holdHello stalls the first hello until the client gives up or the test
+// stops the server. Later hellos reach the lake. stop is closed before
+// the httptest server shuts down: abandoning the request does not cancel
+// the server's request context, so Close would wait on this handler.
 type holdHello struct {
 	next     http.Handler
 	held     chan struct{}
+	stop     chan struct{}
 	once     sync.Once
 	mu       sync.Mutex
 	hellos   int
@@ -340,7 +350,10 @@ func (h *holdHello) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 		if n == 1 {
 			h.once.Do(func() { close(h.held) })
-			<-r.Context().Done()
+			select {
+			case <-r.Context().Done():
+			case <-h.stop:
+			}
 			http.Error(w, "cancelled", http.StatusServiceUnavailable)
 			return
 		}
