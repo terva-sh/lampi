@@ -506,14 +506,41 @@ func TestStaleClientAdvancesWatermark(t *testing.T) {
 	if second.Sessions[0] != first.Sessions[0] {
 		t.Fatalf("stale session: %+v", second)
 	}
-	sum := sha256.Sum256(full)
-	assertWatermark(t, optB, "sessions/abcd/s.jsonl", int64(len(full)), hex.EncodeToString(sum[:]))
+	fullSum := sha256.Sum256(full)
+	prefixSum := sha256.Sum256(prefix)
+	wm, err := watermark.Open(watermark.File(optB.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mark, ok, err := wm.Get(context.Background(), watermark.Mark{
+		MachineID: optB.MachineID,
+		Harness:   protocol.HarnessTerva,
+		Root:      optB.TervaHome,
+		RelPath:   "sessions/abcd/s.jsonl",
+	})
+	wm.Close()
+	if err != nil || !ok {
+		t.Fatalf("watermark: ok=%v err=%v", ok, err)
+	}
+	if mark.Size != int64(len(prefix)) || mark.SHA256 != hex.EncodeToString(prefixSum[:]) || mark.Offset != int64(len(full)) {
+		t.Fatalf("stale mark %+v", mark)
+	}
 	arts, err := lake.Catalog.Artifacts(context.Background(), first.Sessions[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(arts) != 1 || arts[0].SHA256 != hex.EncodeToString(sum[:]) {
+	if len(arts) != 1 || arts[0].SHA256 != hex.EncodeToString(fullSum[:]) {
 		t.Fatalf("stale stored a second head: %+v", arts)
+	}
+
+	cap := wrapClient(srv.Client())
+	optB.Client = cap.client
+	third, err := Sync(context.Background(), optB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Manifests != 0 || len(third.Sessions) != 0 || len(cap.manifests) != 0 || cap.puts != 0 {
+		t.Fatalf("stale re-sync posted again: %+v manifests=%d puts=%d", third, len(cap.manifests), cap.puts)
 	}
 }
 

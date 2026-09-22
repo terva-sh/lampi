@@ -56,6 +56,9 @@ func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, b
 		if err != nil {
 			return nil, res, err
 		}
+		if len(next.Artifacts) == 0 && hit == nil {
+			continue
+		}
 		if hit != nil {
 			res.Quarantined++
 			reasons = append(reasons, hit.Error())
@@ -146,9 +149,12 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terv
 			}
 			continue
 		}
-		art, blob, err := stamp(ctx, opt, wm, a, body, scan)
+		art, blob, hold, err := stamp(ctx, opt, wm, a, body, scan)
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
+		}
+		if hold {
+			continue
 		}
 		bodies[putDigest(art)] = blob
 		full[art.RelPath] = body
@@ -160,7 +166,7 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terv
 	return next, bodies, full, nil, nil
 }
 
-func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, error) {
+func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, bool, error) {
 	sum := sha256.Sum256(body)
 	digest := hex.EncodeToString(sum[:])
 	key := watermark.Mark{
@@ -171,7 +177,7 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifa
 	}
 	mark, ok, err := wm.Get(ctx, key)
 	if err != nil {
-		return protocol.Artifact{}, nil, err
+		return protocol.Artifact{}, nil, false, err
 	}
 	if !ok {
 		mark = key
@@ -184,11 +190,17 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifa
 	if ok && int64(len(body)) > mark.Offset {
 		pfx, err := watermark.HashPrefix(bytes.NewReader(body), mark.Offset)
 		if err != nil {
-			return protocol.Artifact{}, nil, err
+			return protocol.Artifact{}, nil, false, err
 		}
 		st.PrefixSHA = pfx
 	}
 	dec := watermark.Plan(mark, st)
+	// The lake head is ahead of this file and the local bytes still
+	// match the snapshot already reported. Another manifest would only
+	// repeat that prefix.
+	if mark.Offset > mark.Size && dec.Kind == watermark.KindUnchanged && int64(len(body)) <= mark.Size {
+		return protocol.Artifact{}, nil, true, nil
+	}
 	status := protocol.RedactionScanned
 	if scan.Hits > 0 {
 		status = protocol.RedactionOverride
@@ -208,11 +220,11 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifa
 		sum := sha256.Sum256(tail)
 		a.ByteWatermarkPrev = dec.Offset
 		a.TailSHA256 = hex.EncodeToString(sum[:])
-		return a, tail, nil
+		return a, tail, false, nil
 	}
 	a.ByteWatermarkPrev = 0
 	a.TailSHA256 = digest
-	return a, body, nil
+	return a, body, false, nil
 }
 
 // widenToFullFile rewrites a tail manifest into a whole-file manifest.

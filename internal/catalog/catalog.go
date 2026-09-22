@@ -7,13 +7,17 @@
 // the uid. A second machine posting the same digest adds a provenance
 // row and does not store another blob; the blob store is what refuses
 // the second copy. Bytes that are not a prefix of the head are a
-// divergent_copy artifact. Ingest does not compare bytes. The API
-// resolve step decides the relation and passes it in.
+// divergent_copy artifact. When Ingest is given a BlobReader, it
+// recomputes the relation inside the write transaction from the current
+// head and the client blob. A GrownFrom decision is not applied once
+// that head is no longer a prefix of the client bytes.
 package catalog
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,12 +36,17 @@ type Catalog struct {
 	db *sql.DB
 }
 
-// Decision is the merge result for one manifest artifact. Ingest stores
-// it; it does not re-check the bytes.
+// Decision is the merge result for one manifest artifact.
 //
 // Record is false for unchanged and stale: the artifact row already
 // exists and the head is not replaced. Head is set only when this
 // artifact's digest becomes the session head.
+//
+// A nil BlobReader stores the decision as given. A non-nil reader
+// replaces it, under the same transaction as the head move, with the
+// relation of the current head bytes and the client blob. The HTTP
+// handler always passes the CAS. A GrownFrom that does not extend the
+// head read in that transaction is stored as a divergent copy.
 type Decision struct {
 	Relation  string
 	GrownFrom string
@@ -261,11 +270,22 @@ func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
 	return n, nil
 }
 
+// BlobReader reads one immutable object. CAS objects are content
+// addressed, so a read during the ingest transaction is stable.
+type BlobReader interface {
+	Read(digest string) ([]byte, error)
+}
+
 // Ingest records m under the relations in decisions and returns the
 // stable session uid. decisions[i] is the decision for m.Artifacts[i].
 // Repeating an unchanged digest returns the same ids. A grown_from
 // digest moves head_sha256. A divergent_copy does not.
-func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision) (protocol.ManifestAck, error) {
+//
+// blobs, when set, is read inside the write transaction. The catalog
+// uses one SQLite connection, so a second ingest cannot read the head
+// until this transaction commits. The relation applied is the one for
+// that head, not a decision computed against an earlier one.
+func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (protocol.ManifestAck, error) {
 	if m.CaptureProtocol != protocol.Version {
 		return protocol.ManifestAck{}, fmt.Errorf("catalog: capture_protocol %d", m.CaptureProtocol)
 	}
@@ -309,6 +329,13 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 			return protocol.ManifestAck{}, err
 		}
 		head = ""
+	}
+	if blobs != nil {
+		revised, err := reviseDecisions(ctx, tx, blobs, uid, m)
+		if err != nil {
+			return protocol.ManifestAck{}, err
+		}
+		decisions = revised
 	}
 	newHead := head
 	for i, d := range decisions {
@@ -372,6 +399,79 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 		return protocol.ManifestAck{}, err
 	}
 	return ack, nil
+}
+
+func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid string, m protocol.Manifest) ([]Decision, error) {
+	out := make([]Decision, len(m.Artifacts))
+	head := transcriptIndex(m.Artifacts)
+	for i, a := range m.Artifacts {
+		cur, ok, err := currentDigest(ctx, tx, uid, a.RelPath)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			out[i] = Decision{Relation: protocol.RelationHead, Record: true, Head: i == head}
+			continue
+		}
+		if cur == a.SHA256 {
+			out[i] = Decision{Relation: protocol.RelationUnchanged}
+			continue
+		}
+		stored, err := blobs.Read(cur)
+		if err != nil {
+			return nil, fmt.Errorf("catalog: head %s: %w", cur, err)
+		}
+		client, err := blobs.Read(a.SHA256)
+		if err != nil {
+			return nil, fmt.Errorf("catalog: blob %s: %w", a.SHA256, err)
+		}
+		sum := sha256.Sum256(client)
+		if hex.EncodeToString(sum[:]) != a.SHA256 {
+			return nil, fmt.Errorf("catalog: artifact %q sha256 does not match the blob", a.RelPath)
+		}
+		switch protocol.RelationOf(stored, client) {
+		case protocol.RelationUnchanged:
+			out[i] = Decision{Relation: protocol.RelationUnchanged}
+		case protocol.RelationGrownFrom:
+			out[i] = Decision{
+				Relation:  protocol.RelationGrownFrom,
+				GrownFrom: cur,
+				Record:    true,
+				Head:      i == head,
+			}
+		case protocol.RelationStale:
+			out[i] = Decision{Relation: protocol.RelationStale}
+		default:
+			out[i] = Decision{Relation: protocol.RelationDivergentCopy, Record: true}
+		}
+	}
+	return out, nil
+}
+
+func currentDigest(ctx context.Context, tx *sql.Tx, uid, rel string) (string, bool, error) {
+	var sha string
+	err := tx.QueryRowContext(ctx, `
+		SELECT sha256 FROM artifacts
+		WHERE session_uid = ? AND relpath = ? AND current = 1`, uid, rel).Scan(&sha)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("catalog: artifact: %w", err)
+	}
+	return sha, true, nil
+}
+
+func transcriptIndex(arts []protocol.Artifact) int {
+	for i, a := range arts {
+		if a.Kind == protocol.KindTranscriptJSONL {
+			return i
+		}
+	}
+	if len(arts) == 0 {
+		return 0
+	}
+	return len(arts) - 1
 }
 
 func lookupSession(ctx context.Context, tx *sql.Tx, harness, native string) (uid, head string, ok bool, err error) {

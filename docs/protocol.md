@@ -147,9 +147,10 @@ PUTs the whole file and posts the manifest again with prev 0.
 A 200 body is the ACK. The client may advance a watermark only after it
 sees this. `internal/watermark` enforces that. `terva-lampi sync` commits
 the cursor from this ACK and leaves it unchanged when the POST fails.
-On `stale`, the transcript cursor advances to `head_size` and
-`head_sha256` so the shorter file is not treated as a new head. The
-lake does not send the missing suffix back.
+On `stale`, the transcript cursor's offset advances to `head_size`.
+Size and sha256 stay the local file, which is still a prefix of that
+head. The next sync does not post the prefix again. The lake does not
+send the missing suffix back.
 
 ```json
 {

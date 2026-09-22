@@ -223,7 +223,7 @@ func TestStats(t *testing.T) {
 		}},
 	}, time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC), []catalog.Decision{{
 		Relation: protocol.RelationHead, Record: true, Head: true,
-	}}); err != nil {
+	}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rr = httptest.NewRecorder()

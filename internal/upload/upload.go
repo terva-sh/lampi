@@ -396,16 +396,16 @@ func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB,
 		size := a.Size
 		sum := a.SHA256
 		offset := a.Size
-		// The lake head is a strict extension of this file. The cursor
-		// moves to that head so the shorter prefix is not posted again
-		// as a new head. The bytes past the local file are not pulled.
+		// The lake head is a strict extension of this file. Keep the
+		// local size and hash, and put the cursor at the longer head.
+		// Plan then matches this file and does not choose a replace.
+		// Copying the head hash onto the shorter file would: the next
+		// plan sees a truncate and posts the prefix forever.
 		if ack.Relation == protocol.RelationStale &&
 			a.Kind == protocol.KindTranscriptJSONL &&
 			ack.HeadSize > a.Size &&
 			protocol.ValidDigest(ack.HeadSHA256) {
-			size = ack.HeadSize
 			offset = ack.HeadSize
-			sum = ack.HeadSHA256
 		}
 		mark := watermark.Mark{
 			MachineID: opt.MachineID,

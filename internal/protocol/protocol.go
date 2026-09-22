@@ -10,6 +10,7 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 )
@@ -37,9 +38,27 @@ const (
 	// RelationUnchanged means the full digest already is the head.
 	RelationUnchanged = "unchanged"
 	// RelationStale means the stored head starts with the client bytes.
-	// The head stays. The client watermark advances to the head.
+	// The head stays. The client keeps the local snapshot and records
+	// the longer head as a cursor past that file, so the prefix is not
+	// posted again.
 	RelationStale = "stale"
 )
+
+// RelationOf classifies client against the stored head. Equal bytes are
+// unchanged. A strict extension is grown_from. A stored file that starts
+// with the client bytes is stale. Anything else is a divergent copy.
+func RelationOf(prev, client []byte) string {
+	if bytes.Equal(prev, client) {
+		return RelationUnchanged
+	}
+	if len(client) > len(prev) && bytes.HasPrefix(client, prev) {
+		return RelationGrownFrom
+	}
+	if len(prev) > len(client) && bytes.HasPrefix(prev, client) {
+		return RelationStale
+	}
+	return RelationDivergentCopy
+}
 
 const (
 	// KindTranscriptJSONL is an append-only harness transcript.

@@ -177,7 +177,7 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, body)
 		return
 	}
-	ack, err := s.Catalog.Ingest(r.Context(), m, s.now(), decisions)
+	ack, err := s.Catalog.Ingest(r.Context(), m, s.now(), decisions, s.CAS)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
 		return

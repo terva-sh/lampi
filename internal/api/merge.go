@@ -116,7 +116,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 			}
 			continue
 		}
-		switch relationOf(prevBytes[a.RelPath], client) {
+		switch protocol.RelationOf(prevBytes[a.RelPath], client) {
 		case protocol.RelationUnchanged:
 			decisions[i] = catalog.Decision{Relation: protocol.RelationUnchanged}
 		case protocol.RelationGrownFrom:
@@ -176,19 +176,6 @@ func (s *Server) readStored(digest string) ([]byte, error) {
 		return nil, fmt.Errorf("blob %s is not in the store", digest)
 	}
 	return s.CAS.Read(digest)
-}
-
-func relationOf(prev, client []byte) string {
-	if bytes.Equal(prev, client) {
-		return protocol.RelationUnchanged
-	}
-	if len(client) > len(prev) && bytes.HasPrefix(client, prev) {
-		return protocol.RelationGrownFrom
-	}
-	if len(prev) > len(client) && bytes.HasPrefix(prev, client) {
-		return protocol.RelationStale
-	}
-	return protocol.RelationDivergentCopy
 }
 
 func headIndex(arts []protocol.Artifact) int {

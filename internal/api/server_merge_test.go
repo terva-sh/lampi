@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -204,6 +205,92 @@ func TestSecondMachineProvenance(t *testing.T) {
 	}
 	if len(prov) != 2 || prov[0].MachineID != "machine-a" || prov[1].MachineID != "machine-b" || prov[0].SHA256 != sum || prov[1].SHA256 != sum {
 		t.Fatalf("provenance: %+v", prov)
+	}
+}
+
+func TestConcurrentGrownFromKeepsOneExtension(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	base := []byte("base\n")
+	baseSHA := putRaw(t, h, base)
+	first := postManifest(t, h, manifest("machine-a", "sid", base, baseSHA, 0, baseSHA))
+
+	left := append(append([]byte{}, base...), []byte("left\n")...)
+	right := append(append([]byte{}, base...), []byte("right\n")...)
+	leftSHA := putRaw(t, h, left)
+	rightSHA := putRaw(t, h, right)
+	bodies := [][]byte{
+		mustJSON(t, manifest("machine-a", "sid", left, leftSHA, 0, leftSHA)),
+		mustJSON(t, manifest("machine-b", "sid", right, rightSHA, 0, rightSHA)),
+	}
+	type result struct {
+		code int
+		ack  protocol.ManifestAck
+		body string
+	}
+	results := make([]result, len(bodies))
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range bodies {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/manifests", bytes.NewReader(bodies[i]))
+			req.Header.Set("Authorization", "Bearer sekret")
+			h.ServeHTTP(rr, req)
+			var ack protocol.ManifestAck
+			_ = json.Unmarshal(rr.Body.Bytes(), &ack)
+			results[i] = result{code: rr.Code, ack: ack, body: rr.Body.String()}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for i, r := range results {
+		if r.code != http.StatusOK {
+			t.Fatalf("manifest %d: %d %s", i, r.code, r.body)
+		}
+		if r.ack.SessionUID != first.SessionUID {
+			t.Fatalf("manifest %d uid %s", i, r.ack.SessionUID)
+		}
+	}
+	uid, current, ok, err := s.Catalog.Current(t.Context(), protocol.HarnessTerva, "sid")
+	if err != nil || !ok || uid != first.SessionUID || len(current) != 1 {
+		t.Fatalf("current uid=%s ok=%v err=%v rows=%+v", uid, ok, err, current)
+	}
+	head := current[0]
+	if head.SHA256 != leftSHA && head.SHA256 != rightSHA {
+		t.Fatalf("head %s is not one of the extensions", head.SHA256)
+	}
+	stored, err := s.CAS.Read(head.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(stored, base) {
+		t.Fatalf("head is not an extension of the base: %q", stored)
+	}
+	arts, err := s.Catalog.Artifacts(t.Context(), first.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grown, divergent int
+	for _, a := range arts {
+		switch a.Relation {
+		case protocol.RelationGrownFrom:
+			if !a.Current || a.GrownFrom != baseSHA || a.SHA256 != head.SHA256 {
+				t.Fatalf("grown: %+v", a)
+			}
+			grown++
+		case protocol.RelationDivergentCopy:
+			if a.Current {
+				t.Fatalf("divergent is current: %+v", a)
+			}
+			divergent++
+		}
+	}
+	if grown != 1 || divergent != 1 || len(arts) != 3 {
+		t.Fatalf("artifacts: %+v", arts)
 	}
 }
 

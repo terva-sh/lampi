@@ -2,6 +2,9 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,7 +27,7 @@ func TestSessionUIDAliasAndProvenance(t *testing.T) {
 		Relation: protocol.RelationHead,
 		Record:   true,
 		Head:     true,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +44,7 @@ func TestSessionUIDAliasAndProvenance(t *testing.T) {
 
 	second, err := c.Ingest(ctx, m, now.Add(time.Minute), []Decision{{
 		Relation: protocol.RelationUnchanged,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +59,7 @@ func TestSessionUIDAliasAndProvenance(t *testing.T) {
 	other.MachineID = "machine-b"
 	fourth, err := c.Ingest(ctx, other, now.Add(2*time.Minute), []Decision{{
 		Relation: protocol.RelationUnchanged,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +103,7 @@ func TestGrownFromMovesHeadDivergentDoesNot(t *testing.T) {
 	m := sampleManifest()
 	first, err := c.Ingest(ctx, m, now, []Decision{{
 		Relation: protocol.RelationHead, Record: true, Head: true,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +116,7 @@ func TestGrownFromMovesHeadDivergentDoesNot(t *testing.T) {
 		GrownFrom: m.Artifacts[0].SHA256,
 		Record:    true,
 		Head:      true,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +143,7 @@ func TestGrownFromMovesHeadDivergentDoesNot(t *testing.T) {
 	div, err := c.Ingest(ctx, fork, now.Add(2*time.Minute), []Decision{{
 		Relation: protocol.RelationDivergentCopy,
 		Record:   true,
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +179,7 @@ func TestCounts(t *testing.T) {
 	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
 	if _, err := c.Ingest(ctx, sampleManifest(), now, []Decision{{
 		Relation: protocol.RelationHead, Record: true, Head: true,
-	}}); err != nil {
+	}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	n, err = c.Counts(ctx)
@@ -190,7 +193,7 @@ func TestCounts(t *testing.T) {
 	other.MachineID = "machine-b"
 	if _, err := c.Ingest(ctx, other, now, []Decision{{
 		Relation: protocol.RelationUnchanged,
-	}}); err != nil {
+	}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	grown := sampleManifest()
@@ -200,7 +203,7 @@ func TestCounts(t *testing.T) {
 		GrownFrom: sampleManifest().Artifacts[0].SHA256,
 		Record:    true,
 		Head:      true,
-	}}); err != nil {
+	}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	n, err = c.Counts(ctx)
@@ -210,6 +213,85 @@ func TestCounts(t *testing.T) {
 	if n.Sessions != 1 || n.Artifacts != 2 || n.Machines != 2 {
 		t.Fatalf("after join and growth %+v", n)
 	}
+}
+
+func TestIngestIgnoresStaleGrownFrom(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	base := []byte("base\n")
+	left := append(append([]byte{}, base...), []byte("left\n")...)
+	right := append(append([]byte{}, base...), []byte("right\n")...)
+	blobs := memBlobs{
+		digestHex(base):  base,
+		digestHex(left):  left,
+		digestHex(right): right,
+	}
+	m := sampleManifest()
+	m.Artifacts[0].SHA256 = digestHex(base)
+	m.Artifacts[0].Size = int64(len(base))
+	if _, err := c.Ingest(ctx, m, now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, blobs); err != nil {
+		t.Fatal(err)
+	}
+	grown := m
+	grown.Artifacts = []protocol.Artifact{m.Artifacts[0]}
+	grown.Artifacts[0].SHA256 = digestHex(left)
+	grown.Artifacts[0].Size = int64(len(left))
+	ack, err := c.Ingest(ctx, grown, now.Add(time.Minute), []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Relation != protocol.RelationGrownFrom || ack.HeadSHA256 != digestHex(left) {
+		t.Fatalf("grown: %+v", ack)
+	}
+	fork := m
+	fork.MachineID = "machine-b"
+	fork.Artifacts = []protocol.Artifact{m.Artifacts[0]}
+	fork.Artifacts[0].SHA256 = digestHex(right)
+	fork.Artifacts[0].Size = int64(len(right))
+	// Claims an extension of the original head. That head has already moved.
+	div, err := c.Ingest(ctx, fork, now.Add(2*time.Minute), []Decision{{
+		Relation:  protocol.RelationGrownFrom,
+		GrownFrom: digestHex(base),
+		Record:    true,
+		Head:      true,
+	}}, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if div.Relation != protocol.RelationDivergentCopy || div.HeadSHA256 != digestHex(left) {
+		t.Fatalf("stale grown_from moved the head: %+v", div)
+	}
+	arts, err := c.Artifacts(ctx, ack.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 3 || arts[2].Relation != protocol.RelationDivergentCopy || arts[2].Current || !arts[1].Current {
+		t.Fatalf("artifacts: %+v", arts)
+	}
+}
+
+type memBlobs map[string][]byte
+
+func (m memBlobs) Read(digest string) ([]byte, error) {
+	b, ok := m[digest]
+	if !ok {
+		return nil, fmt.Errorf("missing %s", digest)
+	}
+	return append([]byte(nil), b...), nil
+}
+
+func digestHex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func sampleManifest() protocol.Manifest {
