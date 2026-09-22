@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -34,3 +34,9 @@ extensions: {}
 ## Description
 
 Assign session_uid (ULID) once; aliases map (harness, native_id, machine_id); provenance rows for multi-machine CAS hits.
+
+## Acceptance criteria
+
+- [ ] session_uid is assigned once for a harness, native id, and machine id
+- [ ] An alias maps that triple back to the uid
+- [ ] A second machine recording the same bytes adds provenance and no new blob

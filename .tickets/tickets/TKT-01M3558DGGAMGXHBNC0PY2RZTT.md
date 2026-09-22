@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -34,3 +34,9 @@ extensions: {}
 ## Description
 
 Batch missing-digest check; PUT with Content-Range or chunk digests; assemble when complete. Keep Layer A idempotent put.
+
+## Acceptance criteria
+
+- [ ] blobs/check names the digests the lake is missing
+- [ ] PUT resumes by Content-Range or chunk digests and finishes when they assemble
+- [ ] Putting a digest the lake already has stores nothing

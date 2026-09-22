@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -34,3 +34,9 @@ extensions: {}
 ## Description
 
 Fill normalize stub: raw blob → normalized events per research schema §5.1. Failures leave raw intact; mark normalize_error.
+
+## Acceptance criteria
+
+- [ ] terva raw becomes schema_version 1 events
+- [ ] Unknown fields are kept and encrypted_content stays opaque
+- [ ] A normalize failure leaves the raw blob and records normalize_error

@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -36,3 +36,8 @@ extensions: {}
 ## Description
 
 Promote scaffold `sync` from bare CAS upload to full pipeline (redact, watermark, manifest ACK). Re-sync must upload zero new blobs for unchanged files.
+
+## Acceptance criteria
+
+- [ ] sync runs redact, watermark, and manifest ACK on the same path as the agent
+- [ ] Re-sync of an unchanged file uploads zero new blobs

@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -34,3 +34,9 @@ extensions: {}
 ## Description
 
 When prefix check fails for same logical session, store client blob as new artifact; link under session_uid with relation=divergent_copy; never silent merge.
+
+## Acceptance criteria
+
+- [ ] A failed prefix check stores the client bytes as a new artifact
+- [ ] The catalog links that artifact to the session_uid as divergent_copy
+- [ ] The two copies are not merged

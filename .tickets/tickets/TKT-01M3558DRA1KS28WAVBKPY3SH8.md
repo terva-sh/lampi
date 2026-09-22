@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:22Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -35,3 +35,8 @@ extensions: {}
 ## Description
 
 Status shows machine_id, outbox depth, watermarks summary, last sync, server healthz/catalog counts.
+
+## Acceptance criteria
+
+- [ ] status reports machine id, outbox depth, a watermark summary, and last sync
+- [ ] status reports server health and catalog counts

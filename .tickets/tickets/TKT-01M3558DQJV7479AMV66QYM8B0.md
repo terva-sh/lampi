@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:22Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -36,3 +36,7 @@ extensions: {}
 ## Description
 
 Architecture §7 test #5 — after ingest, query normalized text for a fixture prompt.
+
+## Acceptance criteria
+
+- [ ] After ingest, a query finds a known fixture prompt in normalized text

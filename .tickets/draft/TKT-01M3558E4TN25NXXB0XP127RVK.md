@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -37,4 +37,6 @@ Allowlisted ShareGPT/trajectory export with raw_sha256 lineage; secret strip on 
 
 ## Definition of done
 
-- [ ] Tickets 080–081 done
+- [ ] All children of this epic are done
+- [ ] TKT-01M3558E5QS1JN6B7HDATCCC2C Allowlisted trajectory / ShareGPT export
+- [ ] TKT-01M3558E6GGK5KX8766957WTQR Strip secrets in training view (normalized only)

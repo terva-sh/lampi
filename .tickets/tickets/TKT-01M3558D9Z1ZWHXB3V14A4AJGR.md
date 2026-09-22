@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -43,5 +43,12 @@ Implement the local agent path for terva JSONL: watch → redact → chunk/hash 
 
 ## Definition of done
 
-- [ ] Child tickets 010–016 done
-- [ ] Covered by MVP acceptance suite (040)
+- [ ] All children of this epic are done
+- [ ] TKT-01M3558DAGH6Z9MFG6GJ1TF0CS Implement fsnotify/poll watcher for terva JSONL
+- [ ] TKT-01M3558DB2BJEEYN3G8M5GAJ17 Durable outbox (SQLite) for pending blobs/manifests
+- [ ] TKT-01M3558DBS1J4V1VB5C0FVNWKP Per-path watermark store
+- [ ] TKT-01M3558DCDJ71TN19N5DDY4RSF Redaction ruleset v1 + quarantine on hits
+- [ ] TKT-01M3558DD3MYA65Q909VDV374P Chunker for large artifacts (≥32 MiB)
+- [ ] TKT-01M3558DDS1NVWKCC2S36TYPZV Long-running terva-lampi agent daemon loop
+- [ ] TKT-01M3558DEJYSZ08P53KM9CNVSY One-shot sync uses outbox + watermarks end-to-end
+- [ ] Covered by TKT-01M3558DPVCN661600P3F9HMB0 CI/integration: five MVP acceptance tests

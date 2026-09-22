@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:11Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -37,4 +37,9 @@ Claude Code + Codex adapters, git-remote project linking (Layer C), async normal
 
 ## Definition of done
 
-- [ ] Tickets 050–054 done or explicitly deferred
+- [ ] All children of this epic are done or explicitly deferred
+- [ ] TKT-01M3558DVTRM3ZFEYXNH191KES Claude Code JSONL adapter
+- [ ] TKT-01M3558DWF1399D7DNZ0FBSZ6F Codex CLI rollout JSONL adapter
+- [ ] TKT-01M3558DX60C92B1YRTT4M1Y3X Project linking via normalized git remote
+- [ ] TKT-01M3558DXV7FRPJ5A5HXMSW5B4 Async normalizer workers + parquet partitions
+- [ ] TKT-01M3558DYH3FVT06XBPKWAAMKH Optional terva hook nudge (shipped example)

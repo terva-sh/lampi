@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -43,4 +43,7 @@ Project terva raw blobs into schema_version 1 normalized events; export for Duck
 
 ## Definition of done
 
-- [ ] Tickets 030–032 done
+- [ ] All children of this epic are done
+- [ ] TKT-01M3558DMTAXM5GGN2QW0C728R Normalize terva raw → schema_version 1 events
+- [ ] TKT-01M3558DNF9KDSAGCB5FFA7JSM Export normalized JSONL/Parquet for DuckDB
+- [ ] TKT-01M3558DQJV7479AMV66QYM8B0 Acceptance: query known prompt substring

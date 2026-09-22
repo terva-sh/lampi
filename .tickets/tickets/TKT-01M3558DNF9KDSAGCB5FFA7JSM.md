@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -34,3 +34,8 @@ extensions: {}
 ## Description
 
 Synchronous MVP export job producing files DuckDB/sqlite3 can query for content_text.
+
+## Acceptance criteria
+
+- [ ] Export writes normalized JSONL or Parquet
+- [ ] DuckDB or sqlite3 can query content_text from that export

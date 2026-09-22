@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -37,4 +37,6 @@ Version-pinned SQLite snapshot readers for Cursor IDE and CLI. Never ingest curs
 
 ## Definition of done
 
-- [ ] Tickets 070–071 done or wontfix with rationale
+- [ ] All children of this epic are done, or wontfix with a rationale
+- [ ] TKT-01M3558E3ER1TS33KZB0AG7XX4 Version-pinned Cursor state.vscdb snapshot reader
+- [ ] TKT-01M3558E45YCTAZET208YAAQFV Cursor CLI store.db adapter (separate corpus)

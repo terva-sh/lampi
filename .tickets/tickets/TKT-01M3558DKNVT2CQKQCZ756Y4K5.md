@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -36,3 +36,8 @@ extensions: {}
 ## Description
 
 capture_protocol: 1 — hello, blobs/check, blobs PUT, manifests JSON schema, watermark ACK semantics.
+
+## Acceptance criteria
+
+- [ ] docs/protocol.md covers hello, blobs/check, blob PUT, and manifests for capture protocol 1
+- [ ] Watermark ACK semantics in that doc match the server

@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-22T18:31:21Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -33,3 +33,9 @@ extensions: {}
 ## Description
 
 Per-device 256-bit bearer tokens, hashed at rest on server, client reads --token-file only (never argv). Single-tenant, many devices.
+
+## Acceptance criteria
+
+- [ ] The server stores a hash of the device token
+- [ ] The client reads the token only from --token-file
+- [ ] Each device has its own token
