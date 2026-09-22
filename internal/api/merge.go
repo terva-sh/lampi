@@ -62,6 +62,18 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 		if a.ByteWatermarkPrev != 0 {
 			continue
 		}
+		if len(a.ChunkSHA256s) > 0 {
+			for _, c := range a.ChunkSHA256s {
+				ok, err := s.CAS.Has(c)
+				if err != nil {
+					return nil, err
+				}
+				if !ok {
+					addMissing(c)
+				}
+			}
+			continue
+		}
 		ok, err := s.CAS.Has(a.SHA256)
 		if err != nil {
 			return nil, err
@@ -139,6 +151,11 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 }
 
 func (s *Server) clientBytes(a protocol.Artifact, prev []byte, hasPrev bool) ([]byte, error) {
+	if len(a.ChunkSHA256s) > 0 {
+		if _, err := s.CAS.Concat(a.SHA256, a.ChunkSHA256s); err != nil {
+			return nil, err
+		}
+	}
 	if a.ByteWatermarkPrev == 0 {
 		return s.readStored(a.SHA256)
 	}
@@ -198,7 +215,14 @@ func validateManifest(m *protocol.Manifest) error {
 	}
 	for i, a := range m.Artifacts {
 		if len(a.ChunkSHA256s) > 0 {
-			return fmt.Errorf("chunked artifacts are not implemented")
+			if a.ByteWatermarkPrev != 0 {
+				return fmt.Errorf("artifact %q: chunk_sha256s cannot be combined with a tail", a.RelPath)
+			}
+			parts, err := normalizeDigests(a.ChunkSHA256s)
+			if err != nil {
+				return fmt.Errorf("artifact %q: %w", a.RelPath, err)
+			}
+			m.Artifacts[i].ChunkSHA256s = parts
 		}
 		d := strings.ToLower(a.SHA256)
 		if !protocol.ValidDigest(d) {

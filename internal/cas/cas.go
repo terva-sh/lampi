@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"terva.sh/lampi/internal/protocol"
 )
@@ -24,8 +25,13 @@ import (
 var ErrRejected = errors.New("cas: rejected blob")
 
 // Store keeps blobs under Root.
+//
+// mu covers install and partial-upload updates. Has and Read stay
+// unlocked: a finished object is renamed into place, and a reader
+// either sees the old file or the new one.
 type Store struct {
 	Root string
+	mu   sync.Mutex
 }
 
 // Open creates the store root. The directory is owner-only: the blobs are
@@ -68,6 +74,12 @@ func (s *Store) Has(digest string) (bool, error) {
 // limit is the maximum accepted size. A read one byte past limit fails
 // before the object is installed. limit <= 0 means no cap.
 func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.putLocked(digest, r, limit)
+}
+
+func (s *Store) putLocked(digest string, r io.Reader, limit int64) (exists bool, err error) {
 	final, err := s.Path(digest)
 	if err != nil {
 		return false, err

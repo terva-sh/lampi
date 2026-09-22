@@ -5,8 +5,9 @@
 // harness session they belong to. The client advances a watermark only
 // after the server ACKs the manifest. A strict append is a tail put;
 // the lake assembles it. Bytes that are not a prefix either way are a
-// divergent copy and are not merged. Chunk assembly is specified in
-// docs/protocol.md and is not implemented.
+// divergent copy and are not merged. A large or interrupted blob is
+// resumed with Content-Range or with chunk_sha256s; the lake installs
+// the object when those pieces assemble.
 package protocol
 
 import (
@@ -18,8 +19,9 @@ import (
 // Version is the capture_protocol value this tree speaks.
 const Version = 1
 
-// MaxBlobBytes is the largest single object a client may PUT.
-// Transcripts above this need the chunked upload path, which is not built.
+// MaxBlobBytes is the largest single body a client may PUT.
+// A Content-Range piece and one chunk object stay under this cap.
+// The assembled digest is the concatenation, which may be larger.
 const MaxBlobBytes int64 = 32 << 20
 
 // ClockSkewWarn is how far a client clock may sit from hello's server_time
@@ -97,9 +99,12 @@ type BlobCheckResponse struct {
 // PutResponse is the body of PUT /v1/blobs/{sha256}.
 // Exists is true when that digest was already stored. The put is a no-op
 // in that case: identical bytes are not written twice.
+// Complete is false while a Content-Range upload still has a gap.
+// A finished object, including one that already existed, is complete.
 type PutResponse struct {
-	Exists bool   `json:"exists"`
-	SHA256 string `json:"sha256"`
+	Exists   bool   `json:"exists"`
+	SHA256   string `json:"sha256"`
+	Complete bool   `json:"complete"`
 }
 
 // Manifest is the body of POST /v1/manifests.

@@ -18,7 +18,7 @@ import (
 
 func TestHelloFields(t *testing.T) {
 	s := openServer(t)
-	s.Token = "sekret"
+	s.Allow("sekret")
 	now := time.Date(2026, 9, 22, 16, 10, 0, 0, time.UTC)
 	s.Now = func() time.Time { return now }
 	h := s.Handler()
@@ -301,7 +301,7 @@ func openServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	s.Token = "sekret"
+	s.Allow("sekret")
 	return s
 }
 

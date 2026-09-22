@@ -21,7 +21,7 @@ func TestHealthAndIngest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	s.Token = "sekret"
+	s.Allow("sekret")
 	s.Now = func() time.Time { return time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC) }
 	h := s.Handler()
 
@@ -180,7 +180,7 @@ func TestStats(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	s.Token = "sekret"
+	s.Allow("sekret")
 	h := s.Handler()
 
 	rr := httptest.NewRecorder()

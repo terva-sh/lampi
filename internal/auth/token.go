@@ -1,10 +1,10 @@
 // Package auth is the device-token file on the client and the bearer
 // check on the server.
 //
-// Production storage is a hash at rest on the server, never the token.
-// This scaffold compares the file contents in plaintext so a loopback
-// lake can be tried without an account system. Do not point it at a
-// network until that changes.
+// The client keeps the token in a file and sends it as a bearer. The
+// server stores only a SHA-256 of that token. One tenant, many devices:
+// each device has its own token, and the lake file holds one hash per
+// device.
 package auth
 
 import (

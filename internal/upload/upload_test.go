@@ -625,7 +625,7 @@ func openLake(t *testing.T) (*api.Server, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { lake.Close() })
-	lake.Token = "tok"
+	lake.Allow("tok")
 	return lake, data
 }
 
@@ -759,6 +759,115 @@ func (c *capture) reset() {
 	c.putBodies = nil
 	c.manifests = nil
 	c.mu.Unlock()
+}
+
+func TestSyncResumesByContentRange(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"range\",\"cwd\":\"/tmp/p\"}}\n{\"type\":\"message\",\"text\":\"abcdefghijklmnopqrstuvwxyz012345\"}\n")
+	writeSession(t, home, "abcd", "range.jsonl", body)
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	opt.Client = cap.client
+	opt.PieceBytes = 10
+
+	res, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Uploaded != 1 || res.Manifests != 1 || cap.puts < 2 {
+		t.Fatalf("resume %+v puts=%d", res, cap.puts)
+	}
+	var got []byte
+	for _, b := range cap.putBodies {
+		if len(b) > 10 {
+			t.Fatalf("piece longer than the range: %d", len(b))
+		}
+		got = append(got, b...)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("ranges %q", got)
+	}
+	sum := sha256.Sum256(body)
+	stored, err := lake.CAS.Read(hex.EncodeToString(sum[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stored, body) {
+		t.Fatalf("assembled %q", stored)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 1 {
+		t.Fatalf("partial left behind, blobs %d", blobCount(t, filepath.Join(data, "cas")))
+	}
+
+	cap.reset()
+	again, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Uploaded != 0 || again.Missing != 0 || cap.puts != 0 {
+		t.Fatalf("second range sync %+v puts=%d", again, cap.puts)
+	}
+}
+
+func TestSyncAssemblesChunkDigests(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"chunks\",\"cwd\":\"/tmp/p\"}}\n{\"type\":\"message\",\"text\":\"abcdefghijklmnopqrstuvwxyz012345\"}\n")
+	writeSession(t, home, "abcd", "chunks.jsonl", body)
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	opt.Client = cap.client
+	opt.ChunkBytes = 16
+
+	res, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Uploaded != 1 || res.Manifests != 1 {
+		t.Fatalf("chunks %+v", res)
+	}
+	if len(cap.manifests) != 1 || len(cap.manifests[0].Artifacts) != 1 {
+		t.Fatalf("manifests %+v", cap.manifests)
+	}
+	art := cap.manifests[0].Artifacts[0]
+	if len(art.ChunkSHA256s) < 2 {
+		t.Fatalf("chunk list %+v", art.ChunkSHA256s)
+	}
+	sum := sha256.Sum256(body)
+	if art.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("sha %s", art.SHA256)
+	}
+	stored, err := lake.CAS.Read(art.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stored, body) {
+		t.Fatalf("assembled %q", stored)
+	}
+	// Each chunk is its own object, plus the assembled digest.
+	if blobCount(t, filepath.Join(data, "cas")) != len(art.ChunkSHA256s)+1 {
+		t.Fatalf("blobs %d chunks %d", blobCount(t, filepath.Join(data, "cas")), len(art.ChunkSHA256s))
+	}
+
+	before := blobCount(t, filepath.Join(data, "cas"))
+	cap.reset()
+	again, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Uploaded != 0 || again.Missing != 0 || cap.puts != 0 {
+		t.Fatalf("second chunk sync %+v puts=%d", again, cap.puts)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != before {
+		t.Fatal("re-sync stored another blob")
+	}
 }
 
 func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
