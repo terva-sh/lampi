@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558DTHC06337Q51V6ERPTD
 title: Example terva post_tool_use enqueue hook
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: low
 due_on: null
@@ -21,13 +21,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:15:11Z
+updated_at: 2026-09-22T22:06:13Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: human:sothr
-  name: Drew Short
+  id: agent:cursor/d73b
+  name: Cursor cloud agent
 extensions: {}
 ---
 
