@@ -1,5 +1,5 @@
-// Package upload is the one-shot push shared by terva-lampi sync and, later,
-// the long-running agent.
+// Package upload is the one-shot push shared by terva-lampi sync and the
+// long-running agent.
 //
 // The order is fixed. Allowlist, then ruleset v1, then watermark.Plan,
 // then the outbox, then the network. A manifest ACK is what commits the

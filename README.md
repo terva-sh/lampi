@@ -78,9 +78,12 @@ project; the shape of that file is under [Off-box raw](#off-box-raw).
 A second `sync` of the same files uploads nothing. `status` prints the
 machine id and whether `/healthz` answered.
 
-`agent` with no subcommand prints the same discovery and then watches
-session files until it is signalled. The watch does not upload. Use
-`sync` to push.
+`agent` with no subcommand prints the same discovery, pushes the
+allowlisted sessions once, then watches. Growth calls that same push.
+A failed push is tried again after a short wait, without waiting for
+the file to grow. SIGTERM drains the outbox and exits. The server URL,
+the device token, and the allowlist are read when the process starts;
+restart it to reload them. The one-shot command is still `sync`.
 
 `login` writes a device token and does not print it:
 
@@ -104,7 +107,7 @@ caught.
 | Command | What it does |
 |---------|----------------|
 | `terva-lampi serve` | Lake. `GET /healthz`, blob check/put, manifests. |
-| `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or wait. |
+| `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, session count, lake health. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
@@ -162,10 +165,11 @@ It does not contain the matched text. `redaction.upload_hits` is the
 only override that uploads a hit, and the manifest status is then
 `override` with the hit count. Leave it false.
 
-`sync` and the future agent loop share this path: allowlist, scan,
-watermark plan, outbox, upload, manifest ACK, then watermark commit
-and outbox ACK. An unchanged file uploads no new blob. The cursor does
-not move if the manifest POST fails.
+`sync` and `agent` share this path: allowlist, scan, watermark plan,
+outbox, upload, manifest ACK, then watermark commit and outbox ACK. An
+unchanged file uploads no new blob. The cursor does not move if the
+manifest POST fails. `agent` runs until SIGTERM, then tries the path
+once more so a push that was in flight can finish.
 
 ## Build
 

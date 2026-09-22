@@ -3,28 +3,51 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/discover"
+	"terva.sh/lampi/internal/upload"
 	"terva.sh/lampi/internal/watch"
+)
+
+const (
+	// drainTimeout bounds the shutdown upload. The signal that stopped the
+	// watch must not also give up on rows already sitting in the outbox, and
+	// it must not wait forever on a lake that is not answering.
+	drainTimeout = 30 * time.Second
+	// syncRetryAfter is how long a failed push waits before trying again.
+	// File growth still syncs immediately. Each new failure resets the wait
+	// so a down lake is not hammered, and a quiet machine is not stuck
+	// until the next append or SIGTERM.
+	syncRetryAfter = 2 * time.Second
 )
 
 const agentUsage = `terva-lampi agent — local capture
 
 usage:
-  terva-lampi agent              watch $TERVA_HOME/sessions until signalled
+  terva-lampi agent              watch $TERVA_HOME/sessions and upload until signalled
   terva-lampi agent discover     list $TERVA_HOME/sessions JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
   terva-lampi agent config       print paths and the effective server URL
   terva-lampi agent status       local identity and how many session files are visible
 
 Sessions are read from TERVA_HOME, then ZOT_HOME, then the platform default
-terva uses. The watcher prefers fsnotify and falls back to polling. It
-does not upload. terva-lampi sync is the push: allowlist, ruleset v1,
-watermark, outbox, then the lake.
+terva uses. The watcher prefers fsnotify and falls back to polling.
+
+The machine id is the one in the config directory. Growth, and one pass
+at startup for files already on disk, call the same path as
+terva-lampi sync: allowlist, ruleset v1, watermark, outbox, then the
+lake. A failed push is logged and tried again after a short wait, even
+when the file does not grow. A project the allowlist or the scan refused
+is not retried. SIGTERM or interrupt drains the outbox best-effort and
+exits. The server URL, token, and allowlist are read at start; restart
+the process to reload them.
 `
 
 func runAgent(env Env, args []string) error {
@@ -59,27 +82,182 @@ func runAgent(env Env, args []string) error {
 }
 
 func runAgentDaemon(env Env) error {
-	m, err := config.EnsureMachine(env.getenv)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runAgentLoop(ctx, env)
+}
+
+// runAgentLoop is the long-running process. ctx ending is shutdown:
+// the watch stops, then the outbox is drained on a new context.
+func runAgentLoop(ctx context.Context, env Env) error {
+	opt, n, err := loadAgent(env)
 	if err != nil {
 		return err
+	}
+	// Banner and watch lines share a mutex so a change report and a
+	// sync summary do not split each other on the way out.
+	var mu sync.Mutex
+	env.Stdout = &syncWriter{mu: &mu, w: env.stdout()}
+	env.Stderr = &syncWriter{mu: &mu, w: env.stderr()}
+
+	fmt.Fprintf(env.stdout(), "machine_id: %s\n", opt.MachineID)
+	fmt.Fprintf(env.stdout(), "terva_home: %s\n", opt.TervaHome)
+	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
+	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
+
+	kick := make(chan struct{}, 1)
+	wake := func() {
+		select {
+		case kick <- struct{}{}:
+		default:
+		}
+	}
+	w := &watch.Watcher{
+		Root: opt.TervaHome,
+		OnChange: func(c watch.Change) {
+			fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
+			wake()
+		},
+	}
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	defer watchCancel()
+	watchErr := make(chan error, 1)
+	go func() { watchErr <- w.Run(watchCtx) }()
+	// watchErr is read in exactly one place per shutdown. WaitReady
+	// does not read it: a failed Run never closes the ready channel,
+	// and a nil return from Run is a clean stop, not a second result.
+	go func() {
+		if err := w.WaitReady(watchCtx); err != nil {
+			return
+		}
+		fmt.Fprintln(env.stdout(), "watching")
+		// Files already on disk are not a watch event. One sync at
+		// start is how they reach the lake before the next append.
+		wake()
+	}()
+
+	// One timer, reset on each failure. The callback only wakes the
+	// loop, so a retry cannot run beside the sync already in progress.
+	var retryMu sync.Mutex
+	var retry *time.Timer
+	disarmRetry := func() {
+		retryMu.Lock()
+		defer retryMu.Unlock()
+		if retry != nil {
+			retry.Stop()
+			retry = nil
+		}
+	}
+	armRetry := func() {
+		retryMu.Lock()
+		defer retryMu.Unlock()
+		if retry != nil {
+			retry.Stop()
+		}
+		retry = time.AfterFunc(syncRetryAfter, wake)
+	}
+	defer disarmRetry()
+
+	for {
+		select {
+		case <-ctx.Done():
+			disarmRetry()
+			watchCancel()
+			<-watchErr
+			return drainAgent(env, opt)
+		case err := <-watchErr:
+			disarmRetry()
+			drainAgent(env, opt)
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		case <-kick:
+			err := runAgentSync(ctx, env, opt, "")
+			if ctx.Err() != nil {
+				disarmRetry()
+				watchCancel()
+				<-watchErr
+				return drainAgent(env, opt)
+			}
+			if err != nil {
+				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
+				// A refusal is the allowlist or the scan. It will not
+				// change until the process is restarted with a new config.
+				if _, refused := err.(*upload.Rejected); refused {
+					disarmRetry()
+					continue
+				}
+				armRetry()
+				continue
+			}
+			disarmRetry()
+		}
+	}
+}
+
+func loadAgent(env Env) (upload.Options, int, error) {
+	file, err := config.LoadFile(env.getenv)
+	if err != nil {
+		return upload.Options{}, 0, err
+	}
+	token, err := resolveToken(env, "", file)
+	if err != nil {
+		return upload.Options{}, 0, err
 	}
 	home, files, err := sessionFiles(env)
 	if err != nil {
-		return err
+		return upload.Options{}, 0, err
 	}
-	fmt.Fprintf(env.stdout(), "machine_id: %s\n", m.MachineID)
-	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
-	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
-	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
-	fmt.Fprintln(env.stdout(), "watching session files. This process does not upload; use `terva-lampi sync` to push.")
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return (&watch.Watcher{
-		Root: home,
-		OnChange: func(c watch.Change) {
-			fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
-		},
-	}).Run(ctx)
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return upload.Options{}, 0, err
+	}
+	m, err := config.EnsureMachine(env.getenv)
+	if err != nil {
+		return upload.Options{}, 0, err
+	}
+	return upload.Options{
+		ServerURL:  config.ServerURL(file, ""),
+		Token:      token,
+		TervaHome:  home,
+		MachineID:  m.MachineID,
+		StateDir:   state,
+		Projects:   file.Projects,
+		UploadHits: file.Redaction.UploadHits,
+	}, len(files), nil
+}
+
+func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string) error {
+	res, err := upload.Sync(ctx, opt)
+	fmt.Fprintf(env.stdout(), "%schecked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d\n",
+		prefix, res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined)
+	return err
+}
+
+// drainAgent pushes whatever the outbox still holds. The context is new
+// on purpose: the one that stopped the watch is already cancelled, and
+// using it would abort the drain it exists to finish. An error is logged
+// and not returned. Shutdown still succeeds.
+func drainAgent(env Env, opt upload.Options) error {
+	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
+	defer cancel()
+	fmt.Fprintln(env.stderr(), "terva-lampi: draining outbox")
+	if err := runAgentSync(ctx, env, opt, "drain: "); err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi: drain: %v\n", err)
+	}
+	return nil
+}
+
+type syncWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
 }
 
 func runAgentDiscover(env Env) error {
