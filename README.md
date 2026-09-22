@@ -168,9 +168,10 @@ only override that uploads a hit, and the manifest status is then
 
 `sync` and `agent` share this path: allowlist, scan, watermark plan,
 outbox, upload, manifest ACK, then watermark commit and outbox ACK. An
-unchanged file uploads no new blob. The cursor does not move if the
-manifest POST fails. `agent` runs until SIGTERM, then tries the path
-once more so a push that was in flight can finish.
+unchanged file uploads no new blob. An append uploads the new tail
+only; the lake assembles it onto the stored prefix. The cursor does
+not move if the manifest POST fails. `agent` runs until SIGTERM, then
+tries the path once more so a push that was in flight can finish.
 
 ## Build
 

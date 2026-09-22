@@ -163,7 +163,7 @@ func TestPlanTruncateAndRewrite(t *testing.T) {
 	}
 }
 
-func TestCommitRejectsOffsetPastSize(t *testing.T) {
+func TestCommitStoresCursorAheadOfLocalFile(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "watermarks.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -178,12 +178,28 @@ func TestCommitRejectsOffsetPastSize(t *testing.T) {
 		Offset:    10,
 		SHA256:    repeatHex('a'),
 	}
-	err = s.Commit(context.Background(), mark, protocol.ManifestAck{SessionUID: "uid"})
-	if err == nil {
-		t.Fatal("expected offset past size to fail")
+	if err := s.Commit(context.Background(), mark, protocol.ManifestAck{SessionUID: "uid"}); err != nil {
+		t.Fatal(err)
 	}
-	if _, ok, getErr := s.Get(context.Background(), mark); getErr != nil || ok {
-		t.Fatalf("stored bad mark: ok=%v err=%v", ok, getErr)
+	got, ok, err := s.Get(context.Background(), mark)
+	if err != nil || !ok {
+		t.Fatalf("get ok=%v err=%v", ok, err)
+	}
+	if got.Size != 4 || got.Offset != 10 || got.SHA256 != mark.SHA256 {
+		t.Fatalf("mark %+v", got)
+	}
+}
+
+func TestPlanStaleCursorMatchesLocalFile(t *testing.T) {
+	mark := Mark{SHA256: repeatHex('a'), Size: 4, Offset: 10}
+	same := Plan(mark, Stat{Size: 4, FullSHA: repeatHex('a')})
+	if same.Kind != KindUnchanged || same.Length != 0 {
+		t.Fatalf("stale cursor: %+v", same)
+	}
+	// Offset == Size, so a shorter file is a truncate, not a stale cursor.
+	trunc := Plan(Mark{SHA256: repeatHex('a'), Size: 10, Offset: 10}, Stat{Size: 4})
+	if trunc.Kind != KindReplace {
+		t.Fatalf("truncate: %+v", trunc)
 	}
 }
 

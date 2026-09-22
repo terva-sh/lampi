@@ -3,12 +3,14 @@
 //
 // Raw bytes are content-addressed. A manifest names those bytes and the
 // harness session they belong to. The client advances a watermark only
-// after the server ACKs the manifest. Chunk assembly, append-only tail
-// merge, and divergent-copy handling are specified in docs/protocol.md
-// and are not implemented in this scaffold.
+// after the server ACKs the manifest. A strict append is a tail put;
+// the lake assembles it. Bytes that are not a prefix either way are a
+// divergent copy and are not merged. Chunk assembly is specified in
+// docs/protocol.md and is not implemented.
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 )
@@ -19,6 +21,44 @@ const Version = 1
 // MaxBlobBytes is the largest single object a client may PUT.
 // Transcripts above this need the chunked upload path, which is not built.
 const MaxBlobBytes int64 = 32 << 20
+
+// ClockSkewWarn is how far a client clock may sit from hello's server_time
+// before the client warns. Manifest mtimes stay hints. ingested_at is the
+// server clock.
+const ClockSkewWarn = 5 * time.Minute
+
+const (
+	// RelationHead is the current artifact for a path, including the first one.
+	RelationHead = "head"
+	// RelationGrownFrom is a strict byte extension of the previous head.
+	RelationGrownFrom = "grown_from"
+	// RelationDivergentCopy is the same logical session with bytes that are
+	// not a prefix either way. The previous head stays the head.
+	RelationDivergentCopy = "divergent_copy"
+	// RelationUnchanged means the full digest already is the head.
+	RelationUnchanged = "unchanged"
+	// RelationStale means the stored head starts with the client bytes.
+	// The head stays. The client keeps the local snapshot and records
+	// the longer head as a cursor past that file, so the prefix is not
+	// posted again.
+	RelationStale = "stale"
+)
+
+// RelationOf classifies client against the stored head. Equal bytes are
+// unchanged. A strict extension is grown_from. A stored file that starts
+// with the client bytes is stale. Anything else is a divergent copy.
+func RelationOf(prev, client []byte) string {
+	if bytes.Equal(prev, client) {
+		return RelationUnchanged
+	}
+	if len(client) > len(prev) && bytes.HasPrefix(client, prev) {
+		return RelationGrownFrom
+	}
+	if len(prev) > len(client) && bytes.HasPrefix(prev, client) {
+		return RelationStale
+	}
+	return RelationDivergentCopy
+}
 
 const (
 	// KindTranscriptJSONL is an append-only harness transcript.
@@ -118,10 +158,16 @@ type Lineage struct {
 // internal/watermark.Commit refuses to store a mark without a session
 // uid from this ACK. terva-lampi sync commits that mark only after this
 // ACK, and leaves the cursor where it was when the POST fails.
+//
+// Relation is how this manifest met the stored head. HeadSHA256 and
+// HeadSize are the lake head after the call, which on RelationStale is
+// the longer stored object, not the shorter client file.
 type ManifestAck struct {
 	SessionUID  string   `json:"session_uid"`
 	ArtifactIDs []string `json:"artifact_ids"`
 	HeadSHA256  string   `json:"head_sha256"`
+	HeadSize    int64    `json:"head_size"`
+	Relation    string   `json:"relation"`
 }
 
 // StatsResponse is the body of GET /v1/stats.

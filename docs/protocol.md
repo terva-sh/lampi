@@ -41,9 +41,11 @@ The client calls this first. The body is ignored.
 ```
 
 `server_time` is there so a client can notice clock skew. Manifest mtimes
-are hints. The catalog's `ingested_at` is the server clock. This client
-checks that version 1 is in `protocol_versions` and refuses a file larger
-than `max_blob_bytes`. Chunking above that limit is not implemented.
+are hints. The catalog's `ingested_at` is the server clock. The client
+warns when its clock and `server_time` differ by more than five minutes
+(`protocol.ClockSkewWarn`) and still uploads. It checks that version 1
+is in `protocol_versions` and refuses a file larger than `max_blob_bytes`.
+Chunking above that limit is not implemented.
 
 ## POST /v1/blobs/check
 
@@ -122,42 +124,57 @@ matches the cwd, this hash, or the remote before the manifest is sent.
 `kind` is `transcript_jsonl` or `errors_jsonl` for the sidecar that sits
 next to a terva transcript.
 
+`sha256` is always the full file. `byte_watermark_prev` of 0 means the
+PUT body is that file and `tail_sha256` equals `sha256`. A non-zero prev
+means the PUT body is only the bytes after that offset, `tail_sha256` is
+the hash of those bytes, and `size` is the full file. `terva-lampi sync`
+sends the tail form when the local watermark is a strict prefix of the
+file. The example above is that form.
+
+The lake compares the full bytes to the stored head for that path:
+
+| Client bytes | Result |
+|--------------|--------|
+| Same digest as the head | No-op. Same artifact id. No new blob. |
+| Strict extension of the head | Assemble a tail (or accept the whole file). `head_sha256` moves. The new artifact's relation is `grown_from`. |
+| Strict prefix of the head | The client is stale. The head stays. `relation` is `stale`. |
+| Neither is a prefix | New artifact, `relation` `divergent_copy`. The head stays. The copies are not merged. |
+
+A tail whose prev is not the stored head's length, or whose assembly
+hash is not `sha256`, is `409` `{"error":"prefix mismatch"}`. The client
+PUTs the whole file and posts the manifest again with prev 0.
+
 A 200 body is the ACK. The client may advance a watermark only after it
 sees this. `internal/watermark` enforces that. `terva-lampi sync` commits
 the cursor from this ACK and leaves it unchanged when the POST fails.
-`byte_watermark_prev` and `tail_sha256` describe the blob in this
-request. A non-zero prev means the blob is only the bytes after that
-offset, and `tail_sha256` is the hash of those bytes. `terva-lampi sync`
-PUTs the whole file, so it sends prev `0` and `tail_sha256` equal to
-`sha256`, including when the local watermark saw an append. The example
-above is the append form. This client does not send it yet.
+On `stale`, the transcript cursor's offset advances to `head_size`.
+Size and sha256 stay the local file, which is still a prefix of that
+head. The next sync does not post the prefix again. The lake does not
+send the missing suffix back.
 
 ```json
 {
   "session_uid": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "artifact_ids": ["01ARZ3NDEKTSV4RRFFQ69G5FAW"],
-  "head_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  "head_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "head_size": 120400,
+  "relation": "grown_from"
 }
 ```
 
-`session_uid` is assigned once per `(harness, native_session_id)`. A
-second machine posting the same native id joins that row and adds
-provenance. Repeating the same artifact digest returns the same
-`artifact_id`. A new digest for the same path adds an artifact and moves
-`head_sha256`. The previous blob stays in the CAS.
+`relation` is `head`, `grown_from`, `divergent_copy`, `unchanged`, or
+`stale`. It is the transcript artifact's relation when one is present.
+
+`session_uid` is assigned once per `(harness, native_session_id)`. An
+alias maps `(harness, native_session_id, machine_id)` to that uid. A
+second machine posting the same native id joins that row. The same
+digest adds a provenance row and no blob. Repeating the same artifact
+digest returns the same `artifact_id`.
 
 `head_sha256` is the transcript artifact when one is present, otherwise
-the last artifact.
+the last artifact. A `divergent_copy` or a `stale` post does not change it.
 
 ## Not in this scaffold
-
-These rules are the protocol. The code does not apply them yet.
-
-**Append-only merge.** If the client file starts with the stored bytes,
-only the tail is a new blob and `head_sha256` moves. If the stored file
-starts with the client file, the client is stale. If neither is a prefix,
-the copy is `divergent_copy`: both blobs are kept, linked, and not merged.
-Today a changed file is a whole new blob. The session uid still stays.
 
 **Chunks.** Files over `max_blob_bytes` split into CAS objects. The
 manifest lists `chunk_sha256s`. The server assembles the artifact when
@@ -182,5 +199,5 @@ Failures are JSON: `{"error":"..."}`. A missing-blob conflict adds
 |--------|------|
 | 400 | Bad JSON, bad digest, unsupported protocol, chunked artifact, catalog rejection |
 | 401 | Bearer token missing or wrong |
-| 409 | Manifest names a digest that is not in the CAS |
+| 409 | Manifest names a digest that is not in the CAS, or a tail is not a prefix extension |
 | 200 | Hello, check, put, manifest ACK, health |

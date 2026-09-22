@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -220,7 +221,9 @@ func TestStats(t *testing.T) {
 			Size:    3,
 			SHA256:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		}},
-	}, time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)); err != nil {
+	}, time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC), []catalog.Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rr = httptest.NewRecorder()

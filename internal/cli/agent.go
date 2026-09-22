@@ -235,8 +235,7 @@ func loadAgent(env Env) (upload.Options, int, error) {
 
 func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string) error {
 	res, err := upload.Sync(ctx, opt)
-	fmt.Fprintf(env.stdout(), "%schecked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d\n",
-		prefix, res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined)
+	printSync(env.stdout(), env.stderr(), prefix, res)
 	return err
 }
 

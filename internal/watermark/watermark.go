@@ -46,8 +46,10 @@ const (
 
 // Mark is one file's upload cursor.
 //
-// SHA256 is the sha256 of the file bytes in [0:Offset] at commit time.
-// When Offset equals Size, that is the hash of the whole file. Plan
+// SHA256 is the sha256 of the file bytes in [0:Offset] at commit time,
+// except when Offset is past Size. That mark is a stale client: Size
+// and SHA256 are the local file, and Offset is the longer lake head.
+// When Offset equals Size, SHA256 is the hash of the whole file. Plan
 // compares both a full-file hash and a prefix hash against this value;
 // they are the same hash only for that snapshot.
 type Mark struct {
@@ -214,9 +216,9 @@ func (s *DB) Commit(ctx context.Context, mark Mark, ack protocol.ManifestAck) er
 	if mark.Size < 0 || mark.Offset < 0 {
 		return fmt.Errorf("watermark: negative size or offset")
 	}
-	if mark.Offset > mark.Size {
-		return fmt.Errorf("watermark: offset %d past size %d", mark.Offset, mark.Size)
-	}
+	// Offset may pass Size. A stale client stores the local file as
+	// Size and SHA256, and the longer lake head as Offset. A commit of
+	// a file this machine uploaded in full keeps Offset == Size.
 	if !protocol.ValidDigest(mark.SHA256) {
 		return fmt.Errorf("watermark: invalid sha256")
 	}
@@ -266,6 +268,11 @@ func chmodPrivate(path string) error {
 // starts at Offset and does not resend the prefix. mark.SHA256 is the
 // hash of bytes [0:Offset], so a full-file hash matches it when the
 // file is still that snapshot (Offset == Size).
+//
+// A stale client is the exception: Offset is the lake head and is past
+// Size, and SHA256 is the shorter local file. A full-hash match is
+// still KindUnchanged. A file shorter than Offset when Offset == Size
+// is a truncate, and that stays KindReplace.
 func Plan(mark Mark, st Stat) Decision {
 	if mark.SHA256 == "" && mark.Offset == 0 && mark.Size == 0 {
 		return Decision{Offset: 0, Length: st.Size, Kind: KindNew}
