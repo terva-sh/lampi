@@ -2,9 +2,10 @@
 // blob check, blob put, and manifests.
 //
 // healthz is unauthenticated and returns no catalog data, so a process
-// probe does not need the device token. Every /v1 route checks the bearer
-// token when one is configured. An empty Token disables that check. The
-// serve command refuses to bind a non-loopback address in that state.
+// probe does not need a device token. Every /v1 route checks the bearer
+// token when any device hash is configured. An empty Devices set
+// disables that check. The serve command refuses to bind a non-loopback
+// address in that state. Tokens are stored as hashes, not the bearer.
 package api
 
 import (
@@ -27,9 +28,18 @@ import (
 type Server struct {
 	CAS     *cas.Store
 	Catalog *catalog.Catalog
-	// Token is the expected bearer token. Empty disables the check.
-	Token string
-	Now   func() time.Time
+	// Devices are SHA-256 hashes of bearer tokens. Nil or empty disables
+	// the check. The plaintext is not kept on the server.
+	Devices *auth.Devices
+	Now     func() time.Time
+}
+
+// Allow enrolls a device token by its hash. The token string is not stored.
+func (s *Server) Allow(token string) {
+	if s.Devices == nil {
+		s.Devices = &auth.Devices{}
+	}
+	s.Devices.Allow(token)
 }
 
 // Open loads a filesystem CAS and a SQLite catalog under dataDir.
@@ -74,11 +84,11 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.Token == "" {
+		if s.Devices == nil || s.Devices.Empty() {
 			next(w, r)
 			return
 		}
-		if !auth.Match(r.Header.Get("Authorization"), s.Token) {
+		if !s.Devices.Match(r.Header.Get("Authorization")) {
 			writeJSON(w, http.StatusUnauthorized, protocol.ErrorBody{Error: "unauthorized"})
 			return
 		}
@@ -147,10 +157,84 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "invalid digest"})
 		return
 	}
+	cr := r.Header.Get("Content-Range")
+	if cr != "" && isJSON(r.Header.Get("Content-Type")) {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "content-range and chunk digests are different puts"})
+		return
+	}
+	if cr != "" {
+		s.putRange(w, r, digest, cr)
+		return
+	}
+	if isJSON(r.Header.Get("Content-Type")) {
+		s.putChunks(w, r, digest)
+		return
+	}
 	exists, err := s.CAS.Put(digest, r.Body, protocol.MaxBlobBytes)
+	s.finishPut(w, digest, exists, true, err)
+}
+
+func (s *Server) putRange(w http.ResponseWriter, r *http.Request, digest, header string) {
+	start, end, total, err := parseContentRange(header)
 	if err != nil {
-		// A wrong digest or an oversize body is the client's mistake.
-		// mkdir, rename, and other IO are the lake's.
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	exists, complete, err := s.CAS.PutRange(digest, start, end, total, protocol.MaxBlobBytes, r.Body)
+	s.finishPut(w, digest, exists, complete, err)
+}
+
+func (s *Server) putChunks(w http.ResponseWriter, r *http.Request, digest string) {
+	var body struct {
+		ChunkSHA256s []string `json:"chunk_sha256s"`
+	}
+	if err := decodeJSON(w, r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	parts, err := normalizeDigests(body.ChunkSHA256s)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	ok, err := s.CAS.Has(digest)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	if ok {
+		// The digest is already stored. Do not read or rewrite the chunks.
+		s.finishPut(w, digest, true, true, nil)
+		return
+	}
+	var missing []string
+	seen := map[string]bool{}
+	for _, p := range parts {
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		have, err := s.CAS.Has(p)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+			return
+		}
+		if !have {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: "missing blobs", Missing: missing})
+		return
+	}
+	exists, err := s.CAS.Concat(digest, parts, protocol.MaxBlobBytes)
+	s.finishPut(w, digest, exists, true, err)
+}
+
+func (s *Server) finishPut(w http.ResponseWriter, digest string, exists, complete bool, err error) {
+	if err != nil {
+		// A wrong digest, a bad range, or an oversize body is the client's
+		// mistake. mkdir, rename, and other IO are the lake's.
 		code := http.StatusInternalServerError
 		if errors.Is(err, cas.ErrRejected) {
 			code = http.StatusBadRequest
@@ -158,7 +242,7 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, protocol.ErrorBody{Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.PutResponse{Exists: exists, SHA256: digest})
+	writeJSON(w, http.StatusOK, protocol.PutResponse{Exists: exists, SHA256: digest, Complete: complete})
 }
 
 func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +276,82 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) error {
 		return fmt.Errorf("invalid json: %w", err)
 	}
 	return nil
+}
+
+func isJSON(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	ct, _, _ = strings.Cut(ct, ";")
+	return strings.TrimSpace(ct) == "application/json"
+}
+
+func normalizeDigests(in []string) ([]string, error) {
+	if len(in) == 0 {
+		return nil, fmt.Errorf("chunk_sha256s is empty")
+	}
+	out := make([]string, len(in))
+	for i, d := range in {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if !protocol.ValidDigest(d) {
+			return nil, fmt.Errorf("invalid chunk digest")
+		}
+		out[i] = d
+	}
+	return out, nil
+}
+
+// parseContentRange reads "bytes start-end/total". end is inclusive.
+func parseContentRange(v string) (start, end, total int64, err error) {
+	v = strings.TrimSpace(v)
+	rest, ok := strings.CutPrefix(v, "bytes ")
+	if !ok {
+		rest, ok = strings.CutPrefix(v, "bytes=")
+	}
+	if !ok {
+		return 0, 0, 0, fmt.Errorf("content-range must be bytes start-end/total")
+	}
+	rest = strings.TrimSpace(rest)
+	span, totalText, ok := strings.Cut(rest, "/")
+	if !ok || totalText == "" || totalText == "*" {
+		return 0, 0, 0, fmt.Errorf("content-range must include the total size")
+	}
+	startText, endText, ok := strings.Cut(span, "-")
+	if !ok {
+		return 0, 0, 0, fmt.Errorf("content-range must be bytes start-end/total")
+	}
+	start, err = parseNonNeg(strings.TrimSpace(startText))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("content-range start: %w", err)
+	}
+	end, err = parseNonNeg(strings.TrimSpace(endText))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("content-range end: %w", err)
+	}
+	total, err = parseNonNeg(strings.TrimSpace(totalText))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("content-range total: %w", err)
+	}
+	if end < start || total == 0 || end >= total {
+		return 0, 0, 0, fmt.Errorf("content-range %d-%d/%d is outside the object", start, end, total)
+	}
+	return start, end, total, nil
+}
+
+func parseNonNeg(s string) (int64, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty")
+	}
+	var n int64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("not a number")
+		}
+		d := int64(c - '0')
+		if n > (1<<63-1-d)/10 {
+			return 0, fmt.Errorf("overflow")
+		}
+		n = n*10 + d
+	}
+	return n, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -93,15 +93,17 @@ restart it to reload them. The one-shot command is still `sync`.
 ./bin/terva-lampi serve --token-file ~/.config/terva-lampi/token
 ```
 
-Copy that file to the lake host. With `--token-file`, `/v1` routes
-require `Authorization: Bearer`. Without a token file, `serve` accepts
-unauthenticated requests only on a loopback address and refuses any other
-`--addr`. `/healthz` stays open and returns no catalog data. The server
-compares the token in plaintext. That is a stub: do not upload a project
-whose transcripts you would not copy onto that disk in the clear. Ruleset
-v1 scans for common tokens before the upload and quarantines a hit. It
-does not rewrite the file, and it is not a promise that every secret is
-caught.
+Copy that file to the lake host and pass the copy to `serve`. With
+`--token-file`, `/v1` routes require `Authorization: Bearer`. `serve`
+stores a SHA-256 of each device token and rewrites that copy; keep the
+original as the client's secret. A directory of token files is one
+device each. The token is not a command argument. Without a token file,
+`serve` accepts unauthenticated requests only on a loopback address and
+refuses any other `--addr`. `/healthz` stays open and returns no catalog
+data. Do not upload a project whose transcripts you would not copy onto
+that disk in the clear. Ruleset v1 scans for common tokens before the
+upload and quarantines a hit. It does not rewrite the file, and it is
+not a promise that every secret is caught.
 
 ## Commands
 

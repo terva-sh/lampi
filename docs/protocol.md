@@ -12,8 +12,11 @@ nothing about the catalog, so a process probe does not need a token.
 Every `/v1` route requires `Authorization: Bearer <token>` when the
 server was started with `--token-file`. With no token file, `terva-lampi serve`
 accepts `/v1` unauthenticated only on a loopback address and refuses any
-other `--addr`. The comparison is plaintext. Hashing the token at rest is
-not implemented.
+other `--addr`. The client reads the token from `--token-file` and does
+not take it as an argument. The server stores a SHA-256 of each device
+token and rewrites that file to `sha256:<hex>` lines. One tenant, many
+devices: each device has its own token. The client's copy stays the
+secret; point `serve` at a copy.
 
 ## GET /v1/stats
 
@@ -45,7 +48,9 @@ are hints. The catalog's `ingested_at` is the server clock. The client
 warns when its clock and `server_time` differ by more than five minutes
 (`protocol.ClockSkewWarn`) and still uploads. It checks that version 1
 is in `protocol_versions` and refuses a file larger than `max_blob_bytes`.
-Chunking above that limit is not implemented.
+A PUT body, a Content-Range total, one chunk, and the assembled digest
+each stay under that cap. This client does not yet split a file that is
+already over the cap.
 
 ## POST /v1/blobs/check
 
@@ -69,14 +74,37 @@ the body and refuses it when the hash does not equal the path. A digest
 that is already stored is a success and writes nothing:
 
 ```json
-{"exists": true, "sha256": "..."}
+{"exists": true, "sha256": "...", "complete": true}
 ```
 
 `exists` is false when this call stored the object. The filesystem key is
-`sha256/<ab>/<rest of the digest>`.
+`sha256/<ab>/<rest of the digest>`. `complete` is true for a finished
+object, including one that already existed.
 
-A blob larger than `max_blob_bytes` is refused. The chunked form
-(`chunk_sha256s`, `Content-Range`) is specified below and returns 400.
+A single body larger than `max_blob_bytes` is refused. Two resume forms
+are accepted. Both install the digest only when the pieces assemble, and
+both store nothing when that digest is already present.
+
+`Content-Range: bytes start-end/total` writes that inclusive slice. `end`
+is the last byte. The total is required. A gap leaves the upload
+incomplete (`complete` false) under `partial/` and does not install the
+object. When the ranges cover `[0, total)`, the bytes are hashed, and
+the object is installed only if the hash is the path. A mismatch deletes
+the partial, so the client can send the bytes again. A later PUT of a
+digest that is already stored does not write the range.
+
+A JSON body is the other form:
+
+```json
+{"chunk_sha256s": ["<sha256 of chunk 0>", "<sha256 of chunk 1>"]}
+```
+
+Each chunk is its own object, uploaded with the ordinary PUT. The server
+concatenates them in order and installs the result when the hash matches
+the path. The concatenation is refused when it is longer than
+`max_blob_bytes`. A chunk that is not in the CAS is `409` with `missing`.
+The `Content-Type` is `application/json`. Sending `Content-Range` and a
+chunk list on the same PUT is `400`.
 
 ## POST /v1/manifests
 
@@ -124,8 +152,15 @@ matches the cwd, this hash, or the remote before the manifest is sent.
 `kind` is `transcript_jsonl` or `errors_jsonl` for the sidecar that sits
 next to a terva transcript.
 
-`sha256` is always the full file. `byte_watermark_prev` of 0 means the
-PUT body is that file and `tail_sha256` equals `sha256`. A non-zero prev
+`sha256` is always the full file. `chunk_sha256s` lists the CAS objects
+that concatenate to it, in order. Null means the file was one PUT. A
+non-empty list is assembled when every chunk is already stored; a missing
+chunk is `409` and `missing`. A concatenation longer than `max_blob_bytes`
+is `400`. The assembled object is what Layer B compares. `chunk_sha256s` is not combined with a tail: a tail is one
+blob, named by `tail_sha256`.
+
+`byte_watermark_prev` of 0 means the PUT body is that file and
+`tail_sha256` equals `sha256`. A non-zero prev
 means the PUT body is only the bytes after that offset, `tail_sha256` is
 the hash of those bytes, and `size` is the full file. `terva-lampi sync`
 sends the tail form when the local watermark is a strict prefix of the
@@ -176,11 +211,6 @@ the last artifact. A `divergent_copy` or a `stale` post does not change it.
 
 ## Not in this scaffold
 
-**Chunks.** Files over `max_blob_bytes` split into CAS objects. The
-manifest lists `chunk_sha256s`. The server assembles the artifact when
-every chunk is present. `PUT` with `Content-Range` is the other spelling
-of the same idea. Both are refused.
-
 **Pull.** Push only. A stale client is not repaired from the lake.
 
 **Redaction.** `redaction.status` of `scanned` means ruleset v1 ran and
@@ -197,7 +227,7 @@ Failures are JSON: `{"error":"..."}`. A missing-blob conflict adds
 
 | Status | When |
 |--------|------|
-| 400 | Bad JSON, bad digest, unsupported protocol, chunked artifact, catalog rejection |
+| 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, unsupported protocol, tail combined with chunks, catalog rejection |
 | 401 | Bearer token missing or wrong |
-| 409 | Manifest names a digest that is not in the CAS, or a tail is not a prefix extension |
+| 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
 | 200 | Hello, check, put, manifest ACK, health |

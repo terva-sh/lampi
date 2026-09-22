@@ -69,6 +69,9 @@ func Run(args []string, env Env) error {
 	if msg := aliasWarning(env.Argv0); msg != "" {
 		fmt.Fprint(env.stderr(), msg)
 	}
+	if err := rejectTokenArg(args); err != nil {
+		return err
+	}
 	if len(args) == 0 || isHelp(args[0]) {
 		fmt.Fprint(env.stdout(), rootHelp)
 		return nil
@@ -108,6 +111,18 @@ func versionLine() string {
 
 func isHelp(s string) bool {
 	return s == "-h" || s == "--help" || s == "help"
+}
+
+// rejectTokenArg refuses a device token passed on the command line.
+// The secret is read from --token-file, which does not match this check.
+func rejectTokenArg(args []string) error {
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		if name == "--token" || name == "-token" {
+			return fmt.Errorf("the device token is not an argument; pass --token-file")
+		}
+	}
+	return nil
 }
 
 func parseFlags(env Env, args []string, usage string, setup func(*flag.FlagSet)) ([]string, error) {

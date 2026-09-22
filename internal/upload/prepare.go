@@ -111,14 +111,14 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terv
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
 		if info.Size() > protocol.MaxBlobBytes {
-			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", a.RelPath, info.Size(), protocol.MaxBlobBytes)
+			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s is %d bytes; this client does not split files over %d", a.RelPath, info.Size(), protocol.MaxBlobBytes)
 		}
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
 		if int64(len(body)) > protocol.MaxBlobBytes {
-			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", a.RelPath, len(body), protocol.MaxBlobBytes)
+			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s is %d bytes; this client does not split files over %d", a.RelPath, len(body), protocol.MaxBlobBytes)
 		}
 		scan, err := (redact.Ruleset{}).Scan(body)
 		if err != nil {

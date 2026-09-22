@@ -21,8 +21,8 @@ argument and is not printed. If stdin is not a terminal and is non-empty,
 that single line is stored instead of a generated token.
 
 Point ` + "`terva-lampi serve --token-file`" + ` at a copy of the file on the
-lake host. The server compares it in plaintext in this scaffold; hashing
-at rest is not implemented. Do not put this on a shared network yet.
+lake host. serve hashes each device token and rewrites that copy, so
+keep this file as the client's secret. The token is not an argument.
 `
 
 func runLogin(env Env, args []string) error {
@@ -63,7 +63,7 @@ func runLogin(env Env, args []string) error {
 		return err
 	}
 	fmt.Fprintf(env.stdout(), "wrote device token to %s\n", path)
-	fmt.Fprintln(env.stdout(), "the token is not printed. Copy this file to the lake host and pass it to `terva-lampi serve --token-file`.")
+	fmt.Fprintln(env.stdout(), "the token is not printed. Copy this file to the lake host and pass the copy to `terva-lampi serve --token-file`. serve stores a hash of it.")
 	return nil
 }
 

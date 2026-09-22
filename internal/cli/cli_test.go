@@ -64,10 +64,12 @@ func TestServeRefusesNonLoopbackWithoutToken(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(data, "catalog.db")); !os.IsNotExist(statErr) {
 		t.Fatalf("refused serve created a catalog: %v", statErr)
 	}
-	if err := refuseExposedWithoutToken("127.0.0.1:8787", ""); err != nil {
+	if err := refuseExposedWithoutToken("127.0.0.1:8787", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := refuseExposedWithoutToken("0.0.0.0:8787", "device-token"); err != nil {
+	devices := &auth.Devices{}
+	devices.Allow("device-token")
+	if err := refuseExposedWithoutToken("0.0.0.0:8787", devices); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -91,6 +93,27 @@ func TestListenLoopback(t *testing.T) {
 		}
 		if got != tc.ok {
 			t.Fatalf("%s: got %v", tc.addr, got)
+		}
+	}
+}
+
+func TestDeviceTokenIsNotAnArgument(t *testing.T) {
+	env := Env{Stdout: ioDiscard(), Stderr: ioDiscard(), Getenv: xdg(t.TempDir())}
+	for _, args := range [][]string{
+		{"sync", "--token", "sekret"},
+		{"sync", "--token=sekret"},
+		{"status", "--token", "sekret"},
+		{"serve", "--token", "sekret"},
+		{"agent", "--token", "sekret"},
+		{"login", "--token", "sekret"},
+		{"login", "-token", "sekret"},
+	} {
+		err := Run(args, env)
+		if err == nil || !strings.Contains(err.Error(), "--token-file") {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if strings.Contains(err.Error(), "sekret") {
+			t.Fatalf("%v echoed the token: %v", args, err)
 		}
 	}
 }
@@ -246,7 +269,7 @@ func TestStatusReportsAgentAndServer(t *testing.T) {
 	if err := auth.Write(filepath.Join(data, "token"), tok); err != nil {
 		t.Fatal(err)
 	}
-	lake.Token = tok
+	lake.Allow(tok)
 	srv := httptest.NewServer(lake.Handler())
 	t.Cleanup(srv.Close)
 
@@ -324,7 +347,7 @@ func TestStatusCatalogUnauthorized(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { lake.Close() })
-	lake.Token = "sekret"
+	lake.Allow("sekret")
 	srv := httptest.NewServer(lake.Handler())
 	t.Cleanup(srv.Close)
 
@@ -469,7 +492,7 @@ func TestSyncAgainstServe(t *testing.T) {
 	if err := auth.Write(filepath.Join(data, "token"), tok); err != nil {
 		t.Fatal(err)
 	}
-	lake.Token = tok
+	lake.Allow(tok)
 	srv := httptest.NewServer(lake.Handler())
 	t.Cleanup(srv.Close)
 

@@ -25,9 +25,15 @@ usage:
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
 counts and uses the same auth as the other /v1 routes. /v1/* requires
-the device token when --token-file is set. With no token file the
+a device token when --token-file is set. With no token file the
 process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.
+
+--token-file is a file of device tokens, one per line, or a directory
+with one file per device. Each plaintext token is hashed and the file
+is rewritten to sha256 lines. Copy the device's token file first; do
+not point this flag at the device's only copy. The token is not an
+argument.
 
 The lake directory holds cas/ (sha256 blobs) and catalog.db (SQLite).
 The default is the XDG state dir terva-lampi/, not $TERVA_HOME.
@@ -57,14 +63,14 @@ func runServe(env Env, args []string) error {
 			return err
 		}
 	}
-	var token string
+	var devices *auth.Devices
 	if tokenFile != "" {
-		token, err = auth.Read(tokenFile)
+		devices, err = auth.LoadDevices(tokenFile)
 		if err != nil {
 			return err
 		}
 	}
-	if err := refuseExposedWithoutToken(addr, token); err != nil {
+	if err := refuseExposedWithoutToken(addr, devices); err != nil {
 		return err
 	}
 	lake, err := api.Open(data)
@@ -72,7 +78,7 @@ func runServe(env Env, args []string) error {
 		return err
 	}
 	defer lake.Close()
-	lake.Token = token
+	lake.Devices = devices
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -80,10 +86,12 @@ func runServe(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: listening on %s\n", ln.Addr())
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: data %s\n", data)
-	if token == "" {
+	if devices == nil || devices.Empty() {
 		fmt.Fprintln(env.stderr(), "terva-lampi serve: no device token configured; accepting unauthenticated requests")
+	} else if devices.Len() == 1 {
+		fmt.Fprintln(env.stderr(), "terva-lampi serve: 1 device token required")
 	} else {
-		fmt.Fprintln(env.stderr(), "terva-lampi serve: device token required")
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: %d device tokens required\n", devices.Len())
 	}
 
 	srv := &http.Server{
@@ -112,9 +120,9 @@ func runServe(env Env, args []string) error {
 
 // refuseExposedWithoutToken rejects a listen that is not loopback when no
 // device token is configured. A stderr note is not enough: 0.0.0.0 with an
-// empty token would publish the lake.
-func refuseExposedWithoutToken(addr, token string) error {
-	if token != "" {
+// empty token set would publish the lake.
+func refuseExposedWithoutToken(addr string, devices *auth.Devices) error {
+	if devices != nil && !devices.Empty() {
 		return nil
 	}
 	ok, err := listenLoopback(addr)

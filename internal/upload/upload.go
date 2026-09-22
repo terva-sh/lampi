@@ -15,11 +15,16 @@
 // includes a pass that refused or quarantined every session. A lake
 // error leaves the previous stamp, so status does not report the failed
 // attempt as the last sync.
+//
+// PieceBytes and ChunkBytes opt a put into a resumable form. Zero keeps
+// the single body. The server installs the digest when the pieces assemble.
 package upload
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +59,13 @@ type Options struct {
 	UploadHits bool
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
+	// PieceBytes sends the body as Content-Range slices of this size.
+	// Zero sends one body. A slice larger than the body is one body.
+	PieceBytes int64
+	// ChunkBytes splits the body into CAS objects of this size and PUTs
+	// the chunk digests. Zero sends one body. The manifest lists the
+	// chunks when the artifact is the whole file.
+	ChunkBytes int64
 }
 
 // Result counts what this run did. Sessions are the uids the server ACKed,
@@ -158,7 +170,8 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		}
 		arts = append(arts, w.manifest.Artifacts...)
 	}
-	if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, arts, bodies); err != nil {
+	lists := map[string][]string{}
+	if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, arts, bodies, lists); err != nil {
 		return res, err
 	}
 	for i := range work {
@@ -166,11 +179,13 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		if err := requireScanned(w.manifest); err != nil {
 			return res, err
 		}
+		applyChunkLists(&w.manifest, lists)
 		ack, err := postManifest(ctx, client, opt, w.manifest)
 		if prefixMismatch(err) && widenToFullFile(w) {
-			if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, w.manifest.Artifacts, w.bodies); err != nil {
+			if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, w.manifest.Artifacts, w.bodies, lists); err != nil {
 				return res, err
 			}
+			applyChunkLists(&w.manifest, lists)
 			ack, err = postManifest(ctx, client, opt, w.manifest)
 		}
 		if err != nil {
@@ -321,7 +336,7 @@ func prefixMismatch(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "prefix mismatch")
 }
 
-func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte) error {
+func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte, lists map[string][]string) error {
 	if max <= 0 {
 		max = protocol.MaxBlobBytes
 	}
@@ -338,7 +353,7 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 			return fmt.Errorf("upload: %s: no bytes for %s", a.RelPath, d)
 		}
 		if int64(len(b)) > max {
-			return fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", a.RelPath, len(b), max)
+			return fmt.Errorf("upload: %s is %d bytes; this client does not split files over %d", a.RelPath, len(b), max)
 		}
 		digests = append(digests, d)
 	}
@@ -352,7 +367,7 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 	}
 	res.Missing += len(missing)
 	for _, d := range missing {
-		put, err := putBlob(ctx, client, opt, d, bodies[d])
+		put, err := putBlobResume(ctx, client, opt, d, bodies[d], lists)
 		if err != nil {
 			return err
 		}
@@ -361,6 +376,96 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 		}
 	}
 	return nil
+}
+
+func applyChunkLists(m *protocol.Manifest, lists map[string][]string) {
+	if len(lists) == 0 {
+		return
+	}
+	for i, a := range m.Artifacts {
+		if a.ByteWatermarkPrev != 0 {
+			continue
+		}
+		if chunks, ok := lists[a.SHA256]; ok {
+			m.Artifacts[i].ChunkSHA256s = chunks
+		}
+	}
+}
+
+func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string][]string) (protocol.PutResponse, error) {
+	if opt.ChunkBytes > 0 && int64(len(body)) > opt.ChunkBytes {
+		return putChunked(ctx, client, opt, digest, body, lists)
+	}
+	if opt.PieceBytes > 0 && int64(len(body)) > opt.PieceBytes {
+		return putRanged(ctx, client, opt, digest, body)
+	}
+	return putBlob(ctx, client, opt, digest, body)
+}
+
+func putRanged(ctx context.Context, client *http.Client, opt Options, digest string, body []byte) (protocol.PutResponse, error) {
+	var last protocol.PutResponse
+	size := int64(len(body))
+	for start := int64(0); start < size; {
+		end := start + opt.PieceBytes - 1
+		if end >= size {
+			end = size - 1
+		}
+		header := fmt.Sprintf("bytes %d-%d/%d", start, end, size)
+		err := doRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body[start:end+1], "application/octet-stream", map[string]string{
+			"Content-Range": header,
+		}, &last)
+		if err != nil {
+			return last, err
+		}
+		if last.Complete {
+			return last, nil
+		}
+		start = end + 1
+	}
+	if !last.Complete {
+		return last, fmt.Errorf("upload: %s: range put did not assemble", digest)
+	}
+	return last, nil
+}
+
+func putChunked(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string][]string) (protocol.PutResponse, error) {
+	n := int(opt.ChunkBytes)
+	var parts []string
+	chunkBody := map[string][]byte{}
+	for start := 0; start < len(body); start += n {
+		end := start + n
+		if end > len(body) {
+			end = len(body)
+		}
+		piece := body[start:end]
+		sum := sha256.Sum256(piece)
+		d := hex.EncodeToString(sum[:])
+		parts = append(parts, d)
+		if _, ok := chunkBody[d]; !ok {
+			chunkBody[d] = append([]byte(nil), piece...)
+		}
+	}
+	if lists != nil {
+		lists[digest] = parts
+	}
+	missing, err := postCheck(ctx, client, opt, parts)
+	if err != nil {
+		return protocol.PutResponse{}, err
+	}
+	for _, d := range missing {
+		if _, err := putBlob(ctx, client, opt, d, chunkBody[d]); err != nil {
+			return protocol.PutResponse{}, err
+		}
+	}
+	raw, err := json.Marshal(struct {
+		ChunkSHA256s []string `json:"chunk_sha256s"`
+	}{ChunkSHA256s: parts})
+	if err != nil {
+		return protocol.PutResponse{}, err
+	}
+	var out protocol.PutResponse
+	err = doRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, raw, "application/json", nil, &out)
+	return out, err
 }
 
 func putDigest(a protocol.Artifact) string {
@@ -481,6 +586,10 @@ func postManifest(ctx context.Context, client *http.Client, opt Options, m proto
 }
 
 func doJSON(ctx context.Context, client *http.Client, opt Options, method, p string, body []byte, dest any) error {
+	return doRequest(ctx, client, opt, method, p, body, "", nil, dest)
+}
+
+func doRequest(ctx context.Context, client *http.Client, opt Options, method, p string, body []byte, contentType string, extra map[string]string, dest any) error {
 	u, err := endpoint(opt.ServerURL, p)
 	if err != nil {
 		return err
@@ -489,10 +598,15 @@ func doJSON(ctx context.Context, client *http.Client, opt Options, method, p str
 	if err != nil {
 		return err
 	}
-	if method == http.MethodPut {
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	} else if method == http.MethodPut {
 		req.Header.Set("Content-Type", "application/octet-stream")
 	} else {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range extra {
+		req.Header.Set(k, v)
 	}
 	if opt.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+opt.Token)
