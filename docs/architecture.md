@@ -24,11 +24,14 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
-| Push | `internal/upload` | Check, put missing, post manifests. Does not use the outbox yet |
+| Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
+| Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
+| Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK |
 
 `terva-lampi agent` lists those files and watches them. It does not
-upload. `terva-lampi sync` is the path that moves bytes, and it still
-uploads whole files rather than tails.
+upload. `terva-lampi sync` is the path that moves bytes. The agent loop
+will call that same function. A grown file is still one whole blob; the
+lake does not assemble a tail yet. An unchanged file uploads nothing.
 
 ## What this tree does not do
 
@@ -36,13 +39,14 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/redact` | Ruleset v1 before bytes leave the machine. The stub reports `unscanned` |
 | `internal/normalize` | Raw blob to the shared event schema |
 | `internal/adapter` | Claude Code, Codex, OpenCode. Cursor is intentionally last and is not started |
 
-`internal/watch`, `internal/outbox`, and `internal/watermark` are
-implemented. `terva-lampi sync` does not enqueue or advance a watermark
-yet. That wiring is a separate change from the stores themselves.
+`internal/watch`, `internal/outbox`, `internal/watermark`, and
+`internal/redact` are implemented. `terva-lampi sync` enqueues, scans,
+and advances a watermark after the manifest ACK. `terva-lampi agent`
+still only watches. Wiring the long-running loop to `upload.Sync` is a
+separate change.
 
 `hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
 source of truth. The directory walk is.
@@ -61,11 +65,14 @@ Near-duplicate detection is out of scope.
 $TERVA_HOME/sessions/**/*.jsonl
         |
         v
-terva-lampi agent / sync          terva-lampi serve
-  discover, hash, manifest   -->    CAS + SQLite catalog
+allowlist (default deny) → ruleset v1 → quarantine on a hit
         |
         v
-  (later) redact, then the outbox and watermarks on the sync path
+watermark plan → outbox → PUT missing blobs → manifest ACK
+        |
+        v
+watermark commit and outbox ACK          terva-lampi serve
+                                         CAS + SQLite catalog
 ```
 
 Other harnesses are adapters behind the same manifest. terva is the only
@@ -90,7 +97,7 @@ internal/adapter/         harness interface
 internal/adapter/terva/   meta line, manifests
 internal/upload/          one-shot push
 internal/watch/           fsnotify, poll fallback
-internal/redact/          stub
+internal/redact/          ruleset v1 and quarantine.jsonl
 internal/outbox/          SQLite queue
 internal/watermark/       per-path cursor, ACK-gated
 internal/normalize/       stub
@@ -116,7 +123,9 @@ Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
 `terva-lampi/` (override with `--data`), mode 0700, separate from
 `$TERVA_HOME`. `$TERVA_HOME` is the producer. The lake does not write into it.
 
-Secrets in transcripts are the main risk, and this scaffold does not
-redact. Do not point `serve` at a network interface you do not control,
-and do not upload a project you would not copy onto that disk in the
-clear.
+Secrets in transcripts are the main risk. Ruleset v1 runs before the
+upload and refuses a hit unless `redaction.upload_hits` is set. The
+allowlist is the other gate: a project that is not listed does not
+leave the machine. Neither one rewrites the raw file. Do not point
+`serve` at a network interface you do not control, and do not upload a
+project you would not copy onto that disk in the clear.

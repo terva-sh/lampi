@@ -73,12 +73,14 @@ curl -sS http://127.0.0.1:8787/healthz
 
 `agent discover` lists JSONL files under `$TERVA_HOME/sessions` (or
 terva's platform default when that variable is unset). `sync` pushes
-them. A second `sync` of the same files uploads nothing. `status` prints
-the machine id and whether `/healthz` answered.
+the ones `config.json` allowlists. With no allow rule it refuses the
+project; the shape of that file is under [Off-box raw](#off-box-raw).
+A second `sync` of the same files uploads nothing. `status` prints the
+machine id and whether `/healthz` answered.
 
-`agent` with no subcommand prints the same discovery and then waits.
-Filesystem watch is not implemented; the wait is a stub. Use `sync` to
-push.
+`agent` with no subcommand prints the same discovery and then watches
+session files until it is signalled. The watch does not upload. Use
+`sync` to push.
 
 `login` writes a device token and does not print it:
 
@@ -92,8 +94,10 @@ require `Authorization: Bearer`. Without a token file, `serve` accepts
 unauthenticated requests only on a loopback address and refuses any other
 `--addr`. `/healthz` stays open and returns no catalog data. The server
 compares the token in plaintext. That is a stub: do not upload a project
-whose transcripts you would not copy onto that disk in the clear. Nothing
-here redacts secrets.
+whose transcripts you would not copy onto that disk in the clear. Ruleset
+v1 scans for common tokens before the upload and quarantines a hit. It
+does not rewrite the file, and it is not a promise that every secret is
+caught.
 
 ## Commands
 
@@ -101,7 +105,7 @@ here redacts secrets.
 |---------|----------------|
 | `terva-lampi serve` | Lake. `GET /healthz`, blob check/put, manifests. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or wait. |
-| `terva-lampi sync` | One shot: hash, skip digests the lake has, PUT the rest, POST manifests. |
+| `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, session count, lake health. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 
@@ -109,6 +113,53 @@ here redacts secrets.
 
 The machine id is a ULID created once in `~/.config/terva-lampi/machine.json`
 (`XDG_CONFIG_HOME` when that is set). It is not a fleet origin.
+
+## Off-box raw
+
+Raw bytes leave the machine only for a project `config.json` allowlists.
+The default is to refuse every project. A rule matches the session's
+cwd (a path prefix, on a boundary), its terva cwd hash, or its git
+remote. Every field set on a rule has to match. `projects.deny` wins
+over allow. An empty rule matches nothing.
+
+The cwd is the one in the terva meta line, not the path of the JSONL
+file. Git remotes are folded before comparison, so
+`git@github.com:terva-sh/lampi.git` and
+`https://github.com/terva-sh/lampi` are the same remote. When the
+session cwd still has a `.git`, the manifest records origin's URL.
+
+```json
+{
+  "server": "http://127.0.0.1:8787",
+  "projects": {
+    "allow": [
+      {"cwd_prefix": "/home/drew/src/foo"},
+      {"git_remote": "git@github.com:terva-sh/lampi.git"},
+      {"cwd_hash": "a1b2c3d4e5f60708"}
+    ],
+    "deny": [
+      {"cwd_prefix": "/home/drew/src/foo/private"}
+    ]
+  },
+  "redaction": {"upload_hits": false}
+}
+```
+
+`terva-lampi agent config` prints how many allow and deny rules are
+loaded. `sync` names each refused session and exits non-zero.
+
+Before a request is sent, ruleset v1 scans the file. The manifest
+stamps `redaction.ruleset` as `v1` and `redaction.status` as `scanned`
+when there are no hits. A hit is appended to `quarantine.jsonl` in the
+state directory (mode 0600) and is not uploaded. The log names the rule.
+It does not contain the matched text. `redaction.upload_hits` is the
+only override that uploads a hit, and the manifest status is then
+`override` with the hit count. Leave it false.
+
+`sync` and the future agent loop share this path: allowlist, scan,
+watermark plan, outbox, upload, manifest ACK, then watermark commit
+and outbox ACK. An unchanged file uploads no new blob. The cursor does
+not move if the manifest POST fails.
 
 ## Build
 
@@ -179,11 +230,13 @@ a normalize-and-search proof, and the later harness phases.
 
 ## Status
 
-This tree compiles and moves terva JSONL end to end against a local lake.
-In: filesystem CAS, SQLite catalog, device-token file, discovery of
-`$TERVA_HOME/sessions`, an fsnotify/poll watcher, a durable outbox, and
-per-path watermarks. Out, on purpose: redaction, hashed tokens, wiring
-sync through the outbox and tail-only watermarks, Claude/Codex/OpenCode/Cursor,
+This tree compiles and moves allowlisted terva JSONL end to end against
+a local lake. In: filesystem CAS, SQLite catalog, device-token file,
+discovery of `$TERVA_HOME/sessions`, an fsnotify/poll watcher, a durable
+outbox, per-path watermarks, a project allowlist, and ruleset v1.
+`sync` runs that pipeline and writes the watermark only after the
+manifest ACK. Out, on purpose: hashed tokens, tail assembly on the lake,
+the long-running upload loop inside `agent`, Claude/Codex/OpenCode/Cursor,
 and a normalizer. See [docs/architecture.md](docs/architecture.md).
 
 ## License

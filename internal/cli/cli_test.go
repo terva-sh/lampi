@@ -240,6 +240,7 @@ func TestSyncAgainstServe(t *testing.T) {
 
 	home := t.TempDir()
 	cfg := t.TempDir()
+	state := t.TempDir()
 	dir := filepath.Join(home, "sessions", "abcd")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -252,6 +253,13 @@ func TestSyncAgainstServe(t *testing.T) {
 	if err := auth.Write(tokenCopy, tok); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	allow := []byte("{\"projects\":{\"allow\":[{\"cwd_prefix\":\"/work/app\"}]}}\n")
+	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), allow, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	env := Env{
 		Stdout: &out,
@@ -262,6 +270,8 @@ func TestSyncAgainstServe(t *testing.T) {
 				return home
 			case "XDG_CONFIG_HOME":
 				return cfg
+			case "XDG_STATE_HOME":
+				return state
 			default:
 				return ""
 			}
@@ -279,6 +289,52 @@ func TestSyncAgainstServe(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "uploaded 0") {
 		t.Fatalf("resync: %s", out.String())
+	}
+}
+
+func TestSyncRefusesWithoutAllowlist(t *testing.T) {
+	data := t.TempDir()
+	lake, err := api.Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	cfg := t.TempDir()
+	state := t.TempDir()
+	dir := filepath.Join(home, "sessions", "abcd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "{\"type\":\"meta\",\"meta\":{\"id\":\"sess-1\",\"cwd\":\"/work/app\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "sess-1.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err = Run([]string{"sync", "--server", srv.URL}, Env{
+		Stdout: &out,
+		Stderr: ioDiscard(),
+		Getenv: func(k string) string {
+			switch k {
+			case "TERVA_HOME":
+				return home
+			case "XDG_CONFIG_HOME":
+				return cfg
+			case "XDG_STATE_HOME":
+				return state
+			default:
+				return ""
+			}
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("err %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "refused 1") {
+		t.Fatalf("summary: %s", out.String())
 	}
 }
 

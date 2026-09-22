@@ -47,8 +47,8 @@ func TestManifestsGroupSidecar(t *testing.T) {
 			t.Fatalf("header: %+v", m)
 		}
 		for _, a := range m.Artifacts {
-			if a.Redaction.Status != protocol.RedactionUnscanned {
-				t.Fatalf("redaction %s", a.Redaction.Status)
+			if a.Redaction.Status != "" || a.Redaction.Ruleset != "" {
+				t.Fatalf("builder stamped a scan it did not run: %+v", a.Redaction)
 			}
 			if a.ChunkSHA256s != nil || a.ByteWatermarkPrev != 0 || a.TailSHA256 != a.SHA256 {
 				t.Fatalf("artifact watermark: %+v", a)

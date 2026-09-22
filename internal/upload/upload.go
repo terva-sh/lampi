@@ -1,10 +1,12 @@
-// Package upload is the one-shot push: hello, blob check, put of missing
-// digests, then a manifest per session.
+// Package upload is the one-shot push shared by terva-lampi sync and, later,
+// the long-running agent.
 //
-// It keeps no outbox. A failed run is retried by running it again. Puts
-// of a digest the server already has do not transfer the body twice from
-// the server's point of view; this client still skips the PUT when check
-// says the digest is present.
+// The order is fixed. Allowlist, then ruleset v1, then watermark.Plan,
+// then the outbox, then the network. A manifest ACK is what commits the
+// watermark and acks the outbox. A file whose bytes match the stored
+// watermark is checked and not PUT again. A grown file is still one whole
+// blob: the lake does not assemble tails yet, so Plan's tail is recorded
+// on the manifest and the PUT is the new full digest.
 package upload
 
 import (
@@ -15,34 +17,62 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"terva.sh/lampi/internal/adapter/terva"
+	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/redact"
+	"terva.sh/lampi/internal/watermark"
 )
 
-// Options selects the lake and the local terva home.
+// Options selects the lake, the local terva home, and the off-box gate.
+// Projects zero value denies every project. UploadHits is the explicit
+// override that sends bytes ruleset v1 flagged.
 type Options struct {
-	ServerURL string
-	Token     string
-	TervaHome string
-	MachineID string
-	Client    *http.Client
+	ServerURL  string
+	Token      string
+	TervaHome  string
+	MachineID  string
+	StateDir   string
+	Client     *http.Client
+	Projects   config.Projects
+	UploadHits bool
 }
 
 // Result counts what this run did. Sessions are the uids the server ACKed,
-// in manifest order.
+// in manifest order. Refused and Quarantined count sessions that did not
+// leave the machine.
 type Result struct {
-	Checked   int
-	Missing   int
-	Uploaded  int
-	Manifests int
-	Sessions  []string
+	Checked     int
+	Missing     int
+	Uploaded    int
+	Manifests   int
+	Refused     int
+	Quarantined int
+	Sessions    []string
 }
 
-// Sync pushes every terva session file under opt.TervaHome.
+// Rejected is one or more sessions that stayed on the machine.
+// Approved sessions in the same run are still uploaded.
+type Rejected struct {
+	Reasons []string
+}
+
+func (e *Rejected) Error() string {
+	var b strings.Builder
+	b.WriteString("upload: refused off-box raw:")
+	for _, r := range e.Reasons {
+		b.WriteByte('\n')
+		b.WriteString(r)
+	}
+	return b.String()
+}
+
+// Sync pushes allowlisted terva session files under opt.TervaHome.
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
@@ -50,13 +80,48 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.MachineID == "" {
 		return Result{}, fmt.Errorf("upload: machine_id is empty")
 	}
+	bundle, err := terva.Manifests(opt.TervaHome, opt.MachineID)
+	if err != nil {
+		return Result{}, err
+	}
+	if len(bundle.Manifests) == 0 {
+		return Result{}, nil
+	}
+	if opt.StateDir == "" {
+		return Result{}, fmt.Errorf("upload: state dir is empty")
+	}
+
+	q, err := outbox.Open(outbox.File(opt.StateDir))
+	if err != nil {
+		return Result{}, err
+	}
+	defer q.Close()
+	wm, err := watermark.Open(watermark.File(opt.StateDir))
+	if err != nil {
+		return Result{}, err
+	}
+	defer wm.Close()
+
+	work, res, err := prepare(ctx, opt, wm, q, bundle)
+	var rejected error
+	if r, ok := err.(*Rejected); ok {
+		rejected = r
+		err = nil
+	}
+	if err != nil {
+		return res, err
+	}
+	if len(work) == 0 {
+		return res, rejected
+	}
+
 	client := opt.Client
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
 	}
 	hello, err := postHello(ctx, client, opt)
 	if err != nil {
-		return Result{}, err
+		return res, err
 	}
 	supported := false
 	for _, v := range hello.ProtocolVersions {
@@ -65,58 +130,112 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		}
 	}
 	if !supported {
-		return Result{}, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
+		return res, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
 	}
 
-	bundle, err := terva.Manifests(opt.TervaHome, opt.MachineID)
-	if err != nil {
-		return Result{}, err
-	}
-	var res Result
-	if len(bundle.Manifests) == 0 {
-		return res, nil
-	}
-
-	digests := make([]string, 0, len(bundle.Paths))
-	for d, path := range bundle.Paths {
-		st, err := os.Stat(path)
-		if err != nil {
-			return Result{}, err
+	bodies := map[string][]byte{}
+	var digests []string
+	for _, w := range work {
+		for _, a := range w.manifest.Artifacts {
+			if int64(len(w.bodies[a.SHA256])) > hello.MaxBlobBytes {
+				return res, fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", a.RelPath, len(w.bodies[a.SHA256]), hello.MaxBlobBytes)
+			}
+			if _, ok := bodies[a.SHA256]; ok {
+				continue
+			}
+			bodies[a.SHA256] = w.bodies[a.SHA256]
+			digests = append(digests, a.SHA256)
 		}
-		if st.Size() > hello.MaxBlobBytes {
-			return Result{}, fmt.Errorf("upload: %s is %d bytes; chunked upload is not implemented (max %d)", path, st.Size(), hello.MaxBlobBytes)
-		}
-		digests = append(digests, d)
 	}
 	res.Checked = len(digests)
 	missing, err := postCheck(ctx, client, opt, digests)
 	if err != nil {
-		return Result{}, err
+		return res, err
 	}
 	res.Missing = len(missing)
 	for _, d := range missing {
-		path := bundle.Paths[d]
-		body, err := os.ReadFile(path)
+		put, err := putBlob(ctx, client, opt, d, bodies[d])
 		if err != nil {
-			return Result{}, err
-		}
-		put, err := putBlob(ctx, client, opt, d, body)
-		if err != nil {
-			return Result{}, err
+			return res, err
 		}
 		if !put.Exists {
 			res.Uploaded++
 		}
 	}
-	for _, m := range bundle.Manifests {
-		ack, err := postManifest(ctx, client, opt, m)
+	for _, w := range work {
+		if err := requireScanned(w.manifest); err != nil {
+			return res, err
+		}
+		ack, err := postManifest(ctx, client, opt, w.manifest)
 		if err != nil {
-			return Result{}, err
+			return res, err
 		}
 		res.Manifests++
 		res.Sessions = append(res.Sessions, ack.SessionUID)
+		if err := commitAck(ctx, opt, wm, q, w.manifest, ack); err != nil {
+			return res, err
+		}
 	}
-	return res, nil
+	return res, rejected
+}
+
+func requireScanned(m protocol.Manifest) error {
+	for _, a := range m.Artifacts {
+		if a.Redaction.Ruleset != redact.RulesetV1 {
+			return fmt.Errorf("upload: %s: redaction ruleset v1 did not run", a.RelPath)
+		}
+		switch a.Redaction.Status {
+		case protocol.RedactionScanned:
+			if a.Redaction.Hits != 0 {
+				return fmt.Errorf("upload: %s: redaction hit would have been uploaded", a.RelPath)
+			}
+		case protocol.RedactionOverride:
+			if a.Redaction.Hits < 1 {
+				return fmt.Errorf("upload: %s: override without a redaction hit", a.RelPath)
+			}
+		default:
+			return fmt.Errorf("upload: %s: redaction ruleset v1 did not run", a.RelPath)
+		}
+	}
+	return nil
+}
+
+func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, m protocol.Manifest, ack protocol.ManifestAck) error {
+	for _, a := range m.Artifacts {
+		mark := watermark.Mark{
+			MachineID: opt.MachineID,
+			Harness:   protocol.HarnessTerva,
+			Root:      opt.TervaHome,
+			RelPath:   a.RelPath,
+			Size:      a.Size,
+			ModTime:   a.MTime,
+			SHA256:    a.SHA256,
+			Offset:    a.Size,
+		}
+		if err := wm.Commit(ctx, mark, ack); err != nil {
+			return err
+		}
+		if err := q.Ack(ctx, outbox.Item{Identity: blobIdentity(opt.MachineID, opt.TervaHome, a.RelPath)}); err != nil {
+			return err
+		}
+	}
+	return q.Ack(ctx, outbox.Item{Identity: manifestIdentity(opt.MachineID, m.NativeSessionID)})
+}
+
+var (
+	verMu   sync.Mutex
+	lastVer int64
+)
+
+func nextVersion() int64 {
+	verMu.Lock()
+	defer verMu.Unlock()
+	v := time.Now().UnixNano()
+	if v <= lastVer {
+		v = lastVer + 1
+	}
+	lastVer = v
+	return v
 }
 
 func postHello(ctx context.Context, client *http.Client, opt Options) (protocol.HelloResponse, error) {
