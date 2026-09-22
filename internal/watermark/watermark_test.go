@@ -233,6 +233,49 @@ func TestWALSidecarsArePrivate(t *testing.T) {
 	}
 }
 
+func TestSummaryCountsCommittedBytes(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "watermarks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	sum, err := s.Summary(ctx)
+	if err != nil || sum.Paths != 0 || sum.Bytes != 0 || !sum.Newest.IsZero() {
+		t.Fatalf("empty %+v %v", sum, err)
+	}
+	body := []byte("0123456789")
+	digest := sha256.Sum256(body)
+	mark := Mark{
+		MachineID: "machine-1",
+		Harness:   protocol.HarnessTerva,
+		Root:      "/t",
+		RelPath:   "sessions/abcd/s.jsonl",
+		Size:      int64(len(body)),
+		Offset:    int64(len(body)),
+		SHA256:    hex.EncodeToString(digest[:]),
+		ModTime:   time.Unix(1_700_000_000, 0).UTC(),
+	}
+	ack := protocol.ManifestAck{SessionUID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+	if err := s.Commit(ctx, mark, ack); err != nil {
+		t.Fatal(err)
+	}
+	other := mark
+	other.RelPath = "sessions/abcd/e.jsonl"
+	other.Size = 4
+	other.Offset = 4
+	if err := s.Commit(ctx, other, ack); err != nil {
+		t.Fatal(err)
+	}
+	sum, err = s.Summary(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Paths != 2 || sum.Bytes != 14 || sum.Newest.IsZero() {
+		t.Fatalf("summary %+v", sum)
+	}
+}
+
 func TestFilePath(t *testing.T) {
 	if got := File("/var/state"); got != filepath.Join("/var/state", "watermarks.db") {
 		t.Fatalf("File = %s", got)

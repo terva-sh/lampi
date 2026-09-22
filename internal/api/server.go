@@ -1,5 +1,5 @@
-// Package api is the ingest HTTP surface: health, hello, blob check, blob
-// put, and manifests.
+// Package api is the ingest HTTP surface: health, catalog stats, hello,
+// blob check, blob put, and manifests.
 //
 // healthz is unauthenticated and returns no catalog data, so a process
 // probe does not need the device token. Every /v1 route checks the bearer
@@ -64,6 +64,7 @@ func (s *Server) now() time.Time {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /v1/stats", s.authed(s.stats))
 	mux.HandleFunc("POST /v1/hello", s.authed(s.hello))
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
@@ -87,6 +88,19 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
+	n, err := s.Catalog.Counts(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.StatsResponse{
+		Sessions:  n.Sessions,
+		Artifacts: n.Artifacts,
+		Machines:  n.Machines,
+	})
 }
 
 func (s *Server) hello(w http.ResponseWriter, r *http.Request) {

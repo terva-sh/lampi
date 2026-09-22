@@ -259,6 +259,32 @@ func TestWALSidecarsArePrivate(t *testing.T) {
 	}
 }
 
+func TestDepthCountsPending(t *testing.T) {
+	q, err := Open(filepath.Join(t.TempDir(), "outbox.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	ctx := context.Background()
+	n, err := q.Depth(ctx)
+	if err != nil || n != 0 {
+		t.Fatalf("empty depth %d %v", n, err)
+	}
+	if err := q.Enqueue(ctx, Item{Digest: repeat('a', 64)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Enqueue(ctx, Item{Digest: repeat('b', 64)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Ack(ctx, Item{Digest: repeat('a', 64)}); err != nil {
+		t.Fatal(err)
+	}
+	n, err = q.Depth(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("depth %d %v", n, err)
+	}
+}
+
 func TestRejectsBadDigest(t *testing.T) {
 	q, err := Open(filepath.Join(t.TempDir(), "outbox.db"))
 	if err != nil {

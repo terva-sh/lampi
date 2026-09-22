@@ -76,7 +76,8 @@ terva's platform default when that variable is unset). `sync` pushes
 the ones `config.json` allowlists. With no allow rule it refuses the
 project; the shape of that file is under [Off-box raw](#off-box-raw).
 A second `sync` of the same files uploads nothing. `status` prints the
-machine id and whether `/healthz` answered.
+machine id, outbox depth, watermark summary, last finished sync, whether
+`/healthz` answered, and catalog counts from `GET /v1/stats`.
 
 `agent` with no subcommand prints the same discovery, pushes the
 allowlisted sessions once, then watches. Growth calls that same push.
@@ -106,10 +107,10 @@ caught.
 
 | Command | What it does |
 |---------|----------------|
-| `terva-lampi serve` | Lake. `GET /healthz`, blob check/put, manifests. |
+| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, blob check/put, manifests. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
-| `terva-lampi status` | Machine id, session count, lake health. |
+| `terva-lampi status` | Machine id, outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.

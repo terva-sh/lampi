@@ -152,6 +152,34 @@ func (s *DB) Close() error {
 	return s.db.Close()
 }
 
+// Summary is the operator view of the store: how many paths are marked,
+// how many bytes those marks cover, and when the newest one was committed.
+type Summary struct {
+	Paths  int
+	Bytes  int64
+	Newest time.Time
+}
+
+// Summary reads the store. An empty database is a zero Summary.
+func (s *DB) Summary(ctx context.Context) (Summary, error) {
+	var sum Summary
+	var newest sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(size), 0), MAX(updated_at) FROM watermarks`,
+	).Scan(&sum.Paths, &sum.Bytes, &newest)
+	if err != nil {
+		return Summary{}, fmt.Errorf("watermark: %w", err)
+	}
+	if newest.Valid && newest.String != "" {
+		t, err := time.Parse(time.RFC3339Nano, newest.String)
+		if err != nil {
+			return Summary{}, fmt.Errorf("watermark: updated_at: %w", err)
+		}
+		sum.Newest = t.UTC()
+	}
+	return sum, nil
+}
+
 // Get returns the mark for key. The size, mtime, sha256, and offset on
 // key are ignored. ok is false when this path has never been ACKed.
 func (s *DB) Get(ctx context.Context, key Mark) (Mark, bool, error) {

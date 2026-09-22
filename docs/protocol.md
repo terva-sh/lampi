@@ -15,6 +15,19 @@ accepts `/v1` unauthenticated only on a loopback address and refuses any
 other `--addr`. The comparison is plaintext. Hashing the token at rest is
 not implemented.
 
+## GET /v1/stats
+
+Catalog counts for an operator. This is not healthz. It uses the same
+bearer check as the other `/v1` routes, and it returns no session bodies.
+
+```json
+{"sessions": 1, "artifacts": 2, "machines": 1}
+```
+
+`sessions` and `artifacts` are row counts. `machines` is the number of
+distinct `machine_id` values in provenance. `terva-lampi status` prints
+these. A process probe should keep using `/healthz`.
+
 ## POST /v1/hello
 
 The client calls this first. The body is ignored.

@@ -35,7 +35,7 @@ usage:
   terva-lampi agent discover     list $TERVA_HOME/sessions JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
   terva-lampi agent config       print paths and the effective server URL
-  terva-lampi agent status       local identity and how many session files are visible
+  terva-lampi agent status       local identity, outbox, watermarks, and last sync
 
 Sessions are read from TERVA_HOME, then ZOT_HOME, then the platform default
 terva uses. The watcher prefers fsnotify and falls back to polling.
@@ -327,6 +327,10 @@ func runAgentStatus(env Env) error {
 	if err != nil {
 		return err
 	}
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return err
+	}
 	id := m.MachineID
 	if id == "" {
 		id = "(not created)"
@@ -335,7 +339,7 @@ func runAgentStatus(env Env) error {
 	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
-	return nil
+	return writeCaptureState(env.stdout(), state)
 }
 
 func sessionFiles(env Env) (string, []discover.File, error) {

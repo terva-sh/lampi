@@ -22,10 +22,12 @@ const serveUsage = `terva-lampi serve — run the lake
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
 
-Listens for capture protocol 1. GET /healthz is open. /v1/* requires the
-device token when --token-file is set. With no token file the process
-accepts unauthenticated requests only on a loopback address; any other
---addr is an error. The default bind is 127.0.0.1:8787.
+Listens for capture protocol 1. GET /healthz is open and returns no
+catalog data. GET /v1/stats returns session, artifact, and machine
+counts and uses the same auth as the other /v1 routes. /v1/* requires
+the device token when --token-file is set. With no token file the
+process accepts unauthenticated requests only on a loopback address;
+any other --addr is an error. The default bind is 127.0.0.1:8787.
 
 The lake directory holds cas/ (sha256 blobs) and catalog.db (SQLite).
 The default is the XDG state dir terva-lampi/, not $TERVA_HOME.
