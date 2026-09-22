@@ -135,6 +135,47 @@ those targets for a machine without `just`.
 |-----|----------------|
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
+| [.tickets/epics.md](.tickets/epics.md) | Open epics. Generated; `git ticket check --fix` rewrites it |
+
+## Work tracking
+
+Open work is a git-ticket store in `.tickets/`. A ticket is Markdown
+with YAML frontmatter, committed next to the code it describes. Drafts
+sit in `.tickets/draft/`. The working set (ready, in progress, blocked,
+review) sits in `.tickets/tickets/`.
+
+Install **git-ticket v0.23.0**. Release archives are on the GitHub
+releases page. `install.sh` checks the archive against `checksums.txt`
+and puts the binary in `~/.local/bin` (pass `--prefix` for another
+writable directory).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/terva-sh/git-ticket/v0.23.0/install.sh | sh
+```
+
+With Go, the same tag is:
+
+```bash
+go install github.com/terva-sh/git-ticket/cmd/git-ticket@v0.23.0
+```
+
+Git runs a program named `git-ticket` as `git ticket`.
+
+```bash
+git ticket ready                 # startable, unblocked
+git ticket list --status draft  # filed, not yet promoted
+git ticket show TKT-…
+git ticket check
+```
+
+Writes are recorded as `human:sothr` (Drew Short). That actor is the
+default in `.tickets/config.yml`, so a write with no `--actor` uses it.
+`AGENTS.md` is the short workflow an agent session reads. `git ticket
+instructions` prints the long form.
+
+The backlog starts where the scaffold stopped: lake placement and
+retention, the terva watch / outbox / redact pipeline, Layer B dedup,
+a normalize-and-search proof, and the later harness phases.
 
 ## Status
 
