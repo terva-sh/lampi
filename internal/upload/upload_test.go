@@ -47,6 +47,7 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 		t.Fatal("expected one blob")
 	}
 	assertRuleset(t, cap.manifests)
+	assertFullFileWire(t, cap.manifests)
 	sum := sha256.Sum256(body)
 	assertWatermark(t, opt, "sessions/abcd/s.jsonl", int64(len(body)), hex.EncodeToString(sum[:]))
 	assertOutboxEmpty(t, opt.StateDir)
@@ -62,6 +63,7 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 	if cap.puts != 0 {
 		t.Fatalf("re-sync PUT count %d", cap.puts)
 	}
+	assertFullFileWire(t, cap.manifests)
 	if blobCount(t, filepath.Join(data, "cas")) != 1 {
 		t.Fatal("re-sync stored another blob")
 	}
@@ -90,6 +92,12 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 	}
 	grownSum := sha256.Sum256(grown)
 	assertWatermark(t, opt, "sessions/abcd/s.jsonl", int64(len(grown)), hex.EncodeToString(grownSum[:]))
+	// Growth is a local tail, but the PUT is the new full file.
+	// prev stays 0 and tail_sha256 is that full digest, not the suffix.
+	assertFullFileWire(t, cap.manifests)
+	if cap.manifests[len(cap.manifests)-1].Artifacts[0].SHA256 != hex.EncodeToString(grownSum[:]) {
+		t.Fatalf("growth digest: %+v", cap.manifests[len(cap.manifests)-1].Artifacts[0])
+	}
 }
 
 func TestSyncRefusesNonAllowlisted(t *testing.T) {
@@ -309,6 +317,20 @@ func writeSession(t *testing.T, home, bucket, name string, body []byte) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func assertFullFileWire(t *testing.T, manifests []protocol.Manifest) {
+	t.Helper()
+	if len(manifests) == 0 {
+		t.Fatal("no manifest")
+	}
+	for _, m := range manifests {
+		for _, a := range m.Artifacts {
+			if a.ByteWatermarkPrev != 0 || a.TailSHA256 != a.SHA256 || a.SHA256 == "" {
+				t.Fatalf("full-file wire fields: %+v", a)
+			}
+		}
+	}
 }
 
 func assertRuleset(t *testing.T, manifests []protocol.Manifest) {

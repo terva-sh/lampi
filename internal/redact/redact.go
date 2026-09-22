@@ -40,10 +40,11 @@ type rule struct {
 	re   *regexp.Regexp
 }
 
-// v1Rules is the high-signal set. Patterns are chosen to miss short
-// lookalikes (a truncated AKIA, a short sk- prefix) and to catch the
-// tokens that show up in tool output. The assignment rule is the broad
-// one: a password or api_key written as key=value.
+// v1Rules is the high-signal set: cloud keys, PATs, and private-key
+// blocks. JWTs and generic password= / api_key= assignments are not
+// in v1. Both show up in ordinary JSONL (tool output, docs, examples)
+// and a hit quarantines the raw upload. They can be a later opt-in
+// once the agent calls this scan continuously.
 var v1Rules = []rule{
 	{name: "private-key", re: regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----`)},
 	{name: "aws-access-key-id", re: regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
@@ -56,8 +57,6 @@ var v1Rules = []rule{
 	{name: "google-api-key", re: regexp.MustCompile(`\bAIza[0-9A-Za-z\-_]{35}\b`)},
 	{name: "stripe-key", re: regexp.MustCompile(`\b(?:sk|rk)_live_[0-9A-Za-z]{16,}\b`)},
 	{name: "npm-token", re: regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`)},
-	{name: "jwt", re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
-	{name: "assigned-secret", re: regexp.MustCompile(`(?i)\b(?:api[_-]?key|secret[_-]?key|password)\b\s*[=:]\s*['"]?[^\s'"]{8,}`)},
 }
 
 // Scan runs ruleset v1 over b. A nil or empty buffer is a clean scan.

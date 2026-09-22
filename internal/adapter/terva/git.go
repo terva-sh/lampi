@@ -83,13 +83,16 @@ func commonDir(gitDir string) string {
 	return filepath.Clean(filepath.Join(gitDir, line))
 }
 
+// originURL returns the URL of the remote named origin. A repository
+// that only has other remotes yields an empty string. A git_remote
+// allow rule then fails closed. The operator can still allow the
+// project by cwd prefix or cwd hash.
 func originURL(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	section := ""
-	var first string
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
@@ -100,17 +103,12 @@ func originURL(path string) string {
 			continue
 		}
 		key, val, ok := splitINI(line)
-		if !ok || key != "url" || !strings.HasPrefix(section, "[remote ") {
+		if !ok || key != "url" || !strings.HasPrefix(section, "[remote ") || !strings.Contains(section, `"origin"`) {
 			continue
 		}
-		if strings.Contains(section, `"origin"`) {
-			return val
-		}
-		if first == "" {
-			first = val
-		}
+		return val
 	}
-	return first
+	return ""
 }
 
 func splitINI(line string) (key, val string, ok bool) {

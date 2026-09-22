@@ -15,9 +15,7 @@ func TestRulesetV1Fixtures(t *testing.T) {
 	google := "AIza" + strings.Repeat("d", 35)
 	stripe := "sk_live_" + strings.Repeat("e", 16)
 	npm := "npm_" + strings.Repeat("f", 36)
-	jwt := "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmN"
 	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"
-	assigned := `api_key = "supersecretvalue"`
 	awsSecret := "aws_secret_access_key = " + strings.Repeat("A", 40)
 
 	cases := []struct {
@@ -33,9 +31,7 @@ func TestRulesetV1Fixtures(t *testing.T) {
 		{"google api key", google, "google-api-key"},
 		{"stripe key", stripe, "stripe-key"},
 		{"npm token", npm, "npm-token"},
-		{"jwt", jwt, "jwt"},
 		{"private key", pem, "private-key"},
-		{"assigned secret", assigned, "assigned-secret"},
 		{"aws secret", awsSecret, "aws-secret-access-key"},
 	}
 	for _, tc := range cases {
@@ -70,7 +66,17 @@ func TestRulesetV1CleanAndNearMiss(t *testing.T) {
 	if got.Hits != 0 || got.Ruleset != RulesetV1 || len(got.Rules) != 0 {
 		t.Fatalf("clean: %+v", got)
 	}
-	for _, miss := range []string{"AKIA_SHORT", "ghp_tooshort", "sk-short", "-----BEGIN PUBLIC KEY-----", "password"} {
+	for _, miss := range []string{
+		"AKIA_SHORT",
+		"ghp_tooshort",
+		"sk-short",
+		"-----BEGIN PUBLIC KEY-----",
+		"password",
+		// Left out of v1 on purpose: ordinary transcript text.
+		"eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmN",
+		`api_key = "supersecretvalue"`,
+		`{"text":"set password=hunter2hunter2 in the docs"}`,
+	} {
 		got, err := (Ruleset{}).Scan([]byte(miss))
 		if err != nil {
 			t.Fatal(err)

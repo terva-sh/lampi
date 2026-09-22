@@ -184,15 +184,14 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifa
 		st.PrefixSHA = pfx
 	}
 	dec := watermark.Plan(mark, st)
-	prev := int64(0)
-	tail := digest
-	if dec.Kind == watermark.KindTail || dec.Kind == watermark.KindUnchanged {
-		prev = mark.Offset
-	}
-	if dec.Kind == watermark.KindTail && dec.Offset >= 0 && dec.Offset <= int64(len(body)) {
-		tailSum := sha256.Sum256(body[dec.Offset:])
-		tail = hex.EncodeToString(tailSum[:])
-	}
+	// Plan is the local cursor. KindUnchanged is why the digest check
+	// uploads nothing. KindTail means the file grew by append, but the
+	// body in the map below is still the whole file. The manifest has
+	// to describe that blob: prev 0 and tail_sha256 equal to sha256.
+	// A non-zero prev means the blob is only the bytes after that
+	// offset, which would duplicate the prefix if a later merge
+	// concatenated them.
+	prev, tail := fullFileFields(dec, digest)
 	status := protocol.RedactionScanned
 	if scan.Hits > 0 {
 		status = protocol.RedactionOverride
@@ -207,6 +206,19 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifa
 		Hits:    scan.Hits,
 	}
 	return a, nil
+}
+
+// fullFileFields is the wire watermark for a PUT of the entire file.
+// Every Plan kind takes this path today, including KindTail and
+// KindUnchanged. Non-zero prev and a tail hash other than digest are
+// reserved for a PUT of the suffix Plan named.
+func fullFileFields(dec watermark.Decision, digest string) (int64, string) {
+	switch dec.Kind {
+	case watermark.KindNew, watermark.KindUnchanged, watermark.KindTail, watermark.KindReplace, watermark.KindProbe:
+		return 0, digest
+	default:
+		return 0, digest
+	}
 }
 
 func enqueue(ctx context.Context, opt Options, q *outbox.DB, item prepared) error {

@@ -39,6 +39,22 @@ func TestProjectGitOriginAndHead(t *testing.T) {
 	}
 }
 
+func TestProjectGitRequiresOrigin(t *testing.T) {
+	repo := t.TempDir()
+	git := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(git, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "[remote \"upstream\"]\n\turl = https://example.com/other.git\n[remote \"fork\"]\n\turl = git@github.com:someone/lampi.git\n"
+	if err := os.WriteFile(filepath.Join(git, "config"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	remote, commit := projectGit(repo)
+	if remote != "" || commit != "" {
+		t.Fatalf("non-origin remote %q commit %q", remote, commit)
+	}
+}
+
 func TestProjectGitWorktree(t *testing.T) {
 	main := t.TempDir()
 	git := filepath.Join(main, ".git")

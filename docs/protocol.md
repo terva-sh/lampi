@@ -112,8 +112,12 @@ next to a terva transcript.
 A 200 body is the ACK. The client may advance a watermark only after it
 sees this. `internal/watermark` enforces that. `terva-lampi sync` commits
 the cursor from this ACK and leaves it unchanged when the POST fails.
-`byte_watermark_prev` is the stored offset when this upload continues
-that cursor, and 0 when the file is new or was rewritten.
+`byte_watermark_prev` and `tail_sha256` describe the blob in this
+request. A non-zero prev means the blob is only the bytes after that
+offset, and `tail_sha256` is the hash of those bytes. `terva-lampi sync`
+PUTs the whole file, so it sends prev `0` and `tail_sha256` equal to
+`sha256`, including when the local watermark saw an append. The example
+above is the append form. This client does not send it yet.
 
 ```json
 {

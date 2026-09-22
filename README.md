@@ -126,7 +126,9 @@ The cwd is the one in the terva meta line, not the path of the JSONL
 file. Git remotes are folded before comparison, so
 `git@github.com:terva-sh/lampi.git` and
 `https://github.com/terva-sh/lampi` are the same remote. When the
-session cwd still has a `.git`, the manifest records origin's URL.
+session cwd still has a `.git`, the manifest records the remote named
+origin. Any other remote is ignored, so `git_remote` stays empty and a
+remote allow rule does not match. Allow those projects by cwd or cwd hash.
 
 ```json
 {
@@ -148,7 +150,11 @@ session cwd still has a `.git`, the manifest records origin's URL.
 `terva-lampi agent config` prints how many allow and deny rules are
 loaded. `sync` names each refused session and exits non-zero.
 
-Before a request is sent, ruleset v1 scans the file. The manifest
+Before a request is sent, ruleset v1 scans the file. v1 is the
+high-signal shapes: cloud keys, personal access tokens, and private-key
+blocks. It does not flag JWTs or generic `password=` / `api_key=`
+lines. Those show up in ordinary transcripts, and a hit would quarantine
+the upload. The manifest
 stamps `redaction.ruleset` as `v1` and `redaction.status` as `scanned`
 when there are no hits. A hit is appended to `quarantine.jsonl` in the
 state directory (mode 0600) and is not uploaded. The log names the rule.

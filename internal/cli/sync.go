@@ -28,7 +28,9 @@ redaction.upload_hits is set.
 
 Unchanged files upload no new blobs. The watermark moves only after the
 lake ACKs the manifest. Pending digests sit in the outbox until that ACK.
-A grown file is still uploaded whole; the lake does not assemble tails yet.
+A grown file is still uploaded whole. The manifest says so:
+byte_watermark_prev is 0 and tail_sha256 equals the full sha256. The
+lake does not assemble tails yet.
 
 --server defaults to the URL in config.json, or http://127.0.0.1:8787.
 The token is read from a file, never from an argument.

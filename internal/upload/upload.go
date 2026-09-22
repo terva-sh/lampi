@@ -5,8 +5,9 @@
 // then the outbox, then the network. A manifest ACK is what commits the
 // watermark and acks the outbox. A file whose bytes match the stored
 // watermark is checked and not PUT again. A grown file is still one whole
-// blob: the lake does not assemble tails yet, so Plan's tail is recorded
-// on the manifest and the PUT is the new full digest.
+// blob: the lake does not assemble tails yet. The manifest matches that
+// body, with byte_watermark_prev 0 and tail_sha256 equal to sha256.
+// A distinct tail hash waits until the PUT body is the suffix.
 package upload
 
 import (

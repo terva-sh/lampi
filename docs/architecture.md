@@ -31,7 +31,8 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 `terva-lampi agent` lists those files and watches them. It does not
 upload. `terva-lampi sync` is the path that moves bytes. The agent loop
 will call that same function. A grown file is still one whole blob; the
-lake does not assemble a tail yet. An unchanged file uploads nothing.
+lake does not assemble a tail yet. The manifest agrees: `byte_watermark_prev`
+is 0 and `tail_sha256` is the full digest. An unchanged file uploads nothing.
 
 ## What this tree does not do
 
