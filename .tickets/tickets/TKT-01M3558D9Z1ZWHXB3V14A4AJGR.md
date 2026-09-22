@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-22T18:31:21Z
+updated_at: 2026-09-22T19:05:22Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: human:sothr
-  name: Drew Short
+  id: agent:cursor/d943
+  name: Cursor cloud agent
 extensions: {}
 ---
 
@@ -44,9 +44,9 @@ Implement the local agent path for terva JSONL: watch → redact → chunk/hash 
 ## Definition of done
 
 - [ ] All children of this epic are done
-- [ ] TKT-01M3558DAGH6Z9MFG6GJ1TF0CS Implement fsnotify/poll watcher for terva JSONL
-- [ ] TKT-01M3558DB2BJEEYN3G8M5GAJ17 Durable outbox (SQLite) for pending blobs/manifests
-- [ ] TKT-01M3558DBS1J4V1VB5C0FVNWKP Per-path watermark store
+- [x] TKT-01M3558DAGH6Z9MFG6GJ1TF0CS Implement fsnotify/poll watcher for terva JSONL
+- [x] TKT-01M3558DB2BJEEYN3G8M5GAJ17 Durable outbox (SQLite) for pending blobs/manifests
+- [x] TKT-01M3558DBS1J4V1VB5C0FVNWKP Per-path watermark store
 - [ ] TKT-01M3558DCDJ71TN19N5DDY4RSF Redaction ruleset v1 + quarantine on hits
 - [ ] TKT-01M3558DD3MYA65Q909VDV374P Chunker for large artifacts (≥32 MiB)
 - [ ] TKT-01M3558DDS1NVWKCC2S36TYPZV Long-running terva-lampi agent daemon loop

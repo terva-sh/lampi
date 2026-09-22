@@ -179,12 +179,12 @@ a normalize-and-search proof, and the later harness phases.
 
 ## Status
 
-This is a scaffold that compiles and moves terva JSONL end to end against
-a local lake. In: filesystem CAS, SQLite catalog, device-token file,
-discovery of `$TERVA_HOME/sessions`. Out, on purpose: fsnotify, redaction,
-hashed tokens, tail-only upload, Claude/Codex/OpenCode/Cursor, and a
-normalizer. The interfaces are in the tree so those pieces have a place
-to land. See [docs/architecture.md](docs/architecture.md).
+This tree compiles and moves terva JSONL end to end against a local lake.
+In: filesystem CAS, SQLite catalog, device-token file, discovery of
+`$TERVA_HOME/sessions`, an fsnotify/poll watcher, a durable outbox, and
+per-path watermarks. Out, on purpose: redaction, hashed tokens, wiring
+sync through the outbox and tail-only watermarks, Claude/Codex/OpenCode/Cursor,
+and a normalizer. See [docs/architecture.md](docs/architecture.md).
 
 ## License
 

@@ -15,15 +15,15 @@ import (
 const agentUsage = `terva-lampi agent — local capture
 
 usage:
-  terva-lampi agent              discover, then wait (filesystem watch is not implemented)
+  terva-lampi agent              watch $TERVA_HOME/sessions until signalled
   terva-lampi agent discover     list $TERVA_HOME/sessions JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
   terva-lampi agent config       print paths and the effective server URL
   terva-lampi agent status       local identity and how many session files are visible
 
 Sessions are read from TERVA_HOME, then ZOT_HOME, then the platform default
-terva uses. The watcher that will tail those files is a stub: it waits
-until the process is signalled. Use terva-lampi sync to push.
+terva uses. The watcher prefers fsnotify and falls back to polling. It
+does not upload. Use terva-lampi sync to push.
 `
 
 func runAgent(env Env, args []string) error {
@@ -69,10 +69,16 @@ func runAgentDaemon(env Env) error {
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", m.MachineID)
 	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
-	fmt.Fprintln(env.stdout(), "filesystem watch is not implemented; waiting. Use `terva-lampi sync` to push.")
+	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
+	fmt.Fprintln(env.stdout(), "watching session files. This process does not upload; use `terva-lampi sync` to push.")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return watch.Unimplemented{}.Run(ctx)
+	return (&watch.Watcher{
+		Root: home,
+		OnChange: func(c watch.Change) {
+			fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
+		},
+	}).Run(ctx)
 }
 
 func runAgentDiscover(env Env) error {
@@ -146,7 +152,7 @@ func runAgentStatus(env Env) error {
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", id)
 	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
-	fmt.Fprintln(env.stdout(), "watch: not implemented")
+	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
 	return nil
 }
 
