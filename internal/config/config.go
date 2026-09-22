@@ -22,9 +22,15 @@ const DefaultServer = "http://127.0.0.1:8787"
 
 // File is the optional client config. Absent fields keep their defaults.
 // The device token is never stored here; it lives in its own file.
+//
+// Projects is the gate for raw bytes leaving the machine. With no allow
+// rule, sync refuses every project. Redaction.UploadHits is the only
+// override that uploads a file ruleset v1 flagged.
 type File struct {
-	Server    string `json:"server,omitempty"`
-	TokenFile string `json:"token_file,omitempty"`
+	Server    string          `json:"server,omitempty"`
+	TokenFile string          `json:"token_file,omitempty"`
+	Projects  Projects        `json:"projects,omitempty"`
+	Redaction RedactionConfig `json:"redaction,omitempty"`
 }
 
 // Machine is the stable identity written once.

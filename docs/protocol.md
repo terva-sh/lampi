@@ -99,8 +99,10 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
 ```
 
 `cwd_hash` is terva's `hex(sha256(cwd)[:8])`. It buckets a path on one
-machine. It is not a project id across machines. `git_remote` is the
-project key the lake wants later; this scaffold leaves it empty.
+machine. It is not a project id across machines. `git_remote` is origin's
+URL when the session cwd has a `.git`, and empty otherwise. Folding that
+into a project id across machines is later work. The client allowlist
+matches the cwd, this hash, or the remote before the manifest is sent.
 
 `fork_point` is raw JSON. terva uses an index. The sketch allows null.
 
@@ -108,8 +110,14 @@ project key the lake wants later; this scaffold leaves it empty.
 next to a terva transcript.
 
 A 200 body is the ACK. The client may advance a watermark only after it
-sees this. `internal/watermark` enforces that. `terva-lampi sync` does
-not write a watermark yet, and still sends `byte_watermark_prev` 0.
+sees this. `internal/watermark` enforces that. `terva-lampi sync` commits
+the cursor from this ACK and leaves it unchanged when the POST fails.
+`byte_watermark_prev` and `tail_sha256` describe the blob in this
+request. A non-zero prev means the blob is only the bytes after that
+offset, and `tail_sha256` is the hash of those bytes. `terva-lampi sync`
+PUTs the whole file, so it sends prev `0` and `tail_sha256` equal to
+`sha256`, including when the local watermark saw an append. The example
+above is the append form. This client does not send it yet.
 
 ```json
 {
@@ -145,9 +153,12 @@ of the same idea. Both are refused.
 
 **Pull.** Push only. A stale client is not repaired from the lake.
 
-**Redaction.** `redaction.status` of `scanned` means a ruleset ran before
-the bytes were eligible to leave the machine. The stub redactor reports
-`unscanned` and does not read the file.
+**Redaction.** `redaction.status` of `scanned` means ruleset v1 ran and
+found nothing. `ruleset` is `v1`. `override` means the same scan found
+hits and `redaction.upload_hits` was set; `hits` is the count, not the
+secrets. A hit without that override is quarantined locally and is not
+in a manifest. `unscanned` is what a client sends when it did not scan.
+`serve` does not scan again.
 
 ## Errors
 

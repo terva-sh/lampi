@@ -23,7 +23,8 @@ usage:
 
 Sessions are read from TERVA_HOME, then ZOT_HOME, then the platform default
 terva uses. The watcher prefers fsnotify and falls back to polling. It
-does not upload. Use terva-lampi sync to push.
+does not upload. terva-lampi sync is the push: allowlist, ruleset v1,
+watermark, outbox, then the lake.
 `
 
 func runAgent(env Env, args []string) error {
@@ -133,6 +134,9 @@ func runAgentConfig(env Env) error {
 	fmt.Fprintf(env.stdout(), "token_file: %s\n", tokenPath)
 	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", machine)
+	fmt.Fprintf(env.stdout(), "projects_allow: %d\n", len(file.Projects.Allow))
+	fmt.Fprintf(env.stdout(), "projects_deny: %d\n", len(file.Projects.Deny))
+	fmt.Fprintf(env.stdout(), "redaction_upload_hits: %t\n", file.Redaction.UploadHits)
 	return nil
 }
 

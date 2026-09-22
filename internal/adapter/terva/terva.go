@@ -2,8 +2,10 @@
 //
 // It walks $TERVA_HOME/sessions, reads the first JSONL line when it is a
 // meta record, and builds capture-protocol manifests. It does not follow
-// tail growth: every changed digest is a whole-file blob. Git remote
-// linking is left empty on purpose.
+// tail growth: every changed digest is a whole-file blob. When the session
+// cwd still has a .git, the manifest records origin's URL and HEAD.
+// Cross-machine project identity is a later step. Redaction is not stamped
+// here; upload scans the bytes before they leave the machine.
 package terva
 
 import (
@@ -21,7 +23,6 @@ import (
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/discover"
 	"terva.sh/lampi/internal/protocol"
-	"terva.sh/lampi/internal/redact"
 )
 
 // Adapter implements adapter.Harness for terva's on-disk sessions.
@@ -99,7 +100,8 @@ type item struct {
 
 // Manifests groups transcripts with their error sidecars and fills
 // protocol 1 manifests. machineID is stamped on every manifest.
-// Redaction status is "unscanned": the stub redactor does not read bytes.
+// Redaction is left empty. The upload path scans the file and stamps
+// ruleset v1 before anything is sent.
 func Manifests(tervaHome, machineID string) (Bundle, error) {
 	files, err := discover.Sessions(tervaHome)
 	if err != nil {
@@ -152,12 +154,6 @@ func Manifests(tervaHome, machineID string) (Bundle, error) {
 		groups[key] = append(groups[key], it)
 	}
 
-	scan, err := (redact.AllowAll{}).Scan(nil)
-	if err != nil {
-		return Bundle{}, err
-	}
-	red := protocol.Redaction{Status: scan.Status, Ruleset: scan.Ruleset, Hits: scan.Hits}
-
 	b := Bundle{Paths: map[string]string{}}
 	for _, key := range order {
 		group := groups[key]
@@ -167,9 +163,12 @@ func Manifests(tervaHome, machineID string) (Bundle, error) {
 		arts := make([]protocol.Artifact, 0, len(group))
 		for _, it := range group {
 			if it.meta.ok {
+				remote, commit := projectGit(it.meta.cwd)
 				project = protocol.Project{
-					CWD:     it.meta.cwd,
-					CWDHash: CWDHash(it.meta.cwd),
+					CWD:       it.meta.cwd,
+					CWDHash:   CWDHash(it.meta.cwd),
+					GitRemote: remote,
+					GitCommit: commit,
 				}
 				if it.meta.parent != "" {
 					parent := it.meta.parent
@@ -187,9 +186,9 @@ func Manifests(tervaHome, machineID string) (Bundle, error) {
 				MTime:             it.file.ModTime.UTC(),
 				SHA256:            it.sum,
 				ByteWatermarkPrev: 0,
-				// The whole file is the tail until watermarks exist.
+				// The whole file is the tail until the upload path applies
+				// a watermark. Redaction stays empty until that scan.
 				TailSHA256: it.sum,
-				Redaction:  red,
 			})
 		}
 		b.Manifests = append(b.Manifests, protocol.Manifest{

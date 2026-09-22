@@ -32,6 +32,12 @@ const (
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.
 	RedactionUnscanned = "unscanned"
+	// RedactionScanned means ruleset v1 ran and the bytes were eligible
+	// to leave the machine. Hits is zero in that case.
+	RedactionScanned = "scanned"
+	// RedactionOverride means ruleset v1 found hits and the operator
+	// set the explicit upload override. The hit count stays on the artifact.
+	RedactionOverride = "override"
 )
 
 // HelloResponse is the body of POST /v1/hello.
@@ -110,7 +116,8 @@ type Lineage struct {
 // ManifestAck is the 200 body of POST /v1/manifests.
 // A client may advance its watermark only after it sees this.
 // internal/watermark.Commit refuses to store a mark without a session
-// uid from this ACK. terva-lampi sync does not write a watermark yet.
+// uid from this ACK. terva-lampi sync commits that mark only after this
+// ACK, and leaves the cursor where it was when the POST fails.
 type ManifestAck struct {
 	SessionUID  string   `json:"session_uid"`
 	ArtifactIDs []string `json:"artifact_ids"`
