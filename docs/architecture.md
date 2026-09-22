@@ -1,0 +1,117 @@
+# Architecture
+
+lampi is the session lake for the terva-sh org. One Go module, one binary,
+`terva-lampi`, with the client and the server as subcommands. It is not
+part of the terva harness repo: the release cadence and the set of
+harnesses are different. It is also not fleet. Fleet is a live control
+plane (members dial a hub so one browser can drive sessions). The lake
+is push of immutable bytes into a content-addressed store plus a catalog.
+
+The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
+
+## What this tree does
+
+| Piece | Package | State |
+|-------|---------|--------|
+| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login` |
+| Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
+| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put |
+| Catalog | `internal/catalog` | SQLite. Session uid, artifacts, provenance |
+| HTTP | `internal/api` | healthz, hello, blob check/put, manifests |
+| Device token | `internal/auth` | 256-bit file, mode 0600. Plaintext compare |
+| Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
+| terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
+| Push | `internal/upload` | Check, put missing, post manifests |
+
+`terva-lampi agent` lists those files and then waits. The wait is
+`internal/watch`, which does not use fsnotify. `terva-lampi sync` is the
+path that actually moves bytes.
+
+## What this tree does not do
+
+Left as interfaces, with the reason next to the type:
+
+| Package | Later work |
+|---------|------------|
+| `internal/watch` | fsnotify, plus a poll fallback |
+| `internal/redact` | Ruleset v1 before bytes leave the machine. The stub reports `unscanned` |
+| `internal/outbox` | Durable queue across sleep and reboot |
+| `internal/watermark` | Per-file byte offset, updated only after a manifest ACK |
+| `internal/normalize` | Raw blob to the shared event schema |
+| `internal/adapter` | Claude Code, Codex, OpenCode. Cursor is intentionally last and is not started |
+
+`hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
+source of truth. The directory walk is.
+
+Dedup that **is** implemented is layer A: `sha256` of the bytes. A second
+put of the same digest stores nothing. The same native session id keeps
+one `session_uid` and records each machine in provenance.
+
+Dedup that is **not** implemented is the append-only prefix merge and
+`divergent_copy`. A grown JSONL is uploaded whole under a new digest.
+Near-duplicate detection is out of scope.
+
+## Flow
+
+```text
+$TERVA_HOME/sessions/**/*.jsonl
+        |
+        v
+terva-lampi agent / sync          terva-lampi serve
+  discover, hash, manifest   -->    CAS + SQLite catalog
+        |
+        v
+  (later) redact, watermark, outbox, fsnotify
+```
+
+Other harnesses are adapters behind the same manifest. terva is the only
+one wired up, because its JSONL layout is owned and versioned
+(`format_version`). Path-based `cwd_hash` is copied from terva and is not
+treated as a global project id. The same git repo at two absolute paths
+hashes differently. Linking those by git remote is later work.
+
+## Layout
+
+```text
+cmd/terva-lampi/          the binary
+internal/cli/             command dispatch
+internal/protocol/        shared wire types
+internal/api/             HTTP
+internal/auth/            device token file
+internal/cas/             filesystem blobs
+internal/catalog/         SQLite
+internal/config/          machine id and client config
+internal/discover/        terva session walk
+internal/adapter/         harness interface
+internal/adapter/terva/   meta line, manifests
+internal/upload/          one-shot push
+internal/watch/           stub
+internal/redact/          stub
+internal/outbox/          stub
+internal/watermark/       stub
+internal/normalize/       stub
+docs/protocol.md
+docs/architecture.md
+hooks/                    example terva hook, not installed
+```
+
+`main` stays thin. The commands are an internal package because nothing
+embeds them yet. git-ticket exports `cli` so terva can run `terva ticket`.
+If terva ever grows a `terva lampi` alias, this package is what would move
+out of `internal`.
+
+## Auth and where the bytes sit
+
+Single tenant, many devices, one token per device. `terva-lampi login`
+writes the file and does not print the token. The lake process reads the
+same kind of file with `--token-file`. There is no enrolment API: copy
+the file. That is a stub, not a design to keep.
+
+Default bind is `127.0.0.1:8787`. The data directory is the XDG state dir
+`terva-lampi/` (override with `--data`), mode 0700, separate from
+`$TERVA_HOME`. `$TERVA_HOME` is the producer. The lake does not write into it.
+
+Secrets in transcripts are the main risk, and this scaffold does not
+redact. Do not point `serve` at a network interface you do not control,
+and do not upload a project you would not copy onto that disk in the
+clear.

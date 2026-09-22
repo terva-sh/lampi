@@ -1,0 +1,52 @@
+# CI for terva-lampi. The gates match `just ci` / `make ci`: vet, gofmt,
+# test, and a build of the binary. The commands are inline because the
+# runner does not install just.
+#
+# Go is pinned to 1.27.x, the same line as terva (go.mod says 1.27.0,
+# CI says 1.27.x). A floating "stable" drifted gofmt under terva once
+# the toolchain moved and the tree had not. The pin moves with go.mod.
+
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: set up go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.x"
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: |
+          diff=$(gofmt -l .)
+          if [ -n "$diff" ]; then
+            echo "gofmt issues in:"
+            echo "$diff"
+            exit 1
+          fi
+
+      - name: go test
+        run: go test ./...
+
+      - name: go build
+        run: go build -o bin/terva-lampi ./cmd/terva-lampi
