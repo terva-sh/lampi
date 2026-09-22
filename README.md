@@ -80,8 +80,10 @@ machine id and whether `/healthz` answered.
 
 `agent` with no subcommand prints the same discovery, pushes the
 allowlisted sessions once, then watches. Growth calls that same push.
-SIGTERM drains the outbox and exits. The one-shot command is still
-`sync`.
+A failed push is tried again after a short wait, without waiting for
+the file to grow. SIGTERM drains the outbox and exits. The server URL,
+the device token, and the allowlist are read when the process starts;
+restart it to reload them. The one-shot command is still `sync`.
 
 `login` writes a device token and does not print it:
 

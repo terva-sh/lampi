@@ -32,8 +32,9 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 `upload.Sync`. `terva-lampi sync` is the same function, once. A grown
 file is still one whole blob; the lake does not assemble a tail yet.
 The manifest agrees: `byte_watermark_prev` is 0 and `tail_sha256` is the
-full digest. An unchanged file uploads nothing. SIGTERM stops the watch
-and drains the outbox best-effort.
+full digest. An unchanged file uploads nothing. A failed push is tried
+again after a short wait. SIGTERM stops the watch and drains the outbox
+best-effort. The server URL, token, and allowlist are read at start.
 
 ## What this tree does not do
 
@@ -48,8 +49,9 @@ Left as interfaces, with the reason next to the type:
 `internal/redact` are implemented. `terva-lampi sync` and
 `terva-lampi agent` both enqueue, scan, and advance a watermark after
 the manifest ACK. The agent is the long-running loop: startup sync,
-then a sync when the watcher reports growth, then one more sync on
-SIGTERM. User-service packaging (systemd, launchd) is not in this tree.
+then a sync when the watcher reports growth or a previous push failed,
+then one more sync on SIGTERM. User-service packaging (systemd, launchd)
+is not in this tree. Restart the agent to reload config.
 
 `hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
 source of truth. The directory walk is.

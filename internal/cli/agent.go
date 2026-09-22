@@ -16,10 +16,17 @@ import (
 	"terva.sh/lampi/internal/watch"
 )
 
-// drainTimeout bounds the shutdown upload. The signal that stopped the
-// watch must not also give up on rows already sitting in the outbox, and
-// it must not wait forever on a lake that is not answering.
-const drainTimeout = 30 * time.Second
+const (
+	// drainTimeout bounds the shutdown upload. The signal that stopped the
+	// watch must not also give up on rows already sitting in the outbox, and
+	// it must not wait forever on a lake that is not answering.
+	drainTimeout = 30 * time.Second
+	// syncRetryAfter is how long a failed push waits before trying again.
+	// File growth still syncs immediately. Each new failure resets the wait
+	// so a down lake is not hammered, and a quiet machine is not stuck
+	// until the next append or SIGTERM.
+	syncRetryAfter = 2 * time.Second
+)
 
 const agentUsage = `terva-lampi agent — local capture
 
@@ -36,8 +43,11 @@ terva uses. The watcher prefers fsnotify and falls back to polling.
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
 terva-lampi sync: allowlist, ruleset v1, watermark, outbox, then the
-lake. A failed push is logged. The next change tries again. SIGTERM or
-interrupt drains the outbox best-effort and exits.
+lake. A failed push is logged and tried again after a short wait, even
+when the file does not grow. A project the allowlist or the scan refused
+is not retried. SIGTERM or interrupt drains the outbox best-effort and
+exits. The server URL, token, and allowlist are read at start; restart
+the process to reload them.
 `
 
 func runAgent(env Env, args []string) error {
@@ -126,13 +136,37 @@ func runAgentLoop(ctx context.Context, env Env) error {
 		wake()
 	}()
 
+	// One timer, reset on each failure. The callback only wakes the
+	// loop, so a retry cannot run beside the sync already in progress.
+	var retryMu sync.Mutex
+	var retry *time.Timer
+	disarmRetry := func() {
+		retryMu.Lock()
+		defer retryMu.Unlock()
+		if retry != nil {
+			retry.Stop()
+			retry = nil
+		}
+	}
+	armRetry := func() {
+		retryMu.Lock()
+		defer retryMu.Unlock()
+		if retry != nil {
+			retry.Stop()
+		}
+		retry = time.AfterFunc(syncRetryAfter, wake)
+	}
+	defer disarmRetry()
+
 	for {
 		select {
 		case <-ctx.Done():
+			disarmRetry()
 			watchCancel()
 			<-watchErr
 			return drainAgent(env, opt)
 		case err := <-watchErr:
+			disarmRetry()
 			drainAgent(env, opt)
 			if ctx.Err() != nil {
 				return nil
@@ -141,13 +175,23 @@ func runAgentLoop(ctx context.Context, env Env) error {
 		case <-kick:
 			err := runAgentSync(ctx, env, opt, "")
 			if ctx.Err() != nil {
+				disarmRetry()
 				watchCancel()
 				<-watchErr
 				return drainAgent(env, opt)
 			}
 			if err != nil {
 				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
+				// A refusal is the allowlist or the scan. It will not
+				// change until the process is restarted with a new config.
+				if _, refused := err.(*upload.Rejected); refused {
+					disarmRetry()
+					continue
+				}
+				armRetry()
+				continue
 			}
+			disarmRetry()
 		}
 	}
 }

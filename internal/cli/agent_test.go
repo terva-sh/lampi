@@ -46,13 +46,12 @@ func TestAgentSIGTERMDrainsOutbox(t *testing.T) {
 	t.Cleanup(func() { lake.Close() })
 	held := &holdHello{next: lake.Handler(), held: make(chan struct{}), stop: make(chan struct{})}
 	srv := httptest.NewServer(held)
-	t.Cleanup(srv.Close)
+	// Release runs before Close. LIFO: this cleanup is registered before
+	// the process kill, so the kill runs first and this runs next.
 	t.Cleanup(func() {
-		select {
-		case <-held.stop:
-		default:
-			close(held.stop)
-		}
+		releaseHold(held)
+		srv.CloseClientConnections()
+		srv.Close()
 	})
 
 	home, cfg, state, _ := agentFixture(t, srv.URL)
@@ -103,9 +102,63 @@ func TestAgentSIGTERMDrainsOutbox(t *testing.T) {
 			t.Fatalf("agent exit: %v\n%s", err, out)
 		}
 		assertDrained(t, cfg, state, out, held)
+		// The first hello is still sitting in the handler. Closing the
+		// test server will not cancel that request context, so release
+		// the handler before Close waits on it.
+		releaseHold(held)
 	case <-time.After(20 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatalf("agent did not exit after SIGTERM\n%s", readFile(t, outFile.Name()))
+	}
+}
+
+func TestAgentRetriesFailedSyncWithoutGrowth(t *testing.T) {
+	lake, err := api.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	gate := &failFirstHello{next: lake.Handler()}
+	srv := httptest.NewServer(gate)
+	t.Cleanup(srv.Close)
+
+	home, cfg, state, _ := agentFixture(t, srv.URL)
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{
+			Stdout: &buf,
+			Stderr: &buf,
+			Getenv: agentGetenv(home, cfg, state),
+		})
+	}()
+
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "uploaded 1")
+	})
+	gate.mu.Lock()
+	n := len(gate.at)
+	var gap time.Duration
+	if n >= 2 {
+		gap = gate.at[1].Sub(gate.at[0])
+	}
+	gate.mu.Unlock()
+	if n < 2 {
+		t.Fatalf("hellos %d\n%s", n, buf.String())
+	}
+	if gap < syncRetryAfter-500*time.Millisecond {
+		t.Fatalf("retry gap %s, want at least %s\n%s", gap, syncRetryAfter, buf.String())
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("agent did not exit")
 	}
 }
 
@@ -328,10 +381,10 @@ func (m *memBuf) String() string {
 	return m.b.String()
 }
 
-// holdHello stalls the first hello until the client gives up or the test
-// stops the server. Later hellos reach the lake. stop is closed before
-// the httptest server shuts down: abandoning the request does not cancel
-// the server's request context, so Close would wait on this handler.
+// holdHello stalls the first hello until the client gives up or releaseHold
+// closes stop. Later hellos reach the lake. An abandoned httptest client
+// does not cancel the server request context, so Close waits until stop
+// is closed.
 type holdHello struct {
 	next     http.Handler
 	held     chan struct{}
@@ -340,6 +393,14 @@ type holdHello struct {
 	mu       sync.Mutex
 	hellos   int
 	machines []string
+}
+
+func releaseHold(h *holdHello) {
+	select {
+	case <-h.stop:
+	default:
+		close(h.stop)
+	}
 }
 
 func (h *holdHello) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -373,6 +434,28 @@ func (h *holdHello) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.next.ServeHTTP(w, r)
+}
+
+// failFirstHello answers the first hello with 503 and lets the rest through.
+// at records when each hello arrived, so a test can see the retry wait.
+type failFirstHello struct {
+	next http.Handler
+	mu   sync.Mutex
+	at   []time.Time
+}
+
+func (f *failFirstHello) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/v1/hello" {
+		f.mu.Lock()
+		f.at = append(f.at, time.Now())
+		n := len(f.at)
+		f.mu.Unlock()
+		if n == 1 {
+			http.Error(w, "down", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	f.next.ServeHTTP(w, r)
 }
 
 type captureManifest struct {
