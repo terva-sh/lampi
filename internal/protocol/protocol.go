@@ -19,9 +19,9 @@ import (
 // Version is the capture_protocol value this tree speaks.
 const Version = 1
 
-// MaxBlobBytes is the largest single body a client may PUT.
-// A Content-Range piece and one chunk object stay under this cap.
-// The assembled digest is the concatenation, which may be larger.
+// MaxBlobBytes is the largest object the lake will install.
+// A PUT body, a Content-Range total, one chunk, and the concatenation
+// of a chunk list all stay under this cap.
 const MaxBlobBytes int64 = 32 << 20
 
 // ClockSkewWarn is how far a client clock may sit from hello's server_time

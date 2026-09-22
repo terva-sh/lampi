@@ -98,30 +98,46 @@ func (s *Store) PutRange(digest string, start, end, total, limit int64, r io.Rea
 		return false, false, nil
 	}
 
-	sum, err := hashFile(dataPath)
+	exists, err = s.installCoveredLocked(digest, dataPath)
 	if err != nil {
-		return false, false, err
-	}
-	if sum != digest {
-		return false, false, fmt.Errorf("cas: assembled sha256 %s does not match %s: %w", sum, digest, ErrRejected)
-	}
-	if err := os.Chmod(dataPath, 0o600); err != nil {
-		return false, false, fmt.Errorf("cas: %w", err)
-	}
-	exists, err = s.commitFileLocked(digest, dataPath)
-	if err != nil {
+		// The ranges already cover the object. Leaving them in place
+		// makes every later range fail the same hash check. Drop the
+		// partial so the client can send the bytes again. A rename that
+		// already succeeded has moved data out of dir, so this does not
+		// delete an installed blob.
+		_ = os.RemoveAll(dir)
 		return false, false, err
 	}
 	if err := os.RemoveAll(dir); err != nil {
-		return false, false, fmt.Errorf("cas: %w", err)
+		return exists, true, fmt.Errorf("cas: %w", err)
 	}
 	return exists, true, nil
+}
+
+// installCoveredLocked hashes a fully covered partial and moves it onto
+// the object path. The caller holds s.mu and deletes dir if this returns
+// an error.
+func (s *Store) installCoveredLocked(digest, dataPath string) (bool, error) {
+	sum, err := hashFile(dataPath)
+	if err != nil {
+		return false, err
+	}
+	if sum != digest {
+		return false, fmt.Errorf("cas: assembled sha256 %s does not match %s: %w", sum, digest, ErrRejected)
+	}
+	if err := os.Chmod(dataPath, 0o600); err != nil {
+		return false, fmt.Errorf("cas: %w", err)
+	}
+	return s.commitFileLocked(digest, dataPath)
 }
 
 // Concat installs digest as the concatenation of parts, which are
 // digests already in the store, in order. A digest that is already
 // installed is left untouched and the parts are not read.
-func (s *Store) Concat(digest string, parts []string) (exists bool, err error) {
+//
+// limit caps the assembled length. limit <= 0 means no cap. A sum of
+// part sizes past limit is rejected and nothing is installed.
+func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool, err error) {
 	if len(parts) == 0 {
 		return false, fmt.Errorf("cas: chunk list is empty: %w", ErrRejected)
 	}
@@ -141,6 +157,24 @@ func (s *Store) Concat(digest string, parts []string) (exists bool, err error) {
 	if ok {
 		_ = os.RemoveAll(s.partialDir(digest))
 		return true, nil
+	}
+
+	var total int64
+	for _, p := range parts {
+		f, err := s.OpenBlob(p)
+		if err != nil {
+			return false, err
+		}
+		st, statErr := f.Stat()
+		f.Close()
+		if statErr != nil {
+			return false, fmt.Errorf("cas: %w", statErr)
+		}
+		size := st.Size()
+		if limit > 0 && (size < 0 || size > limit-total) {
+			return false, fmt.Errorf("cas: blob exceeds %d bytes: %w", limit, ErrRejected)
+		}
+		total += size
 	}
 
 	final, err := s.Path(digest)

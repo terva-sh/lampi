@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -236,6 +238,106 @@ func TestChunkDigestsAssembleOnPutAndManifest(t *testing.T) {
 	if !st.ModTime().Equal(past) {
 		t.Fatalf("manifest rewrote assembled digest at %s", st.ModTime())
 	}
+}
+
+func TestContentRangeHashMismatchCanBeRetried(t *testing.T) {
+	s := openResume(t)
+	body := []byte("0123456789abcdef")
+	sum, _, err := cas.Hash(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong := bytes.Repeat([]byte{'x'}, len(body))
+	code, _ := putRange(t, s, sum, wrong, 0, int64(len(wrong)-1), int64(len(wrong)))
+	if code != http.StatusBadRequest {
+		t.Fatalf("mismatch status %d", code)
+	}
+	if ok, err := s.CAS.Has(sum); err != nil || ok {
+		t.Fatalf("mismatch installed the blob: has %v %v", ok, err)
+	}
+	if _, err := os.Stat(partialPath(s, sum)); !os.IsNotExist(err) {
+		t.Fatalf("covered partial left after hash mismatch: %v", err)
+	}
+
+	code, put := putRange(t, s, sum, body[:8], 0, 7, int64(len(body)))
+	if code != http.StatusOK || put.Complete || put.Exists {
+		t.Fatalf("retry partial %d %+v", code, put)
+	}
+	code, put = putRange(t, s, sum, body[8:], 8, 15, int64(len(body)))
+	if code != http.StatusOK || !put.Complete || put.Exists {
+		t.Fatalf("retry assemble %d %+v", code, put)
+	}
+	got, err := s.CAS.Read(sum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("retried %q", got)
+	}
+}
+
+func TestConcatRejectsOversizeAssembly(t *testing.T) {
+	s := openResume(t)
+	big := bytes.Repeat([]byte{'a'}, int(protocol.MaxBlobBytes))
+	extra := []byte{'b'}
+	d0, _, err := cas.Hash(bytes.NewReader(big))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d1, _, err := cas.Hash(bytes.NewReader(extra))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := putBytes(t, s, d0, big); code != http.StatusOK {
+		t.Fatalf("chunk0 %d", code)
+	}
+	if code, _ := putBytes(t, s, d1, extra); code != http.StatusOK {
+		t.Fatalf("chunk1 %d", code)
+	}
+	full, _, err := cas.Hash(io.MultiReader(bytes.NewReader(big), bytes.NewReader(extra)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/v1/blobs/"+full, bytes.NewReader(mustJSON(t, map[string]any{
+		"chunk_sha256s": []string{d0, d1},
+	})))
+	req.Header.Set("Content-Type", "application/json")
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("exceeds")) {
+		t.Fatalf("chunk put %d %s", rr.Code, rr.Body)
+	}
+	if ok, err := s.CAS.Has(full); err != nil || ok {
+		t.Fatalf("oversize chunk put installed the blob: has %v %v", ok, err)
+	}
+
+	m := protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessTerva,
+		NativeSessionID: "oversize",
+		Artifacts: []protocol.Artifact{{
+			Kind:         protocol.KindTranscriptJSONL,
+			RelPath:      "sessions/x/oversize.jsonl",
+			Size:         protocol.MaxBlobBytes + 1,
+			SHA256:       full,
+			ChunkSHA256s: []string{d0, d1},
+		}},
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/v1/manifests", bytes.NewReader(mustJSON(t, m)))
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("exceeds")) {
+		t.Fatalf("manifest %d %s", rr.Code, rr.Body)
+	}
+	if ok, err := s.CAS.Has(full); err != nil || ok {
+		t.Fatalf("oversize manifest installed the blob: has %v %v", ok, err)
+	}
+}
+
+func partialPath(s *Server, digest string) string {
+	return filepath.Join(s.CAS.Root, "partial", digest[:2], digest[2:])
 }
 
 func openResume(t *testing.T) *Server {

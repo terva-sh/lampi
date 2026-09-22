@@ -152,7 +152,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 
 func (s *Server) clientBytes(a protocol.Artifact, prev []byte, hasPrev bool) ([]byte, error) {
 	if len(a.ChunkSHA256s) > 0 {
-		if _, err := s.CAS.Concat(a.SHA256, a.ChunkSHA256s); err != nil {
+		if _, err := s.CAS.Concat(a.SHA256, a.ChunkSHA256s, protocol.MaxBlobBytes); err != nil {
 			return nil, err
 		}
 	}

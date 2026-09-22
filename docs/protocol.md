@@ -48,10 +48,9 @@ are hints. The catalog's `ingested_at` is the server clock. The client
 warns when its clock and `server_time` differ by more than five minutes
 (`protocol.ClockSkewWarn`) and still uploads. It checks that version 1
 is in `protocol_versions` and refuses a file larger than `max_blob_bytes`.
-A single PUT body, a Content-Range piece, and one chunk object each stay
-under that cap. The server assembles those pieces into the digest, which
-may be larger. This client does not yet split a file that is already
-over the cap.
+A PUT body, a Content-Range total, one chunk, and the assembled digest
+each stay under that cap. This client does not yet split a file that is
+already over the cap.
 
 ## POST /v1/blobs/check
 
@@ -90,7 +89,8 @@ both store nothing when that digest is already present.
 is the last byte. The total is required. A gap leaves the upload
 incomplete (`complete` false) under `partial/` and does not install the
 object. When the ranges cover `[0, total)`, the bytes are hashed, and
-the object is installed only if the hash is the path. A later PUT of a
+the object is installed only if the hash is the path. A mismatch deletes
+the partial, so the client can send the bytes again. A later PUT of a
 digest that is already stored does not write the range.
 
 A JSON body is the other form:
@@ -101,9 +101,10 @@ A JSON body is the other form:
 
 Each chunk is its own object, uploaded with the ordinary PUT. The server
 concatenates them in order and installs the result when the hash matches
-the path. A chunk that is not in the CAS is `409` with `missing`. The
-`Content-Type` is `application/json`. Sending `Content-Range` and a chunk
-list on the same PUT is `400`.
+the path. The concatenation is refused when it is longer than
+`max_blob_bytes`. A chunk that is not in the CAS is `409` with `missing`.
+The `Content-Type` is `application/json`. Sending `Content-Range` and a
+chunk list on the same PUT is `400`.
 
 ## POST /v1/manifests
 
@@ -154,8 +155,8 @@ next to a terva transcript.
 `sha256` is always the full file. `chunk_sha256s` lists the CAS objects
 that concatenate to it, in order. Null means the file was one PUT. A
 non-empty list is assembled when every chunk is already stored; a missing
-chunk is `409` and `missing`. The assembled object is what Layer B
-compares. `chunk_sha256s` is not combined with a tail: a tail is one
+chunk is `409` and `missing`. A concatenation longer than `max_blob_bytes`
+is `400`. The assembled object is what Layer B compares. `chunk_sha256s` is not combined with a tail: a tail is one
 blob, named by `tail_sha256`.
 
 `byte_watermark_prev` of 0 means the PUT body is that file and

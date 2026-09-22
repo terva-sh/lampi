@@ -227,7 +227,7 @@ func (s *Server) putChunks(w http.ResponseWriter, r *http.Request, digest string
 		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: "missing blobs", Missing: missing})
 		return
 	}
-	exists, err := s.CAS.Concat(digest, parts)
+	exists, err := s.CAS.Concat(digest, parts, protocol.MaxBlobBytes)
 	s.finishPut(w, digest, exists, true, err)
 }
 
