@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     head_sha256 TEXT NOT NULL,
     manifest_json TEXT NOT NULL,
     ingested_at TEXT NOT NULL,
+    normalize_error TEXT,
     UNIQUE (harness, native_session_id)
 );
 CREATE TABLE IF NOT EXISTS aliases (
@@ -149,8 +150,9 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 `
 
-// migrate adds columns a database created before aliases and relations
-// would not have. CREATE TABLE IF NOT EXISTS does not alter an old file.
+// migrate adds columns a database created before aliases, relations,
+// and sessions.normalize_error would not have. CREATE TABLE IF NOT
+// EXISTS does not alter an old file.
 func migrate(db *sql.DB) error {
 	ok, err := columnExists(db, "provenance", "sha256")
 	if err != nil {
@@ -207,6 +209,9 @@ func migrate(db *sql.DB) error {
 			SELECT head_sha256 FROM sessions s WHERE s.session_uid = artifacts.session_uid
 		)`); err != nil {
 		return fmt.Errorf("catalog: %w", err)
+	}
+	if err := addColumn(db, "sessions", "normalize_error", `ALTER TABLE sessions ADD COLUMN normalize_error TEXT`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -662,4 +667,76 @@ func scanArtifacts(rows *sql.Rows) ([]ArtifactRow, error) {
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// SessionInfo is one catalog session, including the last normalize
+// failure. NormalizeError is empty when the last projection succeeded
+// or the session has not been projected yet.
+type SessionInfo struct {
+	UID            string
+	Harness        string
+	NativeID       string
+	NormalizeError string
+	Manifest       protocol.Manifest
+}
+
+// SetNormalizeError records msg on the session. An empty msg clears it.
+// The CAS blob is not touched.
+func (c *Catalog) SetNormalizeError(ctx context.Context, sessionUID, msg string) error {
+	res, err := c.db.ExecContext(ctx, `
+		UPDATE sessions SET normalize_error = NULLIF(?, '') WHERE session_uid = ?`, msg, sessionUID)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("catalog: unknown session %s", sessionUID)
+	}
+	return nil
+}
+
+// NormalizeError returns the stored failure. ok is false when the
+// session does not exist. An empty string means no recorded failure.
+func (c *Catalog) NormalizeError(ctx context.Context, sessionUID string) (string, bool, error) {
+	var msg sql.NullString
+	err := c.db.QueryRowContext(ctx, `
+		SELECT normalize_error FROM sessions WHERE session_uid = ?`, sessionUID).Scan(&msg)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("catalog: %w", err)
+	}
+	return msg.String, true, nil
+}
+
+// ListSessions returns every session, oldest ingest first.
+func (c *Catalog) ListSessions(ctx context.Context) ([]SessionInfo, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT session_uid, harness, native_session_id, COALESCE(normalize_error, ''), manifest_json
+		FROM sessions
+		ORDER BY ingested_at, session_uid`)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []SessionInfo
+	for rows.Next() {
+		var info SessionInfo
+		var raw string
+		if err := rows.Scan(&info.UID, &info.Harness, &info.NativeID, &info.NormalizeError, &raw); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if err := json.Unmarshal([]byte(raw), &info.Manifest); err != nil {
+			return nil, fmt.Errorf("catalog: session %s: %w", info.UID, err)
+		}
+		out = append(out, info)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return out, nil
 }

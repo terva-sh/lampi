@@ -22,7 +22,7 @@ func TestRootHelpListsCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, cmd := range []string{"serve", "agent", "sync", "status", "login"} {
+	for _, cmd := range []string{"serve", "agent", "sync", "status", "login", "export"} {
 		if !strings.Contains(text, "terva-lampi "+cmd) {
 			t.Fatalf("help missing %s:\n%s", cmd, text)
 		}

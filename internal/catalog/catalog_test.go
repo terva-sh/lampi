@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
@@ -292,6 +293,85 @@ func (m memBlobs) Read(digest string) ([]byte, error) {
 func digestHex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+func TestNormalizeErrorRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "catalog.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A catalog from before normalize_error, and from before the
+	// provenance and artifact columns Layer B added. Open has to add
+	// normalize_error without skipping those reshapes.
+	if _, err := db.Exec(`
+		CREATE TABLE sessions (
+			session_uid TEXT PRIMARY KEY,
+			harness TEXT NOT NULL,
+			native_session_id TEXT NOT NULL,
+			head_sha256 TEXT NOT NULL,
+			manifest_json TEXT NOT NULL,
+			ingested_at TEXT NOT NULL,
+			UNIQUE (harness, native_session_id)
+		);
+		CREATE TABLE provenance (
+			session_uid TEXT NOT NULL,
+			machine_id TEXT NOT NULL,
+			PRIMARY KEY (session_uid, machine_id)
+		);
+		CREATE TABLE artifacts (
+			artifact_id TEXT PRIMARY KEY,
+			session_uid TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			relpath TEXT NOT NULL,
+			sha256 TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			UNIQUE (session_uid, relpath, sha256)
+		);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	ack, err := c.Ingest(ctx, sampleManifest(), time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC), []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, ok, err := c.NormalizeError(ctx, ack.SessionUID)
+	if err != nil || !ok || msg != "" {
+		t.Fatalf("fresh error %q ok=%v err=%v", msg, ok, err)
+	}
+	if err := c.SetNormalizeError(ctx, ack.SessionUID, "normalize: line 1 is not a JSON object"); err != nil {
+		t.Fatal(err)
+	}
+	msg, _, err = c.NormalizeError(ctx, ack.SessionUID)
+	if err != nil || msg == "" {
+		t.Fatalf("stored %q %v", msg, err)
+	}
+	if err := c.SetNormalizeError(ctx, ack.SessionUID, ""); err != nil {
+		t.Fatal(err)
+	}
+	msg, _, err = c.NormalizeError(ctx, ack.SessionUID)
+	if err != nil || msg != "" {
+		t.Fatalf("cleared %q %v", msg, err)
+	}
+	list, err := c.ListSessions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].UID != ack.SessionUID || list[0].NormalizeError != "" {
+		t.Fatalf("list: %+v", list)
+	}
 }
 
 func sampleManifest() protocol.Manifest {
