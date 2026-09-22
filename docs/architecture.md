@@ -28,11 +28,12 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK |
 
-`terva-lampi agent` lists those files and watches them. It does not
-upload. `terva-lampi sync` is the path that moves bytes. The agent loop
-will call that same function. A grown file is still one whole blob; the
-lake does not assemble a tail yet. The manifest agrees: `byte_watermark_prev`
-is 0 and `tail_sha256` is the full digest. An unchanged file uploads nothing.
+`terva-lampi agent` lists those files, watches them, and uploads through
+`upload.Sync`. `terva-lampi sync` is the same function, once. A grown
+file is still one whole blob; the lake does not assemble a tail yet.
+The manifest agrees: `byte_watermark_prev` is 0 and `tail_sha256` is the
+full digest. An unchanged file uploads nothing. SIGTERM stops the watch
+and drains the outbox best-effort.
 
 ## What this tree does not do
 
@@ -44,10 +45,11 @@ Left as interfaces, with the reason next to the type:
 | `internal/adapter` | Claude Code, Codex, OpenCode. Cursor is intentionally last and is not started |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
-`internal/redact` are implemented. `terva-lampi sync` enqueues, scans,
-and advances a watermark after the manifest ACK. `terva-lampi agent`
-still only watches. Wiring the long-running loop to `upload.Sync` is a
-separate change.
+`internal/redact` are implemented. `terva-lampi sync` and
+`terva-lampi agent` both enqueue, scan, and advance a watermark after
+the manifest ACK. The agent is the long-running loop: startup sync,
+then a sync when the watcher reports growth, then one more sync on
+SIGTERM. User-service packaging (systemd, launchd) is not in this tree.
 
 `hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
 source of truth. The directory walk is.
