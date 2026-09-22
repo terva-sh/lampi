@@ -49,6 +49,49 @@ func TestAliasWarning(t *testing.T) {
 	}
 }
 
+func TestServeRefusesNonLoopbackWithoutToken(t *testing.T) {
+	data := t.TempDir()
+	err := Run([]string{"serve", "--addr", "0.0.0.0:8787", "--data", data}, Env{
+		Stdout: ioDiscard(),
+		Stderr: ioDiscard(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "0.0.0.0:8787") || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("err %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(data, "catalog.db")); !os.IsNotExist(statErr) {
+		t.Fatalf("refused serve created a catalog: %v", statErr)
+	}
+	if err := refuseExposedWithoutToken("127.0.0.1:8787", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := refuseExposedWithoutToken("0.0.0.0:8787", "device-token"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListenLoopback(t *testing.T) {
+	cases := []struct {
+		addr string
+		ok   bool
+	}{
+		{"127.0.0.1:8787", true},
+		{"127.0.0.2:1", true},
+		{"[::1]:8787", true},
+		{"0.0.0.0:8787", false},
+		{"[::]:8787", false},
+		{":8787", false},
+	}
+	for _, tc := range cases {
+		got, err := listenLoopback(tc.addr)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.addr, err)
+		}
+		if got != tc.ok {
+			t.Fatalf("%s: got %v", tc.addr, got)
+		}
+	}
+}
+
 func TestUnknownCommand(t *testing.T) {
 	err := Run([]string{"pond"}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
 	if err == nil || !strings.Contains(err.Error(), "pond") {

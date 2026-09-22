@@ -3,12 +3,13 @@
 //
 // healthz is unauthenticated and returns no catalog data, so a process
 // probe does not need the device token. Every /v1 route checks the bearer
-// token when one is configured. An empty Token means loopback use without
-// auth; the serve command says so on stderr.
+// token when one is configured. An empty Token disables that check. The
+// serve command refuses to bind a non-loopback address in that state.
 package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -134,7 +135,13 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 	}
 	exists, err := s.CAS.Put(digest, r.Body, protocol.MaxBlobBytes)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		// A wrong digest or an oversize body is the client's mistake.
+		// mkdir, rename, and other IO are the lake's.
+		code := http.StatusInternalServerError
+		if errors.Is(err, cas.ErrRejected) {
+			code = http.StatusBadRequest
+		}
+		writeJSON(w, code, protocol.ErrorBody{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, protocol.PutResponse{Exists: exists, SHA256: digest})

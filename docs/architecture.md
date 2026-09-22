@@ -107,7 +107,8 @@ writes the file and does not print the token. The lake process reads the
 same kind of file with `--token-file`. There is no enrolment API: copy
 the file. That is a stub, not a design to keep.
 
-Default bind is `127.0.0.1:8787`. The data directory is the XDG state dir
+Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
+`--token-file` is an error. The data directory is the XDG state dir
 `terva-lampi/` (override with `--data`), mode 0700, separate from
 `$TERVA_HOME`. `$TERVA_HOME` is the producer. The lake does not write into it.
 

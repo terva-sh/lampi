@@ -18,6 +18,11 @@ import (
 	"terva.sh/lampi/internal/protocol"
 )
 
+// ErrRejected is a put the client got wrong: the body digest does not
+// match the object key, or the body is over the size cap. Every other
+// error from Put is a storage failure (mkdir, rename, read, write).
+var ErrRejected = errors.New("cas: rejected blob")
+
 // Store keeps blobs under Root.
 type Store struct {
 	Root string
@@ -92,7 +97,7 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 			return false, fmt.Errorf("cas: %w", err)
 		}
 		if n > limit {
-			return false, fmt.Errorf("cas: blob exceeds %d bytes", limit)
+			return false, fmt.Errorf("cas: blob exceeds %d bytes: %w", limit, ErrRejected)
 		}
 	} else {
 		n, err = io.Copy(w, r)
@@ -102,7 +107,7 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
 	if sum != digest {
-		return false, fmt.Errorf("cas: body sha256 %s does not match %s", sum, digest)
+		return false, fmt.Errorf("cas: body sha256 %s does not match %s: %w", sum, digest, ErrRejected)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
 		return false, fmt.Errorf("cas: %w", err)

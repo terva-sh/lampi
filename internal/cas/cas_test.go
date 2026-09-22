@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,15 +72,15 @@ func TestPutRejectsMismatchAndOversize(t *testing.T) {
 	}
 	body := []byte("abc")
 	claimed := digestOf([]byte("nope"))
-	if _, err := s.Put(claimed, bytes.NewReader(body), 1024); err == nil {
-		t.Fatal("expected digest mismatch")
+	if _, err := s.Put(claimed, bytes.NewReader(body), 1024); !errors.Is(err, ErrRejected) {
+		t.Fatalf("expected digest mismatch, got %v", err)
 	}
 	if _, err := s.Put("not-a-digest", bytes.NewReader(body), 1024); err == nil {
 		t.Fatal("expected invalid digest")
 	}
 	d := digestOf(body)
-	if _, err := s.Put(d, bytes.NewReader(body), 2); err == nil {
-		t.Fatal("expected oversize refusal")
+	if _, err := s.Put(d, bytes.NewReader(body), 2); !errors.Is(err, ErrRejected) {
+		t.Fatalf("expected oversize refusal, got %v", err)
 	}
 	ok, err := s.Has(d)
 	if err != nil {

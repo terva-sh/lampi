@@ -88,11 +88,12 @@ push.
 ```
 
 Copy that file to the lake host. With `--token-file`, `/v1` routes
-require `Authorization: Bearer`. `/healthz` stays open and returns no
-catalog data. The server compares the token in plaintext. That is a
-stub: do not expose `serve` beyond loopback until the token is stored
-hashed, and do not upload a project whose transcripts you would not
-copy onto that disk in the clear. Nothing here redacts secrets.
+require `Authorization: Bearer`. Without a token file, `serve` accepts
+unauthenticated requests only on a loopback address and refuses any other
+`--addr`. `/healthz` stays open and returns no catalog data. The server
+compares the token in plaintext. That is a stub: do not upload a project
+whose transcripts you would not copy onto that disk in the clear. Nothing
+here redacts secrets.
 
 ## Commands
 

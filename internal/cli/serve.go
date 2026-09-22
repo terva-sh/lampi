@@ -23,9 +23,9 @@ usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
 
 Listens for capture protocol 1. GET /healthz is open. /v1/* requires the
-device token when --token-file is set; with no token file the process
-accepts unauthenticated requests and says so on stderr. Bind stays on
-loopback unless --addr says otherwise.
+device token when --token-file is set. With no token file the process
+accepts unauthenticated requests only on a loopback address; any other
+--addr is an error. The default bind is 127.0.0.1:8787.
 
 The lake directory holds cas/ (sha256 blobs) and catalog.db (SQLite).
 The default is the XDG state dir terva-lampi/, not $TERVA_HOME.
@@ -62,6 +62,9 @@ func runServe(env Env, args []string) error {
 			return err
 		}
 	}
+	if err := refuseExposedWithoutToken(addr, token); err != nil {
+		return err
+	}
 	lake, err := api.Open(data)
 	if err != nil {
 		return err
@@ -81,7 +84,16 @@ func runServe(env Env, args []string) error {
 		fmt.Fprintln(env.stderr(), "terva-lampi serve: device token required")
 	}
 
-	srv := &http.Server{Handler: lake.Handler()}
+	srv := &http.Server{
+		Handler: lake.Handler(),
+		// ReadHeaderTimeout closes the slowloris gap. ReadTimeout covers the
+		// body and is long enough for the 32 MiB blob cap. Both apply on
+		// loopback and on any address that passed the token check.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
@@ -94,4 +106,50 @@ func runServe(env Env, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// refuseExposedWithoutToken rejects a listen that is not loopback when no
+// device token is configured. A stderr note is not enough: 0.0.0.0 with an
+// empty token would publish the lake.
+func refuseExposedWithoutToken(addr, token string) error {
+	if token != "" {
+		return nil
+	}
+	ok, err := listenLoopback(addr)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	return fmt.Errorf("refusing %s without a device token; pass --token-file or bind a loopback address", addr)
+}
+
+// listenLoopback reports whether addr's host is a loopback IP. An empty
+// host (":8787") and unspecified addresses (0.0.0.0, ::) are not loopback.
+// A hostname is loopback only when every address it resolves to is.
+func listenLoopback(addr string) (bool, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, fmt.Errorf("listen address: %w", err)
+	}
+	if host == "" {
+		return false, nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback(), nil
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return false, fmt.Errorf("listen address %s: %w", addr, err)
+	}
+	if len(ips) == 0 {
+		return false, nil
+	}
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return false, nil
+		}
+	}
+	return true, nil
 }

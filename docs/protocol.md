@@ -10,9 +10,10 @@ NAT do not open an inbound port.
 `GET /healthz` is the exception to auth: it returns `{"status":"ok"}` and
 nothing about the catalog, so a process probe does not need a token.
 Every `/v1` route requires `Authorization: Bearer <token>` when the
-server was started with `--token-file`. With no token file the server
-accepts `/v1` unauthenticated and says so on stderr. The comparison is
-plaintext. Hashing the token at rest is not implemented.
+server was started with `--token-file`. With no token file, `terva-lampi serve`
+accepts `/v1` unauthenticated only on a loopback address and refuses any
+other `--addr`. The comparison is plaintext. Hashing the token at rest is
+not implemented.
 
 ## POST /v1/hello
 

@@ -12,6 +12,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,17 +30,44 @@ func Generate() (string, error) {
 // Write stores token at path, mode 0600. The directory is created 0700.
 // A trailing newline is written so the file is a normal text file; Read
 // strips it. The token itself must be a single line.
+//
+// The write is atomic in the same way as a CAS put: bytes land in a temp
+// file in the destination directory, then os.Rename replaces path. A crash
+// mid-write leaves the previous token (or no token) rather than a truncated
+// file at path.
 func Write(path, token string) error {
 	token = strings.TrimSpace(token)
 	if token == "" || strings.ContainsAny(token, "\r\n") {
 		return fmt.Errorf("auth: token must be a single non-empty line")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("auth: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".token-*")
+	if err != nil {
 		return fmt.Errorf("auth: %w", err)
 	}
+	tmpName := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if tmpName != "" {
+			os.Remove(tmpName)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	if _, err := io.WriteString(tmp, token+"\n"); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	tmpName = ""
 	return nil
 }
 

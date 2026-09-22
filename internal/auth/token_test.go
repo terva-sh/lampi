@@ -40,6 +40,41 @@ func TestWriteReadMode(t *testing.T) {
 	}
 }
 
+func TestWriteReplacesWholeFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token")
+	first := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	second := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := Write(path, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(path, second); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != second {
+		t.Fatalf("read %q", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "token" {
+		t.Fatalf("temp file left behind: %v", names(entries))
+	}
+}
+
+func names(entries []os.DirEntry) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.Name()
+	}
+	return out
+}
+
 func TestWriteRejectsEmpty(t *testing.T) {
 	if err := Write(filepath.Join(t.TempDir(), "t"), "  "); err == nil {
 		t.Fatal("expected empty token to fail")

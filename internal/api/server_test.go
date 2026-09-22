@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -131,6 +133,43 @@ func TestManifestMissingBlob(t *testing.T) {
 	s.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("status %d %s", rr.Code, rr.Body)
+	}
+}
+
+func TestPutRejectsMismatchAndStorage(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	h := s.Handler()
+
+	body := []byte("hello lake\n")
+	other, _, err := cas.Hash(bytes.NewReader([]byte("other")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/v1/blobs/"+other, bytes.NewReader(body))
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("mismatch status %d %s", rr.Code, rr.Body)
+	}
+
+	broken := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(broken, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.CAS = &cas.Store{Root: broken}
+	sum, _, err := cas.Hash(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/v1/blobs/"+sum, bytes.NewReader(body))
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("storage status %d %s", rr.Code, rr.Body)
 	}
 }
 
