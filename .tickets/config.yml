@@ -2,6 +2,8 @@ schema: 3
 actors:
   - id: human:sothr
     name: Drew Short
+  - id: agent:cursor/d943
+    name: Cursor cloud agent
 labels:
   - area/agent
   - area/server
@@ -44,6 +46,6 @@ doctor:
     label_order:
       params:
         confidence: 0.9
-        sample: 10
         min: 3
+        sample: 10
         visible: 3

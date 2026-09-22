@@ -176,6 +176,17 @@ func TestAgentDiscover(t *testing.T) {
 	if strings.TrimSpace(out.String()) != id {
 		t.Fatal("machine id was not stable")
 	}
+	out.Reset()
+	if err := Run([]string{"agent", "status"}, env); err != nil {
+		t.Fatal(err)
+	}
+	status := out.String()
+	if !strings.Contains(status, "watch: fsnotify") && !strings.Contains(status, "watch: poll") {
+		t.Fatalf("status: %s", status)
+	}
+	if !strings.Contains(status, "sessions: 1") {
+		t.Fatalf("status: %s", status)
+	}
 }
 
 func TestStatusHealth(t *testing.T) {

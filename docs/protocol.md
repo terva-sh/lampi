@@ -108,7 +108,8 @@ project key the lake wants later; this scaffold leaves it empty.
 next to a terva transcript.
 
 A 200 body is the ACK. The client may advance a watermark only after it
-sees this. Watermarks are not stored yet.
+sees this. `internal/watermark` enforces that. `terva-lampi sync` does
+not write a watermark yet, and still sends `byte_watermark_prev` 0.
 
 ```json
 {

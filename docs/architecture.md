@@ -21,11 +21,14 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Device token | `internal/auth` | 256-bit file, mode 0600. Plaintext compare |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
-| Push | `internal/upload` | Check, put missing, post manifests |
+| Watch | `internal/watch` | fsnotify, poll fallback, append offset |
+| Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
+| Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
+| Push | `internal/upload` | Check, put missing, post manifests. Does not use the outbox yet |
 
-`terva-lampi agent` lists those files and then waits. The wait is
-`internal/watch`, which does not use fsnotify. `terva-lampi sync` is the
-path that actually moves bytes.
+`terva-lampi agent` lists those files and watches them. It does not
+upload. `terva-lampi sync` is the path that moves bytes, and it still
+uploads whole files rather than tails.
 
 ## What this tree does not do
 
@@ -33,12 +36,13 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/watch` | fsnotify, plus a poll fallback |
 | `internal/redact` | Ruleset v1 before bytes leave the machine. The stub reports `unscanned` |
-| `internal/outbox` | Durable queue across sleep and reboot |
-| `internal/watermark` | Per-file byte offset, updated only after a manifest ACK |
 | `internal/normalize` | Raw blob to the shared event schema |
 | `internal/adapter` | Claude Code, Codex, OpenCode. Cursor is intentionally last and is not started |
+
+`internal/watch`, `internal/outbox`, and `internal/watermark` are
+implemented. `terva-lampi sync` does not enqueue or advance a watermark
+yet. That wiring is a separate change from the stores themselves.
 
 `hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
 source of truth. The directory walk is.
@@ -61,7 +65,7 @@ terva-lampi agent / sync          terva-lampi serve
   discover, hash, manifest   -->    CAS + SQLite catalog
         |
         v
-  (later) redact, watermark, outbox, fsnotify
+  (later) redact, then the outbox and watermarks on the sync path
 ```
 
 Other harnesses are adapters behind the same manifest. terva is the only
@@ -85,10 +89,10 @@ internal/discover/        terva session walk
 internal/adapter/         harness interface
 internal/adapter/terva/   meta line, manifests
 internal/upload/          one-shot push
-internal/watch/           stub
+internal/watch/           fsnotify, poll fallback
 internal/redact/          stub
-internal/outbox/          stub
-internal/watermark/       stub
+internal/outbox/          SQLite queue
+internal/watermark/       per-path cursor, ACK-gated
 internal/normalize/       stub
 docs/protocol.md
 docs/architecture.md
