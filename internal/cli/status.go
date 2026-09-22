@@ -32,7 +32,8 @@ GET /healthz reports whether the lake process is up. It carries no
 catalog data and does not need the token. GET /v1/stats reports how
 many sessions, artifacts, and machines the catalog holds, and uses the
 device token when one is configured. A lake that does not answer is
-reported; the local lines are still printed.
+reported, and a last-sync stamp that cannot be read is reported as
+unreadable. The other lines are still printed.
 `
 
 func runStatus(env Env, args []string) error {
@@ -109,13 +110,9 @@ func writeCaptureState(w io.Writer, stateDir string) error {
 	if err != nil {
 		return err
 	}
-	last, err := lastSyncLine(stateDir)
-	if err != nil {
-		return err
-	}
 	fmt.Fprintf(w, "outbox: %d\n", depth)
 	fmt.Fprintln(w, formatWatermarks(sum))
-	fmt.Fprintln(w, last)
+	fmt.Fprintln(w, lastSyncLine(stateDir))
 	return nil
 }
 
@@ -162,16 +159,20 @@ func formatWatermarks(s watermark.Summary) string {
 	return line
 }
 
-func lastSyncLine(stateDir string) (string, error) {
+func lastSyncLine(stateDir string) string {
 	st, ok, err := upload.ReadLastSync(stateDir)
 	if err != nil {
-		return "", err
+		// A torn or corrupt stamp must not hide the rest of status.
+		// The lake probe works the same way: report it, keep going.
+		return "last_sync: unreadable"
 	}
 	if !ok {
-		return "last_sync: never", nil
+		return "last_sync: never"
 	}
-	return fmt.Sprintf("last_sync: %s uploaded=%d manifests=%d",
-		st.At.UTC().Format(time.RFC3339), st.Uploaded, st.Manifests), nil
+	return fmt.Sprintf(
+		"last_sync: %s uploaded=%d manifests=%d refused=%d quarantined=%d",
+		st.At.UTC().Format(time.RFC3339),
+		st.Uploaded, st.Manifests, st.Refused, st.Quarantined)
 }
 
 func probeHealth(server string) string {

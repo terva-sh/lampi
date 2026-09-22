@@ -126,6 +126,13 @@ func TestLastSyncStampSurvivesAFailedRetry(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %o", info.Mode().Perm())
 	}
+	leftover, err := filepath.Glob(filepath.Join(state, ".last-sync-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftover) != 0 {
+		t.Fatalf("temp stamps left behind: %v", leftover)
+	}
 
 	// A lake error is not a finished sync. The previous stamp stays.
 	opt.ServerURL = "http://127.0.0.1:1"

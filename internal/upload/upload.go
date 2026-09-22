@@ -270,9 +270,32 @@ func saveLastSync(opt Options, res Result) error {
 		return err
 	}
 	raw = append(raw, '\n')
-	if err := os.WriteFile(LastSyncFile(opt.StateDir), raw, 0o600); err != nil {
+	// Rename a complete file over the stamp. A crash mid-write leaves the
+	// previous document in place; readers never see a truncated one.
+	tmp, err := os.CreateTemp(opt.StateDir, ".last-sync-*")
+	if err != nil {
 		return fmt.Errorf("upload: last sync: %w", err)
 	}
+	tmpName := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if tmpName != "" {
+			os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(raw); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	if err := os.Rename(tmpName, LastSyncFile(opt.StateDir)); err != nil {
+		return fmt.Errorf("upload: last sync: %w", err)
+	}
+	tmpName = ""
 	return nil
 }
 

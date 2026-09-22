@@ -299,8 +299,7 @@ func TestStatusReportsAgentAndServer(t *testing.T) {
 		"outbox: 1",
 		"watermarks: 1 paths,",
 		"newest ",
-		"uploaded=1",
-		"manifests=1",
+		"uploaded=1 manifests=1 refused=0 quarantined=0",
 		"health: ok",
 		"catalog_sessions: 1",
 		"catalog_artifacts: 1",
@@ -364,6 +363,65 @@ func TestStatusLakeDownStillPrintsLocal(t *testing.T) {
 		"health: unreachable",
 		"catalog: unreachable",
 	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestStatusPrintsRefusalOnLastSync(t *testing.T) {
+	home := t.TempDir()
+	cfg := t.TempDir()
+	state := t.TempDir()
+	dir := filepath.Join(home, "sessions", "abcd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"sess-1\",\"cwd\":\"/work/app\"}}\n")
+	if err := os.WriteFile(filepath.Join(dir, "sess-1.jsonl"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{
+		Stdout: ioDiscard(),
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(cfg, home, state),
+	}
+	err := Run([]string{"sync", "--server", "http://127.0.0.1:1"}, env)
+	if err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("err %v", err)
+	}
+	var out bytes.Buffer
+	env.Stdout = &out
+	if err := Run([]string{"status", "--server", "http://127.0.0.1:1"}, env); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "uploaded=0 manifests=0 refused=1 quarantined=0") {
+		t.Fatalf("status:\n%s", out.String())
+	}
+}
+
+func TestStatusUnreadableLastSync(t *testing.T) {
+	cfg := t.TempDir()
+	home := t.TempDir()
+	state := t.TempDir()
+	dir := filepath.Join(state, "terva-lampi")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "last_sync.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := Run([]string{"status", "--server", "http://127.0.0.1:1"}, Env{
+		Stdout: &out,
+		Stderr: ioDiscard(),
+		Getenv: statusEnv(cfg, home, state),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"last_sync: unreadable", "outbox: 0", "health: unreachable"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q\n%s", want, text)
 		}
