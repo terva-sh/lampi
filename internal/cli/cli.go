@@ -163,7 +163,7 @@ usage:
   terva-lampi sync      push new bytes once
   terva-lampi status    agent state and lake health
   terva-lampi login     write a device token file
-  terva-lampi export    write normalized events as JSONL
+  terva-lampi export    write normalized events, or an allowlisted ShareGPT trajectory
   terva-lampi conflicts list divergent_copy artifacts from the catalog
 
 The command is terva-lampi. An optional ` + "`lampi`" + ` symlink is not the

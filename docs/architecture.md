@@ -33,7 +33,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
 | Normalize | `internal/normalize` | Workers project terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
-| Export | `terva-lampi export` | Normalized JSONL, after the normalize queue is idle. A session with `normalize_error` is skipped |
+| Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
@@ -79,13 +79,28 @@ Unknown harness fields are kept on the event. `encrypted_content` is
 copied through as an opaque string and is not written into
 `content_text`. Image bytes stay in the raw blob. Pre-compaction rows
 stay in the projection so an earlier prompt is still searchable.
-`terva-lampi export` waits until the queue is idle, then writes one
-JSON object per event. A missing JSONL file is projected once, so a
-removed derived view can be rebuilt. DuckDB reads the export with
-`read_ndjson`. sqlite reads each line and uses
+`terva-lampi export` waits until the queue is idle. `--format events`
+(the default) writes one JSON object per event. A missing JSONL file
+is projected once, so a removed derived view can be rebuilt. DuckDB
+reads that export with `read_ndjson`. sqlite reads each line and uses
 `json_extract(line, '$.content_text')`. A session with `normalize_error`
 set is skipped. Until a worker finishes, `normalize_error` is empty
 and the derived files may be absent.
+
+`--format sharegpt` and `--format trajectory` write the same training
+projection: one ShareGPT conversation per allowlisted session that
+has a training turn. A session with none is named on stderr. Turns
+are message, tool call, tool result, compaction, and error rows.
+`content_text` becomes `value`. A tool call keeps its name and call
+id. Meta, usage, and unknown rows are left out. The `projects`
+allowlist in `config.json` gates the file, the same default-deny
+rules as off-box raw. The check uses the stored manifest cwd, cwd
+hash, and git remote. A session that is not permitted is named on
+stderr and omitted. Each row carries `raw_sha256`, the current
+transcript blob, so the row can be traced without rewriting the CAS.
+`encrypted_content` is copied onto the turn as stored. It is not
+written into `value` and it is not decrypted. This format does not
+strip secrets. That stays a later pass over the training view.
 
 ## What this tree does not do
 
@@ -167,7 +182,8 @@ watermark commit and outbox ACK          terva-lampi serve
                                          ACK, then normalize workers
                                          normalized/*.jsonl
                                          parquet/date=*/harness=*/*.parquet
-                                         terva-lampi export → JSONL
+                                         terva-lampi export → events JSONL
+                                         or allowlisted ShareGPT JSONL
 ```
 
 Other harnesses are adapters behind the same manifest. terva, Claude

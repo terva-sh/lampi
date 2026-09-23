@@ -130,8 +130,19 @@ not a promise that every secret is caught.
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
-| `terva-lampi export` | Write normalized events as JSONL for DuckDB or sqlite. |
+| `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
 | `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
+
+`terva-lampi export --format events` (the default) writes one
+normalized event per line. `--format sharegpt` and `--format
+trajectory` write one ShareGPT conversation per session that
+`config.json` allowlists and that has a training turn. A session
+with no training turn, and a session that is not permitted, are
+named on stderr and left out. Each training row carries
+`raw_sha256`, the current transcript blob. `encrypted_content` is
+copied onto the turn as stored and is not decrypted. The command
+does not rewrite the CAS, and it does not strip secrets from the
+training text.
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
 
@@ -306,9 +317,10 @@ default in `.tickets/config.yml`, so a write with no `--actor` uses it.
 instructions` prints the long form.
 
 Phase 0 placement, retention, and encryption are in
-[docs/policy.md](docs/policy.md). Phase 5 is still draft. The Cursor
-IDE `state.vscdb` reader and the Cursor CLI `store.db` reader are
-separate corpora.
+[docs/policy.md](docs/policy.md). Phase 5 training export is
+`terva-lampi export --format sharegpt`. Stripping secrets from that
+view is still open. The Cursor IDE `state.vscdb` reader and the
+Cursor CLI `store.db` reader are separate corpora.
 
 ## Status
 
@@ -321,7 +333,9 @@ watermarks, a project allowlist, and ruleset v1.
 manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
-as JSONL. `internal/accept` is the MVP gate for that path, and CI runs
+as JSONL. `--format sharegpt` writes an allowlisted trajectory of
+the same sessions, with `raw_sha256` on each row. `internal/accept`
+is the MVP gate for the events path, and CI runs
 it with the rest of `go test ./...`. Cursor IDE `state.vscdb` and
 Cursor CLI `store.db` are snapshotted into filtered JSON exports.
 They do not share a harness, a session, or a watermark. See
