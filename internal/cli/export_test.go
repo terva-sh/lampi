@@ -147,6 +147,244 @@ func postManifest(t *testing.T, h http.Handler, m protocol.Manifest) protocol.Ma
 	return ack
 }
 
+func TestShareGPTExportAllowlistLineageAndOpaque(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Allow("sekret")
+	h := lake.Handler()
+
+	allowedBody := trainingTranscript("/work/app", "allow-prompt", "gAAAAABopaque==")
+	allowedSum := putManifest(t, h, "sid-allow", "/work/app", allowedBody)
+
+	deniedBody := trainingTranscript("/secret/other", "deny-prompt", "gAAAAABother==")
+	deniedSum := putManifest(t, h, "sid-deny", "/secret/other", deniedBody)
+
+	privateBody := trainingTranscript("/work/app/private", "private-prompt", "")
+	privateSum := putManifest(t, h, "sid-private", "/work/app/private", privateBody)
+
+	bad := []byte("not-json sk-live-secret\n")
+	badSum, _, err := cas.Hash(bytes.NewReader(bad))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putBlob(t, h, badSum, bad)
+	badAck := postManifest(t, h, manifestProject("sid-bad", "/work/app", "sessions/x/sid-bad.jsonl", badSum, int64(len(bad))))
+
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	allow := []byte(`{"projects":{"allow":[{"cwd_prefix":"/work/app"}],"deny":[{"cwd_prefix":"/work/app/private"}]}}` + "\n")
+	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), allow, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(dir, "sharegpt.jsonl")
+	var stderr bytes.Buffer
+	env := Env{Stdout: &bytes.Buffer{}, Stderr: &stderr, Getenv: func(k string) string {
+		if k == "XDG_CONFIG_HOME" {
+			return cfg
+		}
+		return ""
+	}}
+	if err := Run([]string{"export", "--data", dir, "--out", out, "--format", "sharegpt"}, env); err != nil {
+		t.Fatal(err)
+	}
+	traj := filepath.Join(dir, "trajectory.jsonl")
+	var stderr2 bytes.Buffer
+	env.Stderr = &stderr2
+	if err := Run([]string{"export", "--data", dir, "--out", traj, "--format", "trajectory"}, env); err != nil {
+		t.Fatal(err)
+	}
+	shareRaw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trajRaw, err := os.ReadFile(traj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(shareRaw, trajRaw) {
+		t.Fatalf("trajectory diverged from sharegpt:\n%s\n%s", shareRaw, trajRaw)
+	}
+
+	lines := splitLines(shareRaw)
+	if len(lines) != 1 {
+		t.Fatalf("rows %d:\n%s", len(lines), shareRaw)
+	}
+	var rec struct {
+		SessionUID    string `json:"session_uid"`
+		RawSHA256     string `json:"raw_sha256"`
+		Conversations []struct {
+			From             string `json:"from"`
+			Value            string `json:"value"`
+			Name             string `json:"name"`
+			CallID           string `json:"call_id"`
+			EncryptedContent any    `json:"encrypted_content"`
+		} `json:"conversations"`
+	}
+	if err := json.Unmarshal(lines[0], &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.RawSHA256 != allowedSum {
+		t.Fatalf("raw_sha256 %s", rec.RawSHA256)
+	}
+	if strings.Contains(string(shareRaw), "deny-prompt") || strings.Contains(string(shareRaw), "private-prompt") || strings.Contains(string(shareRaw), "gAAAAABother==") {
+		t.Fatalf("disallowed text in export:\n%s", shareRaw)
+	}
+	if strings.Contains(string(shareRaw), "sk-live-secret") || strings.Contains(string(shareRaw), "not-json") {
+		t.Fatalf("failed transcript leaked:\n%s", shareRaw)
+	}
+	var human, cipher string
+	for _, turn := range rec.Conversations {
+		if turn.From == "human" {
+			human = turn.Value
+		}
+		if turn.EncryptedContent != nil {
+			s, ok := turn.EncryptedContent.(string)
+			if !ok || strings.Contains(turn.Value, "gAAAAABopaque==") {
+				t.Fatalf("ciphertext interpreted: %+v", turn)
+			}
+			cipher = s
+		}
+	}
+	if human != "allow-prompt" || cipher != "gAAAAABopaque==" {
+		t.Fatalf("trajectory: %+v", rec.Conversations)
+	}
+	for _, msg := range []string{"not allowlisted", badAck.SessionUID, "normalize_error"} {
+		if !strings.Contains(stderr.String(), msg) {
+			t.Fatalf("stderr missing %q:\n%s", msg, stderr.String())
+		}
+	}
+	if strings.Contains(stderr.String(), "deny-prompt") || strings.Contains(stderr.String(), "gAAAAABopaque==") || strings.Contains(stderr.String(), "sk-live-secret") {
+		t.Fatalf("stderr includes raw text:\n%s", stderr.String())
+	}
+
+	for _, item := range []struct {
+		sum  string
+		body []byte
+	}{
+		{allowedSum, allowedBody},
+		{deniedSum, deniedBody},
+		{privateSum, privateBody},
+		{badSum, bad},
+	} {
+		left, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", item.sum[:2], item.sum[2:]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(left, item.body) {
+			t.Fatalf("raw blob %s changed", item.sum)
+		}
+	}
+
+	eventsPath := filepath.Join(dir, "events.jsonl")
+	if err := Run([]string{"export", "--data", dir, "--out", eventsPath}, Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"allow-prompt", "deny-prompt", "private-prompt"} {
+		if !strings.Contains(string(events), want) {
+			t.Fatalf("events export dropped %s", want)
+		}
+	}
+}
+
+func TestShareGPTExportDefaultDeny(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Allow("sekret")
+	h := lake.Handler()
+	body := trainingTranscript("/work/app", "allow-prompt", "")
+	putManifest(t, h, "sid-allow", "/work/app", body)
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(dir, "sharegpt.jsonl")
+	var stderr bytes.Buffer
+	env := Env{Stdout: &bytes.Buffer{}, Stderr: &stderr, Getenv: func(k string) string {
+		if k == "XDG_CONFIG_HOME" {
+			return t.TempDir()
+		}
+		return ""
+	}}
+	if err := Run([]string{"export", "--data", dir, "--out", out, "--format", "sharegpt"}, env); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bytes.TrimSpace(got)) != 0 {
+		t.Fatalf("default deny wrote %s", got)
+	}
+	if !strings.Contains(stderr.String(), "not allowlisted") || strings.Contains(stderr.String(), "allow-prompt") {
+		t.Fatalf("stderr: %s", stderr.String())
+	}
+	if err := Run([]string{"export", "--format", "nope"}, env); err == nil || !strings.Contains(err.Error(), "unknown export format") {
+		t.Fatalf("format error: %v", err)
+	}
+}
+
+func trainingTranscript(cwd, prompt, opaque string) []byte {
+	lines := []string{
+		`{"type":"meta","meta":{"id":"sid","cwd":"` + cwd + `","model":"gpt-5","provider":"openai","started":"2026-09-22T16:10:00Z","version":"0.137.0"}}`,
+		`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"` + prompt + `"}],"time":"2026-09-22T16:10:01Z"}}`,
+	}
+	if opaque != "" {
+		lines = append(lines, `{"type":"message","message":{"role":"assistant","content":[{"type":"reasoning","summary":"thinking","encrypted_content":"`+opaque+`"}],"time":"2026-09-22T16:10:02Z"}}`)
+	}
+	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
+func putManifest(t *testing.T, h http.Handler, native, cwd string, body []byte) string {
+	t.Helper()
+	sum, _, err := cas.Hash(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putBlob(t, h, sum, body)
+	postManifest(t, h, manifestProject(native, cwd, "sessions/x/"+native+".jsonl", sum, int64(len(body))))
+	return sum
+}
+
+func manifestProject(native, cwd, rel, sum string, size int64) protocol.Manifest {
+	m := manifest(native, rel, sum, size)
+	m.Project.CWD = cwd
+	return m
+}
+
+func splitLines(body []byte) [][]byte {
+	var out [][]byte
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 func queryContent(t *testing.T, path, like string) string {
 	t.Helper()
 	body, err := os.ReadFile(path)

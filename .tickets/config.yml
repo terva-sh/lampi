@@ -48,6 +48,8 @@ actors:
     name: Cursor cloud agent
   - id: agent:cursor/cbf6
     name: Cursor cloud agent
+  - id: agent:cursor/a72e
+    name: Cursor cloud agent
 labels:
   - area/agent
   - area/server
