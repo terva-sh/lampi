@@ -195,6 +195,14 @@ Sibling terva-sh repos use a justfile rather than golangci-lint. CI is
 `go vet`, `gofmt -l`, `go test ./...`, and a build. The Makefile repeats
 those targets for a machine without `just`.
 
+`go test ./...` includes `internal/accept`, the MVP gate. That package
+is `TestMVPAcceptance`: one fixture terva session against a local lake.
+Ingest records a session uid and blob sha256, a second sync uploads
+nothing, an append uploads only the new tail and moves the head, a copy
+of that file from a second machine is a CAS hit with one provenance row
+per machine, and a sqlite query of `terva-lampi export` finds the
+fixture prompt. See [docs/architecture.md](docs/architecture.md).
+
 ## Documentation
 
 | Doc | What's in it |
@@ -253,8 +261,10 @@ outbox, per-path watermarks, a project allowlist, and ruleset v1.
 manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
-as JSONL. Out, on purpose: the long-running upload loop inside `agent`,
-Claude/Codex/OpenCode/Cursor. See [docs/architecture.md](docs/architecture.md).
+as JSONL. `internal/accept` is the MVP gate for that path, and CI runs
+it with the rest of `go test ./...`. Out, on purpose: the long-running
+upload loop inside `agent`, Claude/Codex/OpenCode/Cursor. See
+[docs/architecture.md](docs/architecture.md).
 
 ## License
 

@@ -8,6 +8,7 @@ build:
 	mkdir -p bin
 	go build -trimpath -o bin/terva-lampi ./cmd/terva-lampi
 
+# internal/accept is the MVP acceptance gate (architecture section 7).
 test:
 	go test ./...
 

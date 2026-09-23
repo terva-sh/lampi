@@ -45,6 +45,7 @@ jobs:
             exit 1
           fi
 
+      # internal/accept.TestMVPAcceptance is the MVP gate.
       - name: go test
         run: go test ./...
 
