@@ -24,7 +24,8 @@ usage:
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
-counts and uses the same auth as the other /v1 routes. /v1/* requires
+counts. GET /v1/conflicts lists divergent_copy artifacts. Both use the
+same auth as the other /v1 routes. /v1/* requires
 a device token when --token-file is set. With no token file the
 process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.

@@ -1,5 +1,6 @@
-// Package api is the ingest HTTP surface: health, catalog stats, hello,
-// blob check, blob put, and manifests. A stored manifest is ACKed, then
+// Package api is the ingest HTTP surface: health, catalog stats,
+// divergent_copy listing, hello, blob check, blob put, and manifests.
+// A stored manifest is ACKed, then
 // a worker projects it into normalized JSONL and partitioned parquet.
 // A projection failure is recorded on the session and does not change
 // the blob. The derived view lags the ACK until the worker finishes.
@@ -127,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /v1/stats", s.authed(s.stats))
+	mux.HandleFunc("GET /v1/conflicts", s.authed(s.conflicts))
 	mux.HandleFunc("POST /v1/hello", s.authed(s.hello))
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
@@ -163,6 +165,36 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		Artifacts: n.Artifacts,
 		Machines:  n.Machines,
 	})
+}
+
+func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.Catalog.DivergentCopies(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.ConflictsResponse{Conflicts: wireConflicts(rows)})
+}
+
+func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
+	out := make([]protocol.DivergentCopy, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, protocol.DivergentCopy{
+			SessionUID:      row.SessionUID,
+			ArtifactID:      row.ArtifactID,
+			Harness:         row.Harness,
+			NativeSessionID: row.NativeID,
+			Kind:            row.Kind,
+			RelPath:         row.RelPath,
+			SHA256:          row.SHA256,
+			Size:            row.Size,
+			HeadSHA256:      row.HeadSHA256,
+			HeadSize:        row.HeadSize,
+			Machines:        row.Machines,
+			HeadMachines:    row.HeadMachines,
+		})
+	}
+	return out
 }
 
 func (s *Server) hello(w http.ResponseWriter, r *http.Request) {

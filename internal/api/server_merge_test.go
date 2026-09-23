@@ -126,6 +126,69 @@ func TestDivergentCopyNotMerged(t *testing.T) {
 	}
 }
 
+func TestConflictsEndpoint(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/conflicts", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("without token: %d %s", rr.Code, rr.Body)
+	}
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/conflicts", nil)
+	req.Header.Set("Authorization", "Bearer sekret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || !bytes.Contains(rr.Body.Bytes(), []byte(`"conflicts":[]`)) {
+		t.Fatalf("empty %d %s", rr.Code, rr.Body)
+	}
+
+	prefix := []byte("prefix\n")
+	full := []byte("prefix\nmore\n")
+	other := []byte("other-bytes\n")
+	quiet := []byte("quiet-session\n")
+	prefixSHA := putRaw(t, h, prefix)
+	fullSHA := putRaw(t, h, full)
+	otherSHA := putRaw(t, h, other)
+	quietSHA := putRaw(t, h, quiet)
+	postManifest(t, h, manifest("machine-a", "sid", prefix, prefixSHA, 0, prefixSHA))
+	grown := postManifest(t, h, manifest("machine-a", "sid", full, fullSHA, 0, fullSHA))
+	if grown.Relation != protocol.RelationGrownFrom {
+		t.Fatalf("grown: %+v", grown)
+	}
+	div := postManifest(t, h, manifest("machine-b", "sid", other, otherSHA, 0, otherSHA))
+	postManifest(t, h, manifest("machine-a", "sid-quiet", quiet, quietSHA, 0, quietSHA))
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/v1/conflicts", nil)
+	req.Header.Set("Authorization", "Bearer sekret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list %d %s", rr.Code, rr.Body)
+	}
+	var body protocol.ConflictsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Conflicts) != 1 {
+		t.Fatalf("conflicts %+v", body.Conflicts)
+	}
+	got := body.Conflicts[0]
+	if got.SessionUID != div.SessionUID || got.ArtifactID != div.ArtifactIDs[0] {
+		t.Fatalf("identity %+v ack %+v", got, div)
+	}
+	if got.SHA256 != otherSHA || got.Size != int64(len(other)) || got.HeadSHA256 != fullSHA || got.HeadSize != int64(len(full)) {
+		t.Fatalf("digests %+v", got)
+	}
+	if got.NativeSessionID != "sid" || got.Harness != protocol.HarnessTerva || got.Kind != protocol.KindTranscriptJSONL {
+		t.Fatalf("session %+v", got)
+	}
+	if len(got.Machines) != 1 || got.Machines[0] != "machine-b" || len(got.HeadMachines) != 1 || got.HeadMachines[0] != "machine-a" {
+		t.Fatalf("machines %+v head %+v", got.Machines, got.HeadMachines)
+	}
+}
+
 func TestTailMismatchDoesNotMoveHead(t *testing.T) {
 	s := openServer(t)
 	h := s.Handler()

@@ -214,6 +214,32 @@ type StatsResponse struct {
 	Machines  int `json:"machines"`
 }
 
+// DivergentCopy is one catalog artifact stored as divergent_copy.
+// HeadSHA256 is the session head that stayed. Machines posted this
+// digest. HeadMachines posted the head digest for the same path.
+type DivergentCopy struct {
+	SessionUID      string   `json:"session_uid"`
+	ArtifactID      string   `json:"artifact_id"`
+	Harness         string   `json:"harness"`
+	NativeSessionID string   `json:"native_session_id"`
+	Kind            string   `json:"kind"`
+	RelPath         string   `json:"relpath"`
+	SHA256          string   `json:"sha256"`
+	Size            int64    `json:"size"`
+	HeadSHA256      string   `json:"head_sha256"`
+	HeadSize        int64    `json:"head_size"`
+	Machines        []string `json:"machines"`
+	HeadMachines    []string `json:"head_machines"`
+}
+
+// ConflictsResponse is the body of GET /v1/conflicts.
+// Conflicts is empty when the catalog has no divergent_copy rows.
+// The route uses the same bearer check as the other /v1 routes.
+// Listing does not merge the copies or move the head.
+type ConflictsResponse struct {
+	Conflicts []DivergentCopy `json:"conflicts"`
+}
+
 // ErrorBody is the JSON error shape every non-2xx response uses.
 type ErrorBody struct {
 	Error   string   `json:"error"`
