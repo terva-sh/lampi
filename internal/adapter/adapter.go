@@ -1,8 +1,8 @@
 // Package adapter is the seam between a harness on disk and the lake.
 //
-// terva, Claude Code, Codex CLI, and OpenCode are the implementations.
-// Cursor stays behind this interface. It is deliberately absent: its
-// store is undocumented SQLite.
+// terva, Claude Code, Codex CLI, OpenCode, and the Cursor IDE are the
+// implementations. The Cursor reader snapshots state.vscdb and uploads
+// a filtered export. The Cursor CLI store is still absent.
 package adapter
 
 import (
@@ -30,6 +30,9 @@ type Bundle struct {
 	Root      string
 	Manifests []protocol.Manifest
 	Paths     map[string]string
+	// Cleanup removes temporary files this bundle created. Nil does
+	// nothing. Call it after Paths have been read. A second call is safe.
+	Cleanup func()
 }
 
 // Harness discovers artifacts, reads a byte range, and builds manifests.

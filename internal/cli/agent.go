@@ -55,9 +55,17 @@ a scheduled opencode export under the data directory's export/. That
 directory is $XDG_DATA_HOME/opencode, or ~/.local/share/opencode when
 that variable is unset. When export/ has no JSON, the database file at
 the data-directory root is the fallback. opencode.db-wal and
-opencode.db-shm are not read. A missing Claude, Codex, or OpenCode
-directory is skipped. The watcher prefers fsnotify and falls back
-to polling.
+opencode.db-shm are not read. Cursor IDE state is a read-only snapshot
+of state.vscdb under the user-data directory. On Linux that directory
+is $XDG_CONFIG_HOME/Cursor, or ~/.config/Cursor. On macOS it is
+~/Library/Application Support/Cursor. On Windows it is %APPDATA%\Cursor.
+Global storage and each workspaceStorage directory are separate. The
+upload is a JSON export. Keys under cursorAuth/ are not in it. The raw
+database and its -wal and -shm files are not uploaded. The global
+database has no single project, so the allowlist refuses it. A
+workspace takes its cwd from workspace.json. The Cursor CLI store.db
+is not read. A missing Claude, Codex, OpenCode, or Cursor directory
+is skipped. The watcher prefers fsnotify and falls back to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
@@ -292,6 +300,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 		ClaudeHome:   homeOf(src, protocol.HarnessClaude),
 		CodexHome:    homeOf(src, protocol.HarnessCodex),
 		OpenCodeHome: homeOf(src, protocol.HarnessOpenCode),
+		CursorHome:   homeOf(src, protocol.HarnessCursor),
 		MachineID:    m.MachineID,
 		StateDir:     state,
 		Projects:     file.Projects,

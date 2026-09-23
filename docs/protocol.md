@@ -178,14 +178,17 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
 }
 ```
 
-`harness` is `terva`, `claude`, `codex`, or `opencode`. For terva,
-`harness_version` is the producer version from the meta line when that
-line has one. For Claude Code, Codex, and OpenCode, `harness_version`
-is the adapter's pinned reader version. The on-disk object for those
-three is internal to the adapter and is not part of this protocol.
-`history.jsonl` under a Codex home is not a session. An OpenCode
-session is one `opencode export` document under `export/`. The WAL
-sidecar next to `opencode.db` is not a session.
+`harness` is `terva`, `claude`, `codex`, `opencode`, or `cursor`. For
+terva, `harness_version` is the producer version from the meta line
+when that line has one. For Claude Code, Codex, OpenCode, and the
+Cursor IDE, `harness_version` is the adapter's pinned reader version.
+The on-disk object for those four is internal to the adapter and is
+not part of this protocol. `history.jsonl` under a Codex home is not a
+session. An OpenCode session is one `opencode export` document under
+`export/`. The WAL sidecar next to `opencode.db` is not a session. A
+Cursor session is one filtered JSON export of a `state.vscdb`
+snapshot. The live database is not the artifact. Keys under
+`cursorAuth/` are not in the export.
 
 `cwd_hash` is terva's `hex(sha256(cwd)[:8])`. It buckets a path on one
 machine. It is not a project id across machines. Claude, Codex, and
@@ -210,11 +213,14 @@ the manifest is sent.
 
 `kind` is `transcript_jsonl`, `errors_jsonl` for the sidecar that sits
 next to a terva transcript, `raati_json` for a record under `raati/`,
-or `tasks_json` for a task board under `tasks/` (the file includes
-archived generations). A raati or tasks file is an artifact of a
-session that is already being captured. Normalize projects transcripts
-and error sidecars. A rewrite of `raati_json` or `tasks_json` replaces
-the current artifact for that path and does not move the session head.
+`tasks_json` for a task board under `tasks/` (the file includes
+archived generations), or `cursor_state_json` for a filtered Cursor IDE
+snapshot. A raati or tasks file is an artifact of a session that is
+already being captured. Normalize projects transcripts and error
+sidecars. A rewrite of `raati_json` or `tasks_json` replaces the
+current artifact for that path and does not move the session head. A
+rewrite of `cursor_state_json` replaces the current artifact and moves
+the session head, because that export is the session.
 
 `sha256` is always the full file. `chunk_sha256s` lists the CAS objects
 that concatenate to it, in order. Null means the file was one PUT.

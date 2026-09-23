@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -22,6 +23,8 @@ import (
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/watermark"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestSyncSidecarsFollowAllowlist(t *testing.T) {
@@ -1290,6 +1293,123 @@ func TestSyncOpenCodeDatabaseStaysLocal(t *testing.T) {
 	if _, _, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessOpenCode, "opencode.db"); err != nil || ok {
 		t.Fatalf("catalog session ok=%v err=%v", ok, err)
 	}
+}
+
+func TestSyncCursorExportFiltersAuth(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	global := filepath.Join(home, "User", "globalStorage", "state.vscdb")
+	ws := filepath.Join(home, "User", "workspaceStorage", "ws1", "state.vscdb")
+	if err := writeCursorDB(global, "hello from cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCursorDB(ws, "hello from cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(ws), "workspace.json"), []byte(`{"folder":"file:///work/app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := allowAll(srv, t.TempDir(), t.TempDir(), "/work/app")
+	opt.Client = cap.client
+	opt.CursorHome = home
+	res, err := Sync(context.Background(), opt)
+	if err == nil || res.Uploaded != 1 || res.Manifests != 1 || res.Refused != 1 {
+		t.Fatalf("sync %+v err=%v", res, err)
+	}
+	if !strings.Contains(err.Error(), "User/globalStorage/state.json") {
+		t.Fatalf("global export was not refused: %v", err)
+	}
+	if strings.Contains(err.Error(), "sekret-token") || strings.Contains(err.Error(), "state.vscdb-wal") {
+		t.Fatalf("refusal leaked a secret or a sidecar: %v", err)
+	}
+	if len(cap.manifests) != 1 {
+		t.Fatalf("manifests %d", len(cap.manifests))
+	}
+	m := cap.manifests[0]
+	if m.Harness != protocol.HarnessCursor || m.HarnessVersion != "1" || m.NativeSessionID != "workspace/ws1" {
+		t.Fatalf("header %+v", m)
+	}
+	if m.Project.CWD != "/work/app" {
+		t.Fatalf("cwd %q", m.Project.CWD)
+	}
+	if m.Artifacts[0].Kind != protocol.KindCursorStateJSON {
+		t.Fatalf("kind %s", m.Artifacts[0].Kind)
+	}
+	if m.Artifacts[0].RelPath != "User/workspaceStorage/ws1/state.json" {
+		t.Fatalf("rel %s", m.Artifacts[0].RelPath)
+	}
+	for _, body := range cap.putBodies {
+		if bytes.Contains(body, []byte("sekret-token")) || bytes.Contains(body, []byte("cursorAuth")) || bytes.HasPrefix(body, []byte("SQLite format 3")) {
+			t.Fatalf("uploaded raw or auth bytes: %s", body)
+		}
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 1 {
+		t.Fatal("expected the filtered export only")
+	}
+	uid, arts, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessCursor, "workspace/ws1")
+	if err != nil || !ok || uid == "" || len(arts) != 1 {
+		t.Fatalf("catalog ok=%v err=%v arts=%d", ok, err, len(arts))
+	}
+	raw, err := lake.CAS.Read(arts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("hello from cursor")) || bytes.Contains(raw, []byte("sekret-token")) {
+		t.Fatalf("stored export: %s", raw)
+	}
+	if _, _, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessCursor, "global"); err != nil || ok {
+		t.Fatalf("global session ok=%v err=%v", ok, err)
+	}
+
+	if err := writeCursorDB(ws, "hello from cursor again"); err != nil {
+		t.Fatal(err)
+	}
+	cap.reset()
+	again, err := Sync(context.Background(), opt)
+	if err == nil || again.Uploaded != 1 || again.Manifests != 1 {
+		t.Fatalf("rewrite %+v err=%v", again, err)
+	}
+	_, arts, ok, err = lake.Catalog.Current(context.Background(), protocol.HarnessCursor, "workspace/ws1")
+	if err != nil || !ok || len(arts) != 1 {
+		t.Fatalf("rewritten catalog ok=%v err=%v arts=%d", ok, err, len(arts))
+	}
+	raw, err = lake.CAS.Read(arts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("hello from cursor again")) || bytes.Contains(raw, []byte("sekret-token")) {
+		t.Fatalf("rewritten export: %s", raw)
+	}
+}
+
+func writeCursorDB(path, note string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(path)
+	_ = os.Remove(path + "-wal")
+	_ = os.Remove(path + "-shm")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT INTO ItemTable (key, value) VALUES ('cursorAuth/accessToken', 'sekret-token'), ('composer.composerData', ?)`, `{"note":"`+note+`"}`); err != nil {
+		return err
+	}
+	_, err = db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
 }
 
 func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {

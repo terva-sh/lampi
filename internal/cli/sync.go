@@ -20,16 +20,23 @@ usage:
   terva-lampi sync [--server URL] [--token-file PATH]
 
 Walks terva sessions, Claude Code projects/**/*.jsonl, Codex
-rollout-*.jsonl, and OpenCode export JSON. history.jsonl is not a
-Codex rollout. A project is uploaded only when config.json allowlists
-it, by cwd prefix, git remote, or cwd hash. Anything else is refused.
-Deny rules win. An empty allow list refuses everything. Claude Code
-uses $CLAUDE_CONFIG_DIR, or ~/.claude when that is unset. Codex uses
-$CODEX_HOME, or ~/.codex. OpenCode uses $XDG_DATA_HOME/opencode/export,
-or ~/.local/share/opencode/export. When that directory has no JSON, the
-database file at the data-directory root is considered instead. The
-WAL sidecar is not. A database file has no session directory, so the
-allowlist refuses it.
+rollout-*.jsonl, OpenCode export JSON, and Cursor IDE state.vscdb
+snapshots. history.jsonl is not a Codex rollout. A project is uploaded
+only when config.json allowlists it, by cwd prefix, git remote, or cwd
+hash. Anything else is refused. Deny rules win. An empty allow list
+refuses everything. Claude Code uses $CLAUDE_CONFIG_DIR, or ~/.claude
+when that is unset. Codex uses $CODEX_HOME, or ~/.codex. OpenCode uses
+$XDG_DATA_HOME/opencode/export, or ~/.local/share/opencode/export. When
+that directory has no JSON, the database file at the data-directory
+root is considered instead. The WAL sidecar is not. A database file
+has no session directory, so the allowlist refuses it. Cursor IDE
+state is read from the user-data directory: $XDG_CONFIG_HOME/Cursor
+or ~/.config/Cursor on Linux, ~/Library/Application Support/Cursor on
+macOS, and %APPDATA%\Cursor on Windows. The upload is a JSON export of
+a snapshot. Keys under cursorAuth/ are removed. The raw database is
+not uploaded. The global database has no single project, so the
+allowlist refuses it. A workspace takes its cwd from workspace.json.
+The Cursor CLI store.db is not read.
 
 Ruleset v1 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
@@ -93,6 +100,7 @@ func runSync(env Env, args []string) error {
 		ClaudeHome:   homeOf(src, protocol.HarnessClaude),
 		CodexHome:    homeOf(src, protocol.HarnessCodex),
 		OpenCodeHome: homeOf(src, protocol.HarnessOpenCode),
+		CursorHome:   homeOf(src, protocol.HarnessCursor),
 		MachineID:    m.MachineID,
 		StateDir:     state,
 		Projects:     file.Projects,

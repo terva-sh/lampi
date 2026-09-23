@@ -91,7 +91,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/adapter` | Cursor is intentionally last and is not started. OpenCode, Claude Code, and Codex are discovered and uploaded. Normalize workers still implement terva only |
+| `internal/adapter` | The Cursor CLI `store.db` adapter is not started. The IDE `state.vscdb` reader snapshots and uploads a filtered export. Normalize workers still implement terva only |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -149,6 +149,8 @@ $TERVA_HOME/tasks/tasks-*.json
 $CLAUDE_CONFIG_DIR/projects/**/*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $XDG_DATA_HOME/opencode/export/**/*.json
+Cursor IDE user-data/User/globalStorage/state.vscdb
+Cursor IDE user-data/User/workspaceStorage/*/state.vscdb
         |
         v
 allowlist (default deny) → ruleset v1 → quarantine on a hit
@@ -166,14 +168,19 @@ watermark commit and outbox ACK          terva-lampi serve
 ```
 
 Other harnesses are adapters behind the same manifest. terva, Claude
-Code, Codex CLI, and OpenCode are wired for discovery, watch, and
-upload. OpenCode watches `export/`, not the live database. The Claude,
-Codex, and OpenCode record shapes are internal to those packages. Each
-pins a reader version on `harness_version` and keeps keys it does not
-interpret. Normalize workers still implement terva only. A Claude,
-Codex, or OpenCode manifest is stored, and a worker sets
-`normalize_error` when the projector for that harness is not
-implemented. Path-based
+Code, Codex CLI, OpenCode, and the Cursor IDE are wired for discovery,
+watch, and upload. OpenCode watches `export/`, not the live database.
+Cursor copies `state.vscdb` and its WAL sidecars, then uploads a JSON
+export. Keys under `cursorAuth/` are not in that export. The raw
+database stays on the machine. The global database has no single
+project cwd, so the allowlist refuses it. A workspace database takes
+its cwd from `workspace.json`. The Cursor CLI store is not read. The
+Claude, Codex, OpenCode, and Cursor record shapes are internal to
+those packages. Each pins a reader version on `harness_version` and
+keeps keys it does not interpret. Normalize workers still implement
+terva only. A Claude, Codex, OpenCode, or Cursor manifest is stored,
+and a worker sets `normalize_error` when the projector for that
+harness is not implemented. Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link
 by `project_id`.

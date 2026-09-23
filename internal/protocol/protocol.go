@@ -75,10 +75,15 @@ const (
 	// KindTasksJSON is a terva task board under tasks/, including the
 	// archived generations stored in that file. It is a snapshot.
 	KindTasksJSON = "tasks_json"
+	// KindCursorStateJSON is a filtered export of one Cursor IDE
+	// state.vscdb snapshot. It is a rewrite, not an append-only
+	// transcript. A later export replaces the current artifact and
+	// moves the session head. The raw database is not this kind.
+	KindCursorStateJSON = "cursor_state_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
-	// meta line. Normalize workers project it. Claude, Codex, and
-	// OpenCode manifests are stored; those projectors are not implemented.
+	// meta line. Normalize workers project it. Claude, Codex, OpenCode,
+	// and Cursor manifests are stored; those projectors are not implemented.
 	HarnessTerva = "terva"
 	// HarnessClaude is Claude Code. The on-disk record shape is internal
 	// to the adapter; harness_version is that adapter's pinned reader.
@@ -91,6 +96,11 @@ const (
 	// directory is empty. The WAL sidecar is not a session. The
 	// projector is not implemented.
 	HarnessOpenCode = "opencode"
+	// HarnessCursor is the Cursor IDE. The ingest path is a filtered
+	// JSON export of a state.vscdb snapshot. The live database is not
+	// opened. The Cursor CLI store is a different corpus and is not
+	// this harness. The projector is not implemented.
+	HarnessCursor = "cursor"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.
