@@ -2,10 +2,14 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,7 +35,8 @@ const (
 const agentUsage = `terva-lampi agent — local capture
 
 usage:
-  terva-lampi agent              watch $TERVA_HOME/sessions and upload until signalled
+  terva-lampi agent [--server URL] [--token-file PATH]
+                                 watch $TERVA_HOME/sessions and upload until signalled
   terva-lampi agent discover     list $TERVA_HOME/sessions JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
   terva-lampi agent config       print paths and the effective server URL
@@ -46,8 +51,15 @@ terva-lampi sync: allowlist, ruleset v1, watermark, outbox, then the
 lake. A failed push is logged and tried again after a short wait, even
 when the file does not grow. A project the allowlist or the scan refused
 is not retried. SIGTERM or interrupt drains the outbox best-effort and
-exits. The server URL, token, and allowlist are read at start; restart
-the process to reload them.
+exits. On Unix, SIGUSR1 asks for a sync now. The filesystem watch is
+still the source of truth; the signal only skips the wait. While the
+daemon runs it writes agent.pid in the state directory.
+
+--server defaults to LAMPI_SERVER, then the URL in config.json, or
+http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
+the token path in config.json. The token is read from a file, never
+from an argument. The server URL, token, and allowlist are read at
+start; restart the process to reload them.
 `
 
 func runAgent(env Env, args []string) error {
@@ -56,12 +68,13 @@ func runAgent(env Env, args []string) error {
 		return nil
 	}
 	sub := ""
-	if len(args) > 0 {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		sub = args[0]
+		args = args[1:]
 	}
 	switch sub {
 	case "":
-		return runAgentDaemon(env)
+		return runAgentDaemon(env, args)
 	case "discover":
 		return runAgentDiscover(env)
 	case "machine-id":
@@ -81,19 +94,38 @@ func runAgent(env Env, args []string) error {
 	}
 }
 
-func runAgentDaemon(env Env) error {
+func runAgentDaemon(env Env, args []string) error {
+	var serverFlag, tokenFlag string
+	rest, err := parseFlags(env, args, agentUsage, func(fs *flag.FlagSet) {
+		fs.StringVar(&serverFlag, "server", "", "lake base URL")
+		fs.StringVar(&tokenFlag, "token-file", "", "device token file")
+	})
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		fmt.Fprint(env.stdout(), agentUsage)
+		return fmt.Errorf("unexpected argument %q", rest[0])
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return runAgentLoop(ctx, env)
+	return runAgentLoop(ctx, env, serverFlag, tokenFlag)
 }
 
 // runAgentLoop is the long-running process. ctx ending is shutdown:
 // the watch stops, then the outbox is drained on a new context.
-func runAgentLoop(ctx context.Context, env Env) error {
-	opt, n, err := loadAgent(env)
+// serverFlag and tokenFlag are the command-line overrides. Empty
+// falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json.
+func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
+	opt, n, err := loadAgent(env, serverFlag, tokenFlag)
 	if err != nil {
 		return err
 	}
+	removePID, err := writeAgentPID(opt.StateDir)
+	if err != nil {
+		return err
+	}
+	defer removePID()
 	// Banner and watch lines share a mutex so a change report and a
 	// sync summary do not split each other on the way out.
 	var mu sync.Mutex
@@ -112,6 +144,7 @@ func runAgentLoop(ctx context.Context, env Env) error {
 		default:
 		}
 	}
+	watchKick(ctx, wake)
 	w := &watch.Watcher{
 		Root: opt.TervaHome,
 		OnChange: func(c watch.Change) {
@@ -201,12 +234,18 @@ func runAgentLoop(ctx context.Context, env Env) error {
 	}
 }
 
-func loadAgent(env Env) (upload.Options, int, error) {
+func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, int, error) {
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
 		return upload.Options{}, 0, err
 	}
-	token, err := resolveToken(env, "", file)
+	if serverFlag == "" {
+		serverFlag = env.getenv("LAMPI_SERVER")
+	}
+	if tokenFlag == "" {
+		tokenFlag = env.getenv("LAMPI_TOKEN_FILE")
+	}
+	token, err := resolveToken(env, tokenFlag, file)
 	if err != nil {
 		return upload.Options{}, 0, err
 	}
@@ -223,7 +262,7 @@ func loadAgent(env Env) (upload.Options, int, error) {
 		return upload.Options{}, 0, err
 	}
 	return upload.Options{
-		ServerURL:  config.ServerURL(file, ""),
+		ServerURL:  config.ServerURL(file, serverFlag),
 		Token:      token,
 		TervaHome:  home,
 		MachineID:  m.MachineID,
@@ -344,6 +383,20 @@ func runAgentStatus(env Env) error {
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
 	return writeCaptureState(env.stdout(), state)
+}
+
+// writeAgentPID records this process in the state directory so a hook
+// can ask for a sync. The file is removed when the daemon returns.
+func writeAgentPID(stateDir string) (func(), error) {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return nil, fmt.Errorf("agent: pid file: %w", err)
+	}
+	path := filepath.Join(stateDir, "agent.pid")
+	body := []byte(strconv.Itoa(os.Getpid()) + "\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		return nil, fmt.Errorf("agent: pid file: %w", err)
+	}
+	return func() { _ = os.Remove(path) }, nil
 }
 
 func sessionFiles(env Env) (string, []discover.File, error) {

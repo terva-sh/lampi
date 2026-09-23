@@ -1,0 +1,28 @@
+# Example user unit for `terva-lampi agent`. Not installed by this tree.
+# Copy to ~/.config/systemd/user/terva-lampi-agent.service
+#
+# The lake host is not decided yet (Phase 0). The default URL is the
+# loopback lake. Put a real URL in ~/.config/terva-lampi/agent.env when
+# one exists. Do not invent a production host in this file.
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now terva-lampi-agent.service
+#
+# SIGUSR1 asks the running agent to sync. The session directory watch
+# is still the source of truth. ExecStart assumes the binary is at
+# ~/.local/bin/terva-lampi. Change that path if you installed it elsewhere.
+
+[Unit]
+Description=terva-lampi capture agent
+Documentation=https://github.com/terva-sh/lampi/blob/main/deploy/README.md
+
+[Service]
+Type=simple
+Environment=LAMPI_SERVER=http://127.0.0.1:8787
+Environment=LAMPI_TOKEN_FILE=%h/.config/terva-lampi/token
+EnvironmentFile=-%h/.config/terva-lampi/agent.env
+ExecStart=%h/.local/bin/terva-lampi agent
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

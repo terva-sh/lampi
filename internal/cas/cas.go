@@ -142,9 +142,32 @@ func (s *Store) putLocked(digest string, r io.Reader, limit int64) (exists bool,
 	return false, nil
 }
 
-// Read returns the stored bytes for digest.
+// Open opens digest for reading. A stored object is that file. A logical
+// file, whose chunks are stored and whose concatenation is not installed,
+// is those chunks in order. The caller closes the reader.
+func (s *Store) Open(digest string) (io.ReadCloser, error) {
+	ok, err := s.Has(digest)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return s.OpenBlob(digest)
+	}
+	idx, err := s.readLogical(digest)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("cas: blob %s is not in the store", digest)
+		}
+		return nil, err
+	}
+	return &logicalReader{s: s, parts: idx.ChunkSHA256s}, nil
+}
+
+// Read returns the stored bytes for digest. A logical file is the
+// concatenation of its chunks. Has is false for that digest: the
+// concatenation was not installed.
 func (s *Store) Read(digest string) ([]byte, error) {
-	f, err := s.OpenBlob(digest)
+	f, err := s.Open(digest)
 	if err != nil {
 		return nil, err
 	}

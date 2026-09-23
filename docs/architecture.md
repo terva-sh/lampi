@@ -26,7 +26,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
 | Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
-| Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp |
+| Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
 | Normalize | `internal/normalize` | terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque |
 | Export | `terva-lampi export` | Normalized JSONL. A session with `normalize_error` is skipped |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
@@ -66,11 +66,16 @@ Left as interfaces, with the reason next to the type:
 `terva-lampi agent` both enqueue, scan, and advance a watermark after
 the manifest ACK. The agent is the long-running loop: startup sync,
 then a sync when the watcher reports growth or a previous push failed,
-then one more sync on SIGTERM. User-service packaging (systemd, launchd)
-is not in this tree. Restart the agent to reload config.
+then one more sync on SIGTERM. On Unix, SIGUSR1 asks for a sync without
+waiting for the next filesystem event. The agent writes `agent.pid` in
+the state directory while it runs. Example user units live under
+`deploy/`. They are not installed by this tree. The lake host is still
+a Phase 0 decision, so the examples keep a loopback placeholder.
+Restart the agent to reload config.
 
-`hooks/terva-post-tool-enqueue.sh` is an example nudge. A hook is not the
-source of truth. The directory walk is.
+`hooks/terva-post-tool-enqueue.sh` is an example nudge. It signals the
+pid file when that process is `terva-lampi`. A hook is not the source
+of truth. The directory walk is.
 
 Dedup that **is** implemented is layer A and layer B. Layer A is
 `sha256` of the bytes: a second put of the same digest stores nothing.
@@ -81,8 +86,11 @@ second machine adds a provenance row and no blob. A strict prefix
 extension moves the head (`grown_from`). Anything else is
 `divergent_copy` and is not merged.
 
-Near-duplicate detection is out of scope. Chunked upload is not
-implemented.
+Near-duplicate detection is out of scope. A file over `max_blob_bytes`
+is stored as CAS chunks of at most that size. The manifest lists the
+digests and the lengths. The single-object cap still applies to a PUT,
+a byte range, and one chunk. The logical file is not installed as one
+object.
 
 ## Flow
 
@@ -152,6 +160,7 @@ internal/accept/          MVP acceptance gate, fixture terva JSONL
 docs/protocol.md
 docs/architecture.md
 hooks/                    example terva hook, not installed
+deploy/                   example systemd and launchd units, alias installer
 ```
 
 `main` stays thin. The commands are an internal package because nothing

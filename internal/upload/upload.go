@@ -17,7 +17,10 @@
 // attempt as the last sync.
 //
 // PieceBytes and ChunkBytes opt a put into a resumable form. Zero keeps
-// the single body. The server installs the digest when the pieces assemble.
+// the single body. The server installs the digest when the pieces assemble
+// and the result fits under the blob cap. A body already over that cap is
+// split into chunks of at most the cap (or ChunkBytes, when that is
+// smaller). Those chunks are stored. The concatenation is not.
 package upload
 
 import (
@@ -162,6 +165,18 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		return res, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
 	}
 
+	// A file past the lake's cap cannot travel as a tail. The tail form
+	// would ask the lake to install the assembled object. Widen first,
+	// then split the whole file.
+	maxBlob := hello.MaxBlobBytes
+	if maxBlob <= 0 {
+		maxBlob = protocol.MaxBlobBytes
+	}
+	for i := range work {
+		if sessionOverCap(&work[i], maxBlob) {
+			widenToFullFile(&work[i])
+		}
+	}
 	bodies := map[string][]byte{}
 	var arts []protocol.Artifact
 	for _, w := range work {
@@ -170,8 +185,8 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		}
 		arts = append(arts, w.manifest.Artifacts...)
 	}
-	lists := map[string][]string{}
-	if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, arts, bodies, lists); err != nil {
+	lists := map[string]chunkPlan{}
+	if err := uploadDigests(ctx, client, opt, maxBlob, &res, arts, bodies, lists); err != nil {
 		return res, err
 	}
 	for i := range work {
@@ -182,7 +197,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		applyChunkLists(&w.manifest, lists)
 		ack, err := postManifest(ctx, client, opt, w.manifest)
 		if prefixMismatch(err) && widenToFullFile(w) {
-			if err := uploadDigests(ctx, client, opt, hello.MaxBlobBytes, &res, w.manifest.Artifacts, w.bodies, lists); err != nil {
+			if err := uploadDigests(ctx, client, opt, maxBlob, &res, w.manifest.Artifacts, w.bodies, lists); err != nil {
 				return res, err
 			}
 			applyChunkLists(&w.manifest, lists)
@@ -336,12 +351,33 @@ func prefixMismatch(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "prefix mismatch")
 }
 
-func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte, lists map[string][]string) error {
+// chunkPlan is one logical file's ordered chunks.
+type chunkPlan struct {
+	Digests []string
+	Lengths []int64
+}
+
+func sessionOverCap(w *prepared, max int64) bool {
+	for _, a := range w.manifest.Artifacts {
+		if a.Size > max {
+			return true
+		}
+	}
+	return false
+}
+
+func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte, lists map[string]chunkPlan) error {
 	if max <= 0 {
 		max = protocol.MaxBlobBytes
 	}
 	seen := map[string]bool{}
 	var digests []string
+	type splitJob struct {
+		rel    string
+		digest string
+		body   []byte
+	}
+	var splits []splitJob
 	for _, a := range arts {
 		d := putDigest(a)
 		if seen[d] {
@@ -353,23 +389,63 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 			return fmt.Errorf("upload: %s: no bytes for %s", a.RelPath, d)
 		}
 		if int64(len(b)) > max {
-			return fmt.Errorf("upload: %s is %d bytes; this client does not split files over %d", a.RelPath, len(b), max)
+			if a.ByteWatermarkPrev != 0 {
+				return fmt.Errorf("upload: %s: a file over %d bytes is sent whole, not as a tail", a.RelPath, max)
+			}
+			splits = append(splits, splitJob{rel: a.RelPath, digest: d, body: b})
+			continue
 		}
 		digests = append(digests, d)
 	}
-	if len(digests) == 0 {
-		return nil
+	if len(digests) > 0 {
+		res.Checked += len(digests)
+		missing, err := postCheck(ctx, client, opt, digests)
+		if err != nil {
+			return err
+		}
+		res.Missing += len(missing)
+		for _, d := range missing {
+			put, err := putBlobResume(ctx, client, opt, d, bodies[d], lists)
+			if err != nil {
+				return err
+			}
+			if !put.Exists {
+				res.Uploaded++
+			}
+		}
 	}
-	res.Checked += len(digests)
-	missing, err := postCheck(ctx, client, opt, digests)
+	for _, job := range splits {
+		if err := uploadSplit(ctx, client, opt, max, res, job.rel, job.digest, job.body, lists); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// uploadSplit PUTs chunks of at most max and records them on lists.
+// The logical digest is not PUT. The lake will not install it.
+func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, rel, digest string, body []byte, lists map[string]chunkPlan) error {
+	chunk := max
+	if opt.ChunkBytes > 0 && opt.ChunkBytes < chunk {
+		chunk = opt.ChunkBytes
+	}
+	if chunk <= 0 || chunk > int64(^uint(0)>>1) {
+		return fmt.Errorf("upload: %s: chunk size %d is not usable", rel, chunk)
+	}
+	parts, lengths, chunkBody := splitBytes(body, int(chunk))
+	if lists != nil {
+		lists[digest] = chunkPlan{Digests: parts, Lengths: lengths}
+	}
+	res.Checked += len(parts)
+	missing, err := postCheck(ctx, client, opt, parts)
 	if err != nil {
 		return err
 	}
 	res.Missing += len(missing)
 	for _, d := range missing {
-		put, err := putBlobResume(ctx, client, opt, d, bodies[d], lists)
+		put, err := putBlob(ctx, client, opt, d, chunkBody[d])
 		if err != nil {
-			return err
+			return fmt.Errorf("upload: %s: %w", rel, err)
 		}
 		if !put.Exists {
 			res.Uploaded++
@@ -378,7 +454,29 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 	return nil
 }
 
-func applyChunkLists(m *protocol.Manifest, lists map[string][]string) {
+func splitBytes(body []byte, n int) (parts []string, lengths []int64, blobs map[string][]byte) {
+	blobs = map[string][]byte{}
+	if n <= 0 {
+		n = len(body)
+	}
+	for start := 0; start < len(body); start += n {
+		end := start + n
+		if end > len(body) {
+			end = len(body)
+		}
+		piece := body[start:end]
+		sum := sha256.Sum256(piece)
+		d := hex.EncodeToString(sum[:])
+		parts = append(parts, d)
+		lengths = append(lengths, int64(len(piece)))
+		if _, ok := blobs[d]; !ok {
+			blobs[d] = append([]byte(nil), piece...)
+		}
+	}
+	return parts, lengths, blobs
+}
+
+func applyChunkLists(m *protocol.Manifest, lists map[string]chunkPlan) {
 	if len(lists) == 0 {
 		return
 	}
@@ -386,13 +484,16 @@ func applyChunkLists(m *protocol.Manifest, lists map[string][]string) {
 		if a.ByteWatermarkPrev != 0 {
 			continue
 		}
-		if chunks, ok := lists[a.SHA256]; ok {
-			m.Artifacts[i].ChunkSHA256s = chunks
+		plan, ok := lists[a.SHA256]
+		if !ok {
+			continue
 		}
+		m.Artifacts[i].ChunkSHA256s = plan.Digests
+		m.Artifacts[i].ChunkLengths = plan.Lengths
 	}
 }
 
-func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string][]string) (protocol.PutResponse, error) {
+func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string]chunkPlan) (protocol.PutResponse, error) {
 	if opt.ChunkBytes > 0 && int64(len(body)) > opt.ChunkBytes {
 		return putChunked(ctx, client, opt, digest, body, lists)
 	}
@@ -428,25 +529,14 @@ func putRanged(ctx context.Context, client *http.Client, opt Options, digest str
 	return last, nil
 }
 
-func putChunked(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string][]string) (protocol.PutResponse, error) {
+func putChunked(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string]chunkPlan) (protocol.PutResponse, error) {
 	n := int(opt.ChunkBytes)
-	var parts []string
-	chunkBody := map[string][]byte{}
-	for start := 0; start < len(body); start += n {
-		end := start + n
-		if end > len(body) {
-			end = len(body)
-		}
-		piece := body[start:end]
-		sum := sha256.Sum256(piece)
-		d := hex.EncodeToString(sum[:])
-		parts = append(parts, d)
-		if _, ok := chunkBody[d]; !ok {
-			chunkBody[d] = append([]byte(nil), piece...)
-		}
+	if n <= 0 || int64(n) > protocol.MaxBlobBytes {
+		n = int(protocol.MaxBlobBytes)
 	}
+	parts, lengths, chunkBody := splitBytes(body, n)
 	if lists != nil {
-		lists[digest] = parts
+		lists[digest] = chunkPlan{Digests: parts, Lengths: lengths}
 	}
 	missing, err := postCheck(ctx, client, opt, parts)
 	if err != nil {

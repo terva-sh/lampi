@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Example launchd agent for terva-lampi. Not installed by this tree.
+  Copy to ~/Library/LaunchAgents/sh.terva.lampi.agent.plist.
+
+  The lake host is not decided yet (Phase 0). LAMPI_SERVER is the
+  loopback placeholder. Replace it when a host is chosen. Do not invent
+  a production host.
+
+  The binary is $HOME/.local/bin/terva-lampi. The token file defaults to
+  $HOME/.config/terva-lampi/token. Set LAMPI_TOKEN_FILE to override it.
+  SIGUSR1 asks the running agent to sync. The session directory watch
+  is still the source of truth.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>sh.terva.lampi.agent</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>exec "${HOME}/.local/bin/terva-lampi" agent --server "${LAMPI_SERVER:-http://127.0.0.1:8787}" --token-file "${LAMPI_TOKEN_FILE:-$HOME/.config/terva-lampi/token}"</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>LAMPI_SERVER</key>
+		<string>http://127.0.0.1:8787</string>
+	</dict>
+</dict>
+</plist>

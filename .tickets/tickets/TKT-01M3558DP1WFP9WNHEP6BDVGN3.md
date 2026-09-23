@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-23T00:17:25Z
+updated_at: 2026-09-23T01:23:40Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: agent:cursor/49ed
+  id: agent:cursor/8319
   name: Cursor cloud agent
 extensions: {}
 ---
@@ -42,10 +42,16 @@ Architecture §7 five acceptance tests in CI; operator status command; optional 
 
 ## Definition of done
 
-- [ ] All children of this epic are resolved; low-priority optional tickets may stay draft
+- [x] All children of this epic are resolved; low-priority optional tickets may stay draft
 - [x] TKT-01M3558DPVCN661600P3F9HMB0 CI/integration: five MVP acceptance tests
 - [x] TKT-01M3558DRA1KS28WAVBKPY3SH8 Implement terva-lampi status (agent + server)
-- [ ] TKT-01M3558DS31QVJ6Y6XH6HK8S4V systemd user unit + launchd agent examples
-- [ ] TKT-01M3558DSRBXEECGW3HCFWX6AA Optional lampi alias installer with neurobin warn
-- [ ] TKT-01M3558DTHC06337Q51V6ERPTD Example terva post_tool_use enqueue hook
-- [ ] TKT-01M3558DD3MYA65Q909VDV374P Chunker for large artifacts (≥32 MiB)
+- [x] TKT-01M3558DS31QVJ6Y6XH6HK8S4V systemd user unit + launchd agent examples
+- [x] TKT-01M3558DSRBXEECGW3HCFWX6AA Optional lampi alias installer with neurobin warn
+- [x] TKT-01M3558DTHC06337Q51V6ERPTD Example terva post_tool_use enqueue hook
+- [x] TKT-01M3558DD3MYA65Q909VDV374P Chunker for large artifacts (≥32 MiB)
+
+## Notes
+
+**agent:cursor/8319** at 2026-09-23T01:23:40Z
+
+Four children landed here: systemd and launchd examples, the optional lampi alias installer, the post_tool_use hook, and the chunker for files over max_blob_bytes. TKT-01M3558DPVCN661600P3F9HMB0 (CI/integration: five MVP acceptance tests) is done; main moved it in #13. Every child of this epic is done. Phase 0 policy tickets were not changed. The deploy examples keep a loopback placeholder because the lake host is not chosen.

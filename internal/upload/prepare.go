@@ -106,19 +106,9 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terv
 		if path == "" {
 			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s: no local path for %s", a.RelPath, a.SHA256)
 		}
-		info, err := os.Stat(path)
-		if err != nil {
-			return protocol.Manifest{}, nil, nil, nil, err
-		}
-		if info.Size() > protocol.MaxBlobBytes {
-			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s is %d bytes; this client does not split files over %d", a.RelPath, info.Size(), protocol.MaxBlobBytes)
-		}
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
-		}
-		if int64(len(body)) > protocol.MaxBlobBytes {
-			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s is %d bytes; this client does not split files over %d", a.RelPath, len(body), protocol.MaxBlobBytes)
 		}
 		scan, err := (redact.Ruleset{}).Scan(body)
 		if err != nil {
@@ -215,7 +205,10 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifa
 	// KindTail is a strict append of the stored prefix. The PUT body
 	// is only the suffix. sha256 stays the full file so the lake can
 	// check the assembly. Every other kind sends the whole file.
-	if dec.Kind == watermark.KindTail && dec.Offset > 0 && dec.Offset < int64(len(body)) && int64(dec.Offset+dec.Length) == int64(len(body)) {
+	// A file past the single-object cap is sent whole. A tail cannot
+	// carry a chunk list, and assembling one onto the stored head
+	// would install an object past the cap. The upload splits it.
+	if int64(len(body)) <= protocol.MaxBlobBytes && dec.Kind == watermark.KindTail && dec.Offset > 0 && dec.Offset < int64(len(body)) && int64(dec.Offset+dec.Length) == int64(len(body)) {
 		tail := body[dec.Offset:]
 		sum := sha256.Sum256(tail)
 		a.ByteWatermarkPrev = dec.Offset

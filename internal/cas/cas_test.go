@@ -90,3 +90,50 @@ func TestPutRejectsMismatchAndOversize(t *testing.T) {
 		t.Fatal("refused put left an object")
 	}
 }
+
+func TestBindLogicalDoesNotInstallAssembly(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	left := []byte("hello ")
+	right := []byte("world")
+	whole := append(append([]byte{}, left...), right...)
+	d0 := digestOf(left)
+	d1 := digestOf(right)
+	full := digestOf(whole)
+	if _, err := s.Put(d0, bytes.NewReader(left), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Put(d1, bytes.NewReader(right), 0); err != nil {
+		t.Fatal(err)
+	}
+	exists, err := s.BindLogical(full, []string{d0, d1}, []int64{int64(len(left)), int64(len(right))})
+	if err != nil || exists {
+		t.Fatalf("bind exists %v err %v", exists, err)
+	}
+	ok, err := s.Has(full)
+	if err != nil || ok {
+		t.Fatalf("logical digest installed: has %v %v", ok, err)
+	}
+	got, err := s.Read(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, whole) {
+		t.Fatalf("read %q", got)
+	}
+	exists, err = s.BindLogical(full, []string{d0, d1}, []int64{int64(len(left)), int64(len(right))})
+	if err != nil || !exists {
+		t.Fatalf("second bind exists %v err %v", exists, err)
+	}
+	if _, err := s.BindLogical(digestOf([]byte("nope")), []string{d0, d1}, []int64{int64(len(left)), int64(len(right))}); !errors.Is(err, ErrRejected) {
+		t.Fatalf("hash mismatch: %v", err)
+	}
+	if _, err := s.BindLogical(full, []string{d0, d1}, []int64{1, int64(len(right))}); !errors.Is(err, ErrRejected) {
+		t.Fatalf("length mismatch: %v", err)
+	}
+	if ok, err := s.Has(full); err != nil || ok {
+		t.Fatalf("failed bind installed the digest: %v %v", ok, err)
+	}
+}

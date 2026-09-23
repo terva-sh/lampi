@@ -152,7 +152,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 
 func (s *Server) clientBytes(a protocol.Artifact, prev []byte, hasPrev bool) ([]byte, error) {
 	if len(a.ChunkSHA256s) > 0 {
-		if _, err := s.CAS.Concat(a.SHA256, a.ChunkSHA256s, protocol.MaxBlobBytes); err != nil {
+		if err := s.installChunks(a); err != nil {
 			return nil, err
 		}
 	}
@@ -184,15 +184,66 @@ func (s *Server) clientBytes(a protocol.Artifact, prev []byte, hasPrev bool) ([]
 	return full, nil
 }
 
+// readStored returns the bytes named by digest. A single object is that
+// blob. A logical file over the object cap is the concatenation of its
+// chunks; that concatenation is not itself a blob, so Has is false.
 func (s *Server) readStored(digest string) ([]byte, error) {
-	ok, err := s.CAS.Has(digest)
+	b, err := s.CAS.Read(digest)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, fmt.Errorf("blob %s is not in the store", digest)
+	return b, nil
+}
+
+// installChunks makes a chunked artifact readable. A concatenation that
+// fits under the object cap is installed as one blob. A longer one is
+// recorded as a logical file and is not installed. chunk_lengths is
+// required for that longer file, and each length has to match the
+// stored object.
+func (s *Server) installChunks(a protocol.Artifact) error {
+	sizes := make([]int64, len(a.ChunkSHA256s))
+	var total int64
+	for i, c := range a.ChunkSHA256s {
+		f, err := s.CAS.OpenBlob(c)
+		if err != nil {
+			return err
+		}
+		st, statErr := f.Stat()
+		f.Close()
+		if statErr != nil {
+			return statErr
+		}
+		if st.Size() <= 0 || st.Size() > protocol.MaxBlobBytes {
+			return &clientError{fmt.Errorf("artifact %q: chunk %d is %d bytes; a chunk must be 1..%d", a.RelPath, i, st.Size(), protocol.MaxBlobBytes)}
+		}
+		if total > (1<<63-1)-st.Size() {
+			return &clientError{fmt.Errorf("artifact %q: chunk list overflows", a.RelPath)}
+		}
+		sizes[i] = st.Size()
+		total += st.Size()
 	}
-	return s.CAS.Read(digest)
+	if len(a.ChunkLengths) > 0 {
+		if len(a.ChunkLengths) != len(sizes) {
+			return &clientError{fmt.Errorf("artifact %q: chunk_lengths does not match chunk_sha256s", a.RelPath)}
+		}
+		for i, n := range a.ChunkLengths {
+			if n != sizes[i] {
+				return &clientError{fmt.Errorf("artifact %q: chunk %d is %d bytes, manifest says %d", a.RelPath, i, sizes[i], n)}
+			}
+		}
+	}
+	if total != a.Size {
+		return &clientError{fmt.Errorf("artifact %q size %d does not match chunk bytes %d", a.RelPath, a.Size, total)}
+	}
+	if total > protocol.MaxBlobBytes {
+		if len(a.ChunkLengths) == 0 {
+			return &clientError{fmt.Errorf("artifact %q: chunk_lengths required when the file is larger than %d bytes", a.RelPath, protocol.MaxBlobBytes)}
+		}
+		_, err := s.CAS.BindLogical(a.SHA256, a.ChunkSHA256s, sizes)
+		return err
+	}
+	_, err := s.CAS.Concat(a.SHA256, a.ChunkSHA256s, protocol.MaxBlobBytes)
+	return err
 }
 
 func headIndex(arts []protocol.Artifact) int {
@@ -223,6 +274,14 @@ func validateManifest(m *protocol.Manifest) error {
 				return fmt.Errorf("artifact %q: %w", a.RelPath, err)
 			}
 			m.Artifacts[i].ChunkSHA256s = parts
+			if len(a.ChunkLengths) > 0 && len(a.ChunkLengths) != len(parts) {
+				return fmt.Errorf("artifact %q: chunk_lengths does not match chunk_sha256s", a.RelPath)
+			}
+			if err := validateChunkLengths(a.RelPath, a.ChunkLengths, a.Size); err != nil {
+				return err
+			}
+		} else if len(a.ChunkLengths) > 0 {
+			return fmt.Errorf("artifact %q: chunk_lengths without chunk_sha256s", a.RelPath)
 		}
 		d := strings.ToLower(a.SHA256)
 		if !protocol.ValidDigest(d) {
@@ -239,6 +298,26 @@ func validateManifest(m *protocol.Manifest) error {
 			}
 			m.Artifacts[i].TailSHA256 = tail
 		}
+	}
+	return nil
+}
+
+func validateChunkLengths(rel string, lengths []int64, size int64) error {
+	if len(lengths) == 0 {
+		return nil
+	}
+	var sum int64
+	for _, n := range lengths {
+		if n <= 0 || n > protocol.MaxBlobBytes {
+			return fmt.Errorf("artifact %q: chunk length %d is outside 1..%d", rel, n, protocol.MaxBlobBytes)
+		}
+		if sum > (1<<63-1)-n {
+			return fmt.Errorf("artifact %q: chunk_lengths overflow", rel)
+		}
+		sum += n
+	}
+	if sum != size {
+		return fmt.Errorf("artifact %q: chunk_lengths sum %d does not match size %d", rel, sum, size)
 	}
 	return nil
 }

@@ -813,6 +813,150 @@ func TestSyncResumesByContentRange(t *testing.T) {
 	}
 }
 
+func TestSyncSplitsFilePastBlobCap(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	path := writeSizedSession(t, home, "abcd", "big.jsonl", protocol.MaxBlobBytes)
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	opt.Client = cap.client
+	ctx := context.Background()
+
+	first, err := Sync(ctx, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Uploaded != 1 || first.Manifests != 1 || len(cap.manifests) != 1 {
+		t.Fatalf("first %+v manifests %d", first, len(cap.manifests))
+	}
+	art := cap.manifests[0].Artifacts[0]
+	if len(art.ChunkSHA256s) != 0 || art.Size != protocol.MaxBlobBytes {
+		t.Fatalf("at-cap artifact %+v", art)
+	}
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(orig)
+	origSHA := hex.EncodeToString(sum[:])
+	if art.SHA256 != origSHA {
+		t.Fatalf("sha %s", art.SHA256)
+	}
+	if ok, err := lake.CAS.Has(origSHA); err != nil || !ok {
+		t.Fatalf("at-cap blob has %v %v", ok, err)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte{'b'}); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	grown, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grownSum := sha256.Sum256(grown)
+	grownSHA := hex.EncodeToString(grownSum[:])
+	extraSum := sha256.Sum256([]byte{'b'})
+	extraSHA := hex.EncodeToString(extraSum[:])
+
+	cap.reset()
+	second, err := Sync(ctx, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Uploaded != 1 || second.Manifests != 1 || cap.puts != 1 {
+		t.Fatalf("split %+v puts=%d", second, cap.puts)
+	}
+	if len(cap.putBodies) != 1 || !bytes.Equal(cap.putBodies[0], []byte{'b'}) {
+		t.Fatalf("split put %d bytes", len(cap.putBodies))
+	}
+	if len(cap.manifests) != 1 || len(cap.manifests[0].Artifacts) != 1 {
+		t.Fatalf("manifests %+v", cap.manifests)
+	}
+	art = cap.manifests[0].Artifacts[0]
+	if art.ByteWatermarkPrev != 0 || art.SHA256 != grownSHA || art.Size != protocol.MaxBlobBytes+1 {
+		t.Fatalf("logical wire %+v", art)
+	}
+	if len(art.ChunkSHA256s) != 2 || len(art.ChunkLengths) != 2 {
+		t.Fatalf("chunks %+v", art)
+	}
+	if art.ChunkSHA256s[0] != origSHA || art.ChunkSHA256s[1] != extraSHA {
+		t.Fatalf("chunk digests %+v", art.ChunkSHA256s)
+	}
+	if art.ChunkLengths[0] != protocol.MaxBlobBytes || art.ChunkLengths[1] != 1 {
+		t.Fatalf("chunk lengths %+v", art.ChunkLengths)
+	}
+	if ok, err := lake.CAS.Has(grownSHA); err != nil || ok {
+		t.Fatalf("assembled object installed: has %v %v", ok, err)
+	}
+	if ok, err := lake.CAS.Has(origSHA); err != nil || !ok {
+		t.Fatalf("prefix chunk missing: %v %v", ok, err)
+	}
+	if ok, err := lake.CAS.Has(extraSHA); err != nil || !ok {
+		t.Fatalf("tail chunk missing: %v %v", ok, err)
+	}
+	got, err := lake.CAS.Read(grownSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, grown) {
+		t.Fatalf("logical read len %d want %d", len(got), len(grown))
+	}
+
+	cap.reset()
+	third, err := Sync(ctx, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.Uploaded != 0 || third.Missing != 0 || cap.puts != 0 {
+		t.Fatalf("re-sync %+v puts=%d", third, cap.puts)
+	}
+}
+
+func writeSizedSession(t *testing.T, home, bucket, name string, size int64) string {
+	t.Helper()
+	meta := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"big\",\"cwd\":\"/tmp/p\"}}\n")
+	if int64(len(meta)) >= size {
+		t.Fatalf("meta is %d bytes, size is %d", len(meta), size)
+	}
+	dir := filepath.Join(home, "sessions", bucket)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(meta); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 1<<20)
+	for i := range buf {
+		buf[i] = 'a'
+	}
+	left := size - int64(len(meta))
+	for left > 0 {
+		n := int64(len(buf))
+		if n > left {
+			n = left
+		}
+		if _, err := f.Write(buf[:n]); err != nil {
+			t.Fatal(err)
+		}
+		left -= n
+	}
+	return path
+}
+
 func TestSyncAssemblesChunkDigests(t *testing.T) {
 	lake, data := openLake(t)
 	srv := httptest.NewServer(lake.Handler())
