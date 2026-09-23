@@ -303,6 +303,149 @@ func TestShareGPTExportAllowlistLineageAndOpaque(t *testing.T) {
 	}
 }
 
+func TestShareGPTExportStripsTrainingTextOnly(t *testing.T) {
+	aws := "AKIAIOSFODNN7EXAMPLE"
+	github := "ghp_" + strings.Repeat("a", 36)
+	slack := "xoxb-1234567890-abcdefghij"
+	opaque := "gAAAAAB" + aws + "=="
+	prompt := "please use " + aws + " and " + github
+
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Allow("sekret")
+	h := lake.Handler()
+
+	body := trainingTranscriptWithTool("/work/app", prompt, opaque, slack)
+	sum, _, err := cas.Hash(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putBlob(t, h, sum, body)
+	ack := postManifest(t, h, manifestProject("sid-secret", "/work/app", "sessions/x/sid-secret.jsonl", sum, int64(len(body))))
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	allow := []byte(`{"projects":{"allow":[{"cwd_prefix":"/work/app"}]}}` + "\n")
+	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), allow, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Getenv: func(k string) string {
+		if k == "XDG_CONFIG_HOME" {
+			return cfg
+		}
+		return ""
+	}}
+
+	sharePath := filepath.Join(dir, "sharegpt.jsonl")
+	if err := Run([]string{"export", "--data", dir, "--out", sharePath, "--format", "sharegpt"}, env); err != nil {
+		t.Fatal(err)
+	}
+	trajPath := filepath.Join(dir, "trajectory.jsonl")
+	if err := Run([]string{"export", "--data", dir, "--out", trajPath, "--format", "trajectory"}, env); err != nil {
+		t.Fatal(err)
+	}
+	shareRaw, err := os.ReadFile(sharePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trajRaw, err := os.ReadFile(trajPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(shareRaw, trajRaw) {
+		t.Fatalf("trajectory diverged from sharegpt:\n%s\n%s", shareRaw, trajRaw)
+	}
+	if strings.Contains(string(shareRaw), github) || strings.Contains(string(shareRaw), slack) {
+		t.Fatalf("training view kept a secret:\n%s", shareRaw)
+	}
+	if strings.Count(string(shareRaw), aws) != 1 {
+		t.Fatalf("aws key count %d, want the ciphertext copy only:\n%s", strings.Count(string(shareRaw), aws), shareRaw)
+	}
+	if !strings.Contains(string(shareRaw), "[redacted:aws-access-key-id]") || !strings.Contains(string(shareRaw), "[redacted:github-pat]") || !strings.Contains(string(shareRaw), "[redacted:slack-token]") {
+		t.Fatalf("placeholders missing:\n%s", shareRaw)
+	}
+
+	var rec struct {
+		RawSHA256     string `json:"raw_sha256"`
+		Conversations []struct {
+			Value            string `json:"value"`
+			EncryptedContent any    `json:"encrypted_content"`
+		} `json:"conversations"`
+	}
+	if err := json.Unmarshal(splitLines(shareRaw)[0], &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.RawSHA256 != sum {
+		t.Fatalf("raw_sha256 %s", rec.RawSHA256)
+	}
+	var sawCipher bool
+	for _, turn := range rec.Conversations {
+		if strings.Contains(turn.Value, aws) || strings.Contains(turn.Value, github) || strings.Contains(turn.Value, slack) {
+			t.Fatalf("value kept a secret: %s", turn.Value)
+		}
+		if turn.EncryptedContent != nil {
+			s, ok := turn.EncryptedContent.(string)
+			if !ok || s != opaque {
+				t.Fatalf("ciphertext %#v", turn.EncryptedContent)
+			}
+			sawCipher = true
+		}
+	}
+	if !sawCipher {
+		t.Fatal("ciphertext was dropped")
+	}
+
+	eventsPath := filepath.Join(dir, "events.jsonl")
+	if err := Run([]string{"export", "--data", dir, "--out", eventsPath}, Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(events), github) || !strings.Contains(string(events), slack) || !strings.Contains(string(events), prompt) {
+		t.Fatalf("events export was stripped:\n%s", events)
+	}
+	if strings.Contains(string(events), "[redacted:") {
+		t.Fatalf("events export was rewritten:\n%s", events)
+	}
+
+	normalized, err := os.ReadFile(filepath.Join(dir, "normalized", ack.SessionUID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(normalized), github) || !strings.Contains(string(normalized), slack) {
+		t.Fatalf("normalized lake was stripped:\n%s", normalized)
+	}
+	left, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", sum[:2], sum[2:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(left, body) {
+		t.Fatal("raw blob changed")
+	}
+}
+
+func trainingTranscriptWithTool(cwd, prompt, opaque, toolSecret string) []byte {
+	lines := []string{
+		`{"type":"meta","meta":{"id":"sid","cwd":"` + cwd + `","model":"gpt-5","provider":"openai","started":"2026-09-22T16:10:00Z","version":"0.137.0"}}`,
+		`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"` + prompt + `"}],"time":"2026-09-22T16:10:01Z"}}`,
+		`{"type":"message","message":{"role":"assistant","content":[{"type":"reasoning","summary":"thinking","encrypted_content":"` + opaque + `"},{"type":"tool_call","id":"call_1","name":"bash","arguments":{"command":"` + toolSecret + `"}}],"time":"2026-09-22T16:10:02Z"}}`,
+	}
+	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
 func TestShareGPTExportDefaultDeny(t *testing.T) {
 	dir := t.TempDir()
 	lake, err := api.Open(dir)

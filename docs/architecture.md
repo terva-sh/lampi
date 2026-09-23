@@ -29,11 +29,11 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
-| Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
+| Redaction | `internal/redact` | Ruleset v1. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
 | Normalize | `internal/normalize` | Workers project terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
-| Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque |
+| Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque. Plaintext training fields are stripped with ruleset v1 |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
@@ -99,8 +99,11 @@ hash, and git remote. A session that is not permitted is named on
 stderr and omitted. Each row carries `raw_sha256`, the current
 transcript blob, so the row can be traced without rewriting the CAS.
 `encrypted_content` is copied onto the turn as stored. It is not
-written into `value` and it is not decrypted. This format does not
-strip secrets. That stays a later pass over the training view.
+written into `value` and it is not decrypted. Ruleset v1 replaces
+each match in the plaintext training fields (`value`, tool name, and
+call id) with a placeholder that names the rule. The CAS object and
+the normalized JSONL are not rewritten. `--format events` writes
+those events unchanged.
 
 ## What this tree does not do
 

@@ -140,9 +140,10 @@ trajectory` write one ShareGPT conversation per session that
 with no training turn, and a session that is not permitted, are
 named on stderr and left out. Each training row carries
 `raw_sha256`, the current transcript blob. `encrypted_content` is
-copied onto the turn as stored and is not decrypted. The command
-does not rewrite the CAS, and it does not strip secrets from the
-training text.
+copied onto the turn as stored and is not decrypted. Ruleset v1
+strips matches from the plaintext training fields (`value`, tool
+name, and call id). The command does not rewrite the CAS or the
+normalized events, and `--format events` is not stripped.
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
 
@@ -318,8 +319,9 @@ instructions` prints the long form.
 
 Phase 0 placement, retention, and encryption are in
 [docs/policy.md](docs/policy.md). Phase 5 training export is
-`terva-lampi export --format sharegpt`. Stripping secrets from that
-view is still open. The Cursor IDE `state.vscdb` reader and the
+`terva-lampi export --format sharegpt`. That view strips ruleset v1
+matches from plaintext training fields. The CAS and `--format events`
+are not rewritten. The Cursor IDE `state.vscdb` reader and the
 Cursor CLI `store.db` reader are separate corpora.
 
 ## Status
@@ -334,7 +336,8 @@ manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
 as JSONL. `--format sharegpt` writes an allowlisted trajectory of
-the same sessions, with `raw_sha256` on each row. `internal/accept`
+the same sessions, with `raw_sha256` on each row and ruleset v1
+matches stripped from the plaintext training fields. `internal/accept`
 is the MVP gate for the events path, and CI runs
 it with the rest of `go test ./...`. Cursor IDE `state.vscdb` and
 Cursor CLI `store.db` are snapshotted into filtered JSON exports.
