@@ -132,7 +132,7 @@ func TestAgentRetriesFailedSyncWithoutGrowth(t *testing.T) {
 			Stdout: &buf,
 			Stderr: &buf,
 			Getenv: agentGetenv(home, cfg, state),
-		})
+		}, "", "")
 	}()
 
 	waitOut(t, &buf, func(s string) bool {
@@ -192,7 +192,7 @@ func TestAgentCancelSkipsFailedSyncRetry(t *testing.T) {
 			Stdout: &buf,
 			Stderr: &buf,
 			Getenv: agentGetenv(home, cfg, state),
-		})
+		}, "", "")
 	}()
 
 	waitOut(t, &buf, func(s string) bool {
@@ -243,7 +243,7 @@ func TestAgentUploadsGrowthAndUsesMachineID(t *testing.T) {
 			Stdout: &buf,
 			Stderr: &buf,
 			Getenv: agentGetenv(home, cfg, state),
-		})
+		}, "", "")
 	}()
 
 	waitOut(t, &buf, func(s string) bool {

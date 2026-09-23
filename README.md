@@ -172,9 +172,32 @@ only override that uploads a hit, and the manifest status is then
 `sync` and `agent` share this path: allowlist, scan, watermark plan,
 outbox, upload, manifest ACK, then watermark commit and outbox ACK. An
 unchanged file uploads no new blob. An append uploads the new tail
-only; the lake assembles it onto the stored prefix. The cursor does
+only; the lake assembles it onto the stored prefix. A file larger than
+32 MiB is uploaded as chunks of at most that size. The lake keeps the
+chunks and does not assemble one object past the cap. The cursor does
 not move if the manifest POST fails. `agent` runs until SIGTERM, then
-tries the path once more so a push that was in flight can finish.
+tries the path once more so a push that was in flight can finish. On
+Unix, SIGUSR1 asks a running agent to sync. The process writes
+`agent.pid` in the state directory while it runs. The directory watch
+is still the source of truth.
+
+## Packaging examples
+
+`deploy/` holds examples. Nothing there is installed by `make build`.
+The lake host is not chosen yet, so the units default to
+`http://127.0.0.1:8787` and a token file under `~/.config/terva-lampi/`.
+Replace the URL when Phase 0 picks a host. Do not invent one.
+
+| Path | What it is |
+|------|------------|
+| [deploy/systemd/](deploy/systemd/) | User service for `terva-lampi agent`, plus an env file for the server URL and token path |
+| [deploy/launchd/](deploy/launchd/) | launchd agent with the same placeholders |
+| [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
+| [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Example `post_tool_use` hook. Signals the agent pid. The watch still uploads if the agent is down |
+
+`terva-lampi agent` reads `LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the
+matching flags are unset. A flag wins, then the environment, then
+`config.json`.
 
 ## Build
 
@@ -209,6 +232,7 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 |-----|----------------|
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
+| [deploy/README.md](deploy/README.md) | Example units, the optional `lampi` alias, the hook |
 | [.tickets/epics.md](.tickets/epics.md) | Open epics. Generated; `git ticket check --fix` rewrites it |
 
 ## Work tracking

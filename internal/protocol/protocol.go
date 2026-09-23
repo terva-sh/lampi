@@ -5,9 +5,10 @@
 // harness session they belong to. The client advances a watermark only
 // after the server ACKs the manifest. A strict append is a tail put;
 // the lake assembles it. Bytes that are not a prefix either way are a
-// divergent copy and are not merged. A large or interrupted blob is
+// divergent copy and are not merged. A blob under the size cap can be
 // resumed with Content-Range or with chunk_sha256s; the lake installs
-// the object when those pieces assemble.
+// that object when the pieces assemble. A file over the cap is a list
+// of chunks, each under the cap, and is not installed as one object.
 package protocol
 
 import (
@@ -19,9 +20,10 @@ import (
 // Version is the capture_protocol value this tree speaks.
 const Version = 1
 
-// MaxBlobBytes is the largest object the lake will install.
-// A PUT body, a Content-Range total, one chunk, and the concatenation
-// of a chunk list all stay under this cap.
+// MaxBlobBytes is the largest single object the lake will install.
+// A PUT body, a Content-Range total, and one chunk stay under this cap.
+// A chunk list that concatenates to more than this is a logical file:
+// the chunks are stored, and the assembled bytes are not.
 const MaxBlobBytes int64 = 32 << 20
 
 // ClockSkewWarn is how far a client clock may sit from hello's server_time
@@ -129,7 +131,10 @@ type Project struct {
 }
 
 // Artifact is one object in the CAS plus the client's watermark hint.
-// ChunkSHA256s is null when the file is a single blob.
+// ChunkSHA256s is null when the file is a single blob. ChunkLengths is
+// parallel to that list and sums to Size. Lengths are required when the
+// concatenation is longer than MaxBlobBytes, because that file is not
+// installed as one object.
 type Artifact struct {
 	Kind              string    `json:"kind"`
 	RelPath           string    `json:"relpath"`
@@ -137,6 +142,7 @@ type Artifact struct {
 	MTime             time.Time `json:"mtime"`
 	SHA256            string    `json:"sha256"`
 	ChunkSHA256s      []string  `json:"chunk_sha256s"`
+	ChunkLengths      []int64   `json:"chunk_lengths,omitempty"`
 	ByteWatermarkPrev int64     `json:"byte_watermark_prev"`
 	TailSHA256        string    `json:"tail_sha256"`
 	Redaction         Redaction `json:"redaction"`

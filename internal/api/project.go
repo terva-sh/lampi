@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -13,9 +12,10 @@ import (
 )
 
 // Project reads the session's current transcript and error blobs and
-// projects them. Digests are the catalog head after resolve and ingest,
-// so a grown-from or chunk concat is the assembled object already in
-// the CAS. A stale or divergent manifest does not replace that head.
+// projects them. Digests are the catalog head after resolve and ingest.
+// A chunk list that fits under the object cap is the assembled blob.
+// A longer list is read as its chunks; that concatenation is not a
+// blob. A stale or divergent manifest does not replace that head.
 // It does not write the CAS. A non-nil error means no derived view;
 // callers record it and leave the blobs in place.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
@@ -85,10 +85,7 @@ func (s *Server) StoreEvents(ctx context.Context, sessionUID string, events []no
 }
 
 func readBlob(store *cas.Store, digest string) ([]byte, error) {
-	f, err := store.OpenBlob(digest)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return io.ReadAll(f)
+	// Read follows a logical chunk list. OpenBlob is only the single
+	// object, and a file over the cap is not installed as one.
+	return store.Read(digest)
 }

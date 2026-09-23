@@ -312,27 +312,82 @@ func TestConcatRejectsOversizeAssembly(t *testing.T) {
 		t.Fatalf("oversize chunk put installed the blob: has %v %v", ok, err)
 	}
 
-	m := protocol.Manifest{
-		CaptureProtocol: protocol.Version,
-		MachineID:       "machine-a",
-		Harness:         protocol.HarnessTerva,
-		NativeSessionID: "oversize",
-		Artifacts: []protocol.Artifact{{
-			Kind:         protocol.KindTranscriptJSONL,
-			RelPath:      "sessions/x/oversize.jsonl",
-			Size:         protocol.MaxBlobBytes + 1,
-			SHA256:       full,
-			ChunkSHA256s: []string{d0, d1},
-		}},
+	// The manifest is the path that records a file over the cap. A PUT
+	// of the concatenation still refuses to install one object.
+	post := func(m protocol.Manifest) *httptest.ResponseRecorder {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/manifests", bytes.NewReader(mustJSON(t, m)))
+		s.Handler().ServeHTTP(rr, req)
+		return rr
 	}
-	rr = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/v1/manifests", bytes.NewReader(mustJSON(t, m)))
-	s.Handler().ServeHTTP(rr, req)
-	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("exceeds")) {
-		t.Fatalf("manifest %d %s", rr.Code, rr.Body)
+	base := func(sha string, lengths []int64) protocol.Manifest {
+		return protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       "machine-a",
+			Harness:         protocol.HarnessTerva,
+			NativeSessionID: "oversize",
+			Artifacts: []protocol.Artifact{{
+				Kind:         protocol.KindTranscriptJSONL,
+				RelPath:      "sessions/x/oversize.jsonl",
+				Size:         protocol.MaxBlobBytes + 1,
+				SHA256:       sha,
+				ChunkSHA256s: []string{d0, d1},
+				ChunkLengths: lengths,
+			}},
+		}
+	}
+
+	rr = post(base(full, nil))
+	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("chunk_lengths required")) {
+		t.Fatalf("missing lengths %d %s", rr.Code, rr.Body)
+	}
+	rr = post(base(full, []int64{1, protocol.MaxBlobBytes}))
+	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("manifest says")) {
+		t.Fatalf("length mismatch %d %s", rr.Code, rr.Body)
+	}
+	wrong := strings.Repeat("ab", 32)
+	rr = post(base(wrong, []int64{protocol.MaxBlobBytes, 1}))
+	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("does not match")) {
+		t.Fatalf("hash mismatch %d %s", rr.Code, rr.Body)
+	}
+	missingChunk := base(full, []int64{protocol.MaxBlobBytes, 1})
+	missingChunk.Artifacts[0].ChunkSHA256s = []string{d0, strings.Repeat("cd", 32)}
+	rr = post(missingChunk)
+	if rr.Code != http.StatusConflict || !bytes.Contains(rr.Body.Bytes(), []byte(strings.Repeat("cd", 32))) {
+		t.Fatalf("missing chunk %d %s", rr.Code, rr.Body)
+	}
+	tailed := base(full, []int64{protocol.MaxBlobBytes, 1})
+	tailed.Artifacts[0].ByteWatermarkPrev = 1
+	tailed.Artifacts[0].TailSHA256 = d1
+	rr = post(tailed)
+	if rr.Code != http.StatusBadRequest || !bytes.Contains(rr.Body.Bytes(), []byte("cannot be combined with a tail")) {
+		t.Fatalf("tail plus chunks %d %s", rr.Code, rr.Body)
 	}
 	if ok, err := s.CAS.Has(full); err != nil || ok {
-		t.Fatalf("oversize manifest installed the blob: has %v %v", ok, err)
+		t.Fatalf("failed manifest installed the blob: has %v %v", ok, err)
+	}
+
+	rr = post(base(full, []int64{protocol.MaxBlobBytes, 1}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("logical manifest %d %s", rr.Code, rr.Body)
+	}
+	if ok, err := s.CAS.Has(full); err != nil || ok {
+		t.Fatalf("logical file installed a single object: has %v %v", ok, err)
+	}
+	got, err := s.CAS.Read(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(got)) != protocol.MaxBlobBytes+1 || got[0] != 'a' || got[len(got)-1] != 'b' {
+		t.Fatalf("logical read len %d first %q last %q", len(got), got[0], got[len(got)-1])
+	}
+	rr = post(base(full, []int64{protocol.MaxBlobBytes, 1}))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("second logical manifest %d %s", rr.Code, rr.Body)
+	}
+	if ok, err := s.CAS.Has(full); err != nil || ok {
+		t.Fatalf("second manifest installed a single object: has %v %v", ok, err)
 	}
 }
 
