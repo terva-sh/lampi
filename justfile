@@ -28,7 +28,7 @@ build:
     go build {{buildvcs}} -trimpath -ldflags "{{ldflags}}" -o bin/terva-lampi ./cmd/terva-lampi
     @echo "built bin/terva-lampi ({{version}}, {{commit}})"
 
-# Run the test suite.
+# Run the test suite. internal/accept is the MVP acceptance gate.
 test:
     go test ./...
 

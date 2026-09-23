@@ -29,6 +29,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp |
 | Normalize | `internal/normalize` | terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque |
 | Export | `terva-lampi export` | Normalized JSONL. A session with `normalize_error` is skipped |
+| MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
 `upload.Sync`. `terva-lampi sync` is the same function, once. An unchanged
@@ -107,6 +108,26 @@ one wired up, because its JSONL layout is owned and versioned
 treated as a global project id. The same git repo at two absolute paths
 hashes differently. Linking those by git remote is later work.
 
+## MVP acceptance gate
+
+`internal/accept` is the MVP acceptance gate.
+`go test ./...` runs it, and that is what CI runs. The test is
+`TestMVPAcceptance`. It stands up `terva-lampi serve`'s HTTP handler on
+a local lake, writes one fixture terva JSONL, and pushes it with
+`upload.Sync`.
+
+1. Ingest records a `session_uid` and the blob sha256.
+2. A second sync uploads no blob.
+3. An appended line uploads the tail only, and the head sha256 updates.
+4. The same file synced from a second machine is a CAS hit. Provenance
+   for that digest has one row per machine.
+5. `terva-lampi export` writes the normalized JSONL, and sqlite
+   `json_extract(line, '$.content_text')` finds the fixture prompt
+   `normalize-proof prompt: lampi-pond-7f3a`.
+
+`internal/cli` still has the export failure-path test for a transcript
+that does not normalize. That check is not a second copy of this gate.
+
 ## Layout
 
 ```text
@@ -127,6 +148,7 @@ internal/redact/          ruleset v1 and quarantine.jsonl
 internal/outbox/          SQLite queue
 internal/watermark/       per-path cursor, ACK-gated
 internal/normalize/       schema_version 1 events, JSONL export
+internal/accept/          MVP acceptance gate, fixture terva JSONL
 docs/protocol.md
 docs/architecture.md
 hooks/                    example terva hook, not installed

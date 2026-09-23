@@ -20,6 +20,10 @@ import (
 
 const proofPrompt = "normalize-proof prompt: lampi-pond-7f3a"
 
+// TestKnownPromptAfterIngest checks the export failure path: a session
+// that did not normalize is named on stderr, and its raw blob stays as
+// it was. The five-step MVP gate, which queries this same prompt after
+// a real sync, is internal/accept.TestMVPAcceptance.
 func TestKnownPromptAfterIngest(t *testing.T) {
 	dir := t.TempDir()
 	lake, err := api.Open(dir)
