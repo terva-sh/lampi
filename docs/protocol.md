@@ -178,25 +178,34 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
 }
 ```
 
-`harness` is `terva`, `claude`, `codex`, `opencode`, or `cursor`. For
-terva, `harness_version` is the producer version from the meta line
-when that line has one. For Claude Code, Codex, OpenCode, and the
-Cursor IDE, `harness_version` is the adapter's pinned reader version.
-The on-disk object for those four is internal to the adapter and is
-not part of this protocol. `history.jsonl` under a Codex home is not a
-session. An OpenCode session is one `opencode export` document under
-`export/`. The WAL sidecar next to `opencode.db` is not a session. A
-Cursor session is one filtered JSON export of a `state.vscdb`
-snapshot. The live database is not the artifact. Keys under
-`cursorAuth/` are not in the export.
+`harness` is `terva`, `claude`, `codex`, `opencode`, `cursor`, or
+`cursor-cli`. For terva, `harness_version` is the producer version
+from the meta line when that line has one. For Claude Code, Codex,
+OpenCode, the Cursor IDE, and the Cursor CLI, `harness_version` is
+the adapter's pinned reader version. The on-disk object for those
+five is internal to the adapter and is not part of this protocol.
+`history.jsonl` under a Codex home is not a session. An OpenCode
+session is one `opencode export` document under `export/`. The WAL
+sidecar next to `opencode.db` is not a session. A Cursor IDE session
+is one filtered JSON export of a `state.vscdb` snapshot. A Cursor CLI
+session is one filtered JSON export of a `store.db` snapshot, and its
+harness is `cursor-cli`, not `cursor`. The live database is not the
+artifact. Keys under `cursorAuth/` are not in the export. The CLI
+reader also drops credential field names such as `accessToken`. The
+two Cursor corpora do not share sessions or watermarks.
 
 `cwd_hash` is terva's `hex(sha256(cwd)[:8])`. It buckets a path on one
-machine. It is not a project id across machines. Claude, Codex, and
-OpenCode use the same function so an allow rule written against that
-hash still matches. OpenCode takes the cwd from `info.directory` on
-the export. A discovered database file has no directory, so the
-allowlist refuses that blob. `git_remote` is origin's URL when the
-session cwd has a `.git`, and empty otherwise. `git_commit` is HEAD.
+machine. It is not a project id across machines. Claude, Codex,
+OpenCode, and both Cursor readers use the same function so an allow
+rule written against that hash still matches. OpenCode takes the cwd
+from `info.directory` on the export. A discovered database file has
+no directory, so the allowlist refuses that blob. A Cursor IDE
+workspace takes its cwd from `workspace.json`. The global IDE
+database has none. A Cursor CLI chat takes its cwd from an absolute
+`cwd` in the sibling `meta.json`. Without that, the allowlist refuses
+the export. The CLI workspace hash is not a cwd. `git_remote` is
+origin's URL when the session cwd has a `.git`, and empty otherwise.
+`git_commit` is HEAD.
 `git_root` is the first
 parentless commit on that HEAD's first-parent chain. `project_id` is
 the remote folded the same way as an allow rule, then `@`, then
@@ -214,13 +223,15 @@ the manifest is sent.
 `kind` is `transcript_jsonl`, `errors_jsonl` for the sidecar that sits
 next to a terva transcript, `raati_json` for a record under `raati/`,
 `tasks_json` for a task board under `tasks/` (the file includes
-archived generations), or `cursor_state_json` for a filtered Cursor IDE
+archived generations), `cursor_state_json` for a filtered Cursor IDE
+snapshot, or `cursor_cli_store_json` for a filtered Cursor CLI
 snapshot. A raati or tasks file is an artifact of a session that is
 already being captured. Normalize projects transcripts and error
 sidecars. A rewrite of `raati_json` or `tasks_json` replaces the
 current artifact for that path and does not move the session head. A
-rewrite of `cursor_state_json` replaces the current artifact and moves
-the session head, because that export is the session.
+rewrite of `cursor_state_json` or `cursor_cli_store_json` replaces the
+current artifact and moves the session head, because that export is
+the session.
 
 `sha256` is always the full file. `chunk_sha256s` lists the CAS objects
 that concatenate to it, in order. Null means the file was one PUT.

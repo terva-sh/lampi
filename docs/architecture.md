@@ -24,6 +24,8 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Claude Code | `internal/adapter/claude` | `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`. Unset is `~/.claude`. Reader version pinned. Unknown keys kept |
 | Codex CLI | `internal/adapter/codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl`. Unset is `~/.codex`. `history.jsonl` is not a rollout |
 | OpenCode | `internal/adapter/opencode` | Scheduled `opencode export` JSON at `$XDG_DATA_HOME/opencode/export/**/*.json`. Unset is `~/.local/share/opencode`. When `export/` has no JSON, the database file at that root. Not the WAL |
+| Cursor IDE | `internal/adapter/cursor` | Read-only snapshot of `state.vscdb` under the user-data directory. Filtered JSON export. Keys under `cursorAuth/` are dropped. Not the CLI store |
+| Cursor CLI | `internal/adapter/cursorcli` | Read-only snapshot of `store.db` under the CLI config directory. Separate harness `cursor-cli`. Not assumed to match IDE state |
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
@@ -91,7 +93,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/adapter` | The Cursor CLI `store.db` adapter is not started. The IDE `state.vscdb` reader snapshots and uploads a filtered export. Normalize workers still implement terva only |
+| `internal/normalize` | Workers still implement terva only. A Claude, Codex, OpenCode, Cursor IDE, or Cursor CLI manifest is stored, and the worker sets `normalize_error` |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -151,6 +153,7 @@ $CODEX_HOME/sessions/**/rollout-*.jsonl
 $XDG_DATA_HOME/opencode/export/**/*.json
 Cursor IDE user-data/User/globalStorage/state.vscdb
 Cursor IDE user-data/User/workspaceStorage/*/state.vscdb
+Cursor CLI config/chats/*/*/store.db
         |
         v
 allowlist (default deny) → ruleset v1 → quarantine on a hit
@@ -174,13 +177,19 @@ Cursor copies `state.vscdb` and its WAL sidecars, then uploads a JSON
 export. Keys under `cursorAuth/` are not in that export. The raw
 database stays on the machine. The global database has no single
 project cwd, so the allowlist refuses it. A workspace database takes
-its cwd from `workspace.json`. The Cursor CLI store is not read. The
-Claude, Codex, OpenCode, and Cursor record shapes are internal to
-those packages. Each pins a reader version on `harness_version` and
-keeps keys it does not interpret. Normalize workers still implement
-terva only. A Claude, Codex, OpenCode, or Cursor manifest is stored,
-and a worker sets `normalize_error` when the projector for that
-harness is not implemented. Path-based
+its cwd from `workspace.json`. The Cursor CLI `store.db` is a second
+harness, `cursor-cli`. It copies that database and its WAL sidecars
+the same way and uploads a separate JSON export. It does not read
+`state.vscdb`, and the IDE reader does not read `store.db`. The two
+do not share sessions or watermarks. A CLI chat uses the absolute
+`cwd` in the sibling `meta.json` when that field is present. Without
+one, the allowlist refuses the export. The Claude, Codex, OpenCode,
+and Cursor record shapes are internal to those packages. Each pins a
+reader version on `harness_version` and keeps keys it does not
+interpret. Normalize workers still implement terva only. A Claude,
+Codex, OpenCode, or Cursor manifest is stored, and a worker sets
+`normalize_error` when the projector for that harness is not
+implemented. Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link
 by `project_id`.
@@ -222,6 +231,8 @@ internal/adapter/terva/   meta line, manifests
 internal/adapter/claude/  Claude Code projects/**/*.jsonl
 internal/adapter/codex/   Codex rollout-*.jsonl, not history.jsonl
 internal/adapter/opencode/ OpenCode export JSON, not the WAL
+internal/adapter/cursor/  Cursor IDE state.vscdb snapshot
+internal/adapter/cursorcli/ Cursor CLI store.db snapshot, separate corpus
 internal/upload/          one-shot push
 internal/watch/           fsnotify, poll fallback
 internal/redact/          ruleset v1 and quarantine.jsonl

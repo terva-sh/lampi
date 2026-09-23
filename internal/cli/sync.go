@@ -20,8 +20,9 @@ usage:
   terva-lampi sync [--server URL] [--token-file PATH]
 
 Walks terva sessions, Claude Code projects/**/*.jsonl, Codex
-rollout-*.jsonl, OpenCode export JSON, and Cursor IDE state.vscdb
-snapshots. history.jsonl is not a Codex rollout. A project is uploaded
+rollout-*.jsonl, OpenCode export JSON, Cursor IDE state.vscdb
+snapshots, and Cursor CLI store.db snapshots. history.jsonl is not
+a Codex rollout. A project is uploaded
 only when config.json allowlists it, by cwd prefix, git remote, or cwd
 hash. Anything else is refused. Deny rules win. An empty allow list
 refuses everything. Claude Code uses $CLAUDE_CONFIG_DIR, or ~/.claude
@@ -36,7 +37,16 @@ macOS, and %APPDATA%\Cursor on Windows. The upload is a JSON export of
 a snapshot. Keys under cursorAuth/ are removed. The raw database is
 not uploaded. The global database has no single project, so the
 allowlist refuses it. A workspace takes its cwd from workspace.json.
-The Cursor CLI store.db is not read.
+The Cursor CLI store is separate. Its config directory is
+$CURSOR_CONFIG_DIR, or $XDG_CONFIG_HOME/cursor on Linux when that
+variable is set, otherwise ~/.cursor on macOS and Linux and the
+.cursor directory under USERPROFILE on Windows. Each chat is
+chats/<workspace>/<session>/store.db. The upload is a JSON export
+of a snapshot. It is not an IDE session and it does not share the
+IDE watermark. Keys under cursorAuth/ are removed. The raw database
+is not uploaded. An absolute cwd in the sibling meta.json is the
+project path. Without one, the allowlist refuses the export. The
+workspace hash is not a path.
 
 Ruleset v1 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
@@ -94,17 +104,18 @@ func runSync(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	res, err := upload.Sync(ctx, upload.Options{
-		ServerURL:    config.ServerURL(file, serverFlag),
-		Token:        token,
-		TervaHome:    homeOf(src, protocol.HarnessTerva),
-		ClaudeHome:   homeOf(src, protocol.HarnessClaude),
-		CodexHome:    homeOf(src, protocol.HarnessCodex),
-		OpenCodeHome: homeOf(src, protocol.HarnessOpenCode),
-		CursorHome:   homeOf(src, protocol.HarnessCursor),
-		MachineID:    m.MachineID,
-		StateDir:     state,
-		Projects:     file.Projects,
-		UploadHits:   file.Redaction.UploadHits,
+		ServerURL:     config.ServerURL(file, serverFlag),
+		Token:         token,
+		TervaHome:     homeOf(src, protocol.HarnessTerva),
+		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
+		CodexHome:     homeOf(src, protocol.HarnessCodex),
+		OpenCodeHome:  homeOf(src, protocol.HarnessOpenCode),
+		CursorHome:    homeOf(src, protocol.HarnessCursor),
+		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
+		MachineID:     m.MachineID,
+		StateDir:      state,
+		Projects:      file.Projects,
+		UploadHits:    file.Redaction.UploadHits,
 	})
 	printSync(env.stdout(), env.stderr(), "", res)
 	return err

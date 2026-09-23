@@ -1387,6 +1387,157 @@ func TestSyncCursorExportFiltersAuth(t *testing.T) {
 	}
 }
 
+func TestSyncCursorCLIIsASeparateCorpus(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	global := filepath.Join(home, "User", "globalStorage", "state.vscdb")
+	ws := filepath.Join(home, "User", "workspaceStorage", "ws1", "state.vscdb")
+	if err := writeCursorDB(global, "hello from cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCursorDB(ws, "hello from cursor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(ws), "workspace.json"), []byte(`{"folder":"file:///work/app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cli := filepath.Join(home, "chats", "ab12", "sid-1", "store.db")
+	if err := writeCursorCLIStore(cli, "hello from cli"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(cli), "meta.json"), []byte(`{"cwd":"/work/app","schemaVersion":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	noCWD := filepath.Join(home, "chats", "ab12", "no-cwd", "store.db")
+	if err := writeCursorCLIStore(noCWD, "stay local"); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := allowAll(srv, t.TempDir(), t.TempDir(), "/work/app")
+	opt.Client = cap.client
+	opt.CursorHome = home
+	opt.CursorCLIHome = home
+	res, err := Sync(context.Background(), opt)
+	if err == nil || res.Uploaded != 2 || res.Manifests != 2 || res.Refused != 2 {
+		t.Fatalf("sync %+v err=%v", res, err)
+	}
+	if !strings.Contains(err.Error(), "User/globalStorage/state.json") || !strings.Contains(err.Error(), "chats/ab12/no-cwd/store.json") {
+		t.Fatalf("refusal: %v", err)
+	}
+	if strings.Contains(err.Error(), "sekret-token") || strings.Contains(err.Error(), "store.db-wal") || strings.Contains(err.Error(), "state.vscdb-wal") {
+		t.Fatalf("refusal leaked a secret or a sidecar: %v", err)
+	}
+	if len(cap.manifests) != 2 {
+		t.Fatalf("manifests %d", len(cap.manifests))
+	}
+	byHarness := map[string]protocol.Manifest{}
+	for _, m := range cap.manifests {
+		byHarness[m.Harness] = m
+	}
+	ide := byHarness[protocol.HarnessCursor]
+	if ide.HarnessVersion != "1" || ide.NativeSessionID != "workspace/ws1" || ide.Project.CWD != "/work/app" {
+		t.Fatalf("ide %+v", ide)
+	}
+	if ide.Artifacts[0].Kind != protocol.KindCursorStateJSON {
+		t.Fatalf("ide kind %s", ide.Artifacts[0].Kind)
+	}
+	cliM := byHarness[protocol.HarnessCursorCLI]
+	if cliM.HarnessVersion != "1" || cliM.NativeSessionID != "chats/ab12/sid-1" || cliM.Project.CWD != "/work/app" {
+		t.Fatalf("cli %+v", cliM)
+	}
+	if cliM.Artifacts[0].Kind != protocol.KindCursorCLIStoreJSON || cliM.Artifacts[0].RelPath != "chats/ab12/sid-1/store.json" {
+		t.Fatalf("cli artifact %+v", cliM.Artifacts)
+	}
+	for _, body := range cap.putBodies {
+		if bytes.Contains(body, []byte("sekret-token")) || bytes.Contains(body, []byte("cursorAuth")) || bytes.HasPrefix(body, []byte("SQLite format 3")) {
+			t.Fatalf("uploaded raw or auth bytes: %s", body)
+		}
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 2 {
+		t.Fatal("expected two filtered exports")
+	}
+	ctx := context.Background()
+	ideUID, ideArts, ok, err := lake.Catalog.Current(ctx, protocol.HarnessCursor, "workspace/ws1")
+	if err != nil || !ok || ideUID == "" || len(ideArts) != 1 {
+		t.Fatalf("ide catalog ok=%v err=%v arts=%d", ok, err, len(ideArts))
+	}
+	cliUID, cliArts, ok, err := lake.Catalog.Current(ctx, protocol.HarnessCursorCLI, "chats/ab12/sid-1")
+	if err != nil || !ok || cliUID == "" || cliUID == ideUID || len(cliArts) != 1 {
+		t.Fatalf("cli catalog uid=%s ide=%s ok=%v err=%v arts=%d", cliUID, ideUID, ok, err, len(cliArts))
+	}
+	if _, _, ok, err := lake.Catalog.Current(ctx, protocol.HarnessCursor, "chats/ab12/sid-1"); err != nil || ok {
+		t.Fatalf("cli session visible as ide ok=%v err=%v", ok, err)
+	}
+	if _, _, ok, err := lake.Catalog.Current(ctx, protocol.HarnessCursorCLI, "workspace/ws1"); err != nil || ok {
+		t.Fatalf("ide session visible as cli ok=%v err=%v", ok, err)
+	}
+	if _, _, ok, err := lake.Catalog.Current(ctx, protocol.HarnessCursorCLI, "chats/ab12/no-cwd"); err != nil || ok {
+		t.Fatalf("cwd-less cli session uploaded ok=%v err=%v", ok, err)
+	}
+	cliRaw, err := lake.CAS.Read(cliArts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(cliRaw, []byte("hello from cli")) || bytes.Contains(cliRaw, []byte("sekret-token")) {
+		t.Fatalf("stored cli export: %s", cliRaw)
+	}
+
+	wm, err := watermark.Open(watermark.File(opt.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+	ideRel := "User/workspaceStorage/ws1/state.json"
+	cliRel := "chats/ab12/sid-1/store.json"
+	if _, ok, err := wm.Get(ctx, watermark.Mark{MachineID: opt.MachineID, Harness: protocol.HarnessCursor, Root: home, RelPath: ideRel}); err != nil || !ok {
+		t.Fatalf("ide watermark ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := wm.Get(ctx, watermark.Mark{MachineID: opt.MachineID, Harness: protocol.HarnessCursorCLI, Root: home, RelPath: cliRel}); err != nil || !ok {
+		t.Fatalf("cli watermark ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := wm.Get(ctx, watermark.Mark{MachineID: opt.MachineID, Harness: protocol.HarnessCursor, Root: home, RelPath: cliRel}); err != nil || ok {
+		t.Fatalf("cli path stored on the ide harness ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := wm.Get(ctx, watermark.Mark{MachineID: opt.MachineID, Harness: protocol.HarnessCursorCLI, Root: home, RelPath: ideRel}); err != nil || ok {
+		t.Fatalf("ide path stored on the cli harness ok=%v err=%v", ok, err)
+	}
+
+	if err := writeCursorCLIStore(cli, "hello from cli again"); err != nil {
+		t.Fatal(err)
+	}
+	cap.reset()
+	again, err := Sync(context.Background(), opt)
+	if err == nil || again.Uploaded != 1 || again.Manifests != 2 || again.Refused != 2 {
+		t.Fatalf("rewrite %+v err=%v", again, err)
+	}
+	_, ideArts, ok, err = lake.Catalog.Current(ctx, protocol.HarnessCursor, "workspace/ws1")
+	if err != nil || !ok || len(ideArts) != 1 {
+		t.Fatalf("ide after cli rewrite ok=%v err=%v", ok, err)
+	}
+	ideRaw, err := lake.CAS.Read(ideArts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(ideRaw, []byte("hello from cursor")) || bytes.Contains(ideRaw, []byte("hello from cli again")) {
+		t.Fatalf("ide export changed with the cli store: %s", ideRaw)
+	}
+	_, cliArts, ok, err = lake.Catalog.Current(ctx, protocol.HarnessCursorCLI, "chats/ab12/sid-1")
+	if err != nil || !ok || len(cliArts) != 1 {
+		t.Fatalf("cli rewrite ok=%v err=%v arts=%d", ok, err, len(cliArts))
+	}
+	cliRaw, err = lake.CAS.Read(cliArts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(cliRaw, []byte("hello from cli again")) || bytes.Contains(cliRaw, []byte("sekret-token")) {
+		t.Fatalf("rewritten cli export: %s", cliRaw)
+	}
+}
+
 func writeCursorDB(path, note string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -1406,6 +1557,36 @@ func writeCursorDB(path, note string) error {
 		return err
 	}
 	if _, err := db.Exec(`INSERT INTO ItemTable (key, value) VALUES ('cursorAuth/accessToken', 'sekret-token'), ('composer.composerData', ?)`, `{"note":"`+note+`"}`); err != nil {
+		return err
+	}
+	_, err = db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
+}
+
+func writeCursorCLIStore(path, note string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(path)
+	_ = os.Remove(path + "-wal")
+	_ = os.Remove(path + "-shm")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		return err
+	}
+	meta := `{"name":"kept-title","accessToken":"sekret-token"}`
+	msg := `{"role":"user","content":"` + note + `","accessToken":"sekret-token"}`
+	if _, err := db.Exec(`INSERT INTO meta (key, value) VALUES ('0', ?), ('cursorAuth/accessToken', 'sekret-token')`, hex.EncodeToString([]byte(meta))); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT INTO blobs (id, data) VALUES ('blob-1', ?)`, msg); err != nil {
 		return err
 	}
 	_, err = db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
