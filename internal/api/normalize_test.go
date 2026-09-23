@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/protocol"
 )
@@ -139,6 +142,76 @@ func TestProjectUsesAssembledHead(t *testing.T) {
 	derived = readDerived(t, s, div.SessionUID)
 	if bytes.Contains(derived, []byte("divergent-only pond")) || !bytes.Contains(derived, []byte("assembled-only pond")) {
 		t.Fatalf("projection followed a non-current digest:\n%s", derived)
+	}
+}
+
+func TestProjectionUsesProjectLinkNotCWDHash(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	s.Allow("sekret")
+	h := s.Handler()
+
+	root := strings.Repeat("ab", 20)
+	remotes := []string{"git@github.com:Org/Foo.git", "https://github.com/org/foo"}
+	cwds := []string{"/home/a/src/foo", "/Users/b/work/foo"}
+	heads := []string{strings.Repeat("cd", 20), root}
+	want := protocol.ProjectLinkID(remotes[0], root)
+	var uids []string
+	for i, cwd := range cwds {
+		body := transcriptLines(
+			fmt.Sprintf(`{"type":"meta","meta":{"id":"sid-%d","cwd":%q,"started":"2026-09-22T16:10:00Z","version":"0.1.0"}}`, i, cwd),
+			`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"link pond"}],"time":"2026-09-22T16:10:01Z"}}`,
+		)
+		sum := putBlob(t, h, "", body)
+		ack := postManifest(t, h, protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       fmt.Sprintf("machine-%d", i),
+			Harness:         protocol.HarnessTerva,
+			NativeSessionID: fmt.Sprintf("sid-%d", i),
+			Project: protocol.Project{
+				CWD:       cwd,
+				CWDHash:   adapter.CWDHash(cwd),
+				GitRemote: remotes[i],
+				GitCommit: heads[i],
+				GitRoot:   root,
+				ProjectID: adapter.CWDHash(cwd),
+			},
+			Artifacts: []protocol.Artifact{{
+				Kind:    protocol.KindTranscriptJSONL,
+				RelPath: fmt.Sprintf("sessions/%d.jsonl", i),
+				Size:    int64(len(body)),
+				SHA256:  sum,
+			}},
+		})
+		uids = append(uids, ack.SessionUID)
+		var ev struct {
+			CWDHash   string  `json:"cwd_hash"`
+			ProjectID *string `json:"project_id"`
+		}
+		line := bytes.Split(bytes.TrimSpace(readDerived(t, s, ack.SessionUID)), []byte("\n"))[0]
+		if err := json.Unmarshal(line, &ev); err != nil {
+			t.Fatal(err)
+		}
+		hash := adapter.CWDHash(cwd)
+		if ev.ProjectID == nil || *ev.ProjectID != want || *ev.ProjectID == hash || ev.CWDHash != hash {
+			t.Fatalf("event project %v cwd_hash %s want %s hash %s", ev.ProjectID, ev.CWDHash, want, hash)
+		}
+	}
+	if uids[0] == uids[1] {
+		t.Fatal("two sessions collapsed into one uid")
+	}
+	linked, err := s.Catalog.SessionsByProject(t.Context(), want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(linked) != 2 || linked[0].ProjectID != want || linked[1].ProjectID != want {
+		t.Fatalf("catalog link: %+v", linked)
+	}
+	if linked[0].Manifest.Project.CWDHash == linked[1].Manifest.Project.CWDHash {
+		t.Fatal("cwd hashes matched")
 	}
 }
 

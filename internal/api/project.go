@@ -52,6 +52,7 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 			HarnessVersion: m.HarnessVersion,
 			CWD:            m.Project.CWD,
 			GitCommit:      m.Project.GitCommit,
+			ProjectID:      protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot),
 			Digest:         a.SHA256,
 			Kind:           a.Kind,
 		}).Normalize(ctx, raw)

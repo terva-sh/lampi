@@ -63,6 +63,9 @@ func TestTervaSchemaAndOpaqueFields(t *testing.T) {
 		if ev.CWDHash != terva.CWDHash("/home/drew/src/foo") {
 			t.Fatalf("cwd hash %s", ev.CWDHash)
 		}
+		if ev.ProjectID != nil {
+			t.Fatalf("project id %v", ev.ProjectID)
+		}
 		if ev.IngestedAt != now.UTC().Format(time.RFC3339Nano) {
 			t.Fatalf("ingested %s", ev.IngestedAt)
 		}

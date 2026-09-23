@@ -130,11 +130,16 @@ type Manifest struct {
 
 // Project is where the session was recorded. CWDHash is a property of the
 // absolute path string on that machine. It is not a project id across hosts.
+// GitCommit is HEAD. GitRoot is the first parentless commit on the
+// first-parent chain from HEAD. ProjectID is ProjectLinkID of GitRemote
+// and GitRoot. The lake recomputes it on ingest.
 type Project struct {
 	CWD       string `json:"cwd"`
 	CWDHash   string `json:"cwd_hash"`
 	GitRemote string `json:"git_remote"`
 	GitCommit string `json:"git_commit"`
+	GitRoot   string `json:"git_root,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // Artifact is one object in the CAS plus the client's watermark hint.

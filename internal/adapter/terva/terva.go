@@ -4,9 +4,9 @@
 // meta record, and builds capture-protocol manifests. Digests here are of
 // the whole file. internal/upload turns a strict append into a tail put.
 // When the session cwd still has a .git, the manifest records origin's
-// URL and HEAD.
-// Cross-machine project identity is a later step. Redaction is not stamped
-// here; upload scans the bytes before they leave the machine.
+// URL, HEAD, and the root commit. project_id is that remote, normalized,
+// plus the root commit. Redaction is not stamped here; upload scans the
+// bytes before they leave the machine.
 package terva
 
 import (
@@ -191,13 +191,7 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 		arts := make([]protocol.Artifact, 0, len(group))
 		for _, it := range group {
 			if it.meta.ok {
-				remote, commit := projectGit(it.meta.cwd)
-				project = protocol.Project{
-					CWD:       it.meta.cwd,
-					CWDHash:   CWDHash(it.meta.cwd),
-					GitRemote: remote,
-					GitCommit: commit,
-				}
+				project = adapter.ProjectAt(it.meta.cwd)
 				if it.meta.parent != "" {
 					parent := it.meta.parent
 					lineage.ParentNativeID = &parent

@@ -374,6 +374,111 @@ func TestNormalizeErrorRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProjectLinkAcrossCWDs(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	root := strings.Repeat("a", 40)
+	want := protocol.ProjectLinkID("git@github.com:Org/App.git", root)
+
+	left := sampleManifest()
+	left.NativeSessionID = "left"
+	left.MachineID = "machine-a"
+	left.Project = protocol.Project{
+		CWD:       "/home/a/src/app",
+		CWDHash:   "1111111111111111",
+		GitRemote: "git@github.com:Org/App.git",
+		GitCommit: strings.Repeat("b", 40),
+		GitRoot:   root,
+		ProjectID: "1111111111111111",
+	}
+	if _, err := c.Ingest(ctx, left, now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	right := sampleManifest()
+	right.NativeSessionID = "right"
+	right.MachineID = "machine-b"
+	right.Artifacts[0].RelPath = "sessions/y/right.jsonl"
+	right.Project = protocol.Project{
+		CWD:       "/Users/b/code/app",
+		CWDHash:   "2222222222222222",
+		GitRemote: "https://github.com/org/app",
+		GitCommit: root,
+		GitRoot:   strings.ToUpper(root),
+	}
+	if _, err := c.Ingest(ctx, right, now.Add(time.Minute), []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	linked, err := c.SessionsByProject(ctx, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(linked) != 2 || linked[0].NativeID != "left" || linked[1].NativeID != "right" {
+		t.Fatalf("linked: %+v", linked)
+	}
+	for _, row := range linked {
+		if row.ProjectID != want || row.Manifest.Project.ProjectID != want {
+			t.Fatalf("stored id %+v", row)
+		}
+		if row.ProjectID == row.Manifest.Project.CWDHash || row.ProjectID == left.Project.CWDHash || row.ProjectID == right.Project.CWDHash {
+			t.Fatalf("project id is a cwd hash: %s", row.ProjectID)
+		}
+		if row.Manifest.Project.CWDHash == "" || linked[0].Manifest.Project.CWDHash == linked[1].Manifest.Project.CWDHash {
+			t.Fatalf("cwd hashes: %+v %+v", linked[0].Manifest.Project, linked[1].Manifest.Project)
+		}
+	}
+
+	none, err := c.SessionsByProject(ctx, "")
+	if err != nil || none != nil {
+		t.Fatalf("empty id returned %+v %v", none, err)
+	}
+	byHash, err := c.SessionsByProject(ctx, left.Project.CWDHash)
+	if err != nil || len(byHash) != 0 {
+		t.Fatalf("cwd hash query: %+v %v", byHash, err)
+	}
+
+	orphan := sampleManifest()
+	orphan.NativeSessionID = "orphan"
+	orphan.MachineID = "machine-c"
+	orphan.Project = protocol.Project{CWD: "/tmp/loose", CWDHash: "3333333333333333", ProjectID: "3333333333333333"}
+	if _, err := c.Ingest(ctx, orphan, now.Add(2*time.Minute), []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.SessionsByProject(ctx, want)
+	if err != nil || len(again) != 2 {
+		t.Fatalf("orphan joined the project: %+v %v", again, err)
+	}
+	list, err := c.ListSessions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saw bool
+	for _, row := range list {
+		if row.NativeID != "orphan" {
+			continue
+		}
+		saw = true
+		if row.ProjectID != "" {
+			t.Fatalf("path-only session linked as %s", row.ProjectID)
+		}
+	}
+	if !saw {
+		t.Fatal("orphan missing")
+	}
+}
+
 func sampleManifest() protocol.Manifest {
 	sha := strings.Repeat("a", 64)
 	return protocol.Manifest{
