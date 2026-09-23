@@ -379,13 +379,15 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 			return protocol.ManifestAck{}, fmt.Errorf("catalog: session: %w", err)
 		}
 	}
-	// A later manifest can learn the root. Do not clear an id when this
-	// post has none: an empty project_id is not a group, and a second
-	// machine whose checkout has no .git must not unlink the session.
+	// A later manifest can learn the root. Write that id onto the stored
+	// manifest too, including when the head did not move, so the column
+	// and manifest_json agree. Do not clear an id when this post has
+	// none: an empty project_id is not a group, and a second machine
+	// whose checkout has no .git must not unlink the session.
 	if m.Project.ProjectID != "" {
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE sessions SET project_id = ? WHERE session_uid = ?`,
-			m.Project.ProjectID, uid); err != nil {
+			UPDATE sessions SET project_id = ?, manifest_json = ? WHERE session_uid = ?`,
+			m.Project.ProjectID, string(raw), uid); err != nil {
 			return protocol.ManifestAck{}, fmt.Errorf("catalog: project: %w", err)
 		}
 	}

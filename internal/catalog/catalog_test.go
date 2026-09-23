@@ -479,6 +479,67 @@ func TestProjectLinkAcrossCWDs(t *testing.T) {
 	}
 }
 
+func TestProjectLinkSameHeadRefreshesManifest(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	root := strings.Repeat("e", 40)
+	want := protocol.ProjectLinkID("https://github.com/terva-sh/lampi.git", root)
+
+	first := sampleManifest()
+	first.Project = protocol.Project{CWD: "/home/a/src/lampi", CWDHash: "aaaaaaaaaaaaaaaa"}
+	ack, err := c.Ingest(ctx, first, now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := c.ListSessions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 || before[0].ProjectID != "" || before[0].Manifest.Project.ProjectID != "" {
+		t.Fatalf("first post: %+v", before)
+	}
+
+	again := first
+	again.Project.GitRemote = "git@github.com:terva-sh/lampi.git"
+	again.Project.GitCommit = strings.Repeat("f", 40)
+	again.Project.GitRoot = root
+	again.Project.ProjectID = again.Project.CWDHash
+	second, err := c.Ingest(ctx, again, now.Add(time.Minute), []Decision{{
+		Relation: protocol.RelationUnchanged,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SessionUID != ack.SessionUID || second.HeadSHA256 != ack.HeadSHA256 || second.Relation != protocol.RelationUnchanged {
+		t.Fatalf("same-head ack: %+v then %+v", ack, second)
+	}
+
+	linked, err := c.SessionsByProject(ctx, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(linked) != 1 {
+		t.Fatalf("linked: %+v", linked)
+	}
+	row := linked[0]
+	if row.ProjectID != want || row.Manifest.Project.ProjectID != row.ProjectID {
+		t.Fatalf("column %s manifest %s", row.ProjectID, row.Manifest.Project.ProjectID)
+	}
+	if row.Manifest.Project.GitRoot != root || row.Manifest.Project.CWDHash != first.Project.CWDHash {
+		t.Fatalf("stored project: %+v", row.Manifest.Project)
+	}
+	if row.ProjectID == row.Manifest.Project.CWDHash {
+		t.Fatalf("project id is the cwd hash: %s", row.ProjectID)
+	}
+}
+
 func sampleManifest() protocol.Manifest {
 	sha := strings.Repeat("a", 64)
 	return protocol.Manifest{
