@@ -106,9 +106,14 @@ encryption at rest, the allowlist, and which machines run the agent.
 The examples keep a loopback placeholder and point operators at the
 policy for the VPS HTTPS URL. Restart the agent to reload config.
 
-`hooks/terva-post-tool-enqueue.sh` is an example nudge. It signals the
-pid file when that process is `terva-lampi`. A hook is not the source
-of truth. The directory walk is.
+`hooks/terva-post-tool-enqueue.sh` is a supported optional acceleration
+for terva `post_tool_use`. `make build` does not install it. On Unix
+it sends SIGUSR1 to the pid in `agent.pid` when that process is the
+`terva-lampi` executable. The signal asks for a sync now. The hook
+can run before the session file is flushed, and it exits 0 when it
+cannot signal. The directory watch is the source of truth while the
+agent is running. A down agent uploads on its next start. Wiring is
+in [deploy/README.md](../deploy/README.md).
 
 Dedup that **is** implemented is layer A and layer B. Layer A is
 `sha256` of the bytes: a second put of the same digest stores nothing.
@@ -213,7 +218,7 @@ internal/accept/          MVP acceptance gate, fixture terva JSONL
 docs/protocol.md
 docs/architecture.md
 docs/policy.md            Phase 0 host, retention, encryption, inventory
-hooks/                    example terva hook, not installed
+hooks/                    optional post_tool_use nudge, not installed
 deploy/                   example systemd and launchd units, alias installer
 ```
 
