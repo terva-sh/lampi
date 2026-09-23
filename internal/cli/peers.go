@@ -9,6 +9,7 @@ import (
 	"terva.sh/lampi/internal/adapter/claude"
 	"terva.sh/lampi/internal/adapter/codex"
 	"terva.sh/lampi/internal/adapter/cursor"
+	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/protocol"
@@ -17,19 +18,20 @@ import (
 
 // source is one harness home the agent can see. required is terva:
 // a missing directory is still watched, and Run reports it. Claude,
-// Codex, OpenCode, and the Cursor IDE are skipped when the directory
-// is not there.
+// Codex, OpenCode, the Cursor IDE, and the Cursor CLI are skipped
+// when the directory is not there.
 type source struct {
 	harness  adapter.Harness
 	home     string
 	required bool
 }
 
-// sources resolves terva, Claude Code, Codex, OpenCode, and the Cursor
-// IDE. terva's home is required. An optional harness whose default
-// cannot be named, because HOME is unset and the override is unset, is
-// left out. A set override is kept even when the directory does not
-// exist yet; Discover treats that as an empty tree.
+// sources resolves terva, Claude Code, Codex, OpenCode, the Cursor IDE,
+// and the Cursor CLI. terva's home is required. An optional harness
+// whose default cannot be named, because HOME is unset and the
+// override is unset, is left out. A set override is kept even when
+// the directory does not exist yet; Discover treats that as an empty
+// tree.
 func sources(getenv func(string) string) ([]source, error) {
 	list := []source{
 		{harness: terva.Adapter{}, required: true},
@@ -37,6 +39,7 @@ func sources(getenv func(string) string) ([]source, error) {
 		{harness: codex.Adapter{}, required: false},
 		{harness: opencode.Adapter{}, required: false},
 		{harness: cursor.Adapter{}, required: false},
+		{harness: cursorcli.Adapter{}, required: false},
 	}
 	var out []source
 	for _, s := range list {
@@ -91,6 +94,8 @@ func homeLabel(name string) string {
 		return "opencode_data_dir"
 	case protocol.HarnessCursor:
 		return "cursor_user_data"
+	case protocol.HarnessCursorCLI:
+		return "cursor_cli_config"
 	default:
 		return name + "_home"
 	}

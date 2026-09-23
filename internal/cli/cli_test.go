@@ -383,6 +383,70 @@ func TestAgentDiscoverCursor(t *testing.T) {
 	}
 }
 
+func TestAgentDiscoverCursorCLI(t *testing.T) {
+	xdg := t.TempDir()
+	session := filepath.Join(xdg, "cursor", "chats", "ab12", "sid-1")
+	if err := os.MkdirAll(session, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(session, "store.db"), []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(session, "store.db-wal"), []byte("wal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdg, "cursor", "auth.json"), []byte(`{"accessToken":"sekret"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ide := filepath.Join(xdg, "Cursor", "User", "globalStorage")
+	if err := os.MkdirAll(ide, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ide, "state.vscdb"), []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tervaHome := t.TempDir()
+	state := t.TempDir()
+	var out, errb bytes.Buffer
+	env := Env{
+		Stdout: &out,
+		Stderr: &errb,
+		Getenv: func(k string) string {
+			switch k {
+			case "TERVA_HOME":
+				return tervaHome
+			case "XDG_CONFIG_HOME":
+				return xdg
+			case "XDG_STATE_HOME":
+				return state
+			default:
+				return ""
+			}
+		},
+	}
+	if err := Run([]string{"agent", "discover"}, env); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "cursor-cli\tchats/ab12/sid-1/store.db") {
+		t.Fatalf("discover missing cli store: %s", text)
+	}
+	if !strings.Contains(text, "cursor\tUser/globalStorage/state.vscdb") {
+		t.Fatalf("discover missing ide database: %s", text)
+	}
+	if strings.Contains(text, "store.db-wal") || strings.Contains(text, "auth.json") {
+		t.Fatalf("sidecar or auth file was listed:\n%s", text)
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "cursor\t") && strings.Contains(line, "store.db") {
+			t.Fatalf("ide harness listed a cli store: %s", line)
+		}
+		if strings.HasPrefix(line, "cursor-cli\t") && strings.Contains(line, "state.vscdb") {
+			t.Fatalf("cli harness listed an ide database: %s", line)
+		}
+	}
+}
+
 func TestStatusHealth(t *testing.T) {
 	lake, err := api.Open(t.TempDir())
 	if err != nil {

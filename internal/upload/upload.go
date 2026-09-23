@@ -44,6 +44,7 @@ import (
 	"terva.sh/lampi/internal/adapter/claude"
 	"terva.sh/lampi/internal/adapter/codex"
 	"terva.sh/lampi/internal/adapter/cursor"
+	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
@@ -67,13 +68,16 @@ type Options struct {
 	// OpenCodeHome is the OpenCode data directory. Empty skips it.
 	OpenCodeHome string
 	// CursorHome is the Cursor IDE user-data directory. Empty skips it.
-	// The CLI store.db is not read.
 	CursorHome string
-	MachineID  string
-	StateDir   string
-	Client     *http.Client
-	Projects   config.Projects
-	UploadHits bool
+	// CursorCLIHome is the Cursor CLI config directory. Empty skips it.
+	// It is a different corpus from CursorHome. The two are not assumed
+	// to match, and they do not share watermarks.
+	CursorCLIHome string
+	MachineID     string
+	StateDir      string
+	Client        *http.Client
+	Projects      config.Projects
+	UploadHits    bool
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
 	// PieceBytes sends the body as Content-Range slices of this size.
@@ -118,7 +122,8 @@ func (e *Rejected) Error() string {
 }
 
 // Sync pushes allowlisted session files for terva and, when their homes
-// are set, Claude Code, Codex, OpenCode, and the Cursor IDE.
+// are set, Claude Code, Codex, OpenCode, the Cursor IDE, and the
+// Cursor CLI.
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
@@ -643,6 +648,12 @@ func bundlesFor(opt Options) ([]adapter.Bundle, error) {
 	}
 	if opt.CursorHome != "" {
 		b, err = cursor.Manifests(opt.CursorHome, opt.MachineID)
+		if err := add(b, err); err != nil {
+			return nil, err
+		}
+	}
+	if opt.CursorCLIHome != "" {
+		b, err = cursorcli.Manifests(opt.CursorCLIHome, opt.MachineID)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}

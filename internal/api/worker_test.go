@@ -210,7 +210,7 @@ func TestUnimplementedHarnessRecordsNormalizeError(t *testing.T) {
 	s.Allow("sekret")
 	h := s.Handler()
 	body := []byte("{}\n")
-	for _, harness := range []string{protocol.HarnessClaude, protocol.HarnessOpenCode, protocol.HarnessCursor} {
+	for _, harness := range []string{protocol.HarnessClaude, protocol.HarnessOpenCode, protocol.HarnessCursor, protocol.HarnessCursorCLI} {
 		sum := putBlob(t, h, "", body)
 		ack := postManifest(t, h, protocol.Manifest{
 			CaptureProtocol: protocol.Version,

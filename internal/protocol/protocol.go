@@ -80,6 +80,11 @@ const (
 	// transcript. A later export replaces the current artifact and
 	// moves the session head. The raw database is not this kind.
 	KindCursorStateJSON = "cursor_state_json"
+	// KindCursorCLIStoreJSON is a filtered export of one Cursor CLI
+	// store.db snapshot. It is a rewrite, and it moves the session
+	// head. It is not a cursor_state_json artifact. The raw database
+	// is not this kind.
+	KindCursorCLIStoreJSON = "cursor_cli_store_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
 	// meta line. Normalize workers project it. Claude, Codex, OpenCode,
@@ -101,6 +106,11 @@ const (
 	// opened. The Cursor CLI store is a different corpus and is not
 	// this harness. The projector is not implemented.
 	HarnessCursor = "cursor"
+	// HarnessCursorCLI is the Cursor CLI. The ingest path is a filtered
+	// JSON export of a store.db snapshot. It does not share sessions
+	// or watermarks with HarnessCursor, and it does not assume the
+	// CLI store matches IDE state. The projector is not implemented.
+	HarnessCursorCLI = "cursor-cli"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.

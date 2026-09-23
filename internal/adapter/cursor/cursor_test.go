@@ -120,6 +120,7 @@ func TestDiscoverSkipsSidecarsAndSecretsPath(t *testing.T) {
 	mustWrite(t, filepath.Join(ws, "state.vscdb"), "ws")
 	mustWrite(t, filepath.Join(ws, "state.vscdb-wal"), "wal")
 	mustWrite(t, filepath.Join(root, "User", "other", "state.vscdb"), "no")
+	mustWrite(t, filepath.Join(root, "chats", "ab12", "sid-1", "store.db"), "cli")
 
 	refs, err := Adapter{}.Discover(context.Background(), root)
 	if err != nil {
@@ -146,6 +147,7 @@ func TestDiscoverSkipsSidecarsAndSecretsPath(t *testing.T) {
 		"User/globalStorage/state.vscdb.backup",
 		"User/workspaceStorage/abc/state.vscdb-wal",
 		"User/other/state.vscdb",
+		"chats/ab12/sid-1/store.db",
 	} {
 		if got[rel] {
 			t.Fatalf("listed %s", rel)

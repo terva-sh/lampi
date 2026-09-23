@@ -63,9 +63,20 @@ Global storage and each workspaceStorage directory are separate. The
 upload is a JSON export. Keys under cursorAuth/ are not in it. The raw
 database and its -wal and -shm files are not uploaded. The global
 database has no single project, so the allowlist refuses it. A
-workspace takes its cwd from workspace.json. The Cursor CLI store.db
-is not read. A missing Claude, Codex, OpenCode, or Cursor directory
-is skipped. The watcher prefers fsnotify and falls back to polling.
+workspace takes its cwd from workspace.json. The Cursor CLI store
+is a separate corpus. On Linux the config directory is
+$XDG_CONFIG_HOME/cursor when that variable is set, otherwise
+~/.cursor. CURSOR_CONFIG_DIR replaces it. On macOS it is ~/.cursor.
+On Windows it is the .cursor directory under USERPROFILE. Each chat is
+chats/<workspace>/<session>/store.db. The upload is a JSON export
+of a snapshot. The IDE reader does not open it, and this reader
+does not open state.vscdb. Keys under cursorAuth/ and credential
+fields such as accessToken are not in the export. The raw database
+and its -wal and -shm files are not uploaded. A chat whose meta.json
+has an absolute cwd uses that path. Anything else has an empty cwd,
+so the allowlist refuses it. The workspace directory name is not a
+path. A missing Claude, Codex, OpenCode, or Cursor directory is
+skipped. The watcher prefers fsnotify and falls back to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
@@ -294,17 +305,18 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 		return upload.Options{}, nil, 0, err
 	}
 	return upload.Options{
-		ServerURL:    config.ServerURL(file, serverFlag),
-		Token:        token,
-		TervaHome:    homeOf(src, protocol.HarnessTerva),
-		ClaudeHome:   homeOf(src, protocol.HarnessClaude),
-		CodexHome:    homeOf(src, protocol.HarnessCodex),
-		OpenCodeHome: homeOf(src, protocol.HarnessOpenCode),
-		CursorHome:   homeOf(src, protocol.HarnessCursor),
-		MachineID:    m.MachineID,
-		StateDir:     state,
-		Projects:     file.Projects,
-		UploadHits:   file.Redaction.UploadHits,
+		ServerURL:     config.ServerURL(file, serverFlag),
+		Token:         token,
+		TervaHome:     homeOf(src, protocol.HarnessTerva),
+		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
+		CodexHome:     homeOf(src, protocol.HarnessCodex),
+		OpenCodeHome:  homeOf(src, protocol.HarnessOpenCode),
+		CursorHome:    homeOf(src, protocol.HarnessCursor),
+		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
+		MachineID:     m.MachineID,
+		StateDir:      state,
+		Projects:      file.Projects,
+		UploadHits:    file.Redaction.UploadHits,
 	}, src, n, nil
 }
 

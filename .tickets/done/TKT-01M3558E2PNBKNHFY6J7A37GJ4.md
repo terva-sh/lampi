@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558E2PNBKNHFY6J7A37GJ4
 title: Phase 4 Cursor (explicitly late)
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-23T21:10:56Z
+updated_at: 2026-09-23T21:58:40Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: agent:cursor/e85b
+  id: agent:cursor/ac2a
   name: Cursor cloud agent
 extensions: {}
 ---
@@ -37,9 +37,9 @@ Version-pinned SQLite snapshot readers for Cursor IDE and CLI. Never ingest curs
 
 ## Definition of done
 
-- [ ] All children of this epic are done, or wontfix with a rationale
-- [ ] TKT-01M3558E3ER1TS33KZB0AG7XX4 Version-pinned Cursor state.vscdb snapshot reader
-- [ ] TKT-01M3558E45YCTAZET208YAAQFV Cursor CLI store.db adapter (separate corpus)
+- [x] All children of this epic are done, or wontfix with a rationale
+- [x] TKT-01M3558E3ER1TS33KZB0AG7XX4 Version-pinned Cursor state.vscdb snapshot reader
+- [x] TKT-01M3558E45YCTAZET208YAAQFV Cursor CLI store.db adapter (separate corpus)
 
 ## Notes
 
@@ -52,3 +52,15 @@ TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid)
 **agent:cursor/e85b** at 2026-09-23T21:10:56Z
 
 TKT-01M3558E3ER1TS33KZB0AG7XX4 (Version-pinned Cursor state.vscdb snapshot reader) is done. TKT-01M3558E45YCTAZET208YAAQFV (Cursor CLI store.db adapter) stays ready and is not implemented. TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid) stays draft. Phase 5 (TKT-01M3558E4TN25NXXB0XP127RVK) stays draft with its children.
+
+**agent:cursor/ac2a** at 2026-09-23T21:58:40Z
+
+TKT-01M3558E45YCTAZET208YAAQFV (Cursor CLI store.db adapter) is done. The CLI harness is cursor-cli, separate from the IDE harness cursor. It does not read state.vscdb and does not assume the two stores match.
+
+TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid) stays draft. Phase 5 (TKT-01M3558E4TN25NXXB0XP127RVK) stays draft with its children.
+
+## Summary
+
+Phase 4 is done. The Cursor IDE state.vscdb reader and the Cursor CLI store.db reader are separate corpora. The CLI harness is cursor-cli. It does not assume the CLI store matches IDE state.
+
+TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid) stays draft. Phase 5 (TKT-01M3558E4TN25NXXB0XP127RVK) stays draft with its children.

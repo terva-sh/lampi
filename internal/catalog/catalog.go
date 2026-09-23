@@ -496,13 +496,13 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid stri
 
 // snapshotArtifact is a whole-file snapshot. A raati record is written
 // once. A task board is replaced, and that file holds the archived
-// generations. A Cursor state export is replaced the same way. A raati
-// or tasks rewrite becomes the current artifact for the path and does
-// not move the session head. A Cursor export is the session, so a
-// rewrite does.
+// generations. A Cursor IDE state export and a Cursor CLI store export
+// are replaced the same way. A raati or tasks rewrite becomes the
+// current artifact for the path and does not move the session head.
+// A Cursor IDE or CLI export is the session, so a rewrite does.
 func snapshotArtifact(kind string) bool {
 	switch kind {
-	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON:
+	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON:
 		return true
 	default:
 		return false
@@ -516,7 +516,7 @@ func snapshotDecision(kind string) (Decision, bool) {
 	return Decision{
 		Relation: protocol.RelationHead,
 		Record:   true,
-		Head:     kind == protocol.KindCursorStateJSON,
+		Head:     kind == protocol.KindCursorStateJSON || kind == protocol.KindCursorCLIStoreJSON,
 	}, true
 }
 

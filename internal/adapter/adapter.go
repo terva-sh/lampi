@@ -1,8 +1,10 @@
 // Package adapter is the seam between a harness on disk and the lake.
 //
-// terva, Claude Code, Codex CLI, OpenCode, and the Cursor IDE are the
-// implementations. The Cursor reader snapshots state.vscdb and uploads
-// a filtered export. The Cursor CLI store is still absent.
+// terva, Claude Code, Codex CLI, OpenCode, the Cursor IDE, and the
+// Cursor CLI are the implementations. The IDE reader snapshots
+// state.vscdb. The CLI reader snapshots store.db. They are separate
+// corpora and do not share a harness name. Both upload a filtered
+// export.
 package adapter
 
 import (
