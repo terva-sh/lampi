@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-23T21:58:29Z
+updated_at: 2026-09-23T22:00:05Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -66,4 +66,4 @@ The live database is not opened. The reader copies store.db and any store.db-wal
 
 agent discover, the watch, and sync use the harness. Normalize workers still implement terva only. A stored Cursor CLI manifest records normalize_error.
 
-go test ./... is green. Landed on cursor/cursor-cli-store-db-ac2a.
+go test ./... is green. Landed on cursor/cursor-cli-store-db-ac2a as https://github.com/terva-sh/lampi/pull/26.
