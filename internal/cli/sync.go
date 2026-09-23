@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"terva.sh/lampi/internal/config"
-	"terva.sh/lampi/internal/discover"
+	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/upload"
 )
 
@@ -19,9 +19,12 @@ const syncUsage = `terva-lampi sync — push new bytes once
 usage:
   terva-lampi sync [--server URL] [--token-file PATH]
 
-Walks $TERVA_HOME/sessions. A project is uploaded only when config.json
-allowlists it, by cwd prefix, git remote, or terva cwd hash. Anything
-else is refused. Deny rules win. An empty allow list refuses everything.
+Walks terva sessions, Claude Code projects/**/*.jsonl, and Codex
+rollout-*.jsonl. history.jsonl is not a Codex rollout. A project is
+uploaded only when config.json allowlists it, by cwd prefix, git remote,
+or cwd hash. Anything else is refused. Deny rules win. An empty allow
+list refuses everything. Claude Code uses $CLAUDE_CONFIG_DIR, or
+~/.claude when that is unset. Codex uses $CODEX_HOME, or ~/.codex.
 
 Ruleset v1 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
@@ -64,7 +67,7 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	home, err := discover.TervaHome(env.getenv)
+	src, err := sources(env.getenv)
 	if err != nil {
 		return err
 	}
@@ -81,7 +84,9 @@ func runSync(env Env, args []string) error {
 	res, err := upload.Sync(ctx, upload.Options{
 		ServerURL:  config.ServerURL(file, serverFlag),
 		Token:      token,
-		TervaHome:  home,
+		TervaHome:  homeOf(src, protocol.HarnessTerva),
+		ClaudeHome: homeOf(src, protocol.HarnessClaude),
+		CodexHome:  homeOf(src, protocol.HarnessCodex),
 		MachineID:  m.MachineID,
 		StateDir:   state,
 		Projects:   file.Projects,

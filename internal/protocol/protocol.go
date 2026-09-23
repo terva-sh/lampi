@@ -70,8 +70,15 @@ const (
 	// KindErrorsJSONL is a terva error sidecar sitting next to a transcript.
 	KindErrorsJSONL = "errors_jsonl"
 
-	// HarnessTerva is the only producer this scaffold knows how to read.
+	// HarnessTerva is the reference producer. Its JSONL has a versioned
+	// meta line and is the one the synchronous normalizer projects.
 	HarnessTerva = "terva"
+	// HarnessClaude is Claude Code. The on-disk record shape is internal
+	// to the adapter; harness_version is that adapter's pinned reader.
+	HarnessClaude = "claude"
+	// HarnessCodex is the Codex CLI. Rollouts are session JSONL. The
+	// prompt history file is not a session.
+	HarnessCodex = "codex"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.

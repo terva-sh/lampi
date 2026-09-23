@@ -1014,6 +1014,88 @@ func TestSyncAssemblesChunkDigests(t *testing.T) {
 	}
 }
 
+func TestSyncClaudeAndCodex(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	tervaHome := t.TempDir()
+	claudeHome := t.TempDir()
+	codexHome := t.TempDir()
+	claudeBody := []byte("{\"type\":\"user\",\"sessionId\":\"sid-1\",\"cwd\":\"/work/app\",\"future_field\":{\"n\":1}}\n")
+	claudePath := filepath.Join(claudeHome, "projects", "-work-app", "sid-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(claudePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claudePath, claudeBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	day := filepath.Join(codexHome, "sessions", "2026", "09", "23")
+	if err := os.MkdirAll(day, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	codexBody := []byte("{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread-1\",\"cwd\":\"/work/app\",\"future\":true}}\n")
+	if err := os.WriteFile(filepath.Join(day, "rollout-2026-09-23T12-00-00-thread-1.jsonl"), codexBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	history := []byte("{\"type\":\"session_meta\",\"payload\":{\"id\":\"hist\",\"cwd\":\"/work/app\"}}\n")
+	if err := os.WriteFile(filepath.Join(day, "history.jsonl"), history, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "history.jsonl"), history, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := allowAll(srv, tervaHome, t.TempDir(), "/work/app")
+	opt.Client = cap.client
+	opt.ClaudeHome = claudeHome
+	opt.CodexHome = codexHome
+	res, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Uploaded != 2 || res.Manifests != 2 || res.Refused != 0 {
+		t.Fatalf("sync %+v", res)
+	}
+	saw := map[string]string{}
+	for _, m := range cap.manifests {
+		saw[m.Harness] = m.HarnessVersion
+		if m.NativeSessionID == "hist" {
+			t.Fatal("history.jsonl was ingested as a rollout")
+		}
+	}
+	if saw[protocol.HarnessClaude] != "1" || saw[protocol.HarnessCodex] != "1" {
+		t.Fatalf("harness versions %v", saw)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 2 {
+		t.Fatal("expected one blob per harness file")
+	}
+	uid, arts, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessClaude, "sid-1")
+	if err != nil || !ok || uid == "" || len(arts) != 1 {
+		t.Fatalf("claude catalog ok=%v err=%v arts=%d", ok, err, len(arts))
+	}
+	raw, err := lake.CAS.Read(arts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"future_field"`)) {
+		t.Fatalf("stored bytes dropped an unknown field: %s", raw)
+	}
+	if _, _, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessCodex, "hist"); err != nil || ok {
+		t.Fatalf("history session ok=%v err=%v", ok, err)
+	}
+
+	cap.reset()
+	again, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Uploaded != 0 || again.Missing != 0 || cap.puts != 0 {
+		t.Fatalf("re-sync %+v puts=%d", again, cap.puts)
+	}
+}
+
 func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Body != nil && (req.URL.Path == "/v1/manifests" || req.Method == http.MethodPut) {
 		b, err := io.ReadAll(req.Body)

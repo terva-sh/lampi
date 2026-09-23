@@ -21,7 +21,9 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
-| Watch | `internal/watch` | fsnotify, poll fallback, append offset |
+| Claude Code | `internal/adapter/claude` | `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`. Unset is `~/.claude`. Reader version pinned. Unknown keys kept |
+| Codex CLI | `internal/adapter/codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl`. Unset is `~/.codex`. `history.jsonl` is not a rollout |
+| Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
 | Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
@@ -59,7 +61,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/adapter` | Claude Code, Codex, OpenCode. Cursor is intentionally last and is not started |
+| `internal/adapter` | OpenCode. Cursor is intentionally last and is not started. Claude Code and Codex are discovered and uploaded; the synchronous projector still implements terva only |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -98,6 +100,8 @@ object.
 
 ```text
 $TERVA_HOME/sessions/**/*.jsonl
+$CLAUDE_CONFIG_DIR/projects/**/*.jsonl
+$CODEX_HOME/sessions/**/rollout-*.jsonl
         |
         v
 allowlist (default deny) → ruleset v1 → quarantine on a hit
@@ -112,9 +116,14 @@ watermark commit and outbox ACK          terva-lampi serve
                                          terva-lampi export → JSONL
 ```
 
-Other harnesses are adapters behind the same manifest. terva is the only
-one wired up, because its JSONL layout is owned and versioned
-(`format_version`). Path-based `cwd_hash` is copied from terva and is not
+Other harnesses are adapters behind the same manifest. terva, Claude
+Code, and Codex CLI are wired for discovery, watch, and upload. The
+Claude and Codex record shapes are internal to those packages. Each
+pins a reader version on `harness_version` and keeps keys it does not
+interpret. The synchronous projector still implements terva only. A
+Claude or Codex manifest is stored, and `normalize_error` records that
+the projector for that harness is not implemented. Async workers are
+later work. Path-based `cwd_hash` is copied from terva and is not
 treated as a global project id. The same git repo at two absolute paths
 hashes differently. Linking those by git remote is later work.
 
@@ -152,6 +161,8 @@ internal/config/          machine id and client config
 internal/discover/        terva session walk
 internal/adapter/         harness interface
 internal/adapter/terva/   meta line, manifests
+internal/adapter/claude/  Claude Code projects/**/*.jsonl
+internal/adapter/codex/   Codex rollout-*.jsonl, not history.jsonl
 internal/upload/          one-shot push
 internal/watch/           fsnotify, poll fallback
 internal/redact/          ruleset v1 and quarantine.jsonl

@@ -40,6 +40,9 @@ import (
 	"sync"
 	"time"
 
+	"terva.sh/lampi/internal/adapter"
+	"terva.sh/lampi/internal/adapter/claude"
+	"terva.sh/lampi/internal/adapter/codex"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/outbox"
@@ -52,9 +55,13 @@ import (
 // Projects zero value denies every project. UploadHits is the explicit
 // override that sends bytes ruleset v1 flagged.
 type Options struct {
-	ServerURL  string
-	Token      string
-	TervaHome  string
+	ServerURL string
+	Token     string
+	TervaHome string
+	// ClaudeHome is the Claude Code config directory. Empty skips it.
+	ClaudeHome string
+	// CodexHome is the Codex CLI state directory. Empty skips it.
+	CodexHome  string
 	MachineID  string
 	StateDir   string
 	Client     *http.Client
@@ -103,7 +110,8 @@ func (e *Rejected) Error() string {
 	return b.String()
 }
 
-// Sync pushes allowlisted terva session files under opt.TervaHome.
+// Sync pushes allowlisted session files for terva and, when their homes
+// are set, Claude Code and Codex.
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
@@ -111,11 +119,15 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.MachineID == "" {
 		return Result{}, fmt.Errorf("upload: machine_id is empty")
 	}
-	bundle, err := terva.Manifests(opt.TervaHome, opt.MachineID)
+	bundles, err := bundlesFor(opt)
 	if err != nil {
 		return Result{}, err
 	}
-	if len(bundle.Manifests) == 0 {
+	n := 0
+	for _, b := range bundles {
+		n += len(b.Manifests)
+	}
+	if n == 0 {
 		return finish(opt, Result{}, nil)
 	}
 	if opt.StateDir == "" {
@@ -133,7 +145,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	}
 	defer wm.Close()
 
-	work, res, err := prepare(ctx, opt, wm, q, bundle)
+	work, res, err := prepare(ctx, opt, wm, q, bundles)
 	var rejected error
 	if r, ok := err.(*Rejected); ok {
 		rejected = r
@@ -208,7 +220,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		}
 		res.Manifests++
 		res.Sessions = append(res.Sessions, ack.SessionUID)
-		if err := commitAck(ctx, opt, wm, q, w.manifest, ack); err != nil {
+		if err := commitAck(ctx, opt, wm, q, w.root, w.manifest, ack); err != nil {
 			return res, err
 		}
 	}
@@ -586,7 +598,31 @@ func requireScanned(m protocol.Manifest) error {
 	return nil
 }
 
-func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, m protocol.Manifest, ack protocol.ManifestAck) error {
+func bundlesFor(opt Options) ([]adapter.Bundle, error) {
+	var out []adapter.Bundle
+	b, err := terva.Manifests(opt.TervaHome, opt.MachineID)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, b)
+	if opt.ClaudeHome != "" {
+		b, err = claude.Manifests(opt.ClaudeHome, opt.MachineID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	if opt.CodexHome != "" {
+		b, err = codex.Manifests(opt.CodexHome, opt.MachineID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
+func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, root string, m protocol.Manifest, ack protocol.ManifestAck) error {
 	for _, a := range m.Artifacts {
 		size := a.Size
 		sum := a.SHA256
@@ -604,8 +640,8 @@ func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB,
 		}
 		mark := watermark.Mark{
 			MachineID: opt.MachineID,
-			Harness:   protocol.HarnessTerva,
-			Root:      opt.TervaHome,
+			Harness:   m.Harness,
+			Root:      root,
 			RelPath:   a.RelPath,
 			Size:      size,
 			ModTime:   a.MTime,
@@ -615,11 +651,11 @@ func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB,
 		if err := wm.Commit(ctx, mark, ack); err != nil {
 			return err
 		}
-		if err := q.Ack(ctx, outbox.Item{Identity: blobIdentity(opt.MachineID, opt.TervaHome, a.RelPath)}); err != nil {
+		if err := q.Ack(ctx, outbox.Item{Identity: blobIdentity(opt.MachineID, root, a.RelPath)}); err != nil {
 			return err
 		}
 	}
-	return q.Ack(ctx, outbox.Item{Identity: manifestIdentity(opt.MachineID, m.NativeSessionID)})
+	return q.Ack(ctx, outbox.Item{Identity: manifestIdentity(opt.MachineID, m.Harness, m.NativeSessionID)})
 }
 
 var (

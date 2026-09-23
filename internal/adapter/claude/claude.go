@@ -1,0 +1,207 @@
+// Package claude is the Claude Code harness adapter.
+//
+// Session files live at $CLAUDE_CONFIG_DIR/projects/**/*.jsonl. When
+// CLAUDE_CONFIG_DIR is unset, the directory is ~/.claude, which is the
+// default Claude Code documents (on Windows, %USERPROFILE%\.claude).
+// The resolution order matches terva: the environment variable, then
+// that default. There is no XDG fallback.
+//
+// The JSON object on each line is internal. Version is the pinned
+// reader. Keys that reader does not interpret stay on Record.Extra.
+// Sync uploads the file bytes; it does not rewrite them.
+package claude
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+
+	"terva.sh/lampi/internal/adapter"
+	"terva.sh/lampi/internal/protocol"
+)
+
+// errNotObject is a line that is not a JSON object. A torn tail is
+// common in a file that is still being appended. The walk skips it.
+var errNotObject = errors.New("claude: line is not a JSON object")
+
+// Adapter implements adapter.Harness for Claude Code session JSONL.
+type Adapter struct{}
+
+var _ adapter.Harness = Adapter{}
+
+// Name is the harness string written into manifests.
+func (Adapter) Name() string { return protocol.HarnessClaude }
+
+// Home resolves the Claude Code config directory.
+func (Adapter) Home(getenv func(string) string) (string, error) {
+	return Home(getenv)
+}
+
+// Home resolves the Claude Code config directory. CLAUDE_CONFIG_DIR
+// wins. Otherwise the directory is ~/.claude.
+func Home(getenv func(string) string) (string, error) {
+	if v := getenv("CLAUDE_CONFIG_DIR"); v != "" {
+		return v, nil
+	}
+	home, err := adapter.HomeDir(getenv)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude"), nil
+}
+
+// WatchDir is the directory under the config dir that holds JSONL.
+func (Adapter) WatchDir() string { return "projects" }
+
+// Match reports whether rel, slash-separated from the config dir, is a
+// session file under projects/. Dotfiles are skipped. The glob is
+// projects/**/*.jsonl.
+func (Adapter) Match(rel string) (string, bool) {
+	rel = path.Clean(rel)
+	if rel == "." || !strings.HasPrefix(rel, "projects/") {
+		return "", false
+	}
+	name := path.Base(rel)
+	if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".jsonl") {
+		return "", false
+	}
+	return protocol.KindTranscriptJSONL, true
+}
+
+// Discover lists projects/**/*.jsonl. A missing projects directory is
+// an empty list.
+func (a Adapter) Discover(ctx context.Context, root string) ([]adapter.Ref, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return adapter.Walk(root, a.WatchDir(), a.Match)
+}
+
+// ReadSlice opens absPath at offset. Offset 0 reads the whole file.
+func (Adapter) ReadSlice(ctx context.Context, absPath string, offset int64) (io.ReadCloser, error) {
+	return adapter.OpenSlice(ctx, absPath, offset)
+}
+
+// Manifests implements adapter.Harness.
+func (Adapter) Manifests(root, machineID string) (adapter.Bundle, error) {
+	return Manifests(root, machineID)
+}
+
+type item struct {
+	ref     adapter.Ref
+	sum     string
+	session string
+	cwd     string
+}
+
+// Manifests builds one manifest per Claude session id. Files that do
+// not carry a session id of their own use the relative path, so two
+// unrelated transcripts are not merged. harness_version is Version.
+// Redaction is left empty. The upload path scans the file.
+func Manifests(root, machineID string) (adapter.Bundle, error) {
+	refs, err := Adapter{}.Discover(context.Background(), root)
+	if err != nil {
+		return adapter.Bundle{}, err
+	}
+	items := make([]item, 0, len(refs))
+	for _, ref := range refs {
+		session, cwd, err := readIdentity(ref.AbsPath)
+		if err != nil {
+			return adapter.Bundle{}, fmt.Errorf("claude: %s: %w", ref.RelPath, err)
+		}
+		if session == "" {
+			session = strings.TrimSuffix(ref.RelPath, ".jsonl")
+		}
+		sum, err := adapter.HashFile(ref.AbsPath)
+		if err != nil {
+			return adapter.Bundle{}, err
+		}
+		items = append(items, item{ref: ref, sum: sum, session: session, cwd: cwd})
+	}
+
+	order := make([]string, 0)
+	groups := map[string][]item{}
+	for _, it := range items {
+		if _, ok := groups[it.session]; !ok {
+			order = append(order, it.session)
+		}
+		groups[it.session] = append(groups[it.session], it)
+	}
+
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}}
+	for _, id := range order {
+		group := groups[id]
+		var cwd string
+		arts := make([]protocol.Artifact, 0, len(group))
+		for _, it := range group {
+			if cwd == "" {
+				cwd = it.cwd
+			}
+			b.Paths[it.sum] = it.ref.AbsPath
+			arts = append(arts, protocol.Artifact{
+				Kind:              it.ref.Kind,
+				RelPath:           it.ref.RelPath,
+				Size:              it.ref.Size,
+				MTime:             it.ref.ModTime.UTC(),
+				SHA256:            it.sum,
+				ByteWatermarkPrev: 0,
+				TailSHA256:        it.sum,
+			})
+		}
+		remote, commit := adapter.ProjectGit(cwd)
+		b.Manifests = append(b.Manifests, protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       machineID,
+			Harness:         protocol.HarnessClaude,
+			HarnessVersion:  Version,
+			NativeSessionID: id,
+			Project: protocol.Project{
+				CWD:       cwd,
+				CWDHash:   adapter.CWDHash(cwd),
+				GitRemote: remote,
+				GitCommit: commit,
+			},
+			Artifacts: arts,
+		})
+	}
+	return b, nil
+}
+
+// readIdentity scans until it has seen a session id and a cwd, or the
+// file ends. A line that is not a JSON object is skipped. parentUuid is
+// a message pointer in this reader, not a parent session, so it stays
+// in Extra and is not copied onto lineage.
+func readIdentity(path string) (sessionID, cwd string, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
+	for sc.Scan() {
+		rec, err := ParseLine(sc.Bytes())
+		if err != nil {
+			continue
+		}
+		if sessionID == "" {
+			sessionID = rec.SessionID
+		}
+		if cwd == "" {
+			cwd = rec.CWD
+		}
+		if sessionID != "" && cwd != "" {
+			break
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", "", err
+	}
+	return sessionID, cwd, nil
+}

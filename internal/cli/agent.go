@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/config"
-	"terva.sh/lampi/internal/discover"
+	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/upload"
 	"terva.sh/lampi/internal/watch"
 )
@@ -36,14 +36,19 @@ const agentUsage = `terva-lampi agent — local capture
 
 usage:
   terva-lampi agent [--server URL] [--token-file PATH]
-                                 watch $TERVA_HOME/sessions and upload until signalled
-  terva-lampi agent discover     list $TERVA_HOME/sessions JSONL files
+                                 watch session JSONL and upload until signalled
+  terva-lampi agent discover     list session JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
   terva-lampi agent config       print paths and the effective server URL
   terva-lampi agent status       local identity, outbox, watermarks, and last sync
 
-Sessions are read from TERVA_HOME, then ZOT_HOME, then the platform default
-terva uses. The watcher prefers fsnotify and falls back to polling.
+terva sessions are read from TERVA_HOME, then ZOT_HOME, then the platform
+default terva uses. Claude Code sessions are $CLAUDE_CONFIG_DIR/projects/**/*.jsonl,
+or ~/.claude/projects when that variable is unset. Codex rollouts are
+$CODEX_HOME/sessions/**/rollout-*.jsonl, or ~/.codex/sessions when that
+variable is unset. history.jsonl is not a Codex rollout. A missing Claude
+or Codex directory is skipped. The watcher prefers fsnotify and falls
+back to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
@@ -117,7 +122,7 @@ func runAgentDaemon(env Env, args []string) error {
 // serverFlag and tokenFlag are the command-line overrides. Empty
 // falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json.
 func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
-	opt, n, err := loadAgent(env, serverFlag, tokenFlag)
+	opt, src, n, err := loadAgent(env, serverFlag, tokenFlag)
 	if err != nil {
 		return err
 	}
@@ -133,7 +138,9 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	env.Stderr = &syncWriter{mu: &mu, w: env.stderr()}
 
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", opt.MachineID)
-	fmt.Fprintf(env.stdout(), "terva_home: %s\n", opt.TervaHome)
+	for _, s := range src {
+		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
+	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
 
@@ -145,23 +152,24 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		}
 	}
 	watchKick(ctx, wake)
-	w := &watch.Watcher{
-		Root: opt.TervaHome,
-		OnChange: func(c watch.Change) {
-			fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
-			wake()
-		},
-	}
+	watchers := startWatches(src, func(c watch.Change) {
+		fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
+		wake()
+	})
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	defer watchCancel()
-	watchErr := make(chan error, 1)
-	go func() { watchErr <- w.Run(watchCtx) }()
+	watchErr := make(chan error, len(watchers))
+	for _, w := range watchers {
+		go func(w *watch.Watcher) { watchErr <- w.Run(watchCtx) }(w)
+	}
 	// watchErr is read in exactly one place per shutdown. WaitReady
 	// does not read it: a failed Run never closes the ready channel,
 	// and a nil return from Run is a clean stop, not a second result.
 	go func() {
-		if err := w.WaitReady(watchCtx); err != nil {
-			return
+		for _, w := range watchers {
+			if err := w.WaitReady(watchCtx); err != nil {
+				return
+			}
 		}
 		fmt.Fprintln(env.stdout(), "watching")
 		// Files already on disk are not a watch event. One sync at
@@ -196,10 +204,14 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		case <-ctx.Done():
 			disarmRetry()
 			watchCancel()
-			<-watchErr
+			_ = waitWatches(watchErr, len(watchers))
 			return drainAgent(env, opt)
 		case err := <-watchErr:
 			disarmRetry()
+			watchCancel()
+			if rest := waitWatches(watchErr, len(watchers)-1); err == nil {
+				err = rest
+			}
 			drainAgent(env, opt)
 			if ctx.Err() != nil {
 				return nil
@@ -215,7 +227,7 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			if ctx.Err() != nil {
 				disarmRetry()
 				watchCancel()
-				<-watchErr
+				_ = waitWatches(watchErr, len(watchers))
 				return drainAgent(env, opt)
 			}
 			if err != nil {
@@ -234,10 +246,10 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	}
 }
 
-func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, int, error) {
+func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source, int, error) {
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
-		return upload.Options{}, 0, err
+		return upload.Options{}, nil, 0, err
 	}
 	if serverFlag == "" {
 		serverFlag = env.getenv("LAMPI_SERVER")
@@ -247,29 +259,70 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, int, erro
 	}
 	token, err := resolveToken(env, tokenFlag, file)
 	if err != nil {
-		return upload.Options{}, 0, err
+		return upload.Options{}, nil, 0, err
 	}
-	home, files, err := sessionFiles(env)
+	src, n, err := countSources(env)
 	if err != nil {
-		return upload.Options{}, 0, err
+		return upload.Options{}, nil, 0, err
 	}
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
-		return upload.Options{}, 0, err
+		return upload.Options{}, nil, 0, err
 	}
 	m, err := config.EnsureMachine(env.getenv)
 	if err != nil {
-		return upload.Options{}, 0, err
+		return upload.Options{}, nil, 0, err
 	}
 	return upload.Options{
 		ServerURL:  config.ServerURL(file, serverFlag),
 		Token:      token,
-		TervaHome:  home,
+		TervaHome:  homeOf(src, protocol.HarnessTerva),
+		ClaudeHome: homeOf(src, protocol.HarnessClaude),
+		CodexHome:  homeOf(src, protocol.HarnessCodex),
 		MachineID:  m.MachineID,
 		StateDir:   state,
 		Projects:   file.Projects,
 		UploadHits: file.Redaction.UploadHits,
-	}, len(files), nil
+	}, src, n, nil
+}
+
+func countSources(env Env) ([]source, int, error) {
+	src, err := sources(env.getenv)
+	if err != nil {
+		return nil, 0, err
+	}
+	files, err := discoverSources(context.Background(), src)
+	if err != nil {
+		return nil, 0, err
+	}
+	return src, len(files), nil
+}
+
+func startWatches(src []source, on func(watch.Change)) []*watch.Watcher {
+	var out []*watch.Watcher
+	for _, s := range src {
+		if !s.watch() {
+			continue
+		}
+		out = append(out, &watch.Watcher{
+			Root:     s.home,
+			Layout:   s.layout(),
+			OnChange: on,
+		})
+	}
+	return out
+}
+
+// waitWatches reads n results. The caller has already cancelled the
+// watch context. A nil slice of watchers reads nothing.
+func waitWatches(watchErr <-chan error, n int) error {
+	var first error
+	for i := 0; i < n; i++ {
+		if err := <-watchErr; err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string) error {
@@ -304,15 +357,19 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 }
 
 func runAgentDiscover(env Env) error {
-	home, files, err := sessionFiles(env)
+	src, err := sources(env.getenv)
+	if err != nil {
+		return err
+	}
+	files, err := discoverSources(context.Background(), src)
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
-		fmt.Fprintln(env.stdout(), f.RelPath)
+		fmt.Fprintf(env.stdout(), "%s\t%s\n", f.harness, f.ref.RelPath)
 	}
 	if len(files) == 0 {
-		fmt.Fprintf(env.stderr(), "terva-lampi: no session files under %s\n", home)
+		fmt.Fprintf(env.stderr(), "terva-lampi: no session files\n")
 	}
 	return nil
 }
@@ -337,7 +394,7 @@ func runAgentConfig(env Env) error {
 	if file.TokenFile != "" {
 		tokenPath = file.TokenFile
 	}
-	home, err := discover.TervaHome(env.getenv)
+	src, err := sources(env.getenv)
 	if err != nil {
 		return err
 	}
@@ -353,7 +410,9 @@ func runAgentConfig(env Env) error {
 	fmt.Fprintf(env.stdout(), "state_dir: %s\n", state)
 	fmt.Fprintf(env.stdout(), "server: %s\n", config.ServerURL(file, ""))
 	fmt.Fprintf(env.stdout(), "token_file: %s\n", tokenPath)
-	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
+	for _, s := range src {
+		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
+	}
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", machine)
 	fmt.Fprintf(env.stdout(), "projects_allow: %d\n", len(file.Projects.Allow))
 	fmt.Fprintf(env.stdout(), "projects_deny: %d\n", len(file.Projects.Deny))
@@ -366,7 +425,7 @@ func runAgentStatus(env Env) error {
 	if err != nil {
 		return err
 	}
-	home, files, err := sessionFiles(env)
+	src, n, err := countSources(env)
 	if err != nil {
 		return err
 	}
@@ -379,8 +438,10 @@ func runAgentStatus(env Env) error {
 		id = "(not created)"
 	}
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", id)
-	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
-	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
+	for _, s := range src {
+		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
+	}
+	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
 	return writeCaptureState(env.stdout(), state)
 }
@@ -397,16 +458,4 @@ func writeAgentPID(stateDir string) (func(), error) {
 		return nil, fmt.Errorf("agent: pid file: %w", err)
 	}
 	return func() { _ = os.Remove(path) }, nil
-}
-
-func sessionFiles(env Env) (string, []discover.File, error) {
-	home, err := discover.TervaHome(env.getenv)
-	if err != nil {
-		return "", nil, err
-	}
-	files, err := discover.Sessions(home)
-	if err != nil {
-		return "", nil, err
-	}
-	return home, files, nil
 }

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/config"
-	"terva.sh/lampi/internal/discover"
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/upload"
@@ -61,11 +60,7 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	home, err := discover.TervaHome(env.getenv)
-	if err != nil {
-		return err
-	}
-	files, err := discover.Sessions(home)
+	src, n, err := countSources(env)
 	if err != nil {
 		return err
 	}
@@ -86,8 +81,10 @@ func runStatus(env Env, args []string) error {
 	if m.Hostname != "" {
 		fmt.Fprintf(env.stdout(), "hostname: %s\n", m.Hostname)
 	}
-	fmt.Fprintf(env.stdout(), "terva_home: %s\n", home)
-	fmt.Fprintf(env.stdout(), "sessions: %d\n", len(files))
+	for _, s := range src {
+		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
+	}
+	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	if err := writeCaptureState(env.stdout(), state); err != nil {
 		return err
 	}
