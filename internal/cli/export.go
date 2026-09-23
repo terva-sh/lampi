@@ -35,8 +35,9 @@ included only when config.json allowlists its manifest project.
 Default deny. Deny wins. A session that is not permitted is named on
 stderr and omitted. Each row carries raw_sha256, the current
 transcript blob. encrypted_content is copied onto the turn as stored
-and is not written into the turn value. The CAS is not rewritten.
-Secret stripping is not this format.
+and is not written into the turn value. Ruleset v1 strips matches
+from the plaintext training fields (value, tool name, and call id).
+The CAS and the normalized events are not rewritten.
 
 DuckDB, events:
   SELECT content_text FROM read_ndjson('events.jsonl')

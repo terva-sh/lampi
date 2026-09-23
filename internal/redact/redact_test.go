@@ -120,6 +120,86 @@ func TestQuarantineOmitsSecret(t *testing.T) {
 	}
 }
 
+func TestStripReplacesMatchesAndKeepsRuleName(t *testing.T) {
+	aws := "AKIAIOSFODNN7EXAMPLE"
+	github := "ghp_" + strings.Repeat("a", 36)
+	gitlab := "glpat-" + strings.Repeat("b", 20)
+	slack := "xoxb-1234567890-abcdefghij"
+	openai := "sk-" + strings.Repeat("c", 20)
+	google := "AIza" + strings.Repeat("d", 35)
+	stripe := "sk_live_" + strings.Repeat("e", 16)
+	npm := "npm_" + strings.Repeat("f", 36)
+	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"
+	awsSecret := "aws_secret_access_key = " + strings.Repeat("A", 40)
+
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"aws access key", "key " + aws + " leaked", "key [redacted:aws-access-key-id] leaked"},
+		{"github pat", github, "[redacted:github-pat]"},
+		{"gitlab pat", gitlab, "[redacted:gitlab-pat]"},
+		{"slack token", slack, "[redacted:slack-token]"},
+		{"openai key", openai, "[redacted:openai-key]"},
+		{"google api key", google, "[redacted:google-api-key]"},
+		{"stripe key", stripe, "[redacted:stripe-key]"},
+		{"npm token", npm, "[redacted:npm-token]"},
+		{"private key header", pem, "[redacted:private-key]\nMIIB\n-----END RSA PRIVATE KEY-----"},
+		{"aws secret", awsSecret, "[redacted:aws-secret-access-key]"},
+		{"two of one rule", aws + " and " + aws, "[redacted:aws-access-key-id] and [redacted:aws-access-key-id]"},
+		{"two rules", aws + " " + github, "[redacted:aws-access-key-id] [redacted:github-pat]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (Ruleset{}).Strip(tc.body)
+			if got != tc.want {
+				t.Fatalf("strip:\n got %q\nwant %q", got, tc.want)
+			}
+			if strings.Contains(got, aws) || strings.Contains(got, github) || strings.Contains(got, gitlab) || strings.Contains(got, slack) {
+				t.Fatalf("placeholder leaked a secret: %q", got)
+			}
+			again := (Ruleset{}).Strip(got)
+			if again != got {
+				t.Fatalf("strip is not stable: %q", again)
+			}
+		})
+	}
+}
+
+func TestStripLeavesCleanTextAndDoesNotRewriteScan(t *testing.T) {
+	clean := "hello from the pond"
+	if got := (Ruleset{}).Strip(clean); got != clean {
+		t.Fatalf("clean text changed: %q", got)
+	}
+	if got := (Ruleset{}).Strip(""); got != "" {
+		t.Fatalf("empty: %q", got)
+	}
+	secret := "AKIAIOSFODNN7EXAMPLE"
+	buf := []byte("prefix " + secret + " suffix")
+	before := string(buf)
+	scanned, err := (Ruleset{}).Scan(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != before {
+		t.Fatal("scan rewrote the buffer")
+	}
+	if scanned.Hits != 1 || !contains(scanned.Rules, "aws-access-key-id") {
+		t.Fatalf("scan: %+v", scanned)
+	}
+	for _, miss := range []string{
+		"AKIA_SHORT",
+		"ghp_tooshort",
+		"-----BEGIN PUBLIC KEY-----",
+		"password",
+	} {
+		if got := (Ruleset{}).Strip(miss); got != miss {
+			t.Fatalf("%q became %q", miss, got)
+		}
+	}
+}
+
 func contains(ss []string, want string) bool {
 	for _, s := range ss {
 		if s == want {

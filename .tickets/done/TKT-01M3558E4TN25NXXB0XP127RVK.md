@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558E4TN25NXXB0XP127RVK
 title: Phase 5 training export
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-23T22:43:46Z
+updated_at: 2026-09-23T23:20:40Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: agent:cursor/a72e
+  id: agent:cursor/3355
   name: Cursor cloud agent
 extensions: {}
 ---
@@ -37,9 +37,9 @@ Allowlisted ShareGPT/trajectory export with raw_sha256 lineage; secret strip on 
 
 ## Definition of done
 
-- [ ] All children of this epic are done
+- [x] All children of this epic are done
 - [x] TKT-01M3558E5QS1JN6B7HDATCCC2C Allowlisted trajectory / ShareGPT export
-- [ ] TKT-01M3558E6GGK5KX8766957WTQR Strip secrets in training view (normalized only)
+- [x] TKT-01M3558E6GGK5KX8766957WTQR Strip secrets in training view (normalized only)
 
 ## Notes
 
@@ -54,3 +54,15 @@ TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid)
 **agent:cursor/a72e** at 2026-09-23T22:43:46Z
 
 TKT-01M3558E5QS1JN6B7HDATCCC2C (Allowlisted trajectory / ShareGPT export) is done. TKT-01M3558E6GGK5KX8766957WTQR (Strip secrets in training view (normalized only)) is not done. The epic stays open until that child lands.
+
+**agent:cursor/3355** at 2026-09-23T23:20:26Z
+
+TKT-01M3558E6GGK5KX8766957WTQR (Strip secrets in training view (normalized only)) is done. Both children of this epic are done.
+
+TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid) stays draft.
+
+## Summary
+
+Phase 5 is done. Allowlisted ShareGPT and trajectory export keeps raw_sha256 lineage and opaque encrypted_content. The training view strips ruleset v1 matches from plaintext fields. The CAS and `--format events` are not rewritten.
+
+TKT-01M3558E21PZDJEYAAR4WH9B85 (Soft-link git-ticket claims to lake session_uid) stays draft.

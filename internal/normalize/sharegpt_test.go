@@ -98,6 +98,52 @@ func TestShareGPTCopiesNonStringCiphertext(t *testing.T) {
 	}
 }
 
+func TestShareGPTStripsPlaintextAndLeavesCiphertext(t *testing.T) {
+	aws := "AKIAIOSFODNN7EXAMPLE"
+	pat := "ghp_" + strings.Repeat("a", 36)
+	slack := "xoxb-1234567890-abcdefghij"
+	text := "key " + aws + " end"
+	name := "tool-" + pat
+	callID := slack
+	opaque := "cipher-" + aws
+	events := []Event{{
+		SessionID:   "terva:sid",
+		EventType:   EventToolCall,
+		Actor:       ActorAssistant,
+		Role:        strPtr(ActorAssistant),
+		ContentText: &text,
+		Tool:        Tool{Name: &name, CallID: &callID},
+		Extra:       extraMap{"encrypted_content": opaque},
+	}}
+	digest := strings.Repeat("ab", 32)
+	rec, ok := ShareGPT("ses_secret", digest, events)
+	if !ok {
+		t.Fatal("expected a trajectory")
+	}
+	turn := rec.Conversations[0]
+	if turn.Value != "key [redacted:aws-access-key-id] end" {
+		t.Fatalf("value %q", turn.Value)
+	}
+	if turn.Name != "tool-[redacted:github-pat]" {
+		t.Fatalf("name %q", turn.Name)
+	}
+	if turn.CallID != "[redacted:slack-token]" {
+		t.Fatalf("call id %q", turn.CallID)
+	}
+	if turn.EncryptedContent != opaque {
+		t.Fatalf("ciphertext %#v", turn.EncryptedContent)
+	}
+	if rec.RawSHA256 != digest || rec.SessionID != "terva:sid" {
+		t.Fatalf("lineage rewritten: %+v", rec)
+	}
+	if *events[0].ContentText != text || *events[0].Tool.Name != name || *events[0].Tool.CallID != callID {
+		t.Fatal("normalized event was rewritten")
+	}
+	if events[0].Extra["encrypted_content"] != opaque {
+		t.Fatal("ciphertext on the event was rewritten")
+	}
+}
+
 func TestShareGPTOmitsUntraceableAndEmpty(t *testing.T) {
 	text := "hello"
 	events := []Event{{

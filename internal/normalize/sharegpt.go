@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"terva.sh/lampi/internal/redact"
 )
 
 // ShareGPTRecord is one training trajectory. It is a filtered
@@ -20,9 +22,10 @@ type ShareGPTRecord struct {
 }
 
 // ShareGPTTurn is one ShareGPT message. From is human, gpt, system,
-// or tool. Value is content_text. Name and CallID are set on a tool
-// call or result. EncryptedContent is the opaque extra field when
-// the event had one.
+// or tool. Value is content_text after ruleset v1 stripping. Name and
+// CallID are set on a tool call or result and are stripped the same
+// way. EncryptedContent is the opaque extra field when the event had
+// one; it is not stripped.
 type ShareGPTTurn struct {
 	From             string `json:"from"`
 	Value            string `json:"value"`
@@ -34,7 +37,10 @@ type ShareGPTTurn struct {
 // ShareGPT projects events into one trajectory. ok is false when
 // rawSHA256 is empty or the events have no training turn, so a caller
 // does not write a row that cannot be traced to a blob. Meta, usage,
-// and unknown rows are left out. encrypted_content is copied as stored.
+// and unknown rows are left out. Plaintext training fields (value,
+// name, and call id) are copied and then stripped with ruleset v1.
+// encrypted_content is copied as stored and is not scanned. The events
+// and the raw blob are not modified.
 func ShareGPT(sessionUID, rawSHA256 string, events []Event) (ShareGPTRecord, bool) {
 	if rawSHA256 == "" {
 		return ShareGPTRecord{}, false
@@ -85,13 +91,13 @@ func trainingTurn(ev Event) (ShareGPTTurn, bool) {
 	}
 	turn := ShareGPTTurn{From: shareFrom(ev)}
 	if ev.ContentText != nil {
-		turn.Value = *ev.ContentText
+		turn.Value = stripTraining(*ev.ContentText)
 	}
 	if ev.Tool.Name != nil {
-		turn.Name = *ev.Tool.Name
+		turn.Name = stripTraining(*ev.Tool.Name)
 	}
 	if ev.Tool.CallID != nil {
-		turn.CallID = *ev.Tool.CallID
+		turn.CallID = stripTraining(*ev.Tool.CallID)
 	}
 	turn.EncryptedContent = copyEncrypted(ev.Extra)
 	if turn.Value == "" && turn.Name == "" && turn.CallID == "" && turn.EncryptedContent == nil {
@@ -125,6 +131,13 @@ func shareRole(role string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// stripTraining applies ruleset v1 to one plaintext training field.
+// The caller's string is not rewritten. encrypted_content is not passed
+// here.
+func stripTraining(s string) string {
+	return (redact.Ruleset{}).Strip(s)
 }
 
 // copyEncrypted returns the extra field unchanged. A missing field is
