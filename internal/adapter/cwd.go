@@ -9,6 +9,7 @@ import (
 // The absolute path string is the input, so the same repo in two
 // directories does not share a hash. Other harnesses use the same
 // function so an allow rule written against that hash still matches.
+// The cross-machine project id is ProjectAt's ProjectID, not this hash.
 func CWDHash(cwd string) string {
 	if cwd == "" {
 		return ""

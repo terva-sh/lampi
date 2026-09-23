@@ -147,6 +147,12 @@ session cwd still has a `.git`, the manifest records the remote named
 origin. Any other remote is ignored, so `git_remote` stays empty and a
 remote allow rule does not match. Allow those projects by cwd or cwd hash.
 
+The lake's `project_id` is not the cwd hash. It is that same folded
+origin URL joined with the repository's root commit, so two machines
+with the same remote and root share a project even when the absolute
+paths differ. A shallow clone, or a checkout with no origin, has an
+empty id and is not linked. See [docs/protocol.md](docs/protocol.md).
+
 ```json
 {
   "server": "http://127.0.0.1:8787",

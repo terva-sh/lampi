@@ -16,7 +16,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put |
-| Catalog | `internal/catalog` | SQLite. Session uid, artifacts, provenance |
+| Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
 | HTTP | `internal/api` | healthz, catalog stats, hello, blob check/put, manifests |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
@@ -90,6 +90,15 @@ second machine adds a provenance row and no blob. A strict prefix
 extension moves the head (`grown_from`). Anything else is
 `divergent_copy` and is not merged.
 
+Layer C is the project. `project_id` is the normalized origin URL and
+the repository root commit (`protocol.ProjectLinkID`). Two sessions
+share it when those two inputs match, including when the checkouts
+sit at different absolute paths and so have different `cwd_hash`
+values. HEAD stays on `git_commit`. The link uses the root commit. A checkout with
+no origin, no root commit, or a shallow history stores an empty
+`project_id`. Empty ids are not a group. The lake recomputes the id
+on ingest.
+
 Near-duplicate detection is out of scope. A file over `max_blob_bytes`
 is stored as CAS chunks of at most that size. The manifest lists the
 digests and the lengths. The single-object cap still applies to a PUT,
@@ -122,10 +131,10 @@ Claude and Codex record shapes are internal to those packages. Each
 pins a reader version on `harness_version` and keeps keys it does not
 interpret. The synchronous projector still implements terva only. A
 Claude or Codex manifest is stored, and `normalize_error` records that
-the projector for that harness is not implemented. Async workers are
-later work. Path-based `cwd_hash` is copied from terva and is not
-treated as a global project id. The same git repo at two absolute paths
-hashes differently. Linking those by git remote is later work.
+the projector for that harness is not implemented. Async workers and
+parquet partitions are later work. Path-based `cwd_hash` is copied
+from terva and buckets one absolute path. The same git repo at two
+paths hashes differently. Those checkouts link by `project_id`.
 
 ## MVP acceptance gate
 

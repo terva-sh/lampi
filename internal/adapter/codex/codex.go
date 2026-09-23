@@ -161,20 +161,14 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 				TailSHA256:        it.sum,
 			})
 		}
-		remote, commit := adapter.ProjectGit(cwd)
 		b.Manifests = append(b.Manifests, protocol.Manifest{
 			CaptureProtocol: protocol.Version,
 			MachineID:       machineID,
 			Harness:         protocol.HarnessCodex,
 			HarnessVersion:  Version,
 			NativeSessionID: id,
-			Project: protocol.Project{
-				CWD:       cwd,
-				CWDHash:   adapter.CWDHash(cwd),
-				GitRemote: remote,
-				GitCommit: commit,
-			},
-			Artifacts: arts,
+			Project:         adapter.ProjectAt(cwd),
+			Artifacts:       arts,
 		})
 	}
 	return b, nil

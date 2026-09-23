@@ -56,6 +56,9 @@ implemented in `internal/config`. This policy confirms that surface.
   spellings of one remote are one key. Only the remote named origin
   is copied onto the manifest, and only when the session cwd still
   has a `.git`.
+- The allowlist hash is not the lake's project id. `project_id` is
+  the normalized origin URL and the repository root commit. See
+  [protocol.md](protocol.md).
 
 Ruleset v1 still runs after the allowlist and before any request. A
 hit is quarantined unless `redaction.upload_hits` is set. Leave that

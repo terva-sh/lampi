@@ -1,10 +1,10 @@
 package config
 
 import (
-	"net"
-	"net/url"
 	"path/filepath"
 	"strings"
+
+	"terva.sh/lampi/internal/protocol"
 )
 
 // Projects is the allow and deny lists for off-box raw.
@@ -96,37 +96,9 @@ func cwdHasPrefix(cwd, prefix string) bool {
 }
 
 // NormalizeRemote folds the spellings of one git remote into one key.
-// "git@github.com:org/repo.git" and "https://github.com/org/repo" both
-// become "github.com/org/repo". The comparison is case-insensitive.
-// An empty string stays empty, and does not match a real remote.
+// The allowlist and protocol.ProjectLinkID share this function, so
+// "git@github.com:org/repo.git" and "https://github.com/org/repo" are
+// the same remote in a rule and in a project id.
 func NormalizeRemote(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	s = strings.TrimSuffix(s, "/")
-	s = strings.TrimSuffix(s, ".git")
-	if strings.HasPrefix(s, "git@") && strings.Contains(s, ":") && !strings.Contains(s, "://") {
-		rest := strings.TrimPrefix(s, "git@")
-		host, path, ok := strings.Cut(rest, ":")
-		if ok {
-			return strings.ToLower(host + "/" + strings.TrimPrefix(path, "/"))
-		}
-	}
-	if strings.Contains(s, "://") {
-		u, err := url.Parse(s)
-		if err == nil && u.Host != "" {
-			host := u.Hostname()
-			if host == "" {
-				host = u.Host
-				if h, _, err := net.SplitHostPort(host); err == nil {
-					host = h
-				}
-			}
-			path := strings.TrimPrefix(u.Path, "/")
-			path = strings.TrimSuffix(path, "/")
-			return strings.ToLower(host + "/" + path)
-		}
-	}
-	return strings.ToLower(strings.TrimPrefix(s, "/"))
+	return protocol.NormalizeRemote(s)
 }

@@ -125,7 +125,9 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
     "cwd": "/home/drew/src/foo",
     "cwd_hash": "a1b2c3d4e5f60708",
     "git_remote": "git@github.com:org/foo.git",
-    "git_commit": "abc123"
+    "git_commit": "fedcba9876543210fedcba9876543210fedcba98",
+    "git_root": "0123456789abcdef0123456789abcdef01234567",
+    "project_id": "github.com/org/foo@0123456789abcdef0123456789abcdef01234567"
   },
   "artifacts": [
     {
@@ -155,9 +157,17 @@ home is not a session.
 machine. It is not a project id across machines. Claude and Codex use
 the same function so an allow rule written against that hash still
 matches. `git_remote` is origin's URL when the session cwd has a `.git`,
-and empty otherwise. Folding that into a project id across machines is
-later work. The client allowlist matches the cwd, this hash, or the
-remote before the manifest is sent.
+and empty otherwise. `git_commit` is HEAD. `git_root` is the first
+parentless commit on that HEAD's first-parent chain. `project_id` is
+the remote folded the same way as an allow rule, then `@`, then
+`git_root` in lowercase hex. `git@github.com:org/foo.git` and
+`https://github.com/org/foo` with the same root are one id. The path
+and `cwd_hash` are not inputs. A missing origin, a missing root, or a
+shallow clone leaves `project_id` empty, and those sessions are not
+grouped. The lake recomputes `project_id` from `git_remote` and
+`git_root` on ingest and does not keep a client value that disagrees.
+The client allowlist matches the cwd, this hash, or the remote before
+the manifest is sent.
 
 `fork_point` is raw JSON. terva uses an index. The sketch allows null.
 

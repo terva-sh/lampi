@@ -11,6 +11,10 @@
 // recomputes the relation inside the write transaction from the current
 // head and the client blob. A GrownFrom decision is not applied once
 // that head is no longer a prefix of the client bytes.
+//
+// project_id is the Layer C key. Ingest recomputes it from the manifest's
+// git remote and root commit. Sessions that share a non-empty id are the
+// same project. An empty id is not a group.
 package catalog
 
 import (
@@ -119,6 +123,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     manifest_json TEXT NOT NULL,
     ingested_at TEXT NOT NULL,
     normalize_error TEXT,
+    project_id TEXT NOT NULL DEFAULT '',
     UNIQUE (harness, native_session_id)
 );
 CREATE TABLE IF NOT EXISTS aliases (
@@ -212,6 +217,12 @@ func migrate(db *sql.DB) error {
 	}
 	if err := addColumn(db, "sessions", "normalize_error", `ALTER TABLE sessions ADD COLUMN normalize_error TEXT`); err != nil {
 		return err
+	}
+	if err := addColumn(db, "sessions", "project_id", `ALTER TABLE sessions ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS sessions_by_project ON sessions (project_id)`); err != nil {
+		return fmt.Errorf("catalog: %w", err)
 	}
 	return nil
 }
@@ -313,6 +324,7 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 			return protocol.ManifestAck{}, fmt.Errorf("catalog: artifact %q: unknown relation %q", a.RelPath, decisions[i].Relation)
 		}
 	}
+	m.Project.ProjectID = protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot)
 	raw, err := json.Marshal(m)
 	if err != nil {
 		return protocol.ManifestAck{}, err
@@ -354,9 +366,9 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 	ingested := now.UTC().Format(time.RFC3339Nano)
 	if !exists {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at)
-			VALUES (?, ?, ?, ?, ?, ?)`,
-			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested); err != nil {
+			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at, project_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID); err != nil {
 			return protocol.ManifestAck{}, fmt.Errorf("catalog: session: %w", err)
 		}
 	} else if newHead != head {
@@ -365,6 +377,18 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 			WHERE session_uid = ?`,
 			newHead, string(raw), ingested, uid); err != nil {
 			return protocol.ManifestAck{}, fmt.Errorf("catalog: session: %w", err)
+		}
+	}
+	// A later manifest can learn the root. Write that id onto the stored
+	// manifest too, including when the head did not move, so the column
+	// and manifest_json agree. Do not clear an id when this post has
+	// none: an empty project_id is not a group, and a second machine
+	// whose checkout has no .git must not unlink the session.
+	if m.Project.ProjectID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE sessions SET project_id = ?, manifest_json = ? WHERE session_uid = ?`,
+			m.Project.ProjectID, string(raw), uid); err != nil {
+			return protocol.ManifestAck{}, fmt.Errorf("catalog: project: %w", err)
 		}
 	}
 
@@ -671,12 +695,14 @@ func scanArtifacts(rows *sql.Rows) ([]ArtifactRow, error) {
 
 // SessionInfo is one catalog session, including the last normalize
 // failure. NormalizeError is empty when the last projection succeeded
-// or the session has not been projected yet.
+// or the session has not been projected yet. ProjectID is the Layer C
+// key. Empty means this session is not linked to another.
 type SessionInfo struct {
 	UID            string
 	Harness        string
 	NativeID       string
 	NormalizeError string
+	ProjectID      string
 	Manifest       protocol.Manifest
 }
 
@@ -715,10 +741,28 @@ func (c *Catalog) NormalizeError(ctx context.Context, sessionUID string) (string
 
 // ListSessions returns every session, oldest ingest first.
 func (c *Catalog) ListSessions(ctx context.Context) ([]SessionInfo, error) {
-	rows, err := c.db.QueryContext(ctx, `
-		SELECT session_uid, harness, native_session_id, COALESCE(normalize_error, ''), manifest_json
+	return c.listSessions(ctx, `
+		SELECT session_uid, harness, native_session_id, COALESCE(normalize_error, ''), COALESCE(project_id, ''), manifest_json
 		FROM sessions
 		ORDER BY ingested_at, session_uid`)
+}
+
+// SessionsByProject returns the sessions that share projectID, oldest
+// ingest first. An empty id returns no rows. Checkouts that never
+// learned a root are not a single project.
+func (c *Catalog) SessionsByProject(ctx context.Context, projectID string) ([]SessionInfo, error) {
+	if projectID == "" {
+		return nil, nil
+	}
+	return c.listSessions(ctx, `
+		SELECT session_uid, harness, native_session_id, COALESCE(normalize_error, ''), COALESCE(project_id, ''), manifest_json
+		FROM sessions
+		WHERE project_id = ?
+		ORDER BY ingested_at, session_uid`, projectID)
+}
+
+func (c *Catalog) listSessions(ctx context.Context, query string, args ...any) ([]SessionInfo, error) {
+	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
@@ -727,7 +771,7 @@ func (c *Catalog) ListSessions(ctx context.Context) ([]SessionInfo, error) {
 	for rows.Next() {
 		var info SessionInfo
 		var raw string
-		if err := rows.Scan(&info.UID, &info.Harness, &info.NativeID, &info.NormalizeError, &raw); err != nil {
+		if err := rows.Scan(&info.UID, &info.Harness, &info.NativeID, &info.NormalizeError, &info.ProjectID, &raw); err != nil {
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
 		if err := json.Unmarshal([]byte(raw), &info.Manifest); err != nil {
