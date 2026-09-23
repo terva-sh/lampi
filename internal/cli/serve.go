@@ -35,8 +35,11 @@ is rewritten to sha256 lines. Copy the device's token file first; do
 not point this flag at the device's only copy. The token is not an
 argument.
 
-The lake directory holds cas/ (sha256 blobs) and catalog.db (SQLite).
-The default is the XDG state dir terva-lampi/, not $TERVA_HOME.
+The lake directory holds cas/ (sha256 blobs), catalog.db (SQLite),
+normalized/ (one JSONL file per session), and parquet/ (date and
+harness partitions). The default is the XDG state dir terva-lampi/,
+not $TERVA_HOME. A manifest ACK returns before normalize finishes.
+Process exit waits for that queue.
 `
 
 func runServe(env Env, args []string) error {

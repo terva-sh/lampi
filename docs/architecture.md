@@ -29,8 +29,8 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
-| Normalize | `internal/normalize` | terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque |
-| Export | `terva-lampi export` | Normalized JSONL. A session with `normalize_error` is skipped |
+| Normalize | `internal/normalize` | Workers project terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
+| Export | `terva-lampi export` | Normalized JSONL, after the normalize queue is idle. A session with `normalize_error` is skipped |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
@@ -43,17 +43,46 @@ as `divergent_copy` and the previous head stays. A failed push is tried
 again after a short wait. SIGTERM stops the watch and drains the outbox
 best-effort. The server URL, token, and allowlist are read at start.
 
-After a manifest is stored, the lake projects each terva transcript into
-`normalized/<session_uid>.jsonl`. The job is synchronous. A failure sets
-`sessions.normalize_error` and deletes that session's derived file. The
-CAS object is not opened for write. Unknown harness fields are kept on
-the event. `encrypted_content` is copied through as an opaque string and
-is not written into `content_text`. Image bytes stay in the raw blob.
-Pre-compaction rows stay in the projection so an earlier prompt is still
-searchable. `terva-lampi export` writes one JSON object per event.
-DuckDB reads it with `read_ndjson`. sqlite reads each line and uses
+After a manifest is stored, the lake ACKs and enqueues normalize work.
+The HTTP handler does not project. Two workers read the catalog head
+and write the derived view. That view lags the ACK until the worker
+for that generation finishes. `terva-lampi serve` drains the queue on
+exit. A newer ingest bumps `sessions.normalize_gen` and a publish for
+an older generation is dropped. The job row stays until the matching
+generation is published, so a restart finishes it.
+
+JSONL stays one file per session at `normalized/<session_uid>.jsonl`.
+Parquet is hive-partitioned beside it. `github.com/parquet-go/parquet-go`
+writes the files. It is pure Go, so the binary stays cgo-free.
+
+```text
+parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet
+```
+
+`date` is the UTC day of the event's `recorded_at`. When that timestamp
+is missing, the day is `ingested_at`. A session whose events fall on
+more than one day has one file in each of those partitions. `harness`
+is the event harness (`terva` today). The file name is the session uid,
+so a re-projection replaces that session and leaves the rest of the
+day in place. DuckDB reads the tree with
+`read_parquet('parquet/**/*.parquet', hive_partitioning = true)`.
+Each row has the search columns (`content_text`, `session_id`,
+`event_type`, `recorded_at`) and `event_json`, the same object as the
+JSONL line.
+
+A failure sets `sessions.normalize_error` and deletes that session's
+JSONL and parquet files. The CAS object is not opened for write.
+Unknown harness fields are kept on the event. `encrypted_content` is
+copied through as an opaque string and is not written into
+`content_text`. Image bytes stay in the raw blob. Pre-compaction rows
+stay in the projection so an earlier prompt is still searchable.
+`terva-lampi export` waits until the queue is idle, then writes one
+JSON object per event. A missing JSONL file is projected once, so a
+removed derived view can be rebuilt. DuckDB reads the export with
+`read_ndjson`. sqlite reads each line and uses
 `json_extract(line, '$.content_text')`. A session with `normalize_error`
-set is skipped. Async workers and parquet partitions are later work.
+set is skipped. Until a worker finishes, `normalize_error` is empty
+and the derived files may be absent.
 
 ## What this tree does not do
 
@@ -61,7 +90,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/adapter` | OpenCode. Cursor is intentionally last and is not started. Claude Code and Codex are discovered and uploaded; the synchronous projector still implements terva only |
+| `internal/adapter` | OpenCode. Cursor is intentionally last and is not started. Claude Code and Codex are discovered and uploaded. Normalize workers still implement terva only |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -121,7 +150,9 @@ watermark plan → outbox → PUT missing blobs → manifest ACK
         v
 watermark commit and outbox ACK          terva-lampi serve
                                          CAS + SQLite catalog
-                                         normalize → normalized/*.jsonl
+                                         ACK, then normalize workers
+                                         normalized/*.jsonl
+                                         parquet/date=*/harness=*/*.parquet
                                          terva-lampi export → JSONL
 ```
 
@@ -129,12 +160,12 @@ Other harnesses are adapters behind the same manifest. terva, Claude
 Code, and Codex CLI are wired for discovery, watch, and upload. The
 Claude and Codex record shapes are internal to those packages. Each
 pins a reader version on `harness_version` and keeps keys it does not
-interpret. The synchronous projector still implements terva only. A
-Claude or Codex manifest is stored, and `normalize_error` records that
-the projector for that harness is not implemented. Async workers and
-parquet partitions are later work. Path-based `cwd_hash` is copied
-from terva and buckets one absolute path. The same git repo at two
-paths hashes differently. Those checkouts link by `project_id`.
+interpret. Normalize workers still implement terva only. A Claude
+or Codex manifest is stored, and a worker sets `normalize_error` when
+the projector for that harness is not implemented. Path-based
+`cwd_hash` is copied from terva and buckets one absolute path. The
+same git repo at two paths hashes differently. Those checkouts link
+by `project_id`.
 
 ## MVP acceptance gate
 
@@ -177,7 +208,7 @@ internal/watch/           fsnotify, poll fallback
 internal/redact/          ruleset v1 and quarantine.jsonl
 internal/outbox/          SQLite queue
 internal/watermark/       per-path cursor, ACK-gated
-internal/normalize/       schema_version 1 events, JSONL export
+internal/normalize/       schema_version 1 events, JSONL and parquet
 internal/accept/          MVP acceptance gate, fixture terva JSONL
 docs/protocol.md
 docs/architecture.md

@@ -12,7 +12,9 @@ import (
 )
 
 // Project reads the session's current transcript and error blobs and
-// projects them. Digests are the catalog head after resolve and ingest.
+// projects them. Workers call it. The manifest handler does not.
+// Export calls it only when the derived JSONL is missing.
+// Digests are the catalog head after resolve and ingest.
 // A chunk list that fits under the object cap is the assembled blob.
 // A longer list is read as its chunks; that concatenation is not a
 // blob. A stale or divergent manifest does not replace that head.
@@ -64,25 +66,43 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 	return all, nil
 }
 
-// StoreEvents writes the derived JSONL for sessionUID, or records nerr
-// and removes that file. The error it returns is a failure to record
-// the outcome, not nerr itself. Raw blobs are not opened for write.
+// StoreEvents writes the derived JSONL and the date/harness parquet
+// for sessionUID, or records nerr and removes both. The error it
+// returns is a failure to record the outcome, not nerr itself. Raw
+// blobs are not opened for write.
 func (s *Server) StoreEvents(ctx context.Context, sessionUID string, events []normalize.Event, nerr error) error {
 	path := filepath.Join(s.Normalized, sessionUID+".jsonl")
 	if nerr != nil {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("normalize: %w", err)
+		if err := removeDerived(path, s.Parquet, sessionUID); err != nil {
+			return err
 		}
 		return s.Catalog.SetNormalizeError(ctx, sessionUID, nerr.Error())
 	}
 	if err := normalize.WriteFile(path, events); err != nil {
-		_ = os.Remove(path)
+		_ = removeDerived(path, s.Parquet, sessionUID)
+		if rec := s.Catalog.SetNormalizeError(ctx, sessionUID, err.Error()); rec != nil {
+			return rec
+		}
+		return nil
+	}
+	if err := normalize.WriteParquet(s.Parquet, sessionUID, events); err != nil {
+		_ = removeDerived(path, s.Parquet, sessionUID)
 		if rec := s.Catalog.SetNormalizeError(ctx, sessionUID, err.Error()); rec != nil {
 			return rec
 		}
 		return nil
 	}
 	return s.Catalog.SetNormalizeError(ctx, sessionUID, "")
+}
+
+func removeDerived(jsonl, parquetRoot, sessionUID string) error {
+	if err := os.Remove(jsonl); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("normalize: %w", err)
+	}
+	if err := normalize.RemoveParquet(parquetRoot, sessionUID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func readBlob(store *cas.Store, digest string) ([]byte, error) {

@@ -48,6 +48,9 @@ func TestKnownPromptAfterIngest(t *testing.T) {
 	}
 	putBlob(t, h, goodSum, good)
 	ack := postManifest(t, h, manifest("sid-prompt", "sessions/x/sid-prompt.jsonl", goodSum, int64(len(good))))
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	msg, ok, err := lake.Catalog.NormalizeError(t.Context(), ack.SessionUID)
 	if err != nil {
 		t.Fatal(err)

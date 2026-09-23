@@ -1,7 +1,8 @@
 // Package api is the ingest HTTP surface: health, catalog stats, hello,
-// blob check, blob put, and manifests. A stored manifest is projected
-// into normalized JSONL. A projection failure is recorded on the session
-// and does not change the blob.
+// blob check, blob put, and manifests. A stored manifest is ACKed, then
+// a worker projects it into normalized JSONL and partitioned parquet.
+// A projection failure is recorded on the session and does not change
+// the blob. The derived view lags the ACK until the worker finishes.
 //
 // healthz is unauthenticated and returns no catalog data, so a process
 // probe does not need a device token. Every /v1 route checks the bearer
@@ -11,6 +12,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"terva.sh/lampi/internal/auth"
@@ -34,10 +37,21 @@ type Server struct {
 	// Normalized is the directory of derived JSONL, one file per session.
 	// It is not the CAS. A normalize failure removes the session's file.
 	Normalized string
+	// Parquet is the hive-style partition root. Files live at
+	// date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet.
+	Parquet string
 	// Devices are SHA-256 hashes of bearer tokens. Nil or empty disables
 	// the check. The plaintext is not kept on the server.
 	Devices *auth.Devices
 	Now     func() time.Time
+
+	norm        *normalizeQueue
+	normalizeWG sync.WaitGroup
+	pubMu       sync.Mutex
+	pubs        map[string]*sync.Mutex
+	// beforeProject, when set, runs in the worker before Project.
+	// Tests use it to show that the manifest ACK does not wait.
+	beforeProject func()
 }
 
 // Allow enrolls a device token by its hash. The token string is not stored.
@@ -63,15 +77,42 @@ func Open(dataDir string) (*Server, error) {
 		cat.Close()
 		return nil, err
 	}
-	return &Server{CAS: store, Catalog: cat, Normalized: norm, Now: time.Now}, nil
+	parquetDir := filepath.Join(dataDir, "parquet")
+	if err := os.MkdirAll(parquetDir, 0o700); err != nil {
+		cat.Close()
+		return nil, err
+	}
+	s := &Server{
+		CAS:        store,
+		Catalog:    cat,
+		Normalized: norm,
+		Parquet:    parquetDir,
+		Now:        time.Now,
+		norm:       newNormalizeQueue(),
+	}
+	if err := s.loadNormalizeJobs(context.Background()); err != nil {
+		cat.Close()
+		return nil, err
+	}
+	s.startNormalizeWorkers()
+	return s, nil
 }
 
-// Close releases the catalog. The CAS is just a directory.
+// Close drains the normalize queue, stops the workers, and releases
+// the catalog. The CAS is just a directory. A manifest ACK does not
+// wait for projection; process exit does.
 func (s *Server) Close() error {
 	if s.Catalog == nil {
 		return nil
 	}
-	return s.Catalog.Close()
+	if s.norm != nil {
+		_ = s.WaitNormalized(context.Background())
+		s.norm.shutdown()
+		s.normalizeWG.Wait()
+	}
+	err := s.Catalog.Close()
+	s.Catalog = nil
+	return err
 }
 
 func (s *Server) now() time.Time {
@@ -277,10 +318,11 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
 		return
 	}
-	// Normalization is derived. A failure is recorded on the session and
-	// the manifest ACK is still returned. The CAS object is not written.
-	events, nerr := s.Project(r.Context(), m)
-	if err := s.StoreEvents(r.Context(), ack.SessionUID, events, nerr); err != nil {
+	// Normalization is derived and runs on the workers. The ACK does not
+	// wait for it. A failure is recorded on the session later. The CAS
+	// object is not written. WithoutCancel keeps the enqueue when the
+	// client has already dropped the request after ingest committed.
+	if err := s.enqueueNormalize(context.WithoutCancel(r.Context()), ack.SessionUID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
 		return
 	}

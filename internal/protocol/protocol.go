@@ -71,7 +71,8 @@ const (
 	KindErrorsJSONL = "errors_jsonl"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
-	// meta line and is the one the synchronous normalizer projects.
+	// meta line. Normalize workers project it. Claude and Codex
+	// manifests are stored; those projectors are not implemented.
 	HarnessTerva = "terva"
 	// HarnessClaude is Claude Code. The on-disk record shape is internal
 	// to the adapter; harness_version is that adapter's pinned reader.

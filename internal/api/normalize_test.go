@@ -14,6 +14,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -44,6 +45,9 @@ func TestNormalizeFailureLeavesRaw(t *testing.T) {
 			SHA256:  sum,
 		}},
 	})
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 
 	msg, ok, err := s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
 	if err != nil {
@@ -60,6 +64,13 @@ func TestNormalizeFailureLeavesRaw(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("derived file after failure: %v", err)
+	}
+	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 0 {
+		t.Fatalf("parquet after failure: %v", parts)
 	}
 }
 
@@ -230,6 +241,9 @@ func shaOf(t *testing.T, body []byte) string {
 
 func readDerived(t *testing.T, s *Server, uid string) []byte {
 	t.Helper()
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	b, err := os.ReadFile(filepath.Join(s.Normalized, uid+".jsonl"))
 	if err != nil {
 		t.Fatal(err)
