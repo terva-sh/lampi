@@ -13,12 +13,12 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login` |
+| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put |
 | Catalog | `internal/catalog` | SQLite. Session uid, artifacts, provenance |
 | HTTP | `internal/api` | healthz, catalog stats, hello, blob check/put, manifests |
-| Device token | `internal/auth` | 256-bit file, mode 0600. Plaintext compare |
+| Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset |
@@ -27,6 +27,8 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Redaction | `internal/redact` | Ruleset v1. Hits are quarantined, not rewritten |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp |
+| Normalize | `internal/normalize` | terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque |
+| Export | `terva-lampi export` | Normalized JSONL. A session with `normalize_error` is skipped |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
 `upload.Sync`. `terva-lampi sync` is the same function, once. An unchanged
@@ -38,13 +40,24 @@ as `divergent_copy` and the previous head stays. A failed push is tried
 again after a short wait. SIGTERM stops the watch and drains the outbox
 best-effort. The server URL, token, and allowlist are read at start.
 
+After a manifest is stored, the lake projects each terva transcript into
+`normalized/<session_uid>.jsonl`. The job is synchronous. A failure sets
+`sessions.normalize_error` and deletes that session's derived file. The
+CAS object is not opened for write. Unknown harness fields are kept on
+the event. `encrypted_content` is copied through as an opaque string and
+is not written into `content_text`. Image bytes stay in the raw blob.
+Pre-compaction rows stay in the projection so an earlier prompt is still
+searchable. `terva-lampi export` writes one JSON object per event.
+DuckDB reads it with `read_ndjson`. sqlite reads each line and uses
+`json_extract(line, '$.content_text')`. A session with `normalize_error`
+set is skipped. Async workers and parquet partitions are later work.
+
 ## What this tree does not do
 
 Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/normalize` | Raw blob to the shared event schema |
 | `internal/adapter` | Claude Code, Codex, OpenCode. Cursor is intentionally last and is not started |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
@@ -84,6 +97,8 @@ watermark plan → outbox → PUT missing blobs → manifest ACK
         v
 watermark commit and outbox ACK          terva-lampi serve
                                          CAS + SQLite catalog
+                                         normalize → normalized/*.jsonl
+                                         terva-lampi export → JSONL
 ```
 
 Other harnesses are adapters behind the same manifest. terva is the only
@@ -111,7 +126,7 @@ internal/watch/           fsnotify, poll fallback
 internal/redact/          ruleset v1 and quarantine.jsonl
 internal/outbox/          SQLite queue
 internal/watermark/       per-path cursor, ACK-gated
-internal/normalize/       stub
+internal/normalize/       schema_version 1 events, JSONL export
 docs/protocol.md
 docs/architecture.md
 hooks/                    example terva hook, not installed

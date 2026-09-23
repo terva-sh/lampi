@@ -114,6 +114,7 @@ not a promise that every secret is caught.
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
+| `terva-lampi export` | Write normalized events as JSONL for DuckDB or sqlite. |
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
 
@@ -249,9 +250,11 @@ a local lake. In: filesystem CAS, SQLite catalog, device-token file,
 discovery of `$TERVA_HOME/sessions`, an fsnotify/poll watcher, a durable
 outbox, per-path watermarks, a project allowlist, and ruleset v1.
 `sync` runs that pipeline and writes the watermark only after the
-manifest ACK. Out, on purpose: hashed tokens, tail assembly on the lake,
-the long-running upload loop inside `agent`, Claude/Codex/OpenCode/Cursor,
-and a normalizer. See [docs/architecture.md](docs/architecture.md).
+manifest ACK. Device tokens are stored as hashes. A strict append is
+assembled on the lake. A stored terva transcript is projected to
+schema_version 1 events, and `terva-lampi export` writes those events
+as JSONL. Out, on purpose: the long-running upload loop inside `agent`,
+Claude/Codex/OpenCode/Cursor. See [docs/architecture.md](docs/architecture.md).
 
 ## License
 

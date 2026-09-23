@@ -92,6 +92,8 @@ func Run(args []string, env Env) error {
 		err = runStatus(env, args[1:])
 	case "login":
 		err = runLogin(env, args[1:])
+	case "export":
+		err = runExport(env, args[1:])
 	default:
 		fmt.Fprint(env.stdout(), rootHelp)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -159,6 +161,7 @@ usage:
   terva-lampi sync      push new bytes once
   terva-lampi status    agent state and lake health
   terva-lampi login     write a device token file
+  terva-lampi export    write normalized events as JSONL
 
 The command is terva-lampi. An optional ` + "`lampi`" + ` symlink is not the
 primary name. Bare ` + "`lampi`" + ` collides with neurobin's LAMP installer

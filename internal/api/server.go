@@ -1,5 +1,7 @@
 // Package api is the ingest HTTP surface: health, catalog stats, hello,
-// blob check, blob put, and manifests.
+// blob check, blob put, and manifests. A stored manifest is projected
+// into normalized JSONL. A projection failure is recorded on the session
+// and does not change the blob.
 //
 // healthz is unauthenticated and returns no catalog data, so a process
 // probe does not need a device token. Every /v1 route checks the bearer
@@ -14,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,6 +31,9 @@ import (
 type Server struct {
 	CAS     *cas.Store
 	Catalog *catalog.Catalog
+	// Normalized is the directory of derived JSONL, one file per session.
+	// It is not the CAS. A normalize failure removes the session's file.
+	Normalized string
 	// Devices are SHA-256 hashes of bearer tokens. Nil or empty disables
 	// the check. The plaintext is not kept on the server.
 	Devices *auth.Devices
@@ -52,7 +58,12 @@ func Open(dataDir string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{CAS: store, Catalog: cat, Now: time.Now}, nil
+	norm := filepath.Join(dataDir, "normalized")
+	if err := os.MkdirAll(norm, 0o700); err != nil {
+		cat.Close()
+		return nil, err
+	}
+	return &Server{CAS: store, Catalog: cat, Normalized: norm, Now: time.Now}, nil
 }
 
 // Close releases the catalog. The CAS is just a directory.
@@ -264,6 +275,13 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	ack, err := s.Catalog.Ingest(r.Context(), m, s.now(), decisions, s.CAS)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		return
+	}
+	// Normalization is derived. A failure is recorded on the session and
+	// the manifest ACK is still returned. The CAS object is not written.
+	events, nerr := s.Project(r.Context(), m)
+	if err := s.StoreEvents(r.Context(), ack.SessionUID, events, nerr); err != nil {
+		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, ack)
