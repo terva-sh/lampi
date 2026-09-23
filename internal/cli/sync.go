@@ -19,12 +19,17 @@ const syncUsage = `terva-lampi sync — push new bytes once
 usage:
   terva-lampi sync [--server URL] [--token-file PATH]
 
-Walks terva sessions, Claude Code projects/**/*.jsonl, and Codex
-rollout-*.jsonl. history.jsonl is not a Codex rollout. A project is
-uploaded only when config.json allowlists it, by cwd prefix, git remote,
-or cwd hash. Anything else is refused. Deny rules win. An empty allow
-list refuses everything. Claude Code uses $CLAUDE_CONFIG_DIR, or
-~/.claude when that is unset. Codex uses $CODEX_HOME, or ~/.codex.
+Walks terva sessions, Claude Code projects/**/*.jsonl, Codex
+rollout-*.jsonl, and OpenCode export JSON. history.jsonl is not a
+Codex rollout. A project is uploaded only when config.json allowlists
+it, by cwd prefix, git remote, or cwd hash. Anything else is refused.
+Deny rules win. An empty allow list refuses everything. Claude Code
+uses $CLAUDE_CONFIG_DIR, or ~/.claude when that is unset. Codex uses
+$CODEX_HOME, or ~/.codex. OpenCode uses $XDG_DATA_HOME/opencode/export,
+or ~/.local/share/opencode/export. When that directory has no JSON, the
+database file at the data-directory root is considered instead. The
+WAL sidecar is not. A database file has no session directory, so the
+allowlist refuses it.
 
 Ruleset v1 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
@@ -82,15 +87,16 @@ func runSync(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	res, err := upload.Sync(ctx, upload.Options{
-		ServerURL:  config.ServerURL(file, serverFlag),
-		Token:      token,
-		TervaHome:  homeOf(src, protocol.HarnessTerva),
-		ClaudeHome: homeOf(src, protocol.HarnessClaude),
-		CodexHome:  homeOf(src, protocol.HarnessCodex),
-		MachineID:  m.MachineID,
-		StateDir:   state,
-		Projects:   file.Projects,
-		UploadHits: file.Redaction.UploadHits,
+		ServerURL:    config.ServerURL(file, serverFlag),
+		Token:        token,
+		TervaHome:    homeOf(src, protocol.HarnessTerva),
+		ClaudeHome:   homeOf(src, protocol.HarnessClaude),
+		CodexHome:    homeOf(src, protocol.HarnessCodex),
+		OpenCodeHome: homeOf(src, protocol.HarnessOpenCode),
+		MachineID:    m.MachineID,
+		StateDir:     state,
+		Projects:     file.Projects,
+		UploadHits:   file.Redaction.UploadHits,
 	})
 	printSync(env.stdout(), env.stderr(), "", res)
 	return err

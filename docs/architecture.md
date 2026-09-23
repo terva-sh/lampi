@@ -23,6 +23,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
 | Claude Code | `internal/adapter/claude` | `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`. Unset is `~/.claude`. Reader version pinned. Unknown keys kept |
 | Codex CLI | `internal/adapter/codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl`. Unset is `~/.codex`. `history.jsonl` is not a rollout |
+| OpenCode | `internal/adapter/opencode` | Scheduled `opencode export` JSON at `$XDG_DATA_HOME/opencode/export/**/*.json`. Unset is `~/.local/share/opencode`. When `export/` has no JSON, the database file at that root. Not the WAL |
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
@@ -90,7 +91,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/adapter` | OpenCode. Cursor is intentionally last and is not started. Claude Code and Codex are discovered and uploaded. Normalize workers still implement terva only |
+| `internal/adapter` | Cursor is intentionally last and is not started. OpenCode, Claude Code, and Codex are discovered and uploaded. Normalize workers still implement terva only |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -145,6 +146,7 @@ object.
 $TERVA_HOME/sessions/**/*.jsonl
 $CLAUDE_CONFIG_DIR/projects/**/*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
+$XDG_DATA_HOME/opencode/export/**/*.json
         |
         v
 allowlist (default deny) → ruleset v1 → quarantine on a hit
@@ -162,12 +164,14 @@ watermark commit and outbox ACK          terva-lampi serve
 ```
 
 Other harnesses are adapters behind the same manifest. terva, Claude
-Code, and Codex CLI are wired for discovery, watch, and upload. The
-Claude and Codex record shapes are internal to those packages. Each
+Code, Codex CLI, and OpenCode are wired for discovery, watch, and
+upload. OpenCode watches `export/`, not the live database. The Claude,
+Codex, and OpenCode record shapes are internal to those packages. Each
 pins a reader version on `harness_version` and keeps keys it does not
-interpret. Normalize workers still implement terva only. A Claude
-or Codex manifest is stored, and a worker sets `normalize_error` when
-the projector for that harness is not implemented. Path-based
+interpret. Normalize workers still implement terva only. A Claude,
+Codex, or OpenCode manifest is stored, and a worker sets
+`normalize_error` when the projector for that harness is not
+implemented. Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link
 by `project_id`.
@@ -208,6 +212,7 @@ internal/adapter/         harness interface
 internal/adapter/terva/   meta line, manifests
 internal/adapter/claude/  Claude Code projects/**/*.jsonl
 internal/adapter/codex/   Codex rollout-*.jsonl, not history.jsonl
+internal/adapter/opencode/ OpenCode export JSON, not the WAL
 internal/upload/          one-shot push
 internal/watch/           fsnotify, poll fallback
 internal/redact/          ruleset v1 and quarantine.jsonl

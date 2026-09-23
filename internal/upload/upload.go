@@ -43,6 +43,7 @@ import (
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/adapter/claude"
 	"terva.sh/lampi/internal/adapter/codex"
+	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/outbox"
@@ -61,12 +62,14 @@ type Options struct {
 	// ClaudeHome is the Claude Code config directory. Empty skips it.
 	ClaudeHome string
 	// CodexHome is the Codex CLI state directory. Empty skips it.
-	CodexHome  string
-	MachineID  string
-	StateDir   string
-	Client     *http.Client
-	Projects   config.Projects
-	UploadHits bool
+	CodexHome string
+	// OpenCodeHome is the OpenCode data directory. Empty skips it.
+	OpenCodeHome string
+	MachineID    string
+	StateDir     string
+	Client       *http.Client
+	Projects     config.Projects
+	UploadHits   bool
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
 	// PieceBytes sends the body as Content-Range slices of this size.
@@ -111,7 +114,7 @@ func (e *Rejected) Error() string {
 }
 
 // Sync pushes allowlisted session files for terva and, when their homes
-// are set, Claude Code and Codex.
+// are set, Claude Code, Codex, and OpenCode.
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
@@ -614,6 +617,13 @@ func bundlesFor(opt Options) ([]adapter.Bundle, error) {
 	}
 	if opt.CodexHome != "" {
 		b, err = codex.Manifests(opt.CodexHome, opt.MachineID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	if opt.OpenCodeHome != "" {
+		b, err = opencode.Manifests(opt.OpenCodeHome, opt.MachineID)
 		if err != nil {
 			return nil, err
 		}

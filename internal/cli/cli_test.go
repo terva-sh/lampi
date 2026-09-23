@@ -221,6 +221,56 @@ func TestAgentDiscover(t *testing.T) {
 	}
 }
 
+func TestAgentDiscoverOpenCode(t *testing.T) {
+	xdg := t.TempDir()
+	data := filepath.Join(xdg, "opencode")
+	if err := os.MkdirAll(filepath.Join(data, "export"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"info\":{\"id\":\"ses_1\",\"directory\":\"/work/app\"}}\n")
+	if err := os.WriteFile(filepath.Join(data, "export", "ses_1.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode.db"), []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode.db-wal"), []byte("wal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tervaHome := t.TempDir()
+	cfg := t.TempDir()
+	state := t.TempDir()
+	var out, errb bytes.Buffer
+	env := Env{
+		Stdout: &out,
+		Stderr: &errb,
+		Getenv: func(k string) string {
+			switch k {
+			case "TERVA_HOME":
+				return tervaHome
+			case "XDG_DATA_HOME":
+				return xdg
+			case "XDG_CONFIG_HOME":
+				return cfg
+			case "XDG_STATE_HOME":
+				return state
+			default:
+				return ""
+			}
+		},
+	}
+	if err := Run([]string{"agent", "discover"}, env); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "opencode\texport/ses_1.json") {
+		t.Fatalf("discover: %s", text)
+	}
+	if strings.Contains(text, "opencode.db") {
+		t.Fatalf("database or wal was listed while an export exists:\n%s", text)
+	}
+}
+
 func TestStatusHealth(t *testing.T) {
 	lake, err := api.Open(t.TempDir())
 	if err != nil {

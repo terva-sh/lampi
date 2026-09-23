@@ -146,18 +146,23 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
 }
 ```
 
-`harness` is `terva`, `claude`, or `codex`. For terva, `harness_version`
-is the producer version from the meta line when that line has one. For
-Claude Code and Codex, `harness_version` is the adapter's pinned reader
-version. The on-disk JSONL object for those two is internal to the
-adapter and is not part of this protocol. `history.jsonl` under a Codex
-home is not a session.
+`harness` is `terva`, `claude`, `codex`, or `opencode`. For terva,
+`harness_version` is the producer version from the meta line when that
+line has one. For Claude Code, Codex, and OpenCode, `harness_version`
+is the adapter's pinned reader version. The on-disk object for those
+three is internal to the adapter and is not part of this protocol.
+`history.jsonl` under a Codex home is not a session. An OpenCode
+session is one `opencode export` document under `export/`. The WAL
+sidecar next to `opencode.db` is not a session.
 
 `cwd_hash` is terva's `hex(sha256(cwd)[:8])`. It buckets a path on one
-machine. It is not a project id across machines. Claude and Codex use
-the same function so an allow rule written against that hash still
-matches. `git_remote` is origin's URL when the session cwd has a `.git`,
-and empty otherwise. `git_commit` is HEAD. `git_root` is the first
+machine. It is not a project id across machines. Claude, Codex, and
+OpenCode use the same function so an allow rule written against that
+hash still matches. OpenCode takes the cwd from `info.directory` on
+the export. A discovered database file has no directory, so the
+allowlist refuses that blob. `git_remote` is origin's URL when the
+session cwd has a `.git`, and empty otherwise. `git_commit` is HEAD.
+`git_root` is the first
 parentless commit on that HEAD's first-parent chain. `project_id` is
 the remote folded the same way as an allow rule, then `@`, then
 `git_root` in lowercase hex. `git@github.com:org/foo.git` and

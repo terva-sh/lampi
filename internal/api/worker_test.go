@@ -210,32 +210,34 @@ func TestUnimplementedHarnessRecordsNormalizeError(t *testing.T) {
 	s.Allow("sekret")
 	h := s.Handler()
 	body := []byte("{}\n")
-	sum := putBlob(t, h, "", body)
-	ack := postManifest(t, h, protocol.Manifest{
-		CaptureProtocol: protocol.Version,
-		MachineID:       "machine-a",
-		Harness:         protocol.HarnessClaude,
-		NativeSessionID: "sid-claude",
-		Artifacts: []protocol.Artifact{{
-			Kind:    protocol.KindTranscriptJSONL,
-			RelPath: "projects/x/sid-claude.jsonl",
-			Size:    int64(len(body)),
-			SHA256:  sum,
-		}},
-	})
-	if err := s.WaitNormalized(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	msg, ok, err := s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
-	if err != nil || !ok || msg == "" {
-		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
-	}
-	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(parts) != 0 {
-		t.Fatalf("parquet for an unimplemented harness: %v", parts)
+	for _, harness := range []string{protocol.HarnessClaude, protocol.HarnessOpenCode} {
+		sum := putBlob(t, h, "", body)
+		ack := postManifest(t, h, protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       "machine-a",
+			Harness:         harness,
+			NativeSessionID: "sid-" + harness,
+			Artifacts: []protocol.Artifact{{
+				Kind:    protocol.KindTranscriptJSONL,
+				RelPath: "export/sid-" + harness + ".json",
+				Size:    int64(len(body)),
+				SHA256:  sum,
+			}},
+		})
+		if err := s.WaitNormalized(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		msg, ok, err := s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
+		if err != nil || !ok || msg == "" {
+			t.Fatalf("%s normalize_error %q ok=%v err=%v", harness, msg, ok, err)
+		}
+		parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(parts) != 0 {
+			t.Fatalf("parquet for an unimplemented harness: %v", parts)
+		}
 	}
 }
 

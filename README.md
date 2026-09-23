@@ -71,16 +71,21 @@ curl -sS http://127.0.0.1:8787/healthz
 ./bin/terva-lampi status
 ```
 
-`agent discover` lists JSONL from three homes. terva is
+`agent discover` lists files from four homes. terva is
 `$TERVA_HOME/sessions` (or terva's platform default when that variable
 is unset). Claude Code is `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`, and
 when `CLAUDE_CONFIG_DIR` is unset the directory is `~/.claude` (on
 Windows, `%USERPROFILE%\.claude`). Codex is
 `$CODEX_HOME/sessions/**/rollout-*.jsonl`, and when `CODEX_HOME` is
 unset the directory is `~/.codex`. `history.jsonl` is Codex prompt
-history and is not a rollout. The JSONL record shape for Claude and
-Codex is internal to those adapters; each pins a reader version and
-keeps keys it does not interpret. `sync` pushes the files `config.json`
+history and is not a rollout. OpenCode is a scheduled `opencode export`
+at `$XDG_DATA_HOME/opencode/export/**/*.json`, and when `XDG_DATA_HOME`
+is unset the directory is `~/.local/share/opencode` (on Windows,
+`%USERPROFILE%\.local\share\opencode`). When `export/` has no JSON, the
+database file at that root is listed instead. `opencode.db-wal` is not
+read. The record shape for Claude, Codex, and OpenCode is internal to
+those adapters; each pins a reader version and keeps keys it does not
+interpret. `sync` pushes the files `config.json`
 allowlists. With no allow rule it refuses the project; the shape of
 that file is under [Off-box raw](#off-box-raw).
 A second `sync` of the same files uploads nothing. `status` prints the
@@ -310,8 +315,7 @@ manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
 as JSONL. `internal/accept` is the MVP gate for that path, and CI runs
-it with the rest of `go test ./...`. Out, on purpose: the long-running
-upload loop inside `agent`, Claude/Codex/OpenCode/Cursor. See
+it with the rest of `go test ./...`. Cursor is not started. See
 [docs/architecture.md](docs/architecture.md).
 
 ## License
