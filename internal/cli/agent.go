@@ -46,9 +46,14 @@ terva sessions are read from TERVA_HOME, then ZOT_HOME, then the platform
 default terva uses. Claude Code sessions are $CLAUDE_CONFIG_DIR/projects/**/*.jsonl,
 or ~/.claude/projects when that variable is unset. Codex rollouts are
 $CODEX_HOME/sessions/**/rollout-*.jsonl, or ~/.codex/sessions when that
-variable is unset. history.jsonl is not a Codex rollout. A missing Claude
-or Codex directory is skipped. The watcher prefers fsnotify and falls
-back to polling.
+variable is unset. history.jsonl is not a Codex rollout. OpenCode is
+a scheduled opencode export under the data directory's export/. That
+directory is $XDG_DATA_HOME/opencode, or ~/.local/share/opencode when
+that variable is unset. When export/ has no JSON, the database file at
+the data-directory root is the fallback. opencode.db-wal and
+opencode.db-shm are not read. A missing Claude, Codex, or OpenCode
+directory is skipped. The watcher prefers fsnotify and falls back
+to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
@@ -277,15 +282,16 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 		return upload.Options{}, nil, 0, err
 	}
 	return upload.Options{
-		ServerURL:  config.ServerURL(file, serverFlag),
-		Token:      token,
-		TervaHome:  homeOf(src, protocol.HarnessTerva),
-		ClaudeHome: homeOf(src, protocol.HarnessClaude),
-		CodexHome:  homeOf(src, protocol.HarnessCodex),
-		MachineID:  m.MachineID,
-		StateDir:   state,
-		Projects:   file.Projects,
-		UploadHits: file.Redaction.UploadHits,
+		ServerURL:    config.ServerURL(file, serverFlag),
+		Token:        token,
+		TervaHome:    homeOf(src, protocol.HarnessTerva),
+		ClaudeHome:   homeOf(src, protocol.HarnessClaude),
+		CodexHome:    homeOf(src, protocol.HarnessCodex),
+		OpenCodeHome: homeOf(src, protocol.HarnessOpenCode),
+		MachineID:    m.MachineID,
+		StateDir:     state,
+		Projects:     file.Projects,
+		UploadHits:   file.Redaction.UploadHits,
 	}, src, n, nil
 }
 

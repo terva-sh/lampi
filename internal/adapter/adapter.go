@@ -1,8 +1,8 @@
 // Package adapter is the seam between a harness on disk and the lake.
 //
-// terva, Claude Code, and Codex CLI are the implementations. OpenCode and
-// Cursor stay behind this interface. Cursor in particular is deliberately
-// absent: its store is undocumented SQLite.
+// terva, Claude Code, Codex CLI, and OpenCode are the implementations.
+// Cursor stays behind this interface. It is deliberately absent: its
+// store is undocumented SQLite.
 package adapter
 
 import (

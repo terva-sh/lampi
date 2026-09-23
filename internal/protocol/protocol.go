@@ -71,8 +71,8 @@ const (
 	KindErrorsJSONL = "errors_jsonl"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
-	// meta line. Normalize workers project it. Claude and Codex
-	// manifests are stored; those projectors are not implemented.
+	// meta line. Normalize workers project it. Claude, Codex, and
+	// OpenCode manifests are stored; those projectors are not implemented.
 	HarnessTerva = "terva"
 	// HarnessClaude is Claude Code. The on-disk record shape is internal
 	// to the adapter; harness_version is that adapter's pinned reader.
@@ -80,6 +80,11 @@ const (
 	// HarnessCodex is the Codex CLI. Rollouts are session JSONL. The
 	// prompt history file is not a session.
 	HarnessCodex = "codex"
+	// HarnessOpenCode is OpenCode. The ingest path is a scheduled
+	// `opencode export` document, or the database file when that
+	// directory is empty. The WAL sidecar is not a session. The
+	// projector is not implemented.
+	HarnessOpenCode = "opencode"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.

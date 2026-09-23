@@ -1096,6 +1096,111 @@ func TestSyncClaudeAndCodex(t *testing.T) {
 	}
 }
 
+func TestSyncOpenCodeExport(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	body := []byte("{\"info\":{\"id\":\"ses_1\",\"directory\":\"/work/app\",\"future_field\":true},\"messages\":[]}\n")
+	path := filepath.Join(home, "export", "ses_1.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "opencode.db"), []byte("sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "opencode.db-wal"), []byte("wal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := allowAll(srv, t.TempDir(), t.TempDir(), "/work/app")
+	opt.Client = cap.client
+	opt.OpenCodeHome = home
+	res, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Uploaded != 1 || res.Manifests != 1 || res.Refused != 0 {
+		t.Fatalf("sync %+v", res)
+	}
+	if len(cap.manifests) != 1 {
+		t.Fatalf("manifests %d", len(cap.manifests))
+	}
+	m := cap.manifests[0]
+	if m.Harness != protocol.HarnessOpenCode || m.HarnessVersion != "1" || m.NativeSessionID != "ses_1" {
+		t.Fatalf("header %+v", m)
+	}
+	if m.Project.CWD != "/work/app" {
+		t.Fatalf("cwd %q", m.Project.CWD)
+	}
+	for _, a := range m.Artifacts {
+		if a.RelPath == "opencode.db" || a.RelPath == "opencode.db-wal" {
+			t.Fatalf("read %s", a.RelPath)
+		}
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 1 {
+		t.Fatal("expected the export blob only")
+	}
+	uid, arts, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessOpenCode, "ses_1")
+	if err != nil || !ok || uid == "" || len(arts) != 1 {
+		t.Fatalf("catalog ok=%v err=%v arts=%d", ok, err, len(arts))
+	}
+	raw, err := lake.CAS.Read(arts[0].SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"future_field"`)) {
+		t.Fatalf("stored bytes dropped an unknown field: %s", raw)
+	}
+
+	cap.reset()
+	again, err := Sync(context.Background(), opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Uploaded != 0 || again.Missing != 0 || cap.puts != 0 {
+		t.Fatalf("re-sync %+v puts=%d", again, cap.puts)
+	}
+}
+
+func TestSyncOpenCodeDatabaseStaysLocal(t *testing.T) {
+	lake, data := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "opencode.db"), []byte("sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "opencode.db-wal"), []byte("wal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := allowAll(srv, t.TempDir(), t.TempDir(), "/work/app")
+	opt.OpenCodeHome = home
+	res, err := Sync(context.Background(), opt)
+	if err == nil {
+		t.Fatal("database with no cwd was uploaded")
+	}
+	if res.Uploaded != 0 || res.Refused != 1 {
+		t.Fatalf("sync %+v err=%v", res, err)
+	}
+	if !strings.Contains(err.Error(), "opencode.db") || strings.Contains(err.Error(), "opencode.db-wal") {
+		t.Fatalf("refusal: %v", err)
+	}
+	if blobCount(t, filepath.Join(data, "cas")) != 0 {
+		t.Fatal("database or wal bytes left the machine")
+	}
+	if _, _, ok, err := lake.Catalog.Current(context.Background(), protocol.HarnessOpenCode, "opencode.db"); err != nil || ok {
+		t.Fatalf("catalog session ok=%v err=%v", ok, err)
+	}
+}
+
 func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Body != nil && (req.URL.Path == "/v1/manifests" || req.Method == http.MethodPut) {
 		b, err := io.ReadAll(req.Body)

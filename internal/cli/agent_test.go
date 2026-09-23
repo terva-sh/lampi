@@ -65,6 +65,7 @@ func TestAgentSIGTERMDrainsOutbox(t *testing.T) {
 		"TERVA_HOME":         home,
 		"XDG_CONFIG_HOME":    cfg,
 		"XDG_STATE_HOME":     state,
+		"XDG_DATA_HOME":      t.TempDir(),
 		"HOME":               t.TempDir(),
 	})
 	cmd.Stdout = outFile
