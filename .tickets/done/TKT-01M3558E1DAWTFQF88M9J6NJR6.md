@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558E1DAWTFQF88M9J6NJR6
 title: Conflict dashboard for divergent_copy
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3558DHP800VABHKKFYPD4W9
 blocks_on: none
 references: []
-claim:
-  actor: agent:cursor/f860
-  branch: cursor/divergent-copy-conflicts-f860
-  worktree: /workspace
-  commit: 7b275a1883fb3751bc357bed8fb3356b7ac8917e
-  session: f860
-  claimed_at: 2026-09-23T20:15:42Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-23T20:15:48Z
+updated_at: 2026-09-23T20:22:05Z
 created_by:
   id: human:sothr
   name: Drew Short
@@ -44,8 +37,8 @@ Operator-visible listing of divergent_copy relations from the catalog.
 
 ## Acceptance criteria
 
-- [ ] An operator can list divergent_copy relations from the catalog
-- [ ] Each listed relation names its session_uid and the divergent artifact
+- [x] An operator can list divergent_copy relations from the catalog
+- [x] Each listed relation names its session_uid and the divergent artifact
 
 ## Implementation plan
 
@@ -64,3 +57,15 @@ terva-lampi conflicts prints the same rows. With no --server it reads catalog.db
 ### Left out
 
 No merge, pick, or delete. An operator inspects the row and decides elsewhere.
+
+## Summary
+
+Operators list divergent_copy rows from the catalog. Catalog.DivergentCopies reads the stored artifacts and provenance. It does not re-derive the relation from CAS bytes.
+
+terva-lampi conflicts prints the list from the lake directory. A missing catalog.db is an empty list and is not created. --server calls GET /v1/conflicts with the device token. Passing both --data and --server is an error.
+
+GET /v1/conflicts returns the same rows and uses the bearer check as the other /v1 routes. Each row names session_uid, the divergent artifact_id, harness, native session id, kind, relpath, both digests and sizes, and the machines that posted each digest.
+
+Interactive resolve is not implemented. The list does not merge copies or move the head.
+
+make ci is green. Landed on cursor/divergent-copy-conflicts-f860 as https://github.com/terva-sh/lampi/pull/24.
