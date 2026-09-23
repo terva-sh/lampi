@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558E45YCTAZET208YAAQFV
 title: Cursor CLI store.db adapter (separate corpus)
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: low
 due_on: null
@@ -21,16 +21,22 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-23T21:01:42Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: human:sothr
-  name: Drew Short
+  id: agent:cursor/e85b
+  name: Cursor cloud agent
 extensions: {}
 ---
 
 ## Description
 
 Separate from IDE corpus; do not assume sync.
+
+## Acceptance criteria
+
+- [ ] The CLI store.db corpus is separate from the IDE state.vscdb corpus
+- [ ] The adapter does not assume the CLI store is in sync with IDE state
+- [ ] This ticket depends on the IDE state.vscdb reader

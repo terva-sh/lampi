@@ -328,6 +328,61 @@ func TestAgentDiscoverOpenCode(t *testing.T) {
 	}
 }
 
+func TestAgentDiscoverCursor(t *testing.T) {
+	xdg := t.TempDir()
+	root := filepath.Join(xdg, "Cursor")
+	global := filepath.Join(root, "User", "globalStorage")
+	ws := filepath.Join(root, "User", "workspaceStorage", "ws1")
+	for _, dir := range []string{global, ws} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(global, "state.vscdb"), []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(global, "state.vscdb-wal"), []byte("wal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "state.vscdb"), []byte("db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tervaHome := t.TempDir()
+	state := t.TempDir()
+	var out, errb bytes.Buffer
+	env := Env{
+		Stdout: &out,
+		Stderr: &errb,
+		Getenv: func(k string) string {
+			switch k {
+			case "TERVA_HOME":
+				return tervaHome
+			case "XDG_CONFIG_HOME":
+				return xdg
+			case "XDG_STATE_HOME":
+				return state
+			default:
+				return ""
+			}
+		},
+	}
+	if err := Run([]string{"agent", "discover"}, env); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, rel := range []string{
+		"cursor\tUser/globalStorage/state.vscdb",
+		"cursor\tUser/workspaceStorage/ws1/state.vscdb",
+	} {
+		if !strings.Contains(text, rel) {
+			t.Fatalf("discover missing %s: %s", rel, text)
+		}
+	}
+	if strings.Contains(text, "state.vscdb-wal") || strings.Contains(text, "state.vscdb-shm") {
+		t.Fatalf("sidecar was listed:\n%s", text)
+	}
+}
+
 func TestStatusHealth(t *testing.T) {
 	lake, err := api.Open(t.TempDir())
 	if err != nil {

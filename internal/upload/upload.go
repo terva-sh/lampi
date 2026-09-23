@@ -43,6 +43,7 @@ import (
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/adapter/claude"
 	"terva.sh/lampi/internal/adapter/codex"
+	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
@@ -65,11 +66,14 @@ type Options struct {
 	CodexHome string
 	// OpenCodeHome is the OpenCode data directory. Empty skips it.
 	OpenCodeHome string
-	MachineID    string
-	StateDir     string
-	Client       *http.Client
-	Projects     config.Projects
-	UploadHits   bool
+	// CursorHome is the Cursor IDE user-data directory. Empty skips it.
+	// The CLI store.db is not read.
+	CursorHome string
+	MachineID  string
+	StateDir   string
+	Client     *http.Client
+	Projects   config.Projects
+	UploadHits bool
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
 	// PieceBytes sends the body as Content-Range slices of this size.
@@ -114,7 +118,7 @@ func (e *Rejected) Error() string {
 }
 
 // Sync pushes allowlisted session files for terva and, when their homes
-// are set, Claude Code, Codex, and OpenCode.
+// are set, Claude Code, Codex, OpenCode, and the Cursor IDE.
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
@@ -126,6 +130,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	defer cleanupBundles(bundles)
 	n := 0
 	for _, b := range bundles {
 		n += len(b.Manifests)
@@ -603,33 +608,54 @@ func requireScanned(m protocol.Manifest) error {
 
 func bundlesFor(opt Options) ([]adapter.Bundle, error) {
 	var out []adapter.Bundle
-	b, err := terva.Manifests(opt.TervaHome, opt.MachineID)
-	if err != nil {
-		return nil, err
-	}
-	out = append(out, b)
-	if opt.ClaudeHome != "" {
-		b, err = claude.Manifests(opt.ClaudeHome, opt.MachineID)
+	add := func(b adapter.Bundle, err error) error {
 		if err != nil {
-			return nil, err
+			cleanupBundles(out)
+			if b.Cleanup != nil {
+				b.Cleanup()
+			}
+			return err
 		}
 		out = append(out, b)
+		return nil
+	}
+	b, err := terva.Manifests(opt.TervaHome, opt.MachineID)
+	if err := add(b, err); err != nil {
+		return nil, err
+	}
+	if opt.ClaudeHome != "" {
+		b, err = claude.Manifests(opt.ClaudeHome, opt.MachineID)
+		if err := add(b, err); err != nil {
+			return nil, err
+		}
 	}
 	if opt.CodexHome != "" {
 		b, err = codex.Manifests(opt.CodexHome, opt.MachineID)
-		if err != nil {
+		if err := add(b, err); err != nil {
 			return nil, err
 		}
-		out = append(out, b)
 	}
 	if opt.OpenCodeHome != "" {
 		b, err = opencode.Manifests(opt.OpenCodeHome, opt.MachineID)
-		if err != nil {
+		if err := add(b, err); err != nil {
 			return nil, err
 		}
-		out = append(out, b)
+	}
+	if opt.CursorHome != "" {
+		b, err = cursor.Manifests(opt.CursorHome, opt.MachineID)
+		if err := add(b, err); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
+}
+
+func cleanupBundles(bundles []adapter.Bundle) {
+	for _, b := range bundles {
+		if b.Cleanup != nil {
+			b.Cleanup()
+		}
+	}
 }
 
 func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, root string, m protocol.Manifest, ack protocol.ManifestAck) error {

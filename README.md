@@ -306,7 +306,8 @@ default in `.tickets/config.yml`, so a write with no `--actor` uses it.
 instructions` prints the long form.
 
 Phase 0 placement, retention, and encryption are in
-[docs/policy.md](docs/policy.md). Later harness phases are still draft.
+[docs/policy.md](docs/policy.md). Phase 5 is still draft. The Cursor
+CLI store is not started.
 
 ## Status
 
@@ -320,8 +321,9 @@ manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
 as JSONL. `internal/accept` is the MVP gate for that path, and CI runs
-it with the rest of `go test ./...`. Cursor is not started. See
-[docs/architecture.md](docs/architecture.md).
+it with the rest of `go test ./...`. Cursor IDE `state.vscdb` is
+snapshotted into a filtered JSON export. The Cursor CLI store is not
+started. See [docs/architecture.md](docs/architecture.md).
 
 ## License
 

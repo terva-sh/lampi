@@ -478,14 +478,14 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid stri
 				Head:      i == head,
 			}
 		case protocol.RelationStale:
-			if snapshotArtifact(a.Kind) {
-				out[i] = Decision{Relation: protocol.RelationHead, Record: true}
+			if d, ok := snapshotDecision(a.Kind); ok {
+				out[i] = d
 				continue
 			}
 			out[i] = Decision{Relation: protocol.RelationStale}
 		default:
-			if snapshotArtifact(a.Kind) {
-				out[i] = Decision{Relation: protocol.RelationHead, Record: true}
+			if d, ok := snapshotDecision(a.Kind); ok {
+				out[i] = d
 				continue
 			}
 			out[i] = Decision{Relation: protocol.RelationDivergentCopy, Record: true}
@@ -494,18 +494,30 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid stri
 	return out, nil
 }
 
-// snapshotArtifact is a terva sidecar stored as a whole-file snapshot.
-// A raati record is written once. A task board is replaced, and that
-// file holds the archived generations. A rewrite becomes the current
-// artifact for the path. Head stays false, so the session head remains
-// the transcript.
+// snapshotArtifact is a whole-file snapshot. A raati record is written
+// once. A task board is replaced, and that file holds the archived
+// generations. A Cursor state export is replaced the same way. A raati
+// or tasks rewrite becomes the current artifact for the path and does
+// not move the session head. A Cursor export is the session, so a
+// rewrite does.
 func snapshotArtifact(kind string) bool {
 	switch kind {
-	case protocol.KindRaatiJSON, protocol.KindTasksJSON:
+	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON:
 		return true
 	default:
 		return false
 	}
+}
+
+func snapshotDecision(kind string) (Decision, bool) {
+	if !snapshotArtifact(kind) {
+		return Decision{}, false
+	}
+	return Decision{
+		Relation: protocol.RelationHead,
+		Record:   true,
+		Head:     kind == protocol.KindCursorStateJSON,
+	}, true
 }
 
 func currentDigest(ctx context.Context, tx *sql.Tx, uid, rel string) (string, bool, error) {
