@@ -1,12 +1,15 @@
 // Package terva is the reference harness adapter.
 //
 // It walks $TERVA_HOME/sessions, reads the first JSONL line when it is a
-// meta record, and builds capture-protocol manifests. Digests here are of
-// the whole file. internal/upload turns a strict append into a tail put.
-// When the session cwd still has a .git, the manifest records origin's
-// URL, HEAD, and the root commit. project_id is that remote, normalized,
-// plus the root commit. Redaction is not stamped here; upload scans the
-// bytes before they leave the machine.
+// meta record, and builds capture-protocol manifests. Optional raati
+// records and tasks archives are attached to a session that already
+// has a transcript, so they leave the machine only when that session
+// is allowlisted. Digests here are of the whole file. internal/upload turns a
+// strict append into a tail put. When the session cwd still has a .git,
+// the manifest records origin's URL, HEAD, and the root commit.
+// project_id is that remote, normalized, plus the root commit.
+// Redaction is not stamped here; upload scans the bytes before they
+// leave the machine.
 package terva
 
 import (
@@ -18,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -43,21 +45,17 @@ func (Adapter) Home(getenv func(string) string) (string, error) {
 // WatchDir is the directory under the terva home that holds JSONL.
 func (Adapter) WatchDir() string { return "sessions" }
 
+// WatchDirs is every artifact directory under the terva home. sessions
+// holds transcripts. raati and tasks are optional; a missing directory
+// is an empty tree. ext-data/tasks is the legacy board location.
+func (Adapter) WatchDirs() []string {
+	return []string{"sessions", "raati", "tasks", "ext-data/tasks"}
+}
+
 // Match reports whether rel, slash-separated from the terva home, is a
-// session file. Dotfiles are skipped. *.errors.jsonl is the sidecar.
+// session file or an optional sidecar. Dotfiles are skipped.
 func (Adapter) Match(rel string) (string, bool) {
-	rel = path.Clean(rel)
-	if rel == "." || !strings.HasPrefix(rel, "sessions/") {
-		return "", false
-	}
-	name := path.Base(rel)
-	if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".jsonl") {
-		return "", false
-	}
-	if strings.HasSuffix(name, ".errors.jsonl") {
-		return discover.KindErrors, true
-	}
-	return discover.KindTranscript, true
+	return discover.Classify(rel)
 }
 
 // Manifests implements adapter.Harness.
@@ -71,7 +69,7 @@ func (Adapter) Discover(ctx context.Context, root string) ([]adapter.Ref, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	files, err := discover.Sessions(root)
+	files, err := listFiles(root)
 	if err != nil {
 		return nil, err
 	}
@@ -122,20 +120,35 @@ type item struct {
 	sum  string
 }
 
-// Manifests groups transcripts with their error sidecars and fills
+// Manifests groups transcripts with their error sidecars and any raati
+// record or tasks archive that belongs to that session, and fills
 // protocol 1 manifests. machineID is stamped on every manifest.
 // Redaction is left empty. The upload path scans the file and stamps
-// ruleset v1 before anything is sent.
+// ruleset v1 before anything is sent. A sidecar with no session stays
+// on the machine.
 func Manifests(tervaHome, machineID string) (adapter.Bundle, error) {
 	return buildManifests(tervaHome, machineID)
 }
 
-func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
+func listFiles(tervaHome string) ([]discover.File, error) {
 	files, err := discover.Sessions(tervaHome)
+	if err != nil {
+		return nil, err
+	}
+	extra, err := discover.Sidecars(tervaHome)
+	if err != nil {
+		return nil, err
+	}
+	return append(files, extra...), nil
+}
+
+func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
+	files, err := listFiles(tervaHome)
 	if err != nil {
 		return adapter.Bundle{}, err
 	}
 	items := make([]item, 0, len(files))
+	var sidecars []item
 	for _, f := range files {
 		it := item{file: f, stem: stemOf(f.AbsPath)}
 		if f.Kind == discover.KindTranscript {
@@ -150,6 +163,10 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 			return adapter.Bundle{}, err
 		}
 		it.sum = sum
+		if f.Kind == discover.KindRaati || f.Kind == discover.KindTasks {
+			sidecars = append(sidecars, it)
+			continue
+		}
 		items = append(items, it)
 	}
 
@@ -180,6 +197,9 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 			order = append(order, key)
 		}
 		groups[key] = append(groups[key], it)
+	}
+	if err := attachSidecars(tervaHome, order, groups, sidecars); err != nil {
+		return adapter.Bundle{}, err
 	}
 
 	b := adapter.Bundle{Root: tervaHome, Paths: map[string]string{}}

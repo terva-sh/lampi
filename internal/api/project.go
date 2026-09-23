@@ -12,7 +12,8 @@ import (
 )
 
 // Project reads the session's current transcript and error blobs and
-// projects them. Workers call it. The manifest handler does not.
+// projects them. raati_json and tasks_json stay in the CAS and are
+// not events. Workers call it. The manifest handler does not.
 // Export calls it only when the derived JSONL is missing.
 // Digests are the catalog head after resolve and ingest.
 // A chunk list that fits under the object cap is the assembled blob.

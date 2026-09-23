@@ -176,8 +176,13 @@ the manifest is sent.
 
 `fork_point` is raw JSON. terva uses an index. The sketch allows null.
 
-`kind` is `transcript_jsonl` or `errors_jsonl` for the sidecar that sits
-next to a terva transcript.
+`kind` is `transcript_jsonl`, `errors_jsonl` for the sidecar that sits
+next to a terva transcript, `raati_json` for a record under `raati/`,
+or `tasks_json` for a task board under `tasks/` (the file includes
+archived generations). A raati or tasks file is an artifact of a
+session that is already being captured. Normalize projects transcripts
+and error sidecars. A rewrite of `raati_json` or `tasks_json` replaces
+the current artifact for that path and does not move the session head.
 
 `sha256` is always the full file. `chunk_sha256s` lists the CAS objects
 that concatenate to it, in order. Null means the file was one PUT.

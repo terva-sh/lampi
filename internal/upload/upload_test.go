@@ -24,6 +24,97 @@ import (
 	"terva.sh/lampi/internal/watermark"
 )
 
+func TestSyncSidecarsFollowAllowlist(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+	id := "11111111-2222-3333-4444-555555555555"
+
+	home := t.TempDir()
+	writeSession(t, home, "abcd", "s.jsonl", []byte("{\"type\":\"meta\",\"meta\":{\"id\":\""+id+"\",\"cwd\":\"/work/app\"}}\n"))
+	mustFile(t, filepath.Join(home, "tasks", "tasks-"+id+".json"), `{"tasks":[{"title":"open"}]}`)
+	mustFile(t, filepath.Join(home, "tasks", "tasks-orphan.json"), `{"tasks":[{"title":"nope"}]}`)
+	mustFile(t, filepath.Join(home, "raati", "raati-10.json"), `{"units":[{"agent_id":"seat-1"}]}`)
+	mustFile(t, filepath.Join(home, "swarm", "agents", "seat-1", "meta.json"), `{"session_id":"`+id+`","origin":"/work/app"}`)
+
+	opt := allowAll(srv, home, t.TempDir(), "/work/app")
+	res, err := Sync(ctx, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Manifests != 1 || res.Uploaded != 3 {
+		t.Fatalf("sync: %+v", res)
+	}
+	_, arts, ok, err := lake.Catalog.Current(ctx, protocol.HarnessTerva, id)
+	if err != nil || !ok {
+		t.Fatalf("current %v %v", ok, err)
+	}
+	kinds := map[string]string{}
+	var transcript string
+	for _, a := range arts {
+		kinds[a.RelPath] = a.SHA256
+		if a.Kind == protocol.KindTranscriptJSONL {
+			transcript = a.SHA256
+		}
+		if strings.Contains(a.RelPath, "orphan") {
+			t.Fatalf("orphan uploaded: %s", a.RelPath)
+		}
+	}
+	if kinds["tasks/tasks-"+id+".json"] == "" || kinds["raati/raati-10.json"] == "" || transcript == "" {
+		t.Fatalf("artifacts: %+v", kinds)
+	}
+
+	rewritten := `{"tasks":[],"generations":[{"seq":1}]}`
+	mustFile(t, filepath.Join(home, "tasks", "tasks-"+id+".json"), rewritten)
+	again, err := Sync(ctx, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Manifests != 1 {
+		t.Fatalf("rewrite: %+v", again)
+	}
+	_, arts, ok, err = lake.Catalog.Current(ctx, protocol.HarnessTerva, id)
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(rewritten))
+	want := hex.EncodeToString(sum[:])
+	for _, a := range arts {
+		if a.Kind == protocol.KindTranscriptJSONL && a.SHA256 != transcript {
+			t.Fatalf("transcript head moved to %s", a.SHA256)
+		}
+		if a.RelPath == "tasks/tasks-"+id+".json" && a.SHA256 != want {
+			t.Fatalf("tasks current %s", a.SHA256)
+		}
+	}
+
+	denied := t.TempDir()
+	secret := "22222222-3333-4444-5555-666666666666"
+	writeSession(t, denied, "zzzz", "s.jsonl", []byte("{\"type\":\"meta\",\"meta\":{\"id\":\""+secret+"\",\"cwd\":\"/secret\"}}\n"))
+	mustFile(t, filepath.Join(denied, "tasks", "tasks-"+secret+".json"), `{"tasks":[{"title":"hidden"}]}`)
+	mustFile(t, filepath.Join(denied, "raati", "raati-11.json"), `{"units":[{"agent_id":"seat-2"}]}`)
+	mustFile(t, filepath.Join(denied, "swarm", "agents", "seat-2", "meta.json"), `{"session_id":"`+secret+`","origin":"/secret"}`)
+	opt.TervaHome = denied
+	opt.StateDir = t.TempDir()
+	if _, err := Sync(ctx, opt); err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+		t.Fatalf("denied sync: %v", err)
+	}
+	if _, _, ok, err := lake.Catalog.Current(ctx, protocol.HarnessTerva, secret); err != nil || ok {
+		t.Fatalf("denied session stored: %v %v", ok, err)
+	}
+}
+
+func mustFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSyncIdempotentThenGrowth(t *testing.T) {
 	lake, data := openLake(t)
 	srv := httptest.NewServer(lake.Handler())

@@ -48,3 +48,11 @@ type Harness interface {
 	ReadSlice(ctx context.Context, absPath string, offset int64) (io.ReadCloser, error)
 	Manifests(root, machineID string) (Bundle, error)
 }
+
+// WatchRoots is the optional extension for a harness whose artifacts
+// are not all under WatchDir. Each string is a directory under Home.
+// The agent starts one watcher per directory. A missing directory is
+// an empty tree.
+type WatchRoots interface {
+	WatchDirs() []string
+}

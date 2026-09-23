@@ -43,7 +43,11 @@ usage:
   terva-lampi agent status       local identity, outbox, watermarks, and last sync
 
 terva sessions are read from TERVA_HOME, then ZOT_HOME, then the platform
-default terva uses. Claude Code sessions are $CLAUDE_CONFIG_DIR/projects/**/*.jsonl,
+default terva uses. Optional sidecars in that home are
+raati/raati-<nanos>.json and tasks/tasks-<session-id>.json, plus the
+legacy ext-data/tasks tree. A missing directory is skipped. A sidecar
+uploads only with a session the allowlist already permits. Claude Code
+sessions are $CLAUDE_CONFIG_DIR/projects/**/*.jsonl,
 or ~/.claude/projects when that variable is unset. Codex rollouts are
 $CODEX_HOME/sessions/**/rollout-*.jsonl, or ~/.codex/sessions when that
 variable is unset. history.jsonl is not a Codex rollout. OpenCode is
@@ -313,11 +317,15 @@ func startWatches(src []source, on func(watch.Change)) []*watch.Watcher {
 		if !s.watch() {
 			continue
 		}
-		out = append(out, &watch.Watcher{
-			Root:     s.home,
-			Layout:   s.layout(),
-			OnChange: on,
-		})
+		for _, dir := range s.watchDirs() {
+			layout := s.layout()
+			layout.Dir = dir
+			out = append(out, &watch.Watcher{
+				Root:     s.home,
+				Layout:   layout,
+				OnChange: on,
+			})
+		}
 	}
 	return out
 }

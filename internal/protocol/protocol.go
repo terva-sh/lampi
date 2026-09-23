@@ -69,6 +69,12 @@ const (
 	KindTranscriptJSONL = "transcript_jsonl"
 	// KindErrorsJSONL is a terva error sidecar sitting next to a transcript.
 	KindErrorsJSONL = "errors_jsonl"
+	// KindRaatiJSON is a terva deliberation record under raati/.
+	// It is a snapshot, not an append-only transcript.
+	KindRaatiJSON = "raati_json"
+	// KindTasksJSON is a terva task board under tasks/, including the
+	// archived generations stored in that file. It is a snapshot.
+	KindTasksJSON = "tasks_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
 	// meta line. Normalize workers project it. Claude, Codex, and

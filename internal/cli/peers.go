@@ -54,6 +54,17 @@ func (s source) layout() watch.Layout {
 	return watch.Layout{Dir: s.harness.WatchDir(), Match: s.harness.Match}
 }
 
+// watchDirs is every directory under the harness home that holds
+// artifacts. A harness with one tree returns WatchDir.
+func (s source) watchDirs() []string {
+	if roots, ok := s.harness.(adapter.WatchRoots); ok {
+		if dirs := roots.WatchDirs(); len(dirs) > 0 {
+			return dirs
+		}
+	}
+	return []string{s.harness.WatchDir()}
+}
+
 // watch reports whether Run should be started. A missing optional home
 // is not an error: that harness is not installed. A missing terva home
 // is still started so the watcher reports it.
