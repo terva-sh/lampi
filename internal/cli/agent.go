@@ -59,6 +59,9 @@ is not retried. SIGTERM or interrupt drains the outbox best-effort and
 exits. On Unix, SIGUSR1 asks for a sync now. The filesystem watch is
 still the source of truth; the signal only skips the wait. While the
 daemon runs it writes agent.pid in the state directory.
+hooks/terva-post-tool-enqueue.sh can send that signal from a terva
+post_tool_use hook. It is optional, and make build does not install
+it.
 
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then

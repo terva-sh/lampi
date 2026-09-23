@@ -2,6 +2,8 @@
 
 These files are examples. `make build` does not install them. Copy the
 ones you want, and point them at the `terva-lampi` binary you built.
+The hook at the bottom is supported and optional. Nothing installs it
+either. The [Hook](#hook) section is how to wire it.
 
 Phase 0 places the lake on a small VPS.
 [docs/policy.md](../docs/policy.md) is that decision: TLS in front of
@@ -72,8 +74,90 @@ deploy/install-lampi-alias.sh --bin "$PWD/bin/terva-lampi"
 
 ## Hook
 
-`hooks/terva-post-tool-enqueue.sh` is an example terva `post_tool_use`
-command. It is not installed. It reads `agent.pid` from the state
-directory and sends `SIGUSR1` only when that pid's command line is
-`terva-lampi`. If the agent is not running, the script exits 0. The
-directory watch uploads the bytes later.
+`hooks/terva-post-tool-enqueue.sh` is a supported optional acceleration
+for terva `post_tool_use`. `make build` does not install it. Wire it
+when you want a running agent to sync at the end of a tool call
+instead of waiting for the next filesystem event.
+
+The filesystem watch remains the source of truth. The script does not
+upload, and it does not wait for a sync to finish. If it never runs,
+the watch still uploads while `terva-lampi agent` is up. If the agent
+is down, the bytes wait on disk and the next agent start syncs them.
+A nudge can also land before terva has flushed the new session lines.
+The watch uploads that write when it lands.
+
+### What the script does
+
+On Unix, a running agent writes `agent.pid` in the state directory and
+treats `SIGUSR1` as "sync now". The state directory is
+`$XDG_STATE_HOME/terva-lampi/`, or `~/.local/state/terva-lampi/` when
+that variable is unset. The script reads the pid and sends the signal
+only when that process is the `terva-lampi` executable.
+
+On Linux the check is `/proc/<pid>/exe`, including when the binary was
+replaced and the link reads `terva-lampi (deleted)`. An agent started
+through the optional `lampi` symlink is recognized when that symlink
+points at `terva-lampi`. A process whose arguments only mention the
+name is not signalled. On other Unix there is no `/proc`, so the
+invoked command's basename must be `terva-lampi`, which is how the
+launchd unit starts the agent. The `lampi` name is not treated as the
+agent there.
+
+There is no Windows hook. `SIGUSR1` is the Unix nudge. The watch is
+the path on every platform.
+
+Every path exits 0: missing pid file, a pid file that is not a number,
+a pid that is not running, a pid that is not `terva-lampi`, a signal
+that cannot be delivered, and a signal that was sent. A missing agent
+does not fail the tool call. The script writes a one-line note on
+stderr. terva ignores post-hook stdout and records a post hook only
+when it exits non-zero or times out, so a quiet miss stays out of the
+session. Run the script yourself when you want to see the note:
+
+```bash
+sh hooks/terva-post-tool-enqueue.sh
+```
+
+The hook inherits the environment of the terva process, not the
+agent's systemd `EnvironmentFile`. `XDG_STATE_HOME` has to be the one
+the agent used when it wrote `agent.pid`. If they differ, the script
+does not see the pid file, exits 0, and the watch still uploads.
+
+### Wiring
+
+Put the hook in the terva **user** config, `$TERVA_HOME/config.json`.
+When `TERVA_HOME` is unset, that file is `~/.local/state/terva/config.json`
+on Linux and `~/Library/Application Support/terva/config.json` on
+macOS. A project's `.terva/config.json` can add hooks only in a
+trusted workspace, and those hooks are appended to yours. The user
+file is the one that runs for every session.
+
+`command` is an absolute path. terva does not expand `~`. Copying the
+script off this checkout is optional; do it when the hook should keep
+working after the tree is gone.
+
+```bash
+install -m 0755 hooks/terva-post-tool-enqueue.sh ~/.local/bin/terva-post-tool-enqueue.sh
+```
+
+Add a `post_tool_use` entry beside whatever else the file already
+holds. Leave `tools` unset to nudge after every tool. The script does
+not read the tool event. terva's default post-hook timeout is 30
+seconds; this script returns immediately, so you do not need
+`timeout_ms`.
+
+```json
+{
+  "hooks": {
+    "post_tool_use": [
+      {
+        "command": "/home/me/.local/bin/terva-post-tool-enqueue.sh"
+      }
+    ]
+  }
+}
+```
+
+Start terva again after editing the file. Restart `terva-lampi agent`
+when you change the lake URL, the token path, or the allowlist. The
+hook does not reload those.

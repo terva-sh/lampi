@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func repoRoot(t *testing.T) string {
@@ -118,6 +120,248 @@ func TestHookDoesNotSignalAForeignPID(t *testing.T) {
 	if strings.Contains(text, "asked the agent to sync") {
 		t.Fatalf("hook signalled a foreign pid:\n%s", text)
 	}
+}
+
+func TestHookLeavesABadPIDFile(t *testing.T) {
+	state := t.TempDir()
+	writeHookPID(t, state, "nope\n")
+	out, code := runHook(t, state)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "not a pid") {
+		t.Fatalf("output:\n%s", out)
+	}
+	if strings.Contains(out, "asked the agent to sync") {
+		t.Fatalf("hook signalled a bad pid:\n%s", out)
+	}
+}
+
+func TestHookLeavesADeadPID(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pid signalling is Unix")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sleep, "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	state := t.TempDir()
+	writeHookPID(t, state, strconv.Itoa(pid)+"\n")
+	out, code := runHook(t, state)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "not running") {
+		t.Fatalf("output:\n%s", out)
+	}
+	if strings.Contains(out, "asked the agent to sync") {
+		t.Fatalf("hook signalled a dead pid:\n%s", out)
+	}
+}
+
+func TestHookSignalsTervaLampi(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("SIGUSR1 hook is Unix")
+	}
+	cmd, _ := startCopiedSleep(t, "terva-lampi")
+	exited := watchExit(t, cmd)
+	state := t.TempDir()
+	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
+	out, code := runHook(t, state)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "asked the agent to sync") {
+		t.Fatalf("output:\n%s", out)
+	}
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("terva-lampi stand-in still running; hook did not signal")
+	}
+}
+
+func TestHookSignalsReplacedTervaLampi(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("replaced binaries keep a (deleted) /proc exe link")
+	}
+	cmd, bin := startCopiedSleep(t, "terva-lampi")
+	exited := watchExit(t, cmd)
+	if err := os.Remove(bin); err != nil {
+		t.Fatal(err)
+	}
+	state := t.TempDir()
+	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
+	out, code := runHook(t, state)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "asked the agent to sync") {
+		t.Fatalf("output:\n%s", out)
+	}
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("replaced terva-lampi stand-in still running; hook did not signal")
+	}
+}
+
+func TestHookSignalsLampiSymlinkOnLinux(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc/pid/exe distinguishes the lampi symlink")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	real := filepath.Join(dir, "terva-lampi")
+	copyExecutable(t, sleep, real)
+	link := filepath.Join(dir, "lampi")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(link, "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := watchExit(t, cmd)
+	state := t.TempDir()
+	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
+	out, code := runHook(t, state)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "asked the agent to sync") {
+		t.Fatalf("output:\n%s", out)
+	}
+	select {
+	case <-exited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("lampi symlink stand-in still running; hook did not signal")
+	}
+}
+
+func TestHookDoesNotSignalACommandThatOnlyMentionsTheName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("pid signalling is Unix")
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sleep, "30")
+	cmd.Args = []string{"editor bin/terva-lampi", "30"}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := watchExit(t, cmd)
+	state := t.TempDir()
+	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
+	out, code := runHook(t, state)
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "not terva-lampi") {
+		t.Fatalf("output:\n%s", out)
+	}
+	if strings.Contains(out, "asked the agent to sync") {
+		t.Fatalf("hook signalled a foreign command:\n%s", out)
+	}
+	select {
+	case <-exited:
+		t.Fatal("hook signalled a process that only mentions terva-lampi")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func writeHookPID(t *testing.T, state, body string) {
+	t.Helper()
+	dir := filepath.Join(state, "terva-lampi")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent.pid"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runHook(t *testing.T, state string) (string, int) {
+	t.Helper()
+	script := filepath.Join(repoRoot(t), "hooks", "terva-post-tool-enqueue.sh")
+	cmd := exec.Command("sh", script)
+	cmd.Env = []string{
+		"HOME=" + t.TempDir(),
+		"XDG_STATE_HOME=" + state,
+		"PATH=/usr/bin:/bin",
+	}
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if err != nil {
+		exit, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatal(err)
+		}
+		code = exit.ExitCode()
+	}
+	return string(out), code
+}
+
+func copyExecutable(t *testing.T, src, dst string) {
+	t.Helper()
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func startCopiedSleep(t *testing.T, name string) (*exec.Cmd, string) {
+	t.Helper()
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), name)
+	copyExecutable(t, sleep, bin)
+	cmd := exec.Command(bin, "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd, bin
+}
+
+func watchExit(t *testing.T, cmd *exec.Cmd) <-chan struct{} {
+	t.Helper()
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-exited
+	})
+	return exited
 }
 
 func runAlias(t *testing.T, script, bin, dest string, want int) string {

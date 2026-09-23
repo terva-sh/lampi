@@ -196,6 +196,12 @@ tries the path once more so a push that was in flight can finish. On
 Unix, SIGUSR1 asks a running agent to sync. The process writes
 `agent.pid` in the state directory while it runs. The directory watch
 is still the source of truth.
+[hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh)
+is the optional terva `post_tool_use` acceleration that sends that
+signal. `make build` does not install it.
+[deploy/README.md](deploy/README.md) is how to wire it. If the hook
+never runs, the watch still uploads, and a down agent uploads on its
+next start.
 
 ## Packaging examples
 
@@ -211,7 +217,7 @@ machine that should upload there. Do not put that hostname in this tree.
 | [deploy/systemd/](deploy/systemd/) | User service for `terva-lampi agent`, plus an env file for the server URL and token path |
 | [deploy/launchd/](deploy/launchd/) | launchd agent with the same placeholders |
 | [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
-| [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Example `post_tool_use` hook. Signals the agent pid. The watch still uploads if the agent is down |
+| [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Supported optional `post_tool_use` acceleration. Sends SIGUSR1 to a running `terva-lampi`. Not installed by `make build`. The watch still uploads if the hook never runs |
 
 `terva-lampi agent` reads `LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the
 matching flags are unset. A flag wins, then the environment, then
@@ -251,7 +257,7 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
 | [docs/policy.md](docs/policy.md) | Phase 0: VPS host, retention, encryption, allowlist, machines |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
-| [deploy/README.md](deploy/README.md) | Example units, the optional `lampi` alias, the hook |
+| [deploy/README.md](deploy/README.md) | Example units, the optional `lampi` alias, the optional `post_tool_use` hook |
 | [.tickets/epics.md](.tickets/epics.md) | Open epics. Generated; `git ticket check --fix` rewrites it |
 
 ## Work tracking
