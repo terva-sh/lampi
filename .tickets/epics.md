@@ -6,4 +6,4 @@ tickets, and the next fix pass overwrites it.
 
 | Epic | Title | Status |
 |---|---|---|
-| [TKT-01M3558E4TN25NXXB0XP127RVK](draft/TKT-01M3558E4TN25NXXB0XP127RVK.md) | Phase 5 training export | draft |
+| [TKT-01M3558E4TN25NXXB0XP127RVK](tickets/TKT-01M3558E4TN25NXXB0XP127RVK.md) | Phase 5 training export | ready |
