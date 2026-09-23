@@ -144,11 +144,20 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
 }
 ```
 
+`harness` is `terva`, `claude`, or `codex`. For terva, `harness_version`
+is the producer version from the meta line when that line has one. For
+Claude Code and Codex, `harness_version` is the adapter's pinned reader
+version. The on-disk JSONL object for those two is internal to the
+adapter and is not part of this protocol. `history.jsonl` under a Codex
+home is not a session.
+
 `cwd_hash` is terva's `hex(sha256(cwd)[:8])`. It buckets a path on one
-machine. It is not a project id across machines. `git_remote` is origin's
-URL when the session cwd has a `.git`, and empty otherwise. Folding that
-into a project id across machines is later work. The client allowlist
-matches the cwd, this hash, or the remote before the manifest is sent.
+machine. It is not a project id across machines. Claude and Codex use
+the same function so an allow rule written against that hash still
+matches. `git_remote` is origin's URL when the session cwd has a `.git`,
+and empty otherwise. Folding that into a project id across machines is
+later work. The client allowlist matches the cwd, this hash, or the
+remote before the manifest is sent.
 
 `fork_point` is raw JSON. terva uses an index. The sketch allows null.
 

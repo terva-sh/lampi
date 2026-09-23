@@ -1,7 +1,8 @@
 // Package discover finds terva session files on disk.
 //
-// It does not parse them. The terva adapter owns the meta line. Other
-// harnesses get their own packages later; they do not grow this one.
+// It does not parse them. The terva adapter owns the meta line. Claude
+// Code and Codex keep their own trees under internal/adapter; they do
+// not grow this package.
 package discover
 
 import (

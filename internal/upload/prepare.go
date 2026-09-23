@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"terva.sh/lampi/internal/adapter/terva"
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
@@ -23,6 +23,7 @@ import (
 // the file grew by append, otherwise the full-file hash. full keeps
 // the whole file so a tail the lake rejects can be sent as one blob.
 type prepared struct {
+	root     string
 	manifest protocol.Manifest
 	bodies   map[string][]byte
 	full     map[string][]byte
@@ -30,7 +31,31 @@ type prepared struct {
 
 // prepare is the local half of the pipeline: allowlist, ruleset v1,
 // watermark plan, outbox. It does not dial the lake.
-func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundle terva.Bundle) ([]prepared, Result, error) {
+func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle) ([]prepared, Result, error) {
+	var res Result
+	var reasons []string
+	var work []prepared
+	for _, bundle := range bundles {
+		part, resPart, err := prepareBundle(ctx, opt, wm, q, bundle)
+		res.Checked += resPart.Checked
+		res.Refused += resPart.Refused
+		res.Quarantined += resPart.Quarantined
+		work = append(work, part...)
+		if err != nil {
+			if r, ok := err.(*Rejected); ok {
+				reasons = append(reasons, r.Reasons...)
+				continue
+			}
+			return nil, res, err
+		}
+	}
+	if len(reasons) == 0 {
+		return work, res, nil
+	}
+	return work, res, &Rejected{Reasons: reasons}
+}
+
+func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundle adapter.Bundle) ([]prepared, Result, error) {
 	var res Result
 	var reasons []string
 	var work []prepared
@@ -47,7 +72,7 @@ func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, b
 				"%s: not allowlisted for off-box raw (cwd %q, cwd_hash %q, git_remote %q)",
 				rel, m.Project.CWD, m.Project.CWDHash, m.Project.GitRemote,
 			))
-			if err := dropPending(ctx, opt, q, m); err != nil {
+			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
 				return nil, res, err
 			}
 			continue
@@ -62,12 +87,12 @@ func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, b
 		if hit != nil {
 			res.Quarantined++
 			reasons = append(reasons, hit.Error())
-			if err := dropPending(ctx, opt, q, m); err != nil {
+			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
 				return nil, res, err
 			}
 			continue
 		}
-		item := prepared{manifest: next, bodies: bodies, full: full}
+		item := prepared{root: bundle.Root, manifest: next, bodies: bodies, full: full}
 		if err := enqueue(ctx, opt, q, item); err != nil {
 			return nil, res, err
 		}
@@ -94,7 +119,7 @@ func (h *quarantineHit) Error() string {
 		h.rel, h.hits, word, strings.Join(h.rules, ", "))
 }
 
-func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terva.Bundle, m protocol.Manifest) (protocol.Manifest, map[string][]byte, map[string][]byte, *quarantineHit, error) {
+func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adapter.Bundle, m protocol.Manifest) (protocol.Manifest, map[string][]byte, map[string][]byte, *quarantineHit, error) {
 	next := m
 	next.Artifacts = make([]protocol.Artifact, 0, len(m.Artifacts))
 	bodies := make(map[string][]byte, len(m.Artifacts))
@@ -139,7 +164,7 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terv
 			}
 			continue
 		}
-		art, blob, hold, err := stamp(ctx, opt, wm, a, body, scan)
+		art, blob, hold, err := stamp(ctx, opt, wm, bundle.Root, m.Harness, a, body, scan)
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
@@ -156,13 +181,13 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle terv
 	return next, bodies, full, nil, nil
 }
 
-func stamp(ctx context.Context, opt Options, wm *watermark.DB, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, bool, error) {
+func stamp(ctx context.Context, opt Options, wm *watermark.DB, root, harness string, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, bool, error) {
 	sum := sha256.Sum256(body)
 	digest := hex.EncodeToString(sum[:])
 	key := watermark.Mark{
 		MachineID: opt.MachineID,
-		Harness:   protocol.HarnessTerva,
-		Root:      opt.TervaHome,
+		Harness:   harness,
+		Root:      root,
 		RelPath:   a.RelPath,
 	}
 	mark, ok, err := wm.Get(ctx, key)
@@ -253,7 +278,7 @@ func enqueue(ctx context.Context, opt Options, q *outbox.DB, item prepared) erro
 	}
 	for _, a := range item.manifest.Artifacts {
 		if err := q.Enqueue(ctx, outbox.Item{
-			Identity: blobIdentity(opt.MachineID, opt.TervaHome, a.RelPath),
+			Identity: blobIdentity(opt.MachineID, item.root, a.RelPath),
 			Digest:   putDigest(a),
 			Version:  ver,
 		}); err != nil {
@@ -261,20 +286,20 @@ func enqueue(ctx context.Context, opt Options, q *outbox.DB, item prepared) erro
 		}
 	}
 	return q.Enqueue(ctx, outbox.Item{
-		Identity: manifestIdentity(opt.MachineID, item.manifest.NativeSessionID),
+		Identity: manifestIdentity(opt.MachineID, item.manifest.Harness, item.manifest.NativeSessionID),
 		Digest:   headDigest(item.manifest),
 		Manifest: raw,
 		Version:  ver,
 	})
 }
 
-func dropPending(ctx context.Context, opt Options, q *outbox.DB, m protocol.Manifest) error {
+func dropPending(ctx context.Context, opt Options, q *outbox.DB, root string, m protocol.Manifest) error {
 	for _, a := range m.Artifacts {
-		if err := q.Ack(ctx, outbox.Item{Identity: blobIdentity(opt.MachineID, opt.TervaHome, a.RelPath)}); err != nil {
+		if err := q.Ack(ctx, outbox.Item{Identity: blobIdentity(opt.MachineID, root, a.RelPath)}); err != nil {
 			return err
 		}
 	}
-	return q.Ack(ctx, outbox.Item{Identity: manifestIdentity(opt.MachineID, m.NativeSessionID)})
+	return q.Ack(ctx, outbox.Item{Identity: manifestIdentity(opt.MachineID, m.Harness, m.NativeSessionID)})
 }
 
 func sessionRel(m protocol.Manifest) string {
@@ -305,6 +330,6 @@ func blobIdentity(machine, root, rel string) string {
 	return "blob:" + machine + ":" + root + ":" + rel
 }
 
-func manifestIdentity(machine, native string) string {
-	return "manifest:" + machine + ":" + native
+func manifestIdentity(machine, harness, native string) string {
+	return "manifest:" + machine + ":" + harness + ":" + native
 }

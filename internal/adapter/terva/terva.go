@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -33,6 +34,36 @@ var _ adapter.Harness = Adapter{}
 
 // Name is the harness string written into manifests.
 func (Adapter) Name() string { return protocol.HarnessTerva }
+
+// Home resolves the producer directory this machine's terva writes.
+func (Adapter) Home(getenv func(string) string) (string, error) {
+	return discover.TervaHome(getenv)
+}
+
+// WatchDir is the directory under the terva home that holds JSONL.
+func (Adapter) WatchDir() string { return "sessions" }
+
+// Match reports whether rel, slash-separated from the terva home, is a
+// session file. Dotfiles are skipped. *.errors.jsonl is the sidecar.
+func (Adapter) Match(rel string) (string, bool) {
+	rel = path.Clean(rel)
+	if rel == "." || !strings.HasPrefix(rel, "sessions/") {
+		return "", false
+	}
+	name := path.Base(rel)
+	if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".jsonl") {
+		return "", false
+	}
+	if strings.HasSuffix(name, ".errors.jsonl") {
+		return discover.KindErrors, true
+	}
+	return discover.KindTranscript, true
+}
+
+// Manifests implements adapter.Harness.
+func (Adapter) Manifests(root, machineID string) (adapter.Bundle, error) {
+	return buildManifests(root, machineID)
+}
 
 // Discover lists session files. root is a terva home, not the sessions
 // directory itself.
@@ -76,14 +107,6 @@ func (Adapter) ReadSlice(ctx context.Context, absPath string, offset int64) (io.
 	return f, nil
 }
 
-// Bundle is a set of manifests plus the local path for each digest the
-// client still has to PUT. Two files with the same bytes share one path;
-// either file's bytes satisfy the put.
-type Bundle struct {
-	Manifests []protocol.Manifest
-	Paths     map[string]string
-}
-
 type meta struct {
 	ok        bool
 	id        string
@@ -103,10 +126,14 @@ type item struct {
 // protocol 1 manifests. machineID is stamped on every manifest.
 // Redaction is left empty. The upload path scans the file and stamps
 // ruleset v1 before anything is sent.
-func Manifests(tervaHome, machineID string) (Bundle, error) {
+func Manifests(tervaHome, machineID string) (adapter.Bundle, error) {
+	return buildManifests(tervaHome, machineID)
+}
+
+func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 	files, err := discover.Sessions(tervaHome)
 	if err != nil {
-		return Bundle{}, err
+		return adapter.Bundle{}, err
 	}
 	items := make([]item, 0, len(files))
 	for _, f := range files {
@@ -114,13 +141,13 @@ func Manifests(tervaHome, machineID string) (Bundle, error) {
 		if f.Kind == discover.KindTranscript {
 			m, err := readMeta(f.AbsPath)
 			if err != nil {
-				return Bundle{}, fmt.Errorf("terva: %s: %w", f.RelPath, err)
+				return adapter.Bundle{}, fmt.Errorf("terva: %s: %w", f.RelPath, err)
 			}
 			it.meta = m
 		}
 		sum, err := hashFile(f.AbsPath)
 		if err != nil {
-			return Bundle{}, err
+			return adapter.Bundle{}, err
 		}
 		it.sum = sum
 		items = append(items, it)
@@ -155,7 +182,7 @@ func Manifests(tervaHome, machineID string) (Bundle, error) {
 		groups[key] = append(groups[key], it)
 	}
 
-	b := Bundle{Paths: map[string]string{}}
+	b := adapter.Bundle{Root: tervaHome, Paths: map[string]string{}}
 	for _, key := range order {
 		group := groups[key]
 		native := nativeID(group)
@@ -290,9 +317,5 @@ func hashFile(path string) (string, error) {
 // path string is the input, so the same repo in two directories does not
 // share a hash. That is terva's behavior, preserved on purpose.
 func CWDHash(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(cwd))
-	return hex.EncodeToString(sum[:8])
+	return adapter.CWDHash(cwd)
 }

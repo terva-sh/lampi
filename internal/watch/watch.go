@@ -1,9 +1,10 @@
-// Package watch observes terva session files as they grow.
+// Package watch observes harness session files as they grow.
 //
-// The producer writes append-only JSONL under $TERVA_HOME/sessions,
+// The default layout is terva: append-only JSONL under $TERVA_HOME/sessions,
 // including swarm and subagent files nested further down, and an optional
-// *.errors.jsonl sidecar beside a transcript. This package walks that
-// tree. fsnotify is the preferred backend. A poll of the same walk is the
+// *.errors.jsonl sidecar beside a transcript. Layout selects another
+// harness tree, such as Claude Code's projects/ or Codex's sessions/.
+// fsnotify is the preferred backend. A poll of the same walk is the
 // fallback when fsnotify cannot be opened, and when ForcePoll is set
 // (network filesystems, tests).
 //
@@ -28,8 +29,20 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/discover"
 )
+
+// Layout selects which files under Root are artifacts. The zero value
+// watches Root/sessions the way terva lays files out, including
+// *.errors.jsonl unless SkipErrors is set.
+type Layout struct {
+	// Dir is the directory under Root. Empty means sessions.
+	Dir string
+	// Match classifies a slash path relative to Root. Nil uses the
+	// terva rule on the base name.
+	Match func(rel string) (kind string, ok bool)
+}
 
 const (
 	// OpCreate is a file that was not in the tree at the last observation.
@@ -70,7 +83,10 @@ type Watcher struct {
 	// ForcePoll skips fsnotify.
 	ForcePoll bool
 	// SkipErrors leaves *.errors.jsonl untracked. The default is to track them.
+	// It applies to the terva layout. Layout.Match is the authority when set.
 	SkipErrors bool
+	// Layout is the harness tree. The zero value is terva's sessions directory.
+	Layout Layout
 
 	ready   chan struct{}
 	mu      sync.Mutex
@@ -187,7 +203,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			fsw.Close()
 			return fmt.Errorf("watch: %w", err)
 		}
-		if err := addTree(fsw, filepath.Join(w.Root, "sessions")); err != nil {
+		if err := addTree(fsw, filepath.Join(w.Root, w.subdir())); err != nil {
 			fsw.Close()
 			return err
 		}
@@ -222,8 +238,54 @@ func (w *Watcher) setMode(mode string) {
 	w.mu.Unlock()
 }
 
+func (w *Watcher) subdir() string {
+	if w.Layout.Dir != "" {
+		return w.Layout.Dir
+	}
+	return "sessions"
+}
+
+func (w *Watcher) list() ([]discover.File, error) {
+	if w.Layout.Match == nil {
+		return discover.Sessions(w.Root)
+	}
+	refs, err := adapter.Walk(w.Root, w.subdir(), w.Layout.Match)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]discover.File, len(refs))
+	for i, r := range refs {
+		out[i] = discover.File{
+			AbsPath: r.AbsPath,
+			RelPath: r.RelPath,
+			Size:    r.Size,
+			ModTime: r.ModTime,
+			Kind:    r.Kind,
+		}
+	}
+	return out, nil
+}
+
+// classifyPath reports whether path is an artifact. rel is slash-separated
+// from Root. A path outside the layout directory is not.
+func (w *Watcher) classifyPath(path string) (rel, kind string, ok bool) {
+	if !inTree(w.Root, w.subdir(), path) {
+		return "", "", false
+	}
+	rel, err := relPath(w.Root, path)
+	if err != nil {
+		return "", "", false
+	}
+	if w.Layout.Match != nil {
+		kind, ok = w.Layout.Match(rel)
+		return rel, kind, ok
+	}
+	kind, ok = classify(filepath.Base(path), w.SkipErrors)
+	return rel, kind, ok
+}
+
 func (w *Watcher) seed() error {
-	files, err := discover.Sessions(w.Root)
+	files, err := w.list()
 	if err != nil {
 		return err
 	}
@@ -300,7 +362,7 @@ func (w *Watcher) noteEvent(fsw *fsnotify.Watcher, ev fsnotify.Event, dirty map[
 		return nil
 	}
 	path := ev.Name
-	if !inSessions(w.Root, path) {
+	if !inTree(w.Root, w.subdir(), path) {
 		return nil
 	}
 	info, statErr := os.Lstat(path)
@@ -312,7 +374,7 @@ func (w *Watcher) noteEvent(fsw *fsnotify.Watcher, ev fsnotify.Event, dirty map[
 			if err := addTree(fsw, path); err != nil {
 				return err
 			}
-			return noteTree(path, w.SkipErrors, dirty, debounce)
+			return w.noteTree(path, dirty, debounce)
 		}
 		return nil
 	}
@@ -325,7 +387,7 @@ func (w *Watcher) noteEvent(fsw *fsnotify.Watcher, ev fsnotify.Event, dirty map[
 	if statErr != nil {
 		return nil
 	}
-	if _, ok := classify(filepath.Base(path), w.SkipErrors); !ok {
+	if _, _, ok := w.classifyPath(path); !ok {
 		return nil
 	}
 	touchDirty(dirty, path, info.Size(), false, debounce)
@@ -351,13 +413,9 @@ func (w *Watcher) flush(dirty map[string]*dirtyNote, now time.Time) []Change {
 		if info.IsDir() {
 			continue
 		}
-		kind, ok := classify(filepath.Base(path), w.SkipErrors)
+		rel, kind, ok := w.classifyPath(path)
 		if !ok {
 			delete(w.cursors, path)
-			continue
-		}
-		rel, err := relPath(w.Root, path)
-		if err != nil {
 			continue
 		}
 		reset := n.reset
@@ -372,7 +430,7 @@ func (w *Watcher) flush(dirty map[string]*dirtyNote, now time.Time) []Change {
 }
 
 func (w *Watcher) diff() ([]Change, error) {
-	files, err := discover.Sessions(w.Root)
+	files, err := w.list()
 	if err != nil {
 		return nil, err
 	}
@@ -477,13 +535,13 @@ func classify(name string, skipErrors bool) (string, bool) {
 	return discover.KindTranscript, true
 }
 
-func inSessions(root, path string) bool {
-	sessions := filepath.Clean(filepath.Join(root, "sessions"))
+func inTree(root, dir, path string) bool {
+	base := filepath.Clean(filepath.Join(root, dir))
 	path = filepath.Clean(path)
-	if path == sessions {
+	if path == base {
 		return true
 	}
-	rel, err := filepath.Rel(sessions, path)
+	rel, err := filepath.Rel(base, path)
 	if err != nil {
 		return false
 	}
@@ -527,7 +585,7 @@ func addTree(fsw *fsnotify.Watcher, root string) error {
 	return nil
 }
 
-func noteTree(dir string, skipErrors bool, dirty map[string]*dirtyNote, debounce time.Duration) error {
+func (w *Watcher) noteTree(dir string, dirty map[string]*dirtyNote, debounce time.Duration) error {
 	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -535,7 +593,7 @@ func noteTree(dir string, skipErrors bool, dirty map[string]*dirtyNote, debounce
 		if d.IsDir() {
 			return nil
 		}
-		if _, ok := classify(d.Name(), skipErrors); !ok {
+		if _, _, ok := w.classifyPath(path); !ok {
 			return nil
 		}
 		info, err := d.Info()

@@ -71,10 +71,18 @@ curl -sS http://127.0.0.1:8787/healthz
 ./bin/terva-lampi status
 ```
 
-`agent discover` lists JSONL files under `$TERVA_HOME/sessions` (or
-terva's platform default when that variable is unset). `sync` pushes
-the ones `config.json` allowlists. With no allow rule it refuses the
-project; the shape of that file is under [Off-box raw](#off-box-raw).
+`agent discover` lists JSONL from three homes. terva is
+`$TERVA_HOME/sessions` (or terva's platform default when that variable
+is unset). Claude Code is `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`, and
+when `CLAUDE_CONFIG_DIR` is unset the directory is `~/.claude` (on
+Windows, `%USERPROFILE%\.claude`). Codex is
+`$CODEX_HOME/sessions/**/rollout-*.jsonl`, and when `CODEX_HOME` is
+unset the directory is `~/.codex`. `history.jsonl` is Codex prompt
+history and is not a rollout. The JSONL record shape for Claude and
+Codex is internal to those adapters; each pins a reader version and
+keeps keys it does not interpret. `sync` pushes the files `config.json`
+allowlists. With no allow rule it refuses the project; the shape of
+that file is under [Off-box raw](#off-box-raw).
 A second `sync` of the same files uploads nothing. `status` prints the
 machine id, outbox depth, watermark summary, last finished sync, whether
 `/healthz` answered, and catalog counts from `GET /v1/stats`.
