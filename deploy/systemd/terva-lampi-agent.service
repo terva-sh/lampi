@@ -1,9 +1,10 @@
 # Example user unit for `terva-lampi agent`. Not installed by this tree.
 # Copy to ~/.config/systemd/user/terva-lampi-agent.service
 #
-# The lake host is not decided yet (Phase 0). The default URL is the
-# loopback lake. Put a real URL in ~/.config/terva-lampi/agent.env when
-# one exists. Do not invent a production host in this file.
+# Phase 0 places the lake on a small VPS. See docs/policy.md.
+# This unit keeps the loopback URL so a local lake works. Put the VPS
+# HTTPS URL in ~/.config/terva-lampi/agent.env. Do not put a production
+# hostname in this file, and do not publish plain HTTP.
 #
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now terva-lampi-agent.service

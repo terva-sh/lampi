@@ -3,11 +3,15 @@
 These files are examples. `make build` does not install them. Copy the
 ones you want, and point them at the `terva-lampi` binary you built.
 
-The lake host is not decided yet. Phase 0 is still open. Every example
-defaults to `http://127.0.0.1:8787` and a device token at
-`~/.config/terva-lampi/token`. When a host is chosen, set that URL in
-the env file or the launchd plist. Do not invent a production host in
-this tree.
+Phase 0 places the lake on a small VPS.
+[docs/policy.md](../docs/policy.md) is that decision: TLS in front of
+`serve`, device tokens, no TTL, and volume encryption or LUKS. Every
+example still defaults to `http://127.0.0.1:8787` and a device token at
+`~/.config/terva-lampi/token`, so a local lake works without a hostname
+in this tree. On a machine that should upload to the VPS, set
+`LAMPI_SERVER` to that host's HTTPS URL in the env file or the launchd
+plist. Do not put the production hostname in git, and do not point the
+agent at plain HTTP on a public interface.
 
 The agent reads the URL from `--server`, then `LAMPI_SERVER`, then
 `config.json`, then the loopback default. The token file is `--token-file`,
@@ -42,9 +46,11 @@ systemctl --user enable --now terva-lampi-agent.service
 deploy/launchd/sh.terva.lampi.agent.plist
 ```
 
-Copy it to `~/Library/LaunchAgents/` and edit `LAMPI_SERVER` when a lake
-host exists. The program path is `$HOME/.local/bin/terva-lampi`. The
-token file defaults to `$HOME/.config/terva-lampi/token`.
+Copy it to `~/Library/LaunchAgents/` and set `LAMPI_SERVER` to the VPS
+HTTPS URL from [docs/policy.md](../docs/policy.md). The program path is
+`$HOME/.local/bin/terva-lampi`. The token file defaults to
+`$HOME/.config/terva-lampi/token`. The plist keeps the loopback URL
+until you edit it.
 
 ```bash
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/sh.terva.lampi.agent.plist
