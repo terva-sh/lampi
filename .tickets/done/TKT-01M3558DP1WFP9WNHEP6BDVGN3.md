@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558DP1WFP9WNHEP6BDVGN3
 title: MVP acceptance, status, ops
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:11Z
-updated_at: 2026-09-23T01:23:40Z
+updated_at: 2026-09-23T12:26:21Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: agent:cursor/8319
+  id: agent:cursor/e4d5
   name: Cursor cloud agent
 extensions: {}
 ---
@@ -55,3 +55,17 @@ Architecture §7 five acceptance tests in CI; operator status command; optional 
 **agent:cursor/8319** at 2026-09-23T01:23:40Z
 
 Four children landed here: systemd and launchd examples, the optional lampi alias installer, the post_tool_use hook, and the chunker for files over max_blob_bytes. TKT-01M3558DPVCN661600P3F9HMB0 (CI/integration: five MVP acceptance tests) is done; main moved it in #13. Every child of this epic is done. Phase 0 policy tickets were not changed. The deploy examples keep a loopback placeholder because the lake host is not chosen.
+
+**agent:cursor/e4d5** at 2026-09-23T12:26:04Z
+
+All six children are done and every acceptance criterion and definition-of-done line is already checked, so this epic moves to done.
+
+- TKT-01M3558DPVCN661600P3F9HMB0 (CI/integration: five MVP acceptance tests) landed in #13.
+- TKT-01M3558DRA1KS28WAVBKPY3SH8 (Implement terva-lampi status (agent + server)) is done.
+- TKT-01M3558DS31QVJ6Y6XH6HK8S4V (systemd user unit + launchd agent examples), TKT-01M3558DSRBXEECGW3HCFWX6AA (Optional lampi alias installer with neurobin warn), TKT-01M3558DTHC06337Q51V6ERPTD (Example terva post_tool_use enqueue hook), and TKT-01M3558DD3MYA65Q909VDV374P (Chunker for large artifacts (≥32 MiB)) landed in #14.
+
+This note supersedes the host sentence in the 2026-09-23T01:23:40Z note. Phase 0 later recorded the VPS in docs/policy.md. The deploy examples still use a loopback placeholder and point at that policy.
+
+## Summary
+
+MVP acceptance, status, and ops are done. internal/accept runs the five architecture section 7 tests in CI. terva-lampi status reports agent and server essentials. Example systemd and launchd units, the optional lampi alias, the post_tool_use hook, and chunked uploads past max_blob_bytes are on main.
