@@ -6,8 +6,7 @@ tickets, and the next fix pass overwrites it.
 
 | Epic | Title | Status |
 |---|---|---|
-| [TKT-01M3558DP1WFP9WNHEP6BDVGN3](tickets/TKT-01M3558DP1WFP9WNHEP6BDVGN3.md) | MVP acceptance, status, ops | ready |
-| [TKT-01M3558DV5NHYZBFMPV1AVRNYQ](draft/TKT-01M3558DV5NHYZBFMPV1AVRNYQ.md) | Phase 2 multi-harness JSONL peers | draft |
+| [TKT-01M3558DV5NHYZBFMPV1AVRNYQ](tickets/TKT-01M3558DV5NHYZBFMPV1AVRNYQ.md) | Phase 2 multi-harness JSONL peers | ready |
 | [TKT-01M3558DZ6CBW2HB49WFFY20CP](draft/TKT-01M3558DZ6CBW2HB49WFFY20CP.md) | Phase 3 export-based harnesses & conflicts | draft |
 | [TKT-01M3558E2PNBKNHFY6J7A37GJ4](draft/TKT-01M3558E2PNBKNHFY6J7A37GJ4.md) | Phase 4 Cursor (explicitly late) | draft |
 | [TKT-01M3558E4TN25NXXB0XP127RVK](draft/TKT-01M3558E4TN25NXXB0XP127RVK.md) | Phase 5 training export | draft |

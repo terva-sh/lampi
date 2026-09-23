@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3558DX60C92B1YRTT4M1Y3X
 title: Project linking via normalized git remote
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,16 +21,21 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-22T18:15:12Z
-updated_at: 2026-09-22T18:15:12Z
+updated_at: 2026-09-23T12:27:00Z
 created_by:
   id: human:sothr
   name: Drew Short
 updated_by:
-  id: human:sothr
-  name: Drew Short
+  id: agent:cursor/e4d5
+  name: Cursor cloud agent
 extensions: {}
 ---
 
 ## Description
 
 Layer C project_id from git_remote_normalized (+ root commit); stop relying on path CWDHash across machines.
+
+## Acceptance criteria
+
+- [ ] project_id comes from git_remote_normalized and the root commit
+- [ ] The same repository on two machines links without using path CWDHash
