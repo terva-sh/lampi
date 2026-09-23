@@ -815,3 +815,115 @@ func (c *Catalog) listSessions(ctx context.Context, query string, args ...any) (
 	}
 	return out, nil
 }
+
+// DivergentCopy is one artifact stored with relation divergent_copy.
+// The session head did not move. Machines posted this digest.
+// HeadMachines posted the head digest for the same path.
+type DivergentCopy struct {
+	SessionUID   string
+	ArtifactID   string
+	Harness      string
+	NativeID     string
+	Kind         string
+	RelPath      string
+	SHA256       string
+	Size         int64
+	HeadSHA256   string
+	HeadSize     int64
+	Machines     []string
+	HeadMachines []string
+}
+
+// DivergentCopies lists every divergent_copy artifact, oldest first.
+// The rows are the ones Ingest stored. This does not read the CAS.
+// Machine lists come from provenance for that session, path, and digest.
+// An empty catalog returns an empty slice.
+func (c *Catalog) DivergentCopies(ctx context.Context) ([]DivergentCopy, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT
+			a.session_uid,
+			a.artifact_id,
+			s.harness,
+			s.native_session_id,
+			a.kind,
+			a.relpath,
+			a.sha256,
+			a.size,
+			s.head_sha256,
+			COALESCE((
+				SELECT size FROM artifacts
+				WHERE session_uid = a.session_uid AND sha256 = s.head_sha256
+				ORDER BY current DESC, size DESC LIMIT 1
+			), 0)
+		FROM artifacts a
+		JOIN sessions s ON s.session_uid = a.session_uid
+		WHERE a.relation = ?
+		ORDER BY a.rowid`, protocol.RelationDivergentCopy)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
+	}
+	out, scanErr := scanDivergentCopies(rows)
+	rows.Close()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	// The catalog uses one SQLite connection. The artifact query has to
+	// be closed before these provenance reads, or the second query waits
+	// on itself.
+	for i := range out {
+		machines, err := c.digestMachines(ctx, out[i].SessionUID, out[i].RelPath, out[i].SHA256)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Machines = machines
+		head, err := c.digestMachines(ctx, out[i].SessionUID, out[i].RelPath, out[i].HeadSHA256)
+		if err != nil {
+			return nil, err
+		}
+		out[i].HeadMachines = head
+	}
+	return out, nil
+}
+
+func scanDivergentCopies(rows *sql.Rows) ([]DivergentCopy, error) {
+	out := []DivergentCopy{}
+	for rows.Next() {
+		var d DivergentCopy
+		if err := rows.Scan(
+			&d.SessionUID, &d.ArtifactID, &d.Harness, &d.NativeID,
+			&d.Kind, &d.RelPath, &d.SHA256, &d.Size, &d.HeadSHA256, &d.HeadSize,
+		); err != nil {
+			return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
+		}
+		d.Machines = []string{}
+		d.HeadMachines = []string{}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
+	}
+	return out, nil
+}
+
+func (c *Catalog) digestMachines(ctx context.Context, uid, rel, sha string) ([]string, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT machine_id FROM provenance
+		WHERE session_uid = ? AND relpath = ? AND sha256 = ?
+		ORDER BY machine_id`, uid, rel, sha)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: provenance: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("catalog: provenance: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: provenance: %w", err)
+	}
+	return out, nil
+}

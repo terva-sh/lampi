@@ -1,5 +1,6 @@
 // Command terva-lampi is the session lake: one static binary with the
-// server (serve) and the per-machine client (agent, sync, status, login).
+// server (serve) and the per-machine client (agent, sync, status, login,
+// export, conflicts).
 package main
 
 import (

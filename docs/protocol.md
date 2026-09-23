@@ -31,6 +31,38 @@ bearer check as the other `/v1` routes, and it returns no session bodies.
 distinct `machine_id` values in provenance. `terva-lampi status` prints
 these. A process probe should keep using `/healthz`.
 
+## GET /v1/conflicts
+
+Catalog artifacts whose `relation` is `divergent_copy`. Same bearer
+check as the other `/v1` routes. The list is the stored rows. It does
+not merge the copies or move `head_sha256`. `conflicts` is `[]` when
+there are none. `terva-lampi conflicts` prints this list.
+
+`sha256` is the divergent artifact. `head_sha256` is the session head
+that stayed. `machines` posted the divergent digest. `head_machines`
+posted the head digest for the same path.
+
+```json
+{
+  "conflicts": [
+    {
+      "session_uid": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "artifact_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+      "harness": "terva",
+      "native_session_id": "20260922-161000-abcd1234",
+      "kind": "transcript_jsonl",
+      "relpath": "sessions/x/20260922-161000-abcd1234.jsonl",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size": 9,
+      "head_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "head_size": 4,
+      "machines": ["machine-b"],
+      "head_machines": ["machine-a"]
+    }
+  ]
+}
+```
+
 ## POST /v1/hello
 
 The client calls this first. The body is ignored.
@@ -271,4 +303,4 @@ Failures are JSON: `{"error":"..."}`. A missing-blob conflict adds
 | 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, unsupported protocol, tail combined with chunks, catalog rejection |
 | 401 | Bearer token missing or wrong |
 | 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
-| 200 | Hello, check, put, manifest ACK, health |
+| 200 | Hello, check, put, manifest ACK, health, conflicts |

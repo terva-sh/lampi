@@ -22,7 +22,7 @@ func TestRootHelpListsCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, cmd := range []string{"serve", "agent", "sync", "status", "login", "export"} {
+	for _, cmd := range []string{"serve", "agent", "sync", "status", "login", "export", "conflicts"} {
 		if !strings.Contains(text, "terva-lampi "+cmd) {
 			t.Fatalf("help missing %s:\n%s", cmd, text)
 		}
@@ -107,6 +107,7 @@ func TestDeviceTokenIsNotAnArgument(t *testing.T) {
 		{"agent", "--token", "sekret"},
 		{"login", "--token", "sekret"},
 		{"login", "-token", "sekret"},
+		{"conflicts", "--token", "sekret"},
 	} {
 		err := Run(args, env)
 		if err == nil || !strings.Contains(err.Error(), "--token-file") {

@@ -216,6 +216,118 @@ func TestCounts(t *testing.T) {
 	}
 }
 
+func TestDivergentCopies(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
+	empty, err := c.DivergentCopies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty %+v", empty)
+	}
+
+	base := sampleManifest()
+	first, err := c.Ingest(ctx, base, now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grownSHA := strings.Repeat("ab", 32)
+	grown := sampleManifest()
+	grown.Artifacts[0].SHA256 = grownSHA
+	grown.Artifacts[0].Size = 4
+	if _, err := c.Ingest(ctx, grown, now.Add(time.Minute), []Decision{{
+		Relation:  protocol.RelationGrownFrom,
+		GrownFrom: base.Artifacts[0].SHA256,
+		Record:    true,
+		Head:      true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	again := grown
+	again.MachineID = "machine-d"
+	if _, err := c.Ingest(ctx, again, now.Add(2*time.Minute), []Decision{{
+		Relation: protocol.RelationUnchanged,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	other := sampleManifest()
+	other.NativeSessionID = "other-session"
+	other.Artifacts[0].RelPath = "sessions/x/other-session.jsonl"
+	other.Artifacts[0].SHA256 = strings.Repeat("ee", 32)
+	if _, err := c.Ingest(ctx, other, now, []Decision{{
+		Relation: protocol.RelationHead, Record: true, Head: true,
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	forkSHA := strings.Repeat("cd", 32)
+	fork := sampleManifest()
+	fork.MachineID = "machine-b"
+	fork.Artifacts[0].SHA256 = forkSHA
+	fork.Artifacts[0].Size = 9
+	div, err := c.Ingest(ctx, fork, now.Add(3*time.Minute), []Decision{{
+		Relation: protocol.RelationDivergentCopy, Record: true,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork2SHA := strings.Repeat("ef", 32)
+	fork2 := sampleManifest()
+	fork2.MachineID = "machine-c"
+	fork2.Artifacts[0].SHA256 = fork2SHA
+	fork2.Artifacts[0].Size = 11
+	div2, err := c.Ingest(ctx, fork2, now.Add(4*time.Minute), []Decision{{
+		Relation: protocol.RelationDivergentCopy, Record: true,
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := c.DivergentCopies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("listed %d: %+v", len(got), got)
+	}
+	want := []DivergentCopy{
+		{
+			SessionUID: first.SessionUID, ArtifactID: div.ArtifactIDs[0],
+			Harness: protocol.HarnessTerva, NativeID: base.NativeSessionID,
+			Kind: protocol.KindTranscriptJSONL, RelPath: base.Artifacts[0].RelPath,
+			SHA256: forkSHA, Size: 9, HeadSHA256: grownSHA, HeadSize: 4,
+			Machines: []string{"machine-b"}, HeadMachines: []string{"machine-a", "machine-d"},
+		},
+		{
+			SessionUID: first.SessionUID, ArtifactID: div2.ArtifactIDs[0],
+			Harness: protocol.HarnessTerva, NativeID: base.NativeSessionID,
+			Kind: protocol.KindTranscriptJSONL, RelPath: base.Artifacts[0].RelPath,
+			SHA256: fork2SHA, Size: 11, HeadSHA256: grownSHA, HeadSize: 4,
+			Machines: []string{"machine-c"}, HeadMachines: []string{"machine-a", "machine-d"},
+		},
+	}
+	for i := range want {
+		if got[i].SessionUID != want[i].SessionUID || got[i].ArtifactID != want[i].ArtifactID ||
+			got[i].Harness != want[i].Harness || got[i].NativeID != want[i].NativeID ||
+			got[i].Kind != want[i].Kind || got[i].RelPath != want[i].RelPath ||
+			got[i].SHA256 != want[i].SHA256 || got[i].Size != want[i].Size ||
+			got[i].HeadSHA256 != want[i].HeadSHA256 || got[i].HeadSize != want[i].HeadSize ||
+			strings.Join(got[i].Machines, ",") != strings.Join(want[i].Machines, ",") ||
+			strings.Join(got[i].HeadMachines, ",") != strings.Join(want[i].HeadMachines, ",") {
+			t.Fatalf("row %d\n got %+v\nwant %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestIngestIgnoresStaleGrownFrom(t *testing.T) {
 	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {

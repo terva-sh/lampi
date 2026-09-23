@@ -94,6 +94,8 @@ func Run(args []string, env Env) error {
 		err = runLogin(env, args[1:])
 	case "export":
 		err = runExport(env, args[1:])
+	case "conflicts":
+		err = runConflicts(env, args[1:])
 	default:
 		fmt.Fprint(env.stdout(), rootHelp)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -162,6 +164,7 @@ usage:
   terva-lampi status    agent state and lake health
   terva-lampi login     write a device token file
   terva-lampi export    write normalized events as JSONL
+  terva-lampi conflicts list divergent_copy artifacts from the catalog
 
 The command is terva-lampi. An optional ` + "`lampi`" + ` symlink is not the
 primary name. Bare ` + "`lampi`" + ` collides with neurobin's LAMP installer

@@ -13,11 +13,11 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export` |
+| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
-| HTTP | `internal/api` | healthz, catalog stats, hello, blob check/put, manifests |
+| HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl`, error sidecars, optional `raati/` records and `tasks/` archives |
@@ -40,7 +40,7 @@ file uploads nothing. A strict append uploads only the new tail;
 `byte_watermark_prev` is the previous length and `tail_sha256` is the
 hash of those bytes. The lake assembles the tail onto the stored prefix
 and moves the head. Bytes that are not a prefix either way are stored
-as `divergent_copy` and the previous head stays. A failed push is tried
+as `divergent_copy` and the previous head stays. `terva-lampi conflicts` lists those rows, and `GET /v1/conflicts` returns the same list. A failed push is tried
 again after a short wait. SIGTERM stops the watch and drains the outbox
 best-effort. The server URL, token, and allowlist are read at start.
 

@@ -125,12 +125,13 @@ not a promise that every secret is caught.
 
 | Command | What it does |
 |---------|----------------|
-| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, blob check/put, manifests. |
+| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL for DuckDB or sqlite. |
+| `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
 
