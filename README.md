@@ -124,6 +124,8 @@ The machine id is a ULID created once in `~/.config/terva-lampi/machine.json`
 ## Off-box raw
 
 Raw bytes leave the machine only for a project `config.json` allowlists.
+Phase 0 confirms that default-deny surface in
+[docs/policy.md](docs/policy.md).
 The default is to refuse every project. A rule matches the session's
 cwd (a path prefix, on a boundary), its terva cwd hash, or its git
 remote. Every field set on a rule has to match. `projects.deny` wins
@@ -184,9 +186,11 @@ is still the source of truth.
 ## Packaging examples
 
 `deploy/` holds examples. Nothing there is installed by `make build`.
-The lake host is not chosen yet, so the units default to
-`http://127.0.0.1:8787` and a token file under `~/.config/terva-lampi/`.
-Replace the URL when Phase 0 picks a host. Do not invent one.
+Phase 0 places the lake on a small VPS
+([docs/policy.md](docs/policy.md)). The units still default to
+`http://127.0.0.1:8787` and a token file under `~/.config/terva-lampi/`
+so a local lake works. Set `LAMPI_SERVER` to the VPS HTTPS URL on a
+machine that should upload there. Do not put that hostname in this tree.
 
 | Path | What it is |
 |------|------------|
@@ -231,6 +235,7 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 | Doc | What's in it |
 |-----|----------------|
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
+| [docs/policy.md](docs/policy.md) | Phase 0: VPS host, retention, encryption, allowlist, machines |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
 | [deploy/README.md](deploy/README.md) | Example units, the optional `lampi` alias, the hook |
 | [.tickets/epics.md](.tickets/epics.md) | Open epics. Generated; `git ticket check --fix` rewrites it |
@@ -271,9 +276,8 @@ default in `.tickets/config.yml`, so a write with no `--actor` uses it.
 `AGENTS.md` is the short workflow an agent session reads. `git ticket
 instructions` prints the long form.
 
-The backlog starts where the scaffold stopped: lake placement and
-retention, the terva watch / outbox / redact pipeline, Layer B dedup,
-a normalize-and-search proof, and the later harness phases.
+Phase 0 placement, retention, and encryption are in
+[docs/policy.md](docs/policy.md). Later harness phases are still draft.
 
 ## Status
 

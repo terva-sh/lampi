@@ -69,9 +69,11 @@ then a sync when the watcher reports growth or a previous push failed,
 then one more sync on SIGTERM. On Unix, SIGUSR1 asks for a sync without
 waiting for the next filesystem event. The agent writes `agent.pid` in
 the state directory while it runs. Example user units live under
-`deploy/`. They are not installed by this tree. The lake host is still
-a Phase 0 decision, so the examples keep a loopback placeholder.
-Restart the agent to reload config.
+`deploy/`. They are not installed by this tree. Phase 0 places the lake
+on a small VPS. [policy.md](policy.md) is that decision: retention,
+encryption at rest, the allowlist, and which machines run the agent.
+The examples keep a loopback placeholder and point operators at the
+policy for the VPS HTTPS URL. Restart the agent to reload config.
 
 `hooks/terva-post-tool-enqueue.sh` is an example nudge. It signals the
 pid file when that process is `terva-lampi`. A hook is not the source
@@ -159,6 +161,7 @@ internal/normalize/       schema_version 1 events, JSONL export
 internal/accept/          MVP acceptance gate, fixture terva JSONL
 docs/protocol.md
 docs/architecture.md
+docs/policy.md            Phase 0 host, retention, encryption, inventory
 hooks/                    example terva hook, not installed
 deploy/                   example systemd and launchd units, alias installer
 ```
@@ -189,3 +192,9 @@ allowlist is the other gate: a project that is not listed does not
 leave the machine. Neither one rewrites the raw file. Do not point
 `serve` at a network interface you do not control, and do not upload a
 project you would not copy onto that disk in the clear.
+
+Phase 0 runs that lake on a small VPS with local disk. Put TLS in
+front of `serve`. The data disk uses the provider's volume encryption
+and/or LUKS. There is no TTL and no application-level age wrapping.
+Laptop, desktop, and a remote/cloud box run `terva-lampi agent`.
+[policy.md](policy.md) is the record.
