@@ -314,6 +314,11 @@ func (g *gate) copySecondMachine(t *testing.T) {
 
 func (g *gate) queryPrompt(t *testing.T) {
 	t.Helper()
+	// The manifest ACK returns before workers project. The export proof
+	// reads the derived view, so wait until that view has caught up.
+	if err := g.lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	msg, ok, err := g.lake.Catalog.NormalizeError(t.Context(), g.uid)
 	if err != nil {
 		t.Fatal(err)

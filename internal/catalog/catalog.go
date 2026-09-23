@@ -124,7 +124,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     ingested_at TEXT NOT NULL,
     normalize_error TEXT,
     project_id TEXT NOT NULL DEFAULT '',
+    normalize_gen INTEGER NOT NULL DEFAULT 0,
     UNIQUE (harness, native_session_id)
+);
+CREATE TABLE IF NOT EXISTS normalize_jobs (
+    session_uid TEXT PRIMARY KEY,
+    gen INTEGER NOT NULL,
+    enqueued_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS aliases (
     harness TEXT NOT NULL,
@@ -219,6 +225,9 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if err := addColumn(db, "sessions", "project_id", `ALTER TABLE sessions ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if err := addColumn(db, "sessions", "normalize_gen", `ALTER TABLE sessions ADD COLUMN normalize_gen INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS sessions_by_project ON sessions (project_id)`); err != nil {

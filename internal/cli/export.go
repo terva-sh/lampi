@@ -19,8 +19,10 @@ usage:
   terva-lampi export [--data DIR] [--out FILE]
 
 Reads the lake and writes schema_version 1 events, one JSON object per
-line. FILE defaults to stdout. A session whose last normalize failed is
-skipped and named on stderr. Its raw blob is left as it was.
+line. FILE defaults to stdout. The command waits until normalize
+workers have caught up with the catalog. A session whose last
+normalize failed is skipped and named on stderr. Its raw blob is left
+as it was. A session with no derived file yet is projected once.
 
 DuckDB:
   SELECT content_text FROM read_ndjson('events.jsonl')
@@ -71,6 +73,12 @@ func runExport(env Env, args []string) error {
 
 func writeExport(env Env, lake *api.Server, out io.Writer) error {
 	ctx := context.Background()
+	// The manifest ACK returns before workers project. Wait so this
+	// snapshot is the head, then read JSONL. A missing file is still
+	// rebuilt below.
+	if err := lake.WaitNormalized(ctx); err != nil {
+		return err
+	}
 	sessions, err := lake.Catalog.ListSessions(ctx)
 	if err != nil {
 		return err
