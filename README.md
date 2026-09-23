@@ -195,8 +195,9 @@ empty id and is not linked. See [docs/protocol.md](docs/protocol.md).
 loaded. `sync` names each refused session and exits non-zero.
 
 Before a request is sent, ruleset v1 scans the file. v1 is the
-high-signal shapes: cloud keys, personal access tokens, and private-key
-blocks. It does not flag JWTs or generic `password=` / `api_key=`
+high-signal shapes: cloud keys, personal access tokens, and PEM
+private-key blocks from the BEGIN line through the END line. It does
+not flag JWTs or generic `password=` / `api_key=`
 lines. Those show up in ordinary transcripts, and a hit would quarantine
 the upload. The manifest
 stamps `redaction.ruleset` as `v1` and `redaction.status` as `scanned`

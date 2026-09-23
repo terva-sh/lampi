@@ -71,6 +71,9 @@ func TestRulesetV1CleanAndNearMiss(t *testing.T) {
 		"ghp_tooshort",
 		"sk-short",
 		"-----BEGIN PUBLIC KEY-----",
+		"-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----",
+		"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----",
+		"-----END RSA PRIVATE KEY-----",
 		"password",
 		// Left out of v1 on purpose: ordinary transcript text.
 		"eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmN",
@@ -145,7 +148,7 @@ func TestStripReplacesMatchesAndKeepsRuleName(t *testing.T) {
 		{"google api key", google, "[redacted:google-api-key]"},
 		{"stripe key", stripe, "[redacted:stripe-key]"},
 		{"npm token", npm, "[redacted:npm-token]"},
-		{"private key header", pem, "[redacted:private-key]\nMIIB\n-----END RSA PRIVATE KEY-----"},
+		{"private key block", pem, "[redacted:private-key]"},
 		{"aws secret", awsSecret, "[redacted:aws-secret-access-key]"},
 		{"two of one rule", aws + " and " + aws, "[redacted:aws-access-key-id] and [redacted:aws-access-key-id]"},
 		{"two rules", aws + " " + github, "[redacted:aws-access-key-id] [redacted:github-pat]"},
@@ -192,12 +195,187 @@ func TestStripLeavesCleanTextAndDoesNotRewriteScan(t *testing.T) {
 		"AKIA_SHORT",
 		"ghp_tooshort",
 		"-----BEGIN PUBLIC KEY-----",
+		"-----BEGIN PUBLIC KEY-----\nMIIB\n-----END PUBLIC KEY-----",
+		"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----",
+		"-----END RSA PRIVATE KEY-----",
 		"password",
 	} {
 		if got := (Ruleset{}).Strip(miss); got != miss {
 			t.Fatalf("%q became %q", miss, got)
 		}
 	}
+}
+
+func TestPrivateKeyBlockScanAndStripSpans(t *testing.T) {
+	rsa := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"
+	pkcs8 := "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----"
+	ec := "-----BEGIN EC PRIVATE KEY-----\nMHQC\n-----END EC PRIVATE KEY-----"
+	openssh := "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNza\n-----END OPENSSH PRIVATE KEY-----"
+	encrypted := "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: DES-EDE3-CBC,0123456789ABCDEF\n\nMIIB\n-----END RSA PRIVATE KEY-----"
+	crlf := "-----BEGIN RSA PRIVATE KEY-----\r\nMIIB\r\n-----END RSA PRIVATE KEY-----"
+	twoline := "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\nabcdefghijklmnop\n-----END RSA PRIVATE KEY-----"
+	mismatched := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END EC PRIVATE KEY-----"
+	dangling := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n"
+	prose := "-----BEGIN RSA PRIVATE KEY-----\nthis is not a key\n-----END RSA PRIVATE KEY-----"
+
+	cases := []struct {
+		name  string
+		body  string
+		want  string
+		hits  int
+		rules []string
+	}{
+		{"rsa", rsa, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"pkcs8", pkcs8, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"ec", ec, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"openssh", openssh, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"encrypted headers", encrypted, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"crlf", crlf, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"two base64 lines", twoline, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"mismatched end label", mismatched, "[redacted:private-key]", 1, []string{"private-key"}},
+		{"surrounding text", "pre\n" + rsa + "\npost", "pre\n[redacted:private-key]\npost", 1, []string{"private-key"}},
+		{"two blocks", rsa + "\n" + ec, "[redacted:private-key]\n[redacted:private-key]", 2, []string{"private-key"}},
+		{"begin without end", dangling, "[redacted:private-key]\nMIIB\n", 1, []string{"private-key"}},
+		{"prose between armor", prose, "[redacted:private-key]\nthis is not a key\n-----END RSA PRIVATE KEY-----", 1, []string{"private-key"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertPrivateKeySpan(t, tc.body, tc.want, tc.hits, tc.rules)
+		})
+	}
+
+	aws := "AKIAIOSFODNN7EXAMPLE"
+	mixed := rsa + " " + aws
+	wantMixed := "[redacted:private-key] [redacted:aws-access-key-id]"
+	got := (Ruleset{}).Strip(mixed)
+	if got != wantMixed {
+		t.Fatalf("strip:\n got %q\nwant %q", got, wantMixed)
+	}
+	spans := ruleSpans(t, "private-key", mixed)
+	if len(spans) != 1 || mixed[spans[0][0]:spans[0][1]] != rsa {
+		t.Fatalf("private-key span %q", mixed[spans[0][0]:spans[0][1]])
+	}
+	scanned, err := (Ruleset{}).Scan([]byte(mixed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.Hits != 2 || !contains(scanned.Rules, "private-key") || !contains(scanned.Rules, "aws-access-key-id") {
+		t.Fatalf("scan: %+v", scanned)
+	}
+	if strings.Contains(strings.Join(scanned.Rules, " "), "MIIB") || strings.Contains(strings.Join(scanned.Rules, " "), aws) {
+		t.Fatalf("rules leaked a secret: %v", scanned.Rules)
+	}
+}
+
+func TestQuarantinePrivateKeyOmitsBody(t *testing.T) {
+	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"
+	got, err := (Ruleset{}).Scan([]byte(pem))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Hits != 1 || len(got.Rules) != 1 || got.Rules[0] != "private-key" {
+		t.Fatalf("scan: %+v", got)
+	}
+	if strings.Contains(strings.Join(got.Rules, " "), "MIIB") || strings.Contains(strings.Join(got.Rules, " "), "BEGIN") {
+		t.Fatalf("rules contain secret text: %v", got.Rules)
+	}
+	dir := t.TempDir()
+	if err := AppendQuarantine(dir, Record{
+		RelPath: "sessions/abcd/s.jsonl",
+		SHA256:  strings.Repeat("cd", 32),
+		Ruleset: got.Ruleset,
+		Hits:    got.Hits,
+		Rules:   got.Rules,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(QuarantineFile(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"MIIB", "-----BEGIN", "-----END", "PRIVATE KEY"} {
+		if strings.Contains(string(b), secret) {
+			t.Fatalf("quarantine log contains %q:\n%s", secret, b)
+		}
+	}
+	if !strings.Contains(string(b), "private-key") {
+		t.Fatalf("log: %s", b)
+	}
+}
+
+func assertPrivateKeySpan(t *testing.T, body, want string, hits int, rules []string) {
+	t.Helper()
+	got := (Ruleset{}).Strip(body)
+	if got != want {
+		t.Fatalf("strip:\n got %q\nwant %q", got, want)
+	}
+	again := (Ruleset{}).Strip(got)
+	if again != got {
+		t.Fatalf("strip is not stable: %q", again)
+	}
+	spans := ruleSpans(t, "private-key", body)
+	if applyRule(body, spans, "private-key") != got {
+		t.Fatalf("scan spans and strip disagree\n spans %v\n strip %q", spans, got)
+	}
+	scanned, err := (Ruleset{}).Scan([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.Ruleset != RulesetV1 || scanned.Hits != hits {
+		t.Fatalf("scan: %+v", scanned)
+	}
+	if len(scanned.Rules) != len(rules) {
+		t.Fatalf("rules %v, want %v", scanned.Rules, rules)
+	}
+	for i, name := range rules {
+		if scanned.Rules[i] != name {
+			t.Fatalf("rules %v, want %v", scanned.Rules, rules)
+		}
+	}
+	joined := strings.Join(scanned.Rules, " ")
+	for _, secret := range []string{"MIIB", "MHQC", "b3BlbnNza", "MIIEowIBAAKCAQEA", "-----BEGIN", "-----END"} {
+		if strings.Contains(body, secret) && strings.Contains(joined, secret) {
+			t.Fatalf("rules leaked %q: %v", secret, scanned.Rules)
+		}
+	}
+}
+
+func ruleSpans(t *testing.T, name, body string) [][]int {
+	t.Helper()
+	for _, rule := range v1Rules {
+		if rule.name != name {
+			continue
+		}
+		// Scan counts FindAllIndex on the bytes. Strip replaces
+		// FindAllStringIndex on the string. For this ruleset those
+		// spans are the same match.
+		str := rule.re.FindAllStringIndex(body, -1)
+		byt := rule.re.FindAllIndex([]byte(body), -1)
+		if len(str) != len(byt) {
+			t.Fatalf("string spans %v, byte spans %v", str, byt)
+		}
+		for i := range str {
+			if str[i][0] != byt[i][0] || str[i][1] != byt[i][1] {
+				t.Fatalf("span %d string %v byte %v", i, str[i], byt[i])
+			}
+		}
+		return str
+	}
+	t.Fatalf("no rule %s", name)
+	return nil
+}
+
+func applyRule(body string, spans [][]int, name string) string {
+	var buf strings.Builder
+	prev := 0
+	placeholder := "[redacted:" + name + "]"
+	for _, sp := range spans {
+		buf.WriteString(body[prev:sp[0]])
+		buf.WriteString(placeholder)
+		prev = sp[1]
+	}
+	buf.WriteString(body[prev:])
+	return buf.String()
 }
 
 func contains(ss []string, want string) bool {
