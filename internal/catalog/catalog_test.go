@@ -540,6 +540,66 @@ func TestProjectLinkSameHeadRefreshesManifest(t *testing.T) {
 	}
 }
 
+func TestTasksRewriteReplacesPathHead(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	ctx := context.Background()
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	transcript := []byte("{\"type\":\"meta\"}\n")
+	board := []byte(`{"tasks":[{"title":"open"}]}`)
+	archived := []byte(`{"tasks":[],"generations":[{"seq":1,"tasks":[{"title":"open"}]}]}`)
+	td, bd, ad := digestHex(transcript), digestHex(board), digestHex(archived)
+	blobs := memBlobs{td: transcript, bd: board, ad: archived}
+	m := protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessTerva,
+		NativeSessionID: "sess-1",
+		Artifacts: []protocol.Artifact{
+			{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/x/s.jsonl", Size: int64(len(transcript)), SHA256: td},
+			{Kind: protocol.KindTasksJSON, RelPath: "tasks/tasks-sess-1.json", Size: int64(len(board)), SHA256: bd},
+		},
+	}
+	first, err := c.Ingest(ctx, m, now, []Decision{
+		{Relation: protocol.RelationHead, Record: true, Head: true},
+		{Relation: protocol.RelationHead, Record: true, Head: false},
+	}, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Artifacts[1].SHA256 = ad
+	m.Artifacts[1].Size = int64(len(archived))
+	second, err := c.Ingest(ctx, m, now.Add(time.Minute), []Decision{
+		{Relation: protocol.RelationUnchanged},
+		{Relation: protocol.RelationDivergentCopy, Record: true},
+	}, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SessionUID != first.SessionUID || second.HeadSHA256 != td {
+		t.Fatalf("session head moved: %+v", second)
+	}
+	_, arts, ok, err := c.Current(ctx, protocol.HarnessTerva, "sess-1")
+	if err != nil || !ok {
+		t.Fatalf("current %v %v", ok, err)
+	}
+	var tasksSHA string
+	for _, a := range arts {
+		if a.Kind == protocol.KindTasksJSON {
+			tasksSHA = a.SHA256
+		}
+		if a.Kind == protocol.KindTranscriptJSONL && a.SHA256 != td {
+			t.Fatalf("transcript head %s", a.SHA256)
+		}
+	}
+	if tasksSHA != ad {
+		t.Fatalf("tasks current %s, want %s", tasksSHA, ad)
+	}
+}
+
 func sampleManifest() protocol.Manifest {
 	sha := strings.Repeat("a", 64)
 	return protocol.Manifest{

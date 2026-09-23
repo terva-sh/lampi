@@ -221,6 +221,62 @@ func TestAgentDiscover(t *testing.T) {
 	}
 }
 
+func TestAgentDiscoverSidecars(t *testing.T) {
+	home := t.TempDir()
+	cfg := t.TempDir()
+	state := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("sessions/abcd/s.jsonl", "{}\n")
+	write("raati/raati-4.json", "{}")
+	write("tasks/tasks-sess.json", "{}")
+	write("tasks/notes.txt", "no")
+	var out bytes.Buffer
+	env := Env{
+		Stdout: &out,
+		Stderr: ioDiscard(),
+		Getenv: func(k string) string {
+			switch k {
+			case "TERVA_HOME":
+				return home
+			case "XDG_CONFIG_HOME":
+				return cfg
+			case "XDG_STATE_HOME":
+				return state
+			default:
+				return ""
+			}
+		},
+	}
+	if err := Run([]string{"agent", "discover"}, env); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, rel := range []string{"sessions/abcd/s.jsonl", "raati/raati-4.json", "tasks/tasks-sess.json"} {
+		if !strings.Contains(text, rel) {
+			t.Fatalf("discover missing %s: %s", rel, text)
+		}
+	}
+	if strings.Contains(text, "notes.txt") {
+		t.Fatalf("discover listed junk: %s", text)
+	}
+	out.Reset()
+	if err := Run([]string{"agent", "status"}, env); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "sessions: 3") {
+		t.Fatalf("status: %s", out.String())
+	}
+}
+
 func TestAgentDiscoverOpenCode(t *testing.T) {
 	xdg := t.TempDir()
 	data := filepath.Join(xdg, "opencode")

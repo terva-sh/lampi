@@ -53,6 +53,92 @@ func TestSessions(t *testing.T) {
 	}
 }
 
+func TestSidecarsOptional(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "raati"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "ext-data", "tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, body string) {
+		t.Helper()
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("raati/raati-1700000000000000000.json", `{"question":"ship?"}`)
+	write("raati/notes.txt", "no")
+	write("raati/raati-12a.json", "no")
+	write("tasks/tasks-11111111-2222-3333-4444-555555555555.json", `{"tasks":[]}`)
+	write("tasks/tasks-not safe.json", "no")
+	write("tasks/board.json", "no")
+	write("ext-data/tasks/tasks-legacy-board.json", `{"generations":[]}`)
+	write("ext-data/tasks/tasks-bad.json.corrupt-1", "no")
+
+	files, err := Sidecars(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, f := range files {
+		got[f.RelPath] = f.Kind
+		if !stringsHasSlash(f.RelPath) {
+			t.Fatalf("relpath %q", f.RelPath)
+		}
+	}
+	want := map[string]string{
+		"raati/raati-1700000000000000000.json":                  KindRaati,
+		"tasks/tasks-11111111-2222-3333-4444-555555555555.json": KindTasks,
+		"ext-data/tasks/tasks-legacy-board.json":                KindTasks,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("files: %+v", got)
+	}
+	for rel, kind := range want {
+		if got[rel] != kind {
+			t.Fatalf("%s kind %q", rel, got[rel])
+		}
+	}
+
+	empty, err := Sidecars(filepath.Join(t.TempDir(), "nope"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("missing home returned %d", len(empty))
+	}
+
+	sessions, err := Sessions(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("sessions walked sidecars: %+v", sessions)
+	}
+}
+
+func TestClassifySessions(t *testing.T) {
+	kind, ok := Classify("sessions/abcd/s.jsonl")
+	if !ok || kind != KindTranscript {
+		t.Fatalf("transcript %q %v", kind, ok)
+	}
+	kind, ok = Classify("sessions/abcd/s.errors.jsonl")
+	if !ok || kind != KindErrors {
+		t.Fatalf("errors %q %v", kind, ok)
+	}
+	if _, ok := Classify("sessions/abcd/notes.txt"); ok {
+		t.Fatal("notes.txt classified")
+	}
+	if _, ok := Classify("sessions/.hidden.jsonl"); ok {
+		t.Fatal("dotfile classified")
+	}
+}
+
 func stringsHasSlash(s string) bool {
 	for _, c := range s {
 		if c == '\\' {

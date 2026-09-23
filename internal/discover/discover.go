@@ -1,8 +1,9 @@
 // Package discover finds terva session files on disk.
 //
-// It does not parse them. The terva adapter owns the meta line. Claude
-// Code and Codex keep their own trees under internal/adapter; they do
-// not grow this package.
+// It does not parse them. The terva adapter owns the meta line and
+// decides which raati record or tasks archive belongs to a session.
+// Claude Code and Codex keep their own trees under internal/adapter;
+// they do not grow this package.
 package discover
 
 import (
@@ -29,6 +30,13 @@ const (
 	KindTranscript = "transcript_jsonl"
 	// KindErrors is a *.errors.jsonl sidecar.
 	KindErrors = "errors_jsonl"
+	// KindRaati is a deliberation record at raati/raati-<digits>.json.
+	// The wire value matches protocol.KindRaatiJSON.
+	KindRaati = "raati_json"
+	// KindTasks is a task board at tasks/tasks-<id>.json, or the legacy
+	// copy under ext-data/tasks/. The file holds archived generations.
+	// The wire value matches protocol.KindTasksJSON.
+	KindTasks = "tasks_json"
 )
 
 // TervaHome resolves the producer directory this machine's terva writes.

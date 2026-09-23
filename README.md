@@ -73,7 +73,10 @@ curl -sS http://127.0.0.1:8787/healthz
 
 `agent discover` lists files from four homes. terva is
 `$TERVA_HOME/sessions` (or terva's platform default when that variable
-is unset). Claude Code is `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`, and
+is unset). Optional sidecars in that home are `raati/raati-<nanos>.json`
+and `tasks/tasks-<session-id>.json`. They upload with a session the
+allowlist already permits. A missing directory is skipped. Claude Code
+is `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`, and
 when `CLAUDE_CONFIG_DIR` is unset the directory is `~/.claude` (on
 Windows, `%USERPROFILE%\.claude`). Codex is
 `$CODEX_HOME/sessions/**/rollout-*.jsonl`, and when `CODEX_HOME` is
@@ -308,8 +311,9 @@ Phase 0 placement, retention, and encryption are in
 
 This tree compiles and moves allowlisted terva JSONL end to end against
 a local lake. In: filesystem CAS, SQLite catalog, device-token file,
-discovery of `$TERVA_HOME/sessions`, an fsnotify/poll watcher, a durable
-outbox, per-path watermarks, a project allowlist, and ruleset v1.
+discovery of `$TERVA_HOME/sessions` plus optional `raati/` and `tasks/`
+sidecars, an fsnotify/poll watcher, a durable outbox, per-path
+watermarks, a project allowlist, and ruleset v1.
 `sync` runs that pipeline and writes the watermark only after the
 manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to

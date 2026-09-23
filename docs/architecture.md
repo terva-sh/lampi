@@ -20,7 +20,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | HTTP | `internal/api` | healthz, catalog stats, hello, blob check/put, manifests |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
-| terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl` and error sidecars |
+| terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl`, error sidecars, optional `raati/` records and `tasks/` archives |
 | Claude Code | `internal/adapter/claude` | `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`. Unset is `~/.claude`. Reader version pinned. Unknown keys kept |
 | Codex CLI | `internal/adapter/codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl`. Unset is `~/.codex`. `history.jsonl` is not a rollout |
 | OpenCode | `internal/adapter/opencode` | Scheduled `opencode export` JSON at `$XDG_DATA_HOME/opencode/export/**/*.json`. Unset is `~/.local/share/opencode`. When `export/` has no JSON, the database file at that root. Not the WAL |
@@ -144,6 +144,8 @@ object.
 
 ```text
 $TERVA_HOME/sessions/**/*.jsonl
+$TERVA_HOME/raati/raati-*.json
+$TERVA_HOME/tasks/tasks-*.json
 $CLAUDE_CONFIG_DIR/projects/**/*.jsonl
 $CODEX_HOME/sessions/**/rollout-*.jsonl
 $XDG_DATA_HOME/opencode/export/**/*.json
@@ -207,7 +209,7 @@ internal/auth/            device token file
 internal/cas/             filesystem blobs
 internal/catalog/         SQLite
 internal/config/          machine id and client config
-internal/discover/        terva session walk
+internal/discover/        terva session walk, optional raati and tasks
 internal/adapter/         harness interface
 internal/adapter/terva/   meta line, manifests
 internal/adapter/claude/  Claude Code projects/**/*.jsonl
