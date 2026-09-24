@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"terva.sh/lampi/internal/api"
@@ -191,9 +192,15 @@ func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
 
 func transcriptDigest(arts []catalog.ArtifactRow) string {
 	for _, a := range arts {
-		if a.Kind == protocol.KindTranscriptJSONL && a.SHA256 != "" {
-			return a.SHA256
+		if a.Kind != protocol.KindTranscriptJSONL || a.SHA256 == "" {
+			continue
 		}
+		// history.jsonl is Codex prompt history, not a rollout. The
+		// training row points at the transcript that was projected.
+		if path.Base(a.RelPath) == "history.jsonl" {
+			continue
+		}
+		return a.SHA256
 	}
 	return ""
 }

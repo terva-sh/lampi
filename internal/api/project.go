@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
 	"terva.sh/lampi/internal/cas"
@@ -22,11 +23,12 @@ import (
 // It does not write the CAS. A non-nil error means no derived view;
 // callers record it and leave the blobs in place.
 //
-// terva reads transcript_jsonl and errors_jsonl. claude reads
-// transcript_jsonl only. Other harnesses are rejected before a blob
-// is opened.
+// terva reads transcript_jsonl and errors_jsonl. claude and codex
+// read transcript_jsonl only. A codex history.jsonl artifact is not
+// a rollout and is not read. Other harnesses are rejected before a
+// blob is opened.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
-	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude {
+	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex {
 		return nil, fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
 	}
 	_, arts, ok, err := s.Catalog.Current(ctx, m.Harness, m.NativeSessionID)
@@ -44,7 +46,7 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 	link := protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot)
 	var all []normalize.Event
 	for _, a := range arts {
-		if !projectKind(m.Harness, a.Kind) {
+		if !projectKind(m.Harness, a.Kind) || codexHistory(m.Harness, a.RelPath) {
 			continue
 		}
 		raw, err := readBlob(s.CAS, a.SHA256)
@@ -55,6 +57,17 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 		switch m.Harness {
 		case protocol.HarnessClaude:
 			ev, err = (normalize.Claude{
+				Now:            now,
+				NativeID:       m.NativeSessionID,
+				ParentNativeID: parent,
+				HarnessVersion: m.HarnessVersion,
+				CWD:            m.Project.CWD,
+				GitCommit:      m.Project.GitCommit,
+				ProjectID:      link,
+				Digest:         a.SHA256,
+			}).Normalize(ctx, raw)
+		case protocol.HarnessCodex:
+			ev, err = (normalize.Codex{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -87,14 +100,21 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 
 // projectKind is the artifact kinds that become events for harness.
 // raati_json and tasks_json are terva sidecars and stay out. Claude
-// Code uploads transcript_jsonl only.
+// Code and Codex CLI upload transcript_jsonl only.
 func projectKind(harness, kind string) bool {
 	switch harness {
-	case protocol.HarnessClaude:
+	case protocol.HarnessClaude, protocol.HarnessCodex:
 		return kind == protocol.KindTranscriptJSONL
 	default:
 		return kind == protocol.KindTranscriptJSONL || kind == protocol.KindErrorsJSONL
 	}
+}
+
+// codexHistory reports a Codex prompt-history file. It is not a rollout
+// and is not projected, including when a manifest names it as
+// transcript_jsonl.
+func codexHistory(harness, rel string) bool {
+	return harness == protocol.HarnessCodex && path.Base(rel) == "history.jsonl"
 }
 
 // StoreEvents writes the derived JSONL and the date/harness parquet
