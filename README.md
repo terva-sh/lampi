@@ -92,15 +92,19 @@ interpret. `sync` pushes the files `config.json`
 allowlists. With no allow rule it refuses the project; the shape of
 that file is under [Off-box raw](#off-box-raw).
 A second `sync` of the same files uploads nothing. `status` prints the
-machine id, outbox depth, watermark summary, last finished sync, whether
+machine id, one line per known harness
+(`harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>`),
+outbox depth, watermark summary, last finished sync, whether
 `/healthz` answered, and catalog counts from `GET /v1/stats`.
+`source` is `config`, `env`, or `default`, naming which layer won.
 
 `agent` with no subcommand prints the same discovery, pushes the
 allowlisted sessions once, then watches. Growth calls that same push.
 A failed push is tried again after a short wait, without waiting for
 the file to grow. SIGTERM drains the outbox and exits. The server URL,
-the device token, and the allowlist are read when the process starts;
-restart it to reload them. The one-shot command is still `sync`.
+the device token, the allowlist, and the harnesses map are read when
+the process starts; restart it to reload them. The one-shot command
+is still `sync`.
 
 `login` writes a device token and does not print it:
 
@@ -128,7 +132,7 @@ not a promise that every secret is caught.
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
-| `terva-lampi status` | Machine id, outbox, watermarks, last sync, lake health and catalog counts. |
+| `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
 | `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
@@ -261,12 +265,18 @@ machine that should upload there. Do not put that hostname in this tree.
 |------|------------|
 | [deploy/systemd/](deploy/systemd/) | User service for `terva-lampi agent`, system service for `terva-lampi serve`, and an env file for each |
 | [deploy/launchd/](deploy/launchd/) | launchd agent with the same placeholders |
+| [deploy/config.json.example](deploy/config.json.example) | Optional client `harnesses` map: one harness off, one absolute `root`. Loopback server URL |
 | [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
 | [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Supported optional `post_tool_use` acceleration. Sends SIGUSR1 to a running `terva-lampi`. Not installed by `make build`. The watch still uploads if the hook never runs |
 
 `terva-lampi agent` reads `LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the
 matching flags are unset. A flag wins, then the environment, then
-`config.json`.
+`config.json`. Harness `root` is a different order: flag, if any, then
+the `harnesses` entry in `config.json`, then the harness environment
+variable, then the adapter default. That variable is a debug override.
+Restart the agent after editing the map.
+[deploy/README.md](deploy/README.md) is the operator note, including
+the `status` line that names which layer won.
 
 ## Build
 
@@ -303,7 +313,7 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 | [docs/policy.md](docs/policy.md) | Phase 0: VPS host, retention, encryption, allowlist, machines |
 | [docs/vps-bringup.md](docs/vps-bringup.md) | Phase 0 operator checklist: disk, loopback serve, TLS, device token |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
-| [deploy/README.md](deploy/README.md) | Example units, the optional `lampi` alias, the optional `post_tool_use` hook |
+| [deploy/README.md](deploy/README.md) | Example units, Shape A `harnesses`, the optional `lampi` alias, the optional `post_tool_use` hook |
 | [.tickets/epics.md](.tickets/epics.md) | Open epics. Generated; `git ticket check --fix` rewrites it |
 
 ## Work tracking

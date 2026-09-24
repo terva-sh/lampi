@@ -7,6 +7,12 @@
 # HTTPS URL in ~/.config/terva-lampi/agent.env. Do not put a production
 # hostname in this file, and do not publish plain HTTP.
 #
+# Harness enable and root live in ~/.config/terva-lampi/config.json.
+# See deploy/config.json.example. Restart the user service
+# after editing that file. A harness environment variable is a debug
+# override. Precedence is flag (if any), then config root, then env,
+# then the adapter default. SIGUSR1 syncs. It does not reload config.json.
+#
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now terva-lampi-agent.service
 #

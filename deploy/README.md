@@ -20,7 +20,72 @@ The agent reads the URL from `--server`, then `LAMPI_SERVER`, then
 `config.json`, then the loopback default. The token file is `--token-file`,
 then `LAMPI_TOKEN_FILE`, then the path in `config.json`, then
 `~/.config/terva-lampi/token`. The token is not a command argument.
-Restart the agent to reload any of these.
+Restart the agent to reload any of these, and to reload `harnesses`.
+
+## Harnesses
+
+Optional `harnesses` in `~/.config/terva-lampi/config.json`
+(`$XDG_CONFIG_HOME/terva-lampi/config.json` when that variable is set)
+turns a harness off or points it at another directory. Copy
+[config.json.example](config.json.example) and replace the placeholder
+path. `make build` does not install the file. The example keeps the
+loopback lake URL. Do not put a production hostname or a device token
+in it. The token stays in the token file.
+
+Keys are the protocol harness ids: `terva`, `claude`, `codex`,
+`opencode`, `cursor`, `cursor-cli`. An unknown key fails the load.
+Each entry accepts `enabled` and `root` only. Allowlist rules and
+secrets are not fields of a harness entry. `projects` and `redaction`
+stay beside `harnesses`, as in the root README.
+
+`enabled` omitted means on. `enabled: false` skips discover, watch,
+and upload for that harness. Watermarks and objects already stored
+stay. `root` is an absolute path. A relative path, or an empty one,
+fails the load. Omit `harnesses`, or omit one id, and that harness
+stays on and keeps the resolution below.
+
+Root precedence is flag, if any, then config `root`, then the harness
+environment variable, then the adapter default. No per-harness root
+flag exists. The environment variable is a debug override. A config
+`root` wins over it. The variables that count are `TERVA_HOME`
+or `ZOT_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`
+(OpenCode), and `CURSOR_CONFIG_DIR`. Cursor IDE has none:
+`XDG_CONFIG_HOME` and `APPDATA` select the platform directory, which
+is the default. `XDG_STATE_HOME` is that kind of input for terva.
+
+The agent reads the map at start. Restart the process to reload it,
+the same as the server URL, the token path, and the allowlist.
+`SIGUSR1` asks for a sync. It does not reload `config.json`.
+
+`terva-lampi status` prints one line per known harness, in the order
+above. The spelling is:
+
+```text
+harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>
+```
+
+`source=config` means the config `root` won. `source=env` means the
+debug environment variable won. `source=default` means the adapter
+default won. `enabled=false` still prints the root and source. `root`
+is empty when the directory cannot be named.
+
+The example turns Claude off and points Codex at `/home/you/.codex`.
+That path is a placeholder. Replace it with an absolute directory on
+the machine. The other ids are omitted, so they stay on.
+
+```json
+{
+  "server": "http://127.0.0.1:8787",
+  "harnesses": {
+    "claude": {
+      "enabled": false
+    },
+    "codex": {
+      "root": "/home/you/.codex"
+    }
+  }
+}
+```
 
 ## systemd user service
 
@@ -185,5 +250,5 @@ seconds; this script returns immediately, so you do not need
 ```
 
 Start terva again after editing the file. Restart `terva-lampi agent`
-when you change the lake URL, the token path, or the allowlist. The
-hook does not reload those.
+when you change the lake URL, the token path, the allowlist, or the
+harnesses map. The hook does not reload those.

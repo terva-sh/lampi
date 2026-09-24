@@ -14,6 +14,12 @@
   $HOME/.config/terva-lampi/token. Set LAMPI_TOKEN_FILE to override it.
   SIGUSR1 asks the running agent to sync. The session directory watch
   is still the source of truth.
+
+  Harness enable and root are $HOME/.config/terva-lampi/config.json.
+  See deploy/config.json.example. Restart the agent after editing that
+  file. A harness environment variable is a debug override. Precedence
+  is flag (if any), then config root, then env, then the adapter
+  default. SIGUSR1 does not reload config.json.
 -->
 <plist version="1.0">
 <dict>

@@ -248,6 +248,53 @@ func TestHarnessRootEdges(t *testing.T) {
 	}
 }
 
+func TestDeployConfigExample(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	path := filepath.Join(filepath.Dir(file), "..", "..", "deploy", "config.json.example")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "127.0.0.1") {
+		t.Fatal("example is missing the loopback server URL")
+	}
+	for _, banned := range []string{"restic", "BEGIN ", "ghp_", "sk-"} {
+		if strings.Contains(text, banned) {
+			t.Fatalf("example contains %q", banned)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("sample root is a Unix absolute path")
+	}
+	f := mustLoadConfig(t, text)
+	if f.Server != DefaultServer {
+		t.Fatalf("server %q", f.Server)
+	}
+	if f.TokenFile != "" {
+		t.Fatalf("token_file %q", f.TokenFile)
+	}
+	claude, ok := f.Harnesses[protocol.HarnessClaude]
+	if !ok || claude.Enabled {
+		t.Fatalf("claude %+v present %v", claude, ok)
+	}
+	codex, ok := f.Harnesses[protocol.HarnessCodex]
+	if !ok || !codex.Enabled || codex.Root == "" || !filepath.IsAbs(codex.Root) {
+		t.Fatalf("codex %+v present %v", codex, ok)
+	}
+	for _, id := range []string{protocol.HarnessTerva, protocol.HarnessOpenCode, protocol.HarnessCursor, protocol.HarnessCursorCLI} {
+		if _, ok := f.Harnesses[id]; ok {
+			t.Fatalf("%s should be omitted", id)
+		}
+		if !f.Harnesses.Enabled(id) {
+			t.Fatalf("%s should stay default-on", id)
+		}
+	}
+}
+
 var knownHarnessIDs = []string{
 	"terva",
 	"claude",
