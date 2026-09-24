@@ -32,7 +32,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Redaction | `internal/redact` | Ruleset v1. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
-| Normalize | `internal/normalize` | Workers project terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
+| Normalize | `internal/normalize` | Workers project terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
 | Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque. Plaintext training fields are stripped with ruleset v1 |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
@@ -65,7 +65,7 @@ parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet
 `date` is the UTC day of the event's `recorded_at`. When that timestamp
 is missing, the day is `ingested_at`. A session whose events fall on
 more than one day has one file in each of those partitions. `harness`
-is the event harness (`terva` today). The file name is the session uid,
+is the event harness. The file name is the session uid,
 so a re-projection replaces that session and leaves the rest of the
 day in place. DuckDB reads the tree with
 `read_parquet('parquet/**/*.parquet', hive_partitioning = true)`.
@@ -111,7 +111,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/normalize` | Workers still implement terva only. A Claude, Codex, OpenCode, Cursor IDE, or Cursor CLI manifest is stored, and the worker sets `normalize_error` |
+| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, or Cursor CLI is stored, and the worker sets `normalize_error` |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -249,10 +249,10 @@ do not share sessions or watermarks. A CLI chat uses the absolute
 one, the allowlist refuses the export. The Claude, Codex, OpenCode,
 and Cursor record shapes are internal to those packages. Each pins a
 reader version on `harness_version` and keeps keys it does not
-interpret. Normalize workers still implement terva only. A Claude,
-Codex, OpenCode, or Cursor manifest is stored, and a worker sets
-`normalize_error` when the projector for that harness is not
-implemented. Path-based
+interpret. Normalize workers project terva, Claude Code, Codex CLI,
+OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1. A stored
+manifest for a harness that has no projector sets `normalize_error`.
+Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link
 by `project_id`.

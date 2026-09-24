@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M38RJTC2C4KAGM3SK7ABE1WA
 title: Cursor CLI normalize projector
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,16 +16,23 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:cursor/ca6d
+  branch: cursor/cursor-cli-normalize-ca6d
+  worktree: /workspace
+  commit: c18a896eda5e6f9b8194da69e94b4c96c776e9c2
+  session: null
+  claimed_at: 2026-09-24T07:16:56Z
+  expires_at: null
 archive: null
 created_at: 2026-09-24T03:50:38Z
-updated_at: 2026-09-24T03:51:20Z
+updated_at: 2026-09-24T07:17:16Z
 created_by:
   id: agent:cursor/dcb2
   name: Cursor cloud agent
 updated_by:
-  id: agent:cursor/dcb2
-  name: Cursor cloud agent
+  id: agent:cursor/ca6d
+  name: ""
 extensions: {}
 ---
 
@@ -60,3 +67,17 @@ Use a `cursor_cli_store_json` document with a conversation row, one unknown key,
 - [ ] The projector lives in internal/normalize and api.Server.Project calls it for this harness and its artifact kind
 - [ ] The harness adapter is unchanged. It still uploads the same bytes and still drops or keeps the same keys
 - [ ] The terva projector still projects a terva transcript, and go test ./... passes
+
+## Implementation plan
+
+### Approach
+
+Add normalize.CursorCLI for one cursor_cli_store_json document. It does not call normalize.Cursor, does not open store.db, and does not read cursor_state_json. session_id is cursor-cli: plus NativeID (chats/<workspace>/<session>).
+
+Order is the envelope, then meta rows in export order, then blob rows in export order. The envelope is one meta event with raw_type cursor_cli_store_json. Meta key "0" is a session meta row. Other meta objects are meta only when every field is a session-shell name or timestamp. Blobs become messages only when the value is a JSON object, cleartext comes from content then text then rawText, and role is user or assistant or numeric type 1 or 2. Tool, usage, summary, base64, and other rows stay unknown. Fields matching encrypted, cipher, or sealed stay on extra and never become content_text. Credential keys stay absent.
+
+api.Server.Project calls it for harness cursor-cli and kind cursor_cli_store_json. Skipping that kind is a normalize error, not an empty success. This is the last harness child, so docs/architecture.md names the five projectors.
+
+### Tests
+
+Unit fixtures cover a session meta row, a user blob, an unknown blob, opaque fields, a wrong document shape, and an empty conversation. Worker fixtures cover JSONL and parquet, a kind skip, and a failed head. An export fixture covers events, sharegpt, and trajectory. TestUnimplementedHarnessRecordsNormalizeError gains a valid cursor-cli export.

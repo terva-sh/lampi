@@ -226,8 +226,10 @@ next to a terva transcript, `raati_json` for a record under `raati/`,
 archived generations), `cursor_state_json` for a filtered Cursor IDE
 snapshot, or `cursor_cli_store_json` for a filtered Cursor CLI
 snapshot. A raati or tasks file is an artifact of a session that is
-already being captured. Normalize projects transcripts and error
-sidecars. A rewrite of `raati_json` or `tasks_json` replaces the
+already being captured. Normalize projects terva transcripts and error
+sidecars, Claude Code, Codex, and OpenCode `transcript_jsonl`, Cursor
+IDE `cursor_state_json`, and Cursor CLI `cursor_cli_store_json`. A
+rewrite of `raati_json` or `tasks_json` replaces the
 current artifact for that path and does not move the session head. A
 rewrite of `cursor_state_json` or `cursor_cli_store_json` replaces the
 current artifact and moves the session head, because that export is

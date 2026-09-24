@@ -87,8 +87,7 @@ const (
 	KindCursorCLIStoreJSON = "cursor_cli_store_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
-	// meta line. Normalize workers project it. Cursor CLI manifests are
-	// stored; that projector is not implemented.
+	// meta line. Normalize workers project it.
 	HarnessTerva = "terva"
 	// HarnessClaude is Claude Code. The on-disk record shape is internal
 	// to the adapter; harness_version is that adapter's pinned reader.
@@ -114,7 +113,9 @@ const (
 	// HarnessCursorCLI is the Cursor CLI. The ingest path is a filtered
 	// JSON export of a store.db snapshot. It does not share sessions
 	// or watermarks with HarnessCursor, and it does not assume the
-	// CLI store matches IDE state. The projector is not implemented.
+	// CLI store matches IDE state. Workers project cursor_cli_store_json
+	// onto schema_version 1. cursor_state_json and transcript_jsonl are
+	// not this document.
 	HarnessCursorCLI = "cursor-cli"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
