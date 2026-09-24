@@ -240,6 +240,144 @@ func TestCursorCLIBlobPromotion(t *testing.T) {
 	}
 }
 
+func TestCursorCLIContentPartsStayUnknown(t *testing.T) {
+	const cipher = "gAAAAABparts-opaque=="
+	raw := cursorCLIRaw(t, map[string]any{
+		"harness_version": "1",
+		"confidence":      "low",
+		"source":          "chats/ab12/sid-1/store.db",
+		"scope":           "session",
+		"meta":            []any{},
+		"blobs": []any{
+			map[string]any{"id": "parts", "data": map[string]any{
+				"role":    "assistant",
+				"text":    "string-fallback-not-used",
+				"rawText": "raw-fallback-not-used",
+				"content": []any{
+					map[string]any{"type": "text", "text": "part text"},
+					map[string]any{"type": "reasoning", "text": "hidden thought"},
+					map[string]any{"type": "tool_use", "name": "Read", "input": map[string]any{"path": "main.go"}},
+					map[string]any{"type": "tool_result", "content": "file bytes"},
+				},
+				"encrypted_content": cipher,
+			}},
+			map[string]any{"id": "still-string", "data": map[string]any{
+				"role": "user", "content": "plain string",
+			}},
+		},
+	})
+	events := projectCursorCLI(t, "chats/ab12/sid-1", raw)
+	assertNoPromoted(t, events)
+	var parts, plain *Event
+	for i := range events {
+		switch events[i].RawType {
+		case "parts":
+			parts = &events[i]
+		case "still-string":
+			plain = &events[i]
+		}
+	}
+	if parts == nil || parts.EventType != EventUnknown || parts.ContentText != nil || parts.Role != nil {
+		t.Fatalf("parts blob: %+v", parts)
+	}
+	if parts.Extra["blob_id"] != "parts" || parts.Extra["encrypted_content"] != cipher {
+		t.Fatalf("parts extra %#v", parts.Extra)
+	}
+	content, ok := parts.Extra["content"].([]any)
+	if !ok || len(content) != 4 {
+		t.Fatalf("content parts %#v", parts.Extra["content"])
+	}
+	if parts.Extra["value"] != nil {
+		t.Fatalf("parts object was wrapped: %#v", parts.Extra["value"])
+	}
+	out := marshalEvents(t, events)
+	for _, hidden := range []string{`"content_text":"part text"`, `"content_text":"hidden thought"`, `"content_text":"file bytes"`, `"content_text":"string-fallback-not-used"`, `"content_text":"raw-fallback-not-used"`, `"content_text":"` + cipher} {
+		if bytes.Contains(out, []byte(hidden)) {
+			t.Fatalf("promoted %s:\n%s", hidden, out)
+		}
+	}
+	if plain == nil || plain.EventType != EventMessage || plain.ContentText == nil || *plain.ContentText != "plain string" {
+		t.Fatalf("string content: %+v", plain)
+	}
+}
+
+func TestCursorCLIMetaDoesNotFollowBlobGraph(t *testing.T) {
+	const (
+		native    = "chats/ab12/sid-1"
+		agent     = "agent-not-the-session"
+		cipher    = "gAAAAABroot-opaque=="
+		protoText = "proto-hello-pond"
+	)
+	raw := cursorCLIRaw(t, map[string]any{
+		"harness_version": "1",
+		"confidence":      "low",
+		"source":          native + "/store.db",
+		"scope":           "session",
+		"meta": []any{
+			map[string]any{"key": "0", "value": map[string]any{
+				"name":              "kept-title",
+				"agentId":           agent,
+				"latestRootBlobId":  "root-b64",
+				"mode":              "agent",
+				"lastUsedModel":     "composer-2",
+				"encrypted_content": cipher,
+			}},
+		},
+		"blobs": []any{
+			map[string]any{"id": "user", "data": map[string]any{
+				"role": "user", "content": "export-order user",
+			}},
+			map[string]any{"id": "root-b64", "data": map[string]any{
+				"base64": base64.StdEncoding.EncodeToString([]byte(protoText)),
+			}},
+		},
+	})
+	events := projectCursorCLI(t, native, raw)
+	wantOrder := []string{"cursor_cli_store_json", "0", "user", "root-b64"}
+	if strings.Join(cursorCLIRawTypes(events), ",") != strings.Join(wantOrder, ",") {
+		t.Fatalf("followed the blob graph: %v", cursorCLIRawTypes(events))
+	}
+	var session, user, root *Event
+	for i := range events {
+		ev := &events[i]
+		if ev.SessionID != "cursor-cli:"+native {
+			t.Fatalf("session_id %s", ev.SessionID)
+		}
+		if ev.SessionID == "cursor-cli:"+agent || strings.Contains(ev.SessionID, agent) {
+			t.Fatalf("agentId became the session: %s", ev.SessionID)
+		}
+		switch ev.RawType {
+		case "0":
+			session = ev
+		case "user":
+			user = ev
+		case "root-b64":
+			root = ev
+		}
+	}
+	if session == nil || session.EventType != EventMeta || session.ContentText != nil {
+		t.Fatalf("session record: %+v", session)
+	}
+	if session.Extra["agentId"] != agent || session.Extra["latestRootBlobId"] != "root-b64" || session.Extra["mode"] != "agent" || session.Extra["lastUsedModel"] != "composer-2" || session.Extra["encrypted_content"] != cipher || session.Extra["name"] != "kept-title" {
+		t.Fatalf("session extra %#v", session.Extra)
+	}
+	if user == nil || user.EventType != EventMessage || user.ContentText == nil || *user.ContentText != "export-order user" {
+		t.Fatalf("user: %+v", user)
+	}
+	if root == nil || root.EventType != EventUnknown || root.ContentText != nil || root.Extra["blob_id"] != "root-b64" {
+		t.Fatalf("root blob: %+v", root)
+	}
+	wrapped, _ := root.Extra["value"].(map[string]any)
+	if wrapped["base64"] == protoText || wrapped["base64"] == "" {
+		t.Fatalf("protobuf root %#v", root.Extra["value"])
+	}
+	out := marshalEvents(t, events)
+	if bytes.Contains(out, []byte(protoText)) {
+		t.Fatal("protobuf root was decoded")
+	}
+	assertNoPromoted(t, events)
+}
+
 func TestCursorCLIEmptyTurns(t *testing.T) {
 	t.Run("envelope only", func(t *testing.T) {
 		raw := cursorCLIRaw(t, map[string]any{

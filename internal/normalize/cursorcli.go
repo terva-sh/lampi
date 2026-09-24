@@ -25,15 +25,22 @@ import (
 // document.
 //
 // v1 emits one envelope meta event, then meta rows in export order, then
-// blob rows in export order. Meta key "0" is the session record. Other
-// meta objects are meta only when every field is a session-shell name or
-// timestamp. A blob is a message only when its data is a JSON object,
-// cleartext comes from content, then text, then rawText, and the role is
-// user or assistant or the numeric type is 1 or 2. Tool calls, tool
-// results, usage, compaction, summaries, and base64 wrappers stay
-// unknown. encrypted, cipher, and sealed fields are copied into extra
-// and are not written into content_text. They are not decrypted.
-// Credential keys the adapter already drops stay absent.
+// blob rows in export order. Meta key "0" is the session record. Fields
+// on that record, including agentId, latestRootBlobId, mode, and
+// lastUsedModel, stay on the meta event. The projector does not follow
+// latestRootBlobId or any other blob id. session_id stays NativeID; it
+// is not agentId. Other meta objects are meta only when every field is a
+// session-shell name or timestamp. A blob is a message only when its
+// data is a JSON object, cleartext is a string from content, then text,
+// then rawText, and the role is user or assistant or the numeric type is
+// 1 or 2. A content value that is not a string, including a parts array
+// of text, reasoning, or tool blocks, stays one unknown event with the
+// object on extra. Those parts are not walked into tool_call or
+// tool_result. Tool calls, tool results, usage, compaction, summaries,
+// base64 wrappers, and protobuf roots stay unknown and are not decoded.
+// encrypted, cipher, and sealed fields are copied into extra and are not
+// written into content_text. They are not decrypted. Credential keys the
+// adapter already drops stay absent.
 type CursorCLI struct {
 	Now            time.Time
 	NativeID       string
@@ -239,6 +246,12 @@ func (c CursorCLI) projectBlob(raw []byte, row cursorCLIBlob) (Event, error) {
 	if !ok {
 		return c.projectBlobUnknown(raw, row)
 	}
+	// A non-string content value is a parts array or another structure.
+	// v1 does not read strings out of it and does not fall through to
+	// text or rawText.
+	if cliNonStringContent(obj) {
+		return c.projectBlobObjectUnknown(raw, row, obj)
+	}
 	role, roleOK := cliMessageRole(obj)
 	text, textOK := cliCleartext(obj)
 	if !roleOK || !textOK {
@@ -250,6 +263,18 @@ func (c CursorCLI) projectBlob(raw []byte, row cursorCLIBlob) (Event, error) {
 	}
 	extra["blob_id"] = row.ID
 	return c.emit(row.ID, EventMessage, role, cursorWhen(obj), cursorOffset(raw, row.ID), text, extra)
+}
+
+// projectBlobObjectUnknown keeps the blob as one unknown event. The
+// object fields, including a content parts array, sit on extra. Parts
+// are not promoted.
+func (c CursorCLI) projectBlobObjectUnknown(raw []byte, row cursorCLIBlob, obj map[string]json.RawMessage) (Event, error) {
+	extra, err := cliObjectExtra(obj)
+	if err != nil {
+		return Event{}, err
+	}
+	extra["blob_id"] = row.ID
+	return c.emit(row.ID, EventUnknown, "", time.Time{}, cursorOffset(raw, row.ID), "", extra)
 }
 
 func (c CursorCLI) projectBlobUnknown(raw []byte, row cursorCLIBlob) (Event, error) {
@@ -313,10 +338,26 @@ func cursorCLIParentID(native string) *string {
 	return &s
 }
 
+// cliNonStringContent reports a content field that is present and is
+// not a JSON string. A parts array is the case v1 refuses to walk.
+func cliNonStringContent(obj map[string]json.RawMessage) bool {
+	raw, ok := obj["content"]
+	if !ok || isNull(raw) {
+		return false
+	}
+	_, isString := jsonString(raw)
+	return !isString
+}
+
 // cliCleartext is the visible text of a blob. content wins, then text,
-// then rawText. A blank string is not cleartext. A field whose name
-// looks sealed is never the text.
+// then rawText, and only when that field is a string. A blank string is
+// not cleartext and the next field is tried. A non-string content value
+// yields no text: text and rawText are not a fallback for a parts array.
+// A field whose name looks sealed is never the text.
 func cliCleartext(obj map[string]json.RawMessage) (string, bool) {
+	if cliNonStringContent(obj) {
+		return "", false
+	}
 	for _, key := range []string{"content", "text", "rawText"} {
 		if cursorOpaqueField(key) {
 			continue
