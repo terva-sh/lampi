@@ -191,8 +191,17 @@ func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
 }
 
 func transcriptDigest(arts []catalog.ArtifactRow) string {
+	var transcript string
 	for _, a := range arts {
-		if a.Kind != protocol.KindTranscriptJSONL || a.SHA256 == "" {
+		if a.SHA256 == "" {
+			continue
+		}
+		// The Cursor IDE projector reads cursor_state_json. The training
+		// row points at that export, which is the blob that was projected.
+		if a.Kind == protocol.KindCursorStateJSON {
+			return a.SHA256
+		}
+		if a.Kind != protocol.KindTranscriptJSONL {
 			continue
 		}
 		// history.jsonl is Codex prompt history, not a rollout. The
@@ -200,9 +209,11 @@ func transcriptDigest(arts []catalog.ArtifactRow) string {
 		if path.Base(a.RelPath) == "history.jsonl" {
 			continue
 		}
-		return a.SHA256
+		if transcript == "" {
+			transcript = a.SHA256
+		}
 	}
-	return ""
+	return transcript
 }
 
 func decodeEvents(body []byte) ([]normalize.Event, error) {
