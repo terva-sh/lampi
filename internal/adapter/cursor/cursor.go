@@ -2,7 +2,7 @@
 //
 // Cursor stores chat and editor state in undocumented SQLite databases
 // named state.vscdb. One database is global. Each workspace has another.
-// This reader is version 1 and its confidence is low. A major Cursor
+// This reader is version 2 and its confidence is low. A major Cursor
 // upgrade can rename a table or a key, and this pin will not follow it.
 //
 // The live database is never opened and never written. A read copies
@@ -11,13 +11,17 @@
 // read-only. The copy is removed after the export is built. Sync uploads
 // the export, not the database.
 //
-// Version 1 reads ItemTable (key TEXT, value BLOB). When cursorDiskKV
-// exists it is read too. Current Cursor builds keep chat bodies there.
-// A database with no ItemTable is an error. Keys under cursorAuth/ are
-// dropped and do not appear in the export. Other keys are kept, including
-// ones this version does not interpret. The export is what ruleset v1
-// scans. The key filter runs first, so a cursorAuth value is not in
-// those bytes.
+// Version 2 reads ItemTable (key TEXT, value BLOB). When cursorDiskKV
+// exists it is read too. Current Cursor builds keep chat bodies in the
+// global database. A workspace export snapshots that global database
+// the same way and merges cursorDiskKV rows for composers named by the
+// workspace ItemTable key composer.composerHeaders
+// (allComposers[].composerId). composer.composerData is the older
+// workspace list and is not the registry. A database with no ItemTable
+// is an error. Keys under cursorAuth/ are dropped and do not appear in
+// the export. Other keys are kept, including ones this version does not
+// interpret. The export is what ruleset v1 scans. The key filter runs
+// first, so a cursorAuth value is not in those bytes.
 //
 // The user-data directory is the Electron path Cursor inherits from VS
 // Code. On Linux it is $XDG_CONFIG_HOME/Cursor, or ~/.config/Cursor when
@@ -28,8 +32,9 @@
 // name is opaque. The project cwd is the folder URI in the sibling
 // workspace.json. A vscode-remote URI has no local path, so that
 // workspace has an empty cwd and the allowlist keeps it. The global
-// database holds every workspace, so it also has an empty cwd and does
-// not leave the machine. This reader does not split it.
+// database holds every workspace, so it has an empty cwd and does not
+// leave the machine. A workspace export is the session that carries
+// that workspace's composers. Its session id stays workspace/<id>.
 //
 // VSCODE_APPDATA, VSCODE_PORTABLE, and a Windows user-data directory
 // seen from WSL were not confirmed for current Cursor and are not
@@ -37,8 +42,8 @@
 // not checked against a Cursor build. The Cursor CLI store.db is a
 // different corpus and is not read.
 //
-// Normalize workers still implement terva only, so a stored Cursor
-// manifest records normalize_error.
+// Workers project cursor_state_json. A stored manifest whose artifact
+// is not that kind records normalize_error.
 package cursor
 
 import (
@@ -58,9 +63,11 @@ import (
 
 const (
 	// Version is the pinned reader. Bump it when ItemTable or
-	// cursorDiskKV stops meaning what this package reads. A Cursor
-	// release that does that breaks this pin on purpose.
-	Version = "1"
+	// cursorDiskKV stops meaning what this package reads. Version 2
+	// merges a workspace's composers from the global cursorDiskKV.
+	// A Cursor release that renames the registry or the table breaks
+	// this pin on purpose.
+	Version = "2"
 	// Confidence is low because the schema is undocumented and has
 	// already moved between major Cursor versions.
 	Confidence = "low"

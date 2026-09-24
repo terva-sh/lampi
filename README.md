@@ -205,10 +205,11 @@ An empty cwd matches no cwd prefix, no cwd hash, and no git remote,
 so default deny keeps the export on the machine.
 
 The Cursor IDE global database (`User/globalStorage/state.vscdb`) has
-an empty cwd. One database holds every workspace, and the reader does
-not split it, so that export is refused by design. A workspace
-database takes its cwd from the folder URI in the sibling
-`workspace.json`. A URI with no local path, such as `vscode-remote`,
+an empty cwd, so that export is refused by design. A workspace export
+copies the global database read-only and merges `cursorDiskKV` rows
+for composers named by that workspace's `composer.composerHeaders`.
+The session id stays `workspace/<id>`. A workspace database takes its
+cwd from the folder URI in the sibling `workspace.json`. A URI with no local path, such as `vscode-remote`,
 is an empty cwd as well, and that workspace stays on the machine.
 
 A Cursor CLI chat takes its cwd from the `cwd` field of the sibling

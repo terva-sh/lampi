@@ -65,9 +65,12 @@ implemented in `internal/config`. This policy confirms that surface.
   [protocol.md](protocol.md).
 
 Cursor IDE and Cursor CLI exports use that same gate. The global IDE
-database has an empty cwd and is refused by design: one file holds
-every workspace, and the reader does not split it. A workspace
-database takes its cwd from `workspace.json`. A Cursor CLI export
+database has an empty cwd and is refused by design. A workspace
+export copies that global database read-only and merges
+`cursorDiskKV` rows for composers named by that workspace's
+`composer.composerHeaders`. The global export itself still does not
+leave the machine. A workspace database takes its cwd from
+`workspace.json`. A Cursor CLI export
 needs an absolute `cwd` in the sibling `meta.json`. A missing file, a
 relative path, or a file URI is an empty cwd, and the allowlist
 refuses the export. Neither case adds a permit rule or a schema field.

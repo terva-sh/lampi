@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -92,11 +93,203 @@ func exportDatabase(ctx context.Context, src, sourceRel, scope string) ([]byte, 
 		doc.CursorDiskKV = &kv
 	}
 	// Close before the deferred RemoveAll so the snapshot files are not
-	// still mapped when the directory goes away.
+	// still mapped when the directory goes away. The global snapshot
+	// below opens its own copy.
 	if err := db.Close(); err != nil {
 		return nil, err
 	}
+	if err := mergeWorkspaceComposers(ctx, src, &doc); err != nil {
+		return nil, err
+	}
 	return json.Marshal(doc)
+}
+
+// composerHeadersKey is the ItemTable registry that names the composers
+// for one workspace. The normalize fixtures and the worker's cursor
+// document use this key, with allComposers[].composerId.
+// composer.composerData is the older workspace list and is not read
+// here.
+const composerHeadersKey = "composer.composerHeaders"
+
+// mergeWorkspaceComposers copies the global state.vscdb and appends
+// cursorDiskKV rows for composers this workspace's composer.composerHeaders
+// names. A path that is not a workspace database is left alone. A
+// missing global file adds nothing. The live global file is not opened.
+func mergeWorkspaceComposers(ctx context.Context, src string, doc *document) error {
+	if _, ok := workspaceStorageID(src); !ok {
+		return nil
+	}
+	ids := composerIDs(doc.ItemTable)
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := snapshotDisk(ctx, globalDBBeside(src))
+	if err != nil {
+		return fmt.Errorf("cursor: global snapshot: %w", err)
+	}
+	doc.CursorDiskKV = mergeDisk(doc.CursorDiskKV, filterDisk(rows, ids))
+	return nil
+}
+
+// workspaceStorageID reports the directory name under
+// User/workspaceStorage when dbPath is that workspace's state.vscdb.
+func workspaceStorageID(dbPath string) (string, bool) {
+	if filepath.Base(dbPath) != dbName {
+		return "", false
+	}
+	idDir := filepath.Dir(dbPath)
+	if filepath.Base(filepath.Dir(idDir)) != "workspaceStorage" {
+		return "", false
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(idDir))) != "User" {
+		return "", false
+	}
+	id := filepath.Base(idDir)
+	if id == "" || id == "." || id == ".." {
+		return "", false
+	}
+	return id, true
+}
+
+// globalDBBeside is User/globalStorage/state.vscdb next to a workspace
+// database. workspaceStorageID must already have accepted dbPath.
+func globalDBBeside(workspaceDB string) string {
+	idDir := filepath.Dir(workspaceDB)
+	user := filepath.Dir(filepath.Dir(idDir))
+	return filepath.Join(user, "globalStorage", dbName)
+}
+
+// composerIDs reads composer.composerHeaders. A composer named only on
+// composer.composerData is not included.
+func composerIDs(items []row) map[string]struct{} {
+	ids := map[string]struct{}{}
+	for _, item := range items {
+		if item.Key != composerHeadersKey {
+			continue
+		}
+		var doc struct {
+			AllComposers []struct {
+				ComposerID string `json:"composerId"`
+			} `json:"allComposers"`
+		}
+		if err := json.Unmarshal(item.Value, &doc); err != nil {
+			continue
+		}
+		for _, c := range doc.AllComposers {
+			if c.ComposerID != "" {
+				ids[c.ComposerID] = struct{}{}
+			}
+		}
+	}
+	return ids
+}
+
+// snapshotDisk copies src and returns its cursorDiskKV rows. A missing
+// file or a database without that table is an empty slice. cursorAuth
+// keys are already dropped by readKV.
+func snapshotDisk(ctx context.Context, src string) ([]row, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(src); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	snap, err := copyTrio(src)
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(snap)
+
+	db, err := openSnapshot(ctx, filepath.Join(snap, filepath.Base(src)))
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	ok, err := tableExists(ctx, db, "cursorDiskKV")
+	if err != nil || !ok {
+		return nil, err
+	}
+	return readKV(ctx, db, `SELECT key, value FROM cursorDiskKV ORDER BY key`)
+}
+
+// filterDisk keeps rows whose composer id is in ids. The id is the
+// segment the existing bubble and composerData keys use. A longer id
+// that only starts with a selected id does not match. Keys this reader
+// does not treat as one composer's row stay on the global database.
+func filterDisk(rows []row, ids map[string]struct{}) []row {
+	if len(ids) == 0 || len(rows) == 0 {
+		return nil
+	}
+	out := make([]row, 0)
+	for _, item := range rows {
+		id, ok := diskRowComposer(item.Key)
+		if !ok {
+			continue
+		}
+		if _, want := ids[id]; !want {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func diskRowComposer(key string) (string, bool) {
+	switch {
+	case strings.HasPrefix(key, "composerData:"):
+		id := strings.TrimPrefix(key, "composerData:")
+		if id == "" || strings.Contains(id, ":") {
+			return "", false
+		}
+		return id, true
+	case strings.HasPrefix(key, "bubbleId:"):
+		return composerSegment(key, "bubbleId:")
+	case strings.HasPrefix(key, "checkpointId:"):
+		return composerSegment(key, "checkpointId:")
+	case strings.HasPrefix(key, "messageRequestContext:"):
+		return composerSegment(key, "messageRequestContext:")
+	case strings.HasPrefix(key, "codeBlockDiff:"):
+		return composerSegment(key, "codeBlockDiff:")
+	default:
+		return "", false
+	}
+}
+
+func composerSegment(key, prefix string) (string, bool) {
+	rest := strings.TrimPrefix(key, prefix)
+	id, tail, ok := strings.Cut(rest, ":")
+	if !ok || id == "" || tail == "" {
+		return "", false
+	}
+	return id, true
+}
+
+// mergeDisk appends extra onto base. A key already on the workspace
+// document stays. The result is ordered by key, matching readKV.
+func mergeDisk(base *[]row, extra []row) *[]row {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := map[string]bool{}
+	out := []row{}
+	if base != nil {
+		out = append(out, (*base)...)
+		for _, item := range *base {
+			seen[item.Key] = true
+		}
+	}
+	for _, item := range extra {
+		if seen[item.Key] {
+			continue
+		}
+		seen[item.Key] = true
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return &out
 }
 
 // copyTrio copies state.vscdb and the sidecars that exist beside it.

@@ -201,7 +201,10 @@ rule written against that hash still matches. OpenCode takes the cwd
 from `info.directory` on the export. A discovered database file has
 no directory, so the allowlist refuses that blob. A Cursor IDE
 workspace takes its cwd from `workspace.json`. The global IDE
-database has an empty cwd and is refused by design. A Cursor CLI
+database has an empty cwd and is refused by design. A workspace
+export also copies that global database read-only and merges
+`cursorDiskKV` rows for composers named by the workspace's
+`composer.composerHeaders`. The session id stays `workspace/<id>`. A Cursor CLI
 chat needs an absolute `cwd` in the sibling `meta.json`. A missing
 file, a relative path, or a file URI leaves that cwd empty, and the
 allowlist refuses the export. The CLI workspace hash is not a cwd.

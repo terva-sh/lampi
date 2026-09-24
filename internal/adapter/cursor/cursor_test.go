@@ -194,7 +194,7 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 	if !strings.Contains(text, "composer.composerData") || !strings.Contains(text, keep) || !strings.Contains(text, `"wal":true`) {
 		t.Fatalf("export dropped a kept row: %s", text)
 	}
-	if !strings.Contains(text, `"harness_version":"1"`) || !strings.Contains(text, `"confidence":"low"`) {
+	if !strings.Contains(text, `"harness_version":"`+Version+`"`) || !strings.Contains(text, `"confidence":"low"`) {
 		t.Fatalf("pin: %s", text)
 	}
 	var doc document
@@ -276,6 +276,198 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 	}
 	if _, err := (Adapter{}).ReadSlice(context.Background(), global+"-wal", 0); err == nil {
 		t.Fatal("wal sidecar was readable")
+	}
+}
+
+func TestWorkspaceMergesComposerHeaders(t *testing.T) {
+	root := t.TempDir()
+	global := filepath.Join(root, "User", "globalStorage", "state.vscdb")
+	allowDir := filepath.Join(root, "User", "workspaceStorage", "ws-allow")
+	allow := filepath.Join(allowDir, "state.vscdb")
+	otherDir := filepath.Join(root, "User", "workspaceStorage", "ws-other")
+	other := filepath.Join(otherDir, "state.vscdb")
+	mustWrite(t, filepath.Join(allowDir, "workspace.json"), `{"folder":"file:///work/app"}`)
+	mustWrite(t, filepath.Join(otherDir, "workspace.json"), `{"folder":"file:///work/other"}`)
+
+	headers := func(ids ...string) string {
+		t.Helper()
+		var all []map[string]string
+		for _, id := range ids {
+			all = append(all, map[string]string{"composerId": id})
+		}
+		b, err := json.Marshal(map[string]any{"allComposers": all})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	writeStateDB(t, allow, []stateKV{
+		{"cursorAuth/accessToken", "sekret-token"},
+		{"composer.composerHeaders", headers("comp-allow")},
+		{"composer.composerData", headers("comp-decoy")},
+	}, nil)
+	writeStateDB(t, other, []stateKV{
+		{"composer.composerHeaders", headers("comp-other")},
+	}, nil)
+	writeStateDB(t, global, []stateKV{
+		{"cursorAuth/refreshToken", "sekret-refresh"},
+		// A global copy of the headers key is not the registry. It names
+		// the other workspace so a reader that uses this row instead of
+		// the workspace key pulls the wrong composer.
+		{"composer.composerHeaders", headers("comp-other")},
+		{"composer.composerData", headers("comp-allow", "comp-other", "comp-decoy")},
+	}, []stateKV{
+		{"cursorAuth/accessToken", "sekret-token"},
+		{"bubbleId:comp-allow:user", `{"type":1,"rawText":"allow-user-bubble","encrypted_content":"enc-opaque-value"}`},
+		{"bubbleId:comp-allow:assistant", `{"type":2,"text":"allow-assistant-bubble","cipher_text":"cipher-opaque-value","sealed_payload":"sealed-opaque-value"}`},
+		{"composerData:comp-allow", `{"name":"allow-thread","fullConversationHeadersOnly":[{"bubbleId":"user","type":1},{"bubbleId":"assistant","type":2}]}`},
+		{"bubbleId:comp-other:user", `{"type":1,"rawText":"other-workspace-bubble"}`},
+		{"composerData:comp-other", `{"name":"other-thread"}`},
+		{"bubbleId:comp-decoy:user", `{"type":1,"rawText":"decoy-workspace-list-bubble"}`},
+		{"composerData:comp-decoy", `{"name":"decoy-thread"}`},
+		{"bubbleId:comp-allow-extra:user", `{"type":1,"rawText":"prefix-must-not-match"}`},
+		{"agentKv:comp-allow", `{"text":"agent-kv-not-merged"}`},
+		{"composer.content.abc", `{"body":"content-blob-not-merged"}`},
+	})
+
+	beforeG := hashes(t, global)
+	beforeA := hashes(t, allow)
+	b, err := Manifests(root, "machine-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Cleanup()
+	for name, sum := range beforeG {
+		if hashes(t, global)[name] != sum {
+			t.Fatalf("live global %s changed", name)
+		}
+	}
+	for name, sum := range beforeA {
+		if hashes(t, allow)[name] != sum {
+			t.Fatalf("live workspace %s changed", name)
+		}
+	}
+
+	byID := map[string]protocol.Manifest{}
+	for _, m := range b.Manifests {
+		byID[m.NativeSessionID] = m
+		if m.HarnessVersion != Version {
+			t.Fatalf("version %s", m.HarnessVersion)
+		}
+	}
+	w, ok := byID["workspace/ws-allow"]
+	if !ok {
+		t.Fatalf("sessions %v", byID)
+	}
+	if w.NativeSessionID == "global" || w.Project.CWD != "/work/app" {
+		t.Fatalf("workspace session %+v", w)
+	}
+	raw, err := os.ReadFile(b.Paths[w.Artifacts[0].SHA256])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc document
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.HarnessVersion != Version || doc.Confidence != "low" || doc.Scope != "workspace" {
+		t.Fatalf("pin %+v", doc)
+	}
+	if doc.CursorDiskKV == nil {
+		t.Fatal("merged cursor_disk_kv missing")
+	}
+	got := map[string]bool{}
+	for _, row := range *doc.CursorDiskKV {
+		got[row.Key] = true
+		if excludedKey(row.Key) {
+			t.Fatalf("kept %s", row.Key)
+		}
+	}
+	for _, key := range []string{"bubbleId:comp-allow:user", "bubbleId:comp-allow:assistant", "composerData:comp-allow"} {
+		if !got[key] {
+			t.Fatalf("missing %s in %v", key, got)
+		}
+	}
+	for _, key := range []string{
+		"bubbleId:comp-other:user",
+		"composerData:comp-other",
+		"bubbleId:comp-decoy:user",
+		"composerData:comp-decoy",
+		"bubbleId:comp-allow-extra:user",
+		"agentKv:comp-allow",
+		"composer.content.abc",
+	} {
+		if got[key] {
+			t.Fatalf("merged %s", key)
+		}
+	}
+	text := string(raw)
+	for _, forbidden := range []string{
+		"sekret-token", "sekret-refresh", "cursorAuth",
+		"other-workspace-bubble", "decoy-workspace-list-bubble",
+		"prefix-must-not-match", "agent-kv-not-merged", "content-blob-not-merged",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("export contains %s", forbidden)
+		}
+	}
+	if !strings.Contains(text, "allow-user-bubble") || !strings.Contains(text, "allow-assistant-bubble") {
+		t.Fatalf("export dropped the workspace bubbles: %s", text)
+	}
+	g := byID["global"]
+	if g.Project.CWD != "" || g.NativeSessionID != "global" {
+		t.Fatalf("global %+v", g)
+	}
+
+	// Headers with no global file still export. The workspace list does
+	// not pull bubbles that are not there.
+	alone := t.TempDir()
+	aloneDB := filepath.Join(alone, "User", "workspaceStorage", "ws-solo", "state.vscdb")
+	writeStateDB(t, aloneDB, []stateKV{
+		{"composer.composerHeaders", headers("comp-allow")},
+		{"composer.composerData", headers("comp-decoy")},
+	}, nil)
+	body, err := exportDatabase(context.Background(), aloneDB, "User/workspaceStorage/ws-solo/state.vscdb", "workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "allow-user-bubble") || strings.Contains(string(body), "cursor_disk_kv") {
+		t.Fatalf("missing global invented disk rows: %s", body)
+	}
+}
+
+type stateKV struct {
+	key, val string
+}
+
+func writeStateDB(t *testing.T, path string, items, disk []stateKV) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if _, err := db.Exec(`INSERT INTO ItemTable (key, value) VALUES (?, ?)`, item.key, item.val); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if disk == nil {
+		return
+	}
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range disk {
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)`, item.key, item.val); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

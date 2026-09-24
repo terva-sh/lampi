@@ -63,7 +63,10 @@ Global storage and each workspaceStorage directory are separate. The
 upload is a JSON export. Keys under cursorAuth/ are not in it. The raw
 database and its -wal and -shm files are not uploaded. The global
 database has an empty cwd and is refused by design. A workspace
-database takes its cwd from workspace.json. The Cursor CLI store
+export copies that global database read-only and merges cursorDiskKV
+rows for composers named by that workspace's composer.composerHeaders.
+The session id stays workspace/<id>. A workspace database takes its
+cwd from workspace.json. The Cursor CLI store
 is a separate corpus. On Linux the config directory is
 $XDG_CONFIG_HOME/cursor when that variable is set, otherwise
 ~/.cursor. CURSOR_CONFIG_DIR replaces it. On macOS it is ~/.cursor.

@@ -240,9 +240,12 @@ watch, and upload. OpenCode watches `export/`, not the live database.
 Cursor copies `state.vscdb` and its WAL sidecars, then uploads a JSON
 export. Keys under `cursorAuth/` are not in that export. The raw
 database stays on the machine. The global database has an empty cwd
-and the allowlist refuses it by design: one database holds every
-workspace, and this reader does not split it. A workspace database
-takes its cwd from `workspace.json`. A URI with no local path is an
+and the allowlist refuses it by design. A workspace export copies
+that global database read-only and merges `cursorDiskKV` rows for
+composers named by the workspace ItemTable key
+`composer.composerHeaders`. The session id stays `workspace/<id>`.
+The global export itself still does not leave the machine. A
+workspace database takes its cwd from `workspace.json`. A URI with no local path is an
 empty cwd too. The Cursor CLI `store.db` is a second
 harness, `cursor-cli`. It copies that database and its WAL sidecars
 the same way and uploads a separate JSON export. It does not read
