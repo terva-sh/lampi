@@ -144,6 +144,38 @@ func TestShareGPTStripsPlaintextAndLeavesCiphertext(t *testing.T) {
 	}
 }
 
+func TestShareGPTStripsPEMBlock(t *testing.T) {
+	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----"
+	text := "keep " + pem + " tail"
+	opaque := "cipher-" + pem
+	events := []Event{{
+		SessionID:   "terva:sid",
+		EventType:   EventMessage,
+		Actor:       ActorUser,
+		Role:        strPtr(ActorUser),
+		ContentText: &text,
+		Extra:       extraMap{"encrypted_content": opaque},
+	}}
+	digest := strings.Repeat("ab", 32)
+	rec, ok := ShareGPT("ses_pem", digest, events)
+	if !ok {
+		t.Fatal("expected a trajectory")
+	}
+	turn := rec.Conversations[0]
+	if turn.Value != "keep [redacted:private-key] tail" {
+		t.Fatalf("value %q", turn.Value)
+	}
+	if strings.Contains(turn.Value, "MIIB") || strings.Contains(turn.Value, "-----END") || strings.Contains(turn.Value, "-----BEGIN") {
+		t.Fatalf("value kept pem material: %q", turn.Value)
+	}
+	if turn.EncryptedContent != opaque {
+		t.Fatalf("ciphertext %#v", turn.EncryptedContent)
+	}
+	if *events[0].ContentText != text {
+		t.Fatal("normalized event was rewritten")
+	}
+}
+
 func TestShareGPTOmitsUntraceableAndEmpty(t *testing.T) {
 	text := "hello"
 	events := []Event{{

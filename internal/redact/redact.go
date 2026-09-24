@@ -46,13 +46,31 @@ type rule struct {
 	re   *regexp.Regexp
 }
 
+// privateKeyRE matches a PEM private-key block.
+//
+// When an END line is present the match is one span from BEGIN through
+// END: the header, any Proc-Type / DEK-Info lines, and the base64 body.
+// The body has to be base64 (plus those header lines), so prose that
+// mentions both armor lines is not one span. The END label uses the
+// same shape as BEGIN. RE2 has no backreference, so the algorithm word
+// on END is not required to repeat the word on BEGIN. A BEGIN line with
+// no END still matches that line. PUBLIC KEY and CERTIFICATE blocks do
+// not match. The rule name stays private-key and the stamp stays v1.
+const privateKeyRE = `-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----` +
+	`(?:[ \t]*\r?\n` +
+	`(?:[A-Za-z0-9][A-Za-z0-9 -]*:[^\r\n]*\r?\n)*` +
+	`(?:[ \t]*\r?\n)*` +
+	`(?:[A-Za-z0-9+/=]+[ \t]*\r?\n)*` +
+	`(?:[A-Za-z0-9+/=]+[ \t]*)?` +
+	`-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----)?`
+
 // v1Rules is the high-signal set: cloud keys, PATs, and private-key
 // blocks. JWTs and generic password= / api_key= assignments are not
 // in v1. Both show up in ordinary JSONL (tool output, docs, examples)
 // and a hit quarantines the raw upload. They can be a later opt-in
 // once the agent calls this scan continuously.
 var v1Rules = []rule{
-	{name: "private-key", re: regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----`)},
+	{name: "private-key", re: regexp.MustCompile(privateKeyRE)},
 	{name: "aws-access-key-id", re: regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
 	{name: "aws-secret-access-key", re: regexp.MustCompile(`(?i)\baws_secret_access_key\b\s*[=:]\s*['"]?[A-Za-z0-9/+=]{40}`)},
 	{name: "github-pat", re: regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,})\b`)},
