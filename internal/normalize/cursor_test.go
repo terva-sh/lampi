@@ -267,7 +267,7 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 	const rawArgs = `{"path": "live.go"}`
 	const params = `{"path": "params.go"}`
 
-	t.Run("live toolCallId rawArgs and result", func(t *testing.T) {
+	t.Run("empty text emits tools only", func(t *testing.T) {
 		raw := cursorRaw(t, map[string]any{
 			"harness_version": "1",
 			"confidence":      "low",
@@ -276,7 +276,9 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 			"item_table":      []any{},
 			"cursor_disk_kv": []any{
 				map[string]any{"key": "bubbleId:c1:tool", "value": map[string]any{
-					"type": 2,
+					"type":    2,
+					"text":    "",
+					"rawText": "",
 					"toolFormerData": map[string]any{
 						"name":           "Read",
 						"toolCallId":     "live-call",
@@ -315,7 +317,15 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 			}
 		}
 		if len(messages) != 0 {
-			t.Fatalf("empty-text tool bubble emitted %d messages", len(messages))
+			t.Fatalf("empty-text tool bubble emitted %d message siblings", len(messages))
+		}
+		for _, ev := range events {
+			if ev.EventType != EventMessage {
+				continue
+			}
+			if ev.ContentText == nil || *ev.ContentText == "" {
+				t.Fatalf("empty message sibling: %+v", ev)
+			}
 		}
 		if len(calls) != 1 || len(results) != 1 {
 			t.Fatalf("calls %d results %d", len(calls), len(results))
@@ -565,8 +575,14 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 		if named == nil || named.EventType != EventMessage || named.ContentText == nil || *named.ContentText != "kept" {
 			t.Fatalf("no-name bubble: %+v", named)
 		}
-		if named.Extra["toolFormerData"] == nil {
-			t.Fatal("malformed toolFormerData left extra")
+		former, _ := named.Extra["toolFormerData"].(map[string]any)
+		if former["toolCallId"] != "live-call" || former["result"] != "hidden" || former["rawArgs"] != rawArgs {
+			t.Fatalf("malformed toolFormerData was not left on extra: %#v", former)
+		}
+		for _, ev := range events {
+			if ev.ContentText != nil && *ev.ContentText == "hidden" {
+				t.Fatalf("malformed result became content_text on %s", ev.EventType)
+			}
 		}
 		if noID == nil || noID.EventType != EventMessage || noID.ContentText != nil {
 			t.Fatalf("no-id empty text should stay a message: %+v", noID)
@@ -576,6 +592,77 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 		}
 		if capability == nil || capability.EventType != EventMessage || capability.Extra["toolFormerData"] == nil {
 			t.Fatalf("capability bubble: %+v", capability)
+		}
+	})
+
+	t.Run("usage tokenCount and summary stay unpromoted", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:assistant", "value": map[string]any{
+					"type":       2,
+					"text":       "assistant text",
+					"tokenCount": 12,
+					"usageData":  map[string]any{"inputTokens": 3, "marker": "usage-marker"},
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "live-call",
+						"rawArgs":    rawArgs,
+						"result":     "live-result",
+					},
+					"toolResults": []any{},
+				}},
+				map[string]any{"key": "composerData:c1", "value": map[string]any{
+					"latestConversationSummary": map[string]any{"summary": "compacted the pond"},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		var sawCall, sawResult bool
+		for _, ev := range events {
+			switch ev.EventType {
+			case EventUsage, EventCompaction:
+				t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
+			case EventToolCall:
+				sawCall = true
+			case EventToolResult:
+				sawResult = true
+			}
+			if ev.ContentText != nil && (*ev.ContentText == "12" || *ev.ContentText == "usage-marker" || *ev.ContentText == "compacted the pond" || strings.Contains(*ev.ContentText, "inputTokens")) {
+				t.Fatalf("usage or summary became content_text %q on %s", *ev.ContentText, ev.EventType)
+			}
+		}
+		if !sawCall || !sawResult {
+			t.Fatal("tool promote was rejected with usage and summary")
+		}
+		var assistant, meta *Event
+		for i := range events {
+			ev := &events[i]
+			switch {
+			case ev.RawType == "bubbleId:c1:assistant" && ev.EventType == EventMessage:
+				assistant = ev
+			case ev.RawType == "composerData:c1":
+				meta = ev
+			}
+		}
+		if assistant == nil || assistant.Extra["tokenCount"] != float64(12) || assistant.Extra["usageData"] == nil {
+			t.Fatalf("usage fields %#v", assistant)
+		}
+		usage, _ := assistant.Extra["usageData"].(map[string]any)
+		if usage["marker"] != "usage-marker" || usage["inputTokens"] != float64(3) {
+			t.Fatalf("usageData %#v", assistant.Extra["usageData"])
+		}
+		if meta == nil || meta.EventType != EventMeta || meta.Extra["latestConversationSummary"] == nil {
+			t.Fatalf("summary meta: %+v", meta)
+		}
+		summary, _ := meta.Extra["latestConversationSummary"].(map[string]any)
+		if summary["summary"] != "compacted the pond" {
+			t.Fatalf("summary %#v", meta.Extra["latestConversationSummary"])
 		}
 	})
 
@@ -1021,8 +1108,9 @@ func marshalEvents(t *testing.T, events []Event) []byte {
 	return b
 }
 
-// assertNoPromoted allows tool_call and tool_result. usage and
-// compaction stay on extra.
+// assertNoPromoted allows tool_call and tool_result. usageData,
+// tokenCount, and latestConversationSummary stay on extra: a usage
+// event or a compaction event is still a failure.
 func assertNoPromoted(t *testing.T, events []Event) {
 	t.Helper()
 	for _, ev := range events {

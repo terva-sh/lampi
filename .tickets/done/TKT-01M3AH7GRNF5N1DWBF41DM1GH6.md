@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-24T20:20:37Z
-updated_at: 2026-09-24T20:26:00Z
+updated_at: 2026-09-24T20:29:06Z
 created_by:
   id: agent:cursor/b362
   name: Cursor cloud agent
@@ -80,6 +80,12 @@ Type 1 and type 2 still emit a message when the visible text is non-empty, and w
 ### Tests
 
 `assertNoPromoted` allows `tool_call` and `tool_result` and still fails on `usage` and `compaction`. A live-shaped fixture locks `toolCallId`, a `rawArgs` string, `toolFormerData.result`, and empty `toolResults`, including the empty-text tool-only path. Fallback fixtures lock `id`, object `args`, `params`, and `toolResults`. Malformed bubbles and capability-only bubbles stay unpromoted. A header fixture checks message, tool_call, tool_result order and that the whole group moves.
+
+## Notes
+
+**agent:cursor/b362** at 2026-09-24T20:29:06Z
+
+QE matrix cases are named subtests of TestCursorPromoteBubbleTools: empty text emits tools only; malformed toolFormerData stays on extra; usage tokenCount and summary stay unpromoted. assertNoPromoted still allows tool_call and tool_result and fails on usage and compaction.
 
 ## Summary
 
