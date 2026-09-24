@@ -57,7 +57,7 @@ func TestIngestExportFourHarnesses(t *testing.T) {
 		t.Fatalf("sync: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 	first := parseSync(t, stdout)
-	if first.uploaded == 0 || first.refused != 0 || first.quarantined != 0 {
+	if first.uploaded != 4 || first.manifests != 4 || first.refused != 0 || first.quarantined != 0 {
 		t.Fatalf("first sync: %+v\n%s", first, stdout)
 	}
 	before := casFiles(t, w.data)
@@ -140,7 +140,7 @@ func TestDisabledHarnessNotIngested(t *testing.T) {
 		t.Fatalf("sync: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 	c := parseSync(t, stdout)
-	if c.uploaded == 0 || c.refused != 0 || c.quarantined != 0 {
+	if c.uploaded != 1 || c.manifests != 1 || c.refused != 0 || c.quarantined != 0 {
 		t.Fatalf("sync: %+v\n%s", c, stdout)
 	}
 	events := w.exportEvents(t)
