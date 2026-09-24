@@ -23,9 +23,21 @@ const statusUsage = `terva-lampi status — agent state and lake health
 usage:
   terva-lampi status [--server URL] [--token-file PATH]
 
-Prints the local machine id (creating it if needed), outbox depth, a
-watermark summary, and the last finished sync. Those live under the
-state directory, next to the files the agent and sync already use.
+Prints the local machine id (creating it if needed), one line per
+known harness, outbox depth, a watermark summary, and the last
+finished sync. Those live under the state directory, next to the
+files the agent and sync already use.
+
+Each harness line has this spelling, in order terva, claude, codex,
+opencode, cursor, cursor-cli:
+
+  harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>
+
+root is empty when the directory cannot be named. source is config
+when the config.json root won, env when that harness's environment
+variable won, and default otherwise. enabled false still prints the
+root and source. An omitted harnesses map, or an omitted id, is
+enabled true. sessions counts files from harnesses that are on.
 
 GET /healthz reports whether the lake process is up. It carries no
 catalog data and does not need the token. GET /v1/stats reports how
@@ -60,7 +72,7 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	src, n, err := countSources(env)
+	_, n, err := countSources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
 	}
@@ -81,8 +93,8 @@ func runStatus(env Env, args []string) error {
 	if m.Hostname != "" {
 		fmt.Fprintf(env.stdout(), "hostname: %s\n", m.Hostname)
 	}
-	for _, s := range src {
-		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
+	for _, h := range harnessStatuses(env.getenv, file.Harnesses) {
+		fmt.Fprintln(env.stdout(), h.line())
 	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	if err := writeCaptureState(env.stdout(), state); err != nil {
