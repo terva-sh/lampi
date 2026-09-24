@@ -284,12 +284,37 @@ Inside one bubble the order is the message, then `tool_call`, then
 A missing name or call id on `toolFormerData` does not become a
 `tool_call`. The object stays on `extra`.
 `capabilityType`, `capabilities`, and a numeric `tool` field do not
-promote on their own. `usageData`, `tokenCount`, and
-`latestConversationSummary` stay on `extra`. They are not usage
-events or compaction events. The bubble object stays on `extra` of
-each sibling. Export code is unchanged. ShareGPT and trajectory
-already include message, `tool_call`, and `tool_result` turns, so a
-promoted call is a training turn and keeps its name and call id.
+promote on their own. Bubble `usageData` and bubble `tokenCount` stay
+on the bubble event `extra`. They are not usage events or compaction
+events. The bubble object stays on `extra` of each sibling. Export
+code is unchanged. ShareGPT and trajectory already include message,
+`tool_call`, and `tool_result` turns, so a promoted call is a
+training turn and keeps its name and call id.
+
+A `usageData` object on a `composerData:` row is a sibling whose
+`event_type` is `usage`. `usage.cost_usd` is `costInCents / 100` when
+`costInCents` is present and numeric. Recognizable token fields
+already on that object are copied onto Usage `input`, `output`,
+`cache_read`, and `cache_write`. The first matching alias wins. A
+later alias stays on the usage event `extra`, and so does every other
+key that is not copied. `amount`, `cost`, and `price` do not become
+token counts, and neither does `tokenCount`. When the usage event is
+promoted, `usageData` is removed from the composer meta `extra`. A
+non-object `usageData` stays on that meta `extra` and is not promoted.
+
+`latestConversationSummary` on that same `composerData:` object is a
+sibling whose `event_type` is `compaction`. `content_text` is the
+string value when the field is a string, or the object field
+`summary` when that string is non-empty. The rest of an object stays
+on the compaction event `extra`. When the compaction is promoted,
+`latestConversationSummary` is removed from the composer meta
+`extra`. A value that is neither a string nor an object stays on the
+meta `extra`. The composer `name` and title stay on the meta `extra`.
+They are not turns. That compaction is a training turn, and
+`content_text` becomes `value`. The composer title stays off the
+training view. Meta, usage, and unknown stay out of that view. The
+adapter and the pinned reader `Version` stay `2`, and
+`harness_version` is that string.
 
 The Cursor CLI `store.db` is a second
 harness, `cursor-cli`. It copies that database and its WAL sidecars
