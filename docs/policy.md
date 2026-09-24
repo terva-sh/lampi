@@ -3,7 +3,8 @@
 These are the placement and handling decisions for the MVP lake.
 Drew Short (`human:sothr`) locked them. This file records them. It does
 not provision a host, terminate TLS, set up a disk, or add an object
-store.
+store. The operator checklist is [vps-bringup.md](vps-bringup.md).
+That file does not provision a host either, and it does not name one.
 
 ## Lake host
 
@@ -30,6 +31,9 @@ do not control.
 Example units under `deploy/` keep `http://127.0.0.1:8787` so a local
 lake works without a hostname in git. On a machine that should upload
 to the VPS, set `LAMPI_SERVER` to that host's HTTPS URL.
+[vps-bringup.md](vps-bringup.md) is the order: encrypted disk, the
+binary, the data directory, the device token, loopback `serve`, then
+TLS.
 
 ## Retention
 

@@ -1,0 +1,42 @@
+# Example system unit for `terva-lampi serve`. Not installed by this tree.
+# Copy to /etc/systemd/system/terva-lampi-serve.service
+#
+# Phase 0 places the lake on a small VPS. See docs/policy.md and
+# docs/vps-bringup.md. This unit binds loopback. Put TLS in front.
+# Do not publish plain HTTP, and do not put a production hostname here.
+#
+# terva-lampi serve does not read LAMPI_SERVER or LAMPI_TOKEN_FILE.
+# Those are agent settings. systemd substitutes LAMPI_SERVE_* into
+# the flags below. Copy serve.env.example to /etc/terva-lampi/serve.env
+# (mode 0600) when you want to override the defaults.
+#
+# Create the terva-lampi user and /var/lib/terva-lampi before enabling.
+# If the data disk is a separate mount, uncomment Requires= and After=
+# and use the unit name systemd gives that mount.
+#
+#   systemctl daemon-reload
+#   systemctl enable --now terva-lampi-serve.service
+#
+# ExecStart assumes the binary is at /usr/local/bin/terva-lampi.
+
+[Unit]
+Description=terva-lampi lake
+Documentation=https://github.com/terva-sh/lampi/blob/main/docs/vps-bringup.md
+After=network-online.target
+Wants=network-online.target
+# After=var-lib-terva\x2dlampi.mount
+# Requires=var-lib-terva\x2dlampi.mount
+
+[Service]
+Type=simple
+User=terva-lampi
+Group=terva-lampi
+Environment=LAMPI_SERVE_ADDR=127.0.0.1:8787
+Environment=LAMPI_SERVE_DATA=/var/lib/terva-lampi
+Environment=LAMPI_SERVE_TOKEN_FILE=/var/lib/terva-lampi/tokens
+EnvironmentFile=-/etc/terva-lampi/serve.env
+ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE}
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
