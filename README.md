@@ -205,11 +205,27 @@ An empty cwd matches no cwd prefix, no cwd hash, and no git remote,
 so default deny keeps the export on the machine.
 
 The Cursor IDE global database (`User/globalStorage/state.vscdb`) has
-an empty cwd, so that export is refused by design. A workspace export
-copies the global database read-only and merges `cursorDiskKV` rows
-for composers named by that workspace's `composer.composerHeaders`.
-The session id stays `workspace/<id>`. A workspace database takes its
-cwd from the folder URI in the sibling `workspace.json`. A URI with no local path, such as `vscode-remote`,
+an empty cwd, so that export is refused by design. Current Cursor
+builds keep chat bodies in the global database's `cursorDiskKV` table,
+so a read of the workspace database alone misses type 1 and type 2
+bubbles. The export copies the global database when
+`composer.composerHeaders` names at least one composer. The snapshot
+calls `copyTrio`, then opens the copy read-only. The workspace
+database uses those same two steps. The reader does not open a live
+database. The merge puts matching `cursorDiskKV` rows into the
+workspace document field `cursor_disk_kv`. Membership is
+`allComposers[].composerId` on the ItemTable key
+`composer.composerHeaders`. `composer.composerData` is
+the older workspace list and is not the registry. A composer listed
+only on `composer.composerData` is not merged. A missing global file
+adds nothing to the document. If the copy or the open fails, the
+workspace export fails. The global export itself still does not leave
+the machine. The Cursor IDE pinned reader `Version` is `2`, and the
+document field `harness_version` is that string. `confidence` is
+`low`. The native session id stays `workspace/<id>`. `terva-lampi
+export --format events` writes `session_id` as `cursor:workspace/<id>`.
+A workspace database takes its cwd from the folder URI in the sibling
+`workspace.json`. A URI with no local path, such as `vscode-remote`,
 is an empty cwd as well, and that workspace stays on the machine.
 
 A Cursor CLI chat takes its cwd from the `cwd` field of the sibling
