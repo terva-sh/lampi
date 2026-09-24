@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"terva.sh/lampi/internal/adapter/cursor"
+	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/protocol"
@@ -380,6 +382,238 @@ func writeRel(t *testing.T, root, rel, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestHarnessStatusesComplete(t *testing.T) {
+	f := newHarnessFixture(t)
+	rows := harnessStatuses(f.getenv, nil)
+	ids := harnessIDs(rows)
+	if strings.Join(ids, "\n") != strings.Join(knownIDs(), "\n") {
+		t.Fatalf("order %v", ids)
+	}
+	if len(rows) != 6 {
+		t.Fatalf("rows %d", len(rows))
+	}
+	for _, row := range rows {
+		if !row.enabled || row.root == "" || row.source == "" {
+			t.Fatalf("row %+v", row)
+		}
+		if !strings.Contains(row.line(), "enabled=true") || !strings.Contains(row.line(), "source="+row.source) {
+			t.Fatalf("line %q", row.line())
+		}
+	}
+	explicit := indexHarness(harnessStatuses(f.getenv, config.Harnesses{
+		protocol.HarnessClaude: {Enabled: true},
+	}))
+	base := indexHarness(rows)
+	if explicit[protocol.HarnessClaude] != base[protocol.HarnessClaude] {
+		t.Fatalf("explicit enable %+v baseline %+v", explicit[protocol.HarnessClaude], base[protocol.HarnessClaude])
+	}
+}
+
+func TestHarnessStatusesDisabledStillListed(t *testing.T) {
+	f := newHarnessFixture(t)
+	offMap := config.Harnesses{
+		protocol.HarnessClaude: {Enabled: false},
+	}
+	base := indexHarness(harnessStatuses(f.getenv, nil))
+	got := indexHarness(harnessStatuses(f.getenv, offMap))
+	claude := got[protocol.HarnessClaude]
+	if claude.enabled || claude.root == "" || claude.source == "" {
+		t.Fatalf("disabled claude %+v", claude)
+	}
+	if claude.root != f.claude || claude.source != "env" {
+		t.Fatalf("disabled claude root/source %+v", claude)
+	}
+	if claude.line() != fmt.Sprintf("harness claude enabled=false root=%s source=env", f.claude) {
+		t.Fatalf("line %q", claude.line())
+	}
+	for _, id := range knownIDs() {
+		if id == protocol.HarnessClaude {
+			continue
+		}
+		if got[id] != base[id] {
+			t.Fatalf("%s changed: got %+v base %+v", id, got[id], base[id])
+		}
+	}
+	src, err := sources(f.getenv, offMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sourceNames(src)[protocol.HarnessClaude]; ok {
+		t.Fatal("sources() included disabled claude")
+	}
+}
+
+func TestHarnessStatusSourcePrecedence(t *testing.T) {
+	homeDir := t.TempDir()
+	configRoot := t.TempDir()
+	envRoot := t.TempDir()
+	zotRoot := t.TempDir()
+	xdg := t.TempDir()
+
+	with := func(extra func(string) string) func(string) string {
+		return func(k string) string {
+			if v := extra(k); v != "" {
+				return v
+			}
+			if k == "HOME" {
+				return homeDir
+			}
+			return ""
+		}
+	}
+
+	claudeEnv := with(func(k string) string {
+		if k == "CLAUDE_CONFIG_DIR" {
+			return envRoot
+		}
+		return ""
+	})
+	both := indexHarness(harnessStatuses(claudeEnv, config.Harnesses{
+		protocol.HarnessClaude: {Enabled: true, Root: configRoot},
+	}))
+	if both[protocol.HarnessClaude].source != "config" || both[protocol.HarnessClaude].root != configRoot {
+		t.Fatalf("config beats env: %+v", both[protocol.HarnessClaude])
+	}
+	envOnly := indexHarness(harnessStatuses(claudeEnv, nil))
+	if envOnly[protocol.HarnessClaude].source != "env" || envOnly[protocol.HarnessClaude].root != envRoot {
+		t.Fatalf("env: %+v", envOnly[protocol.HarnessClaude])
+	}
+	neither := with(func(string) string { return "" })
+	def := indexHarness(harnessStatuses(neither, nil))
+	if def[protocol.HarnessClaude].source != "default" || def[protocol.HarnessClaude].root != filepath.Join(homeDir, ".claude") {
+		t.Fatalf("default: %+v", def[protocol.HarnessClaude])
+	}
+
+	tervaEnv := with(func(k string) string {
+		if k == "ZOT_HOME" {
+			return zotRoot
+		}
+		return ""
+	})
+	terva := indexHarness(harnessStatuses(tervaEnv, nil))
+	if terva[protocol.HarnessTerva].source != "env" || terva[protocol.HarnessTerva].root != zotRoot {
+		t.Fatalf("zot env: %+v", terva[protocol.HarnessTerva])
+	}
+	tervaCfg := indexHarness(harnessStatuses(tervaEnv, config.Harnesses{
+		protocol.HarnessTerva: {Enabled: true, Root: configRoot},
+	}))
+	if tervaCfg[protocol.HarnessTerva].source != "config" || tervaCfg[protocol.HarnessTerva].root != configRoot {
+		t.Fatalf("terva config: %+v", tervaCfg[protocol.HarnessTerva])
+	}
+
+	cursorEnv := with(func(k string) string {
+		if k == "XDG_CONFIG_HOME" {
+			return xdg
+		}
+		return ""
+	})
+	cursorHome, err := cursor.Adapter{}.Home(cursorEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursorRows := indexHarness(harnessStatuses(cursorEnv, nil))
+	if cursorRows[protocol.HarnessCursor].source != "default" || cursorRows[protocol.HarnessCursor].root != cursorHome {
+		t.Fatalf("cursor xdg is default: %+v home %q", cursorRows[protocol.HarnessCursor], cursorHome)
+	}
+	cursorCfg := indexHarness(harnessStatuses(cursorEnv, config.Harnesses{
+		protocol.HarnessCursor: {Enabled: true, Root: configRoot},
+	}))
+	if cursorCfg[protocol.HarnessCursor].source != "config" || cursorCfg[protocol.HarnessCursor].root != configRoot {
+		t.Fatalf("cursor config: %+v", cursorCfg[protocol.HarnessCursor])
+	}
+
+	cliEnv := with(func(k string) string {
+		if k == "XDG_CONFIG_HOME" {
+			return xdg
+		}
+		return ""
+	})
+	cliHome, err := cursorcli.Adapter{}.Home(cliEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cliRows := indexHarness(harnessStatuses(cliEnv, nil))
+	if cliRows[protocol.HarnessCursorCLI].source != "default" || cliRows[protocol.HarnessCursorCLI].root != cliHome {
+		t.Fatalf("cursor-cli xdg is default: %+v home %q", cliRows[protocol.HarnessCursorCLI], cliHome)
+	}
+	cliOverride := t.TempDir()
+	cliSet := with(func(k string) string {
+		switch k {
+		case "XDG_CONFIG_HOME":
+			return xdg
+		case "CURSOR_CONFIG_DIR":
+			return cliOverride
+		default:
+			return ""
+		}
+	})
+	cliOn := indexHarness(harnessStatuses(cliSet, nil))
+	if cliOn[protocol.HarnessCursorCLI].source != "env" || cliOn[protocol.HarnessCursorCLI].root != cliOverride {
+		t.Fatalf("cursor-cli env: %+v", cliOn[protocol.HarnessCursorCLI])
+	}
+}
+
+func TestHarnessStatusEmptyRoot(t *testing.T) {
+	rows := harnessStatuses(func(string) string { return "" }, nil)
+	if len(rows) != len(knownIDs()) {
+		t.Fatalf("rows %d", len(rows))
+	}
+	for _, row := range rows {
+		if row.root != "" || row.source != "default" || !row.enabled {
+			t.Fatalf("unresolved %+v", row)
+		}
+		if row.line() != fmt.Sprintf("harness %s enabled=true root= source=default", row.id) {
+			t.Fatalf("line %q", row.line())
+		}
+	}
+
+	envRoot := t.TempDir()
+	getenv := func(k string) string {
+		if k == "CLAUDE_CONFIG_DIR" {
+			return envRoot
+		}
+		return ""
+	}
+	got := indexHarness(harnessStatuses(getenv, nil))
+	claude := got[protocol.HarnessClaude]
+	if claude.root != envRoot || claude.source != "env" || !claude.enabled {
+		t.Fatalf("override without HOME: %+v", claude)
+	}
+	for _, id := range knownIDs() {
+		if id == protocol.HarnessClaude {
+			continue
+		}
+		if got[id].root != "" || got[id].source != "default" {
+			t.Fatalf("%s should be empty default: %+v", id, got[id])
+		}
+	}
+}
+
+func knownIDs() []string {
+	src := knownSources()
+	ids := make([]string, len(src))
+	for i, s := range src {
+		ids[i] = s.harness.Name()
+	}
+	return ids
+}
+
+func harnessIDs(rows []harnessStatus) []string {
+	ids := make([]string, len(rows))
+	for i, row := range rows {
+		ids[i] = row.id
+	}
+	return ids
+}
+
+func indexHarness(rows []harnessStatus) map[string]harnessStatus {
+	out := make(map[string]harnessStatus, len(rows))
+	for _, row := range rows {
+		out[row.id] = row
+	}
+	return out
 }
 
 func watchersAt(ws []*watch.Watcher, root string) int {

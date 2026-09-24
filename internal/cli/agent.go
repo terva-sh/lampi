@@ -300,7 +300,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 	if err != nil {
 		return upload.Options{}, nil, 0, err
 	}
-	src, n, err := countSources(env)
+	src, n, err := countSources(env.getenv, file.Harnesses)
 	if err != nil {
 		return upload.Options{}, nil, 0, err
 	}
@@ -328,8 +328,8 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 	}, src, n, nil
 }
 
-func countSources(env Env) ([]source, int, error) {
-	src, err := configuredSources(env.getenv)
+func countSources(getenv func(string) string, harnesses config.Harnesses) ([]source, int, error) {
+	src, err := sources(getenv, harnesses)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -467,11 +467,15 @@ func runAgentConfig(env Env) error {
 }
 
 func runAgentStatus(env Env) error {
+	file, err := config.LoadFile(env.getenv)
+	if err != nil {
+		return err
+	}
 	m, err := config.LoadMachine(env.getenv)
 	if err != nil {
 		return err
 	}
-	src, n, err := countSources(env)
+	src, n, err := countSources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
 	}

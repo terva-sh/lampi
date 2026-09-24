@@ -112,6 +112,89 @@ func resolveHome(id string, cfgEntry *config.HarnessConfig, flagRoot string, get
 	return home, skip, nil
 }
 
+// harnessStatus is one known harness as operator status prints it.
+// enabled is false only when the config entry exists and sets it false.
+// An omitted map or key stays enabled. root is the directory from
+// resolveHome, or empty when that directory cannot be named. source is
+// config, env, or default.
+type harnessStatus struct {
+	id      string
+	enabled bool
+	root    string
+	source  string
+}
+
+// line is the stable status row. Ops docs can cite this spelling.
+func (h harnessStatus) line() string {
+	return fmt.Sprintf("harness %s enabled=%t root=%s source=%s", h.id, h.enabled, h.root, h.source)
+}
+
+// harnessStatuses reports every known harness in knownSources order.
+// A disabled harness stays in the slice. sources drops that harness.
+// flagRoot is empty: no per-harness root flag exists.
+func harnessStatuses(getenv func(string) string, harnesses config.Harnesses) []harnessStatus {
+	known := knownSources()
+	out := make([]harnessStatus, 0, len(known))
+	for _, s := range known {
+		out = append(out, oneHarnessStatus(s, getenv, harnesses))
+	}
+	return out
+}
+
+func oneHarnessStatus(s source, getenv func(string) string, harnesses config.Harnesses) harnessStatus {
+	id := s.harness.Name()
+	var entry *config.HarnessConfig
+	if e, ok := harnesses[id]; ok {
+		entry = &e
+	}
+	home, skip, err := resolveHome(id, entry, "", getenv, s.harness.Home)
+	root := ""
+	if err == nil {
+		root = home
+	}
+	return harnessStatus{
+		id:      id,
+		enabled: !skip,
+		root:    root,
+		source:  harnessResolution(entry, id, getenv),
+	}
+}
+
+// harnessResolution names which layer won. config root wins over the
+// harness override, and the override wins over the adapter default.
+// The flag slot is empty, so it is not a layer here.
+func harnessResolution(entry *config.HarnessConfig, id string, getenv func(string) string) string {
+	if entry != nil && entry.Root != "" {
+		return "config"
+	}
+	if harnessOverride(id, getenv) {
+		return "env"
+	}
+	return "default"
+}
+
+// harnessOverride reports the harness environment variable that beats
+// the adapter default. Cursor has none: XDG_CONFIG_HOME and APPDATA
+// select the platform directory, which is the default. XDG_CONFIG_HOME
+// is that same kind of input for the Cursor CLI. XDG_STATE_HOME is
+// that input for terva. Those are not overrides.
+func harnessOverride(id string, getenv func(string) string) bool {
+	switch id {
+	case protocol.HarnessTerva:
+		return getenv("TERVA_HOME") != "" || getenv("ZOT_HOME") != ""
+	case protocol.HarnessClaude:
+		return getenv("CLAUDE_CONFIG_DIR") != ""
+	case protocol.HarnessCodex:
+		return getenv("CODEX_HOME") != ""
+	case protocol.HarnessOpenCode:
+		return getenv("XDG_DATA_HOME") != ""
+	case protocol.HarnessCursorCLI:
+		return getenv("CURSOR_CONFIG_DIR") != ""
+	default:
+		return false
+	}
+}
+
 func (s source) layout() watch.Layout {
 	return watch.Layout{Dir: s.harness.WatchDir(), Match: s.harness.Match}
 }
