@@ -65,12 +65,26 @@ implemented in `internal/config`. This policy confirms that surface.
   [protocol.md](protocol.md).
 
 Cursor IDE and Cursor CLI exports use that same gate. The global IDE
-database has an empty cwd and is refused by design. A workspace
-export copies that global database read-only and merges
-`cursorDiskKV` rows for composers named by that workspace's
-`composer.composerHeaders`. The global export itself still does not
-leave the machine. A workspace database takes its cwd from
-`workspace.json`. A Cursor CLI export
+database has an empty cwd and is refused by design. Current Cursor
+builds keep chat bodies in the global database's `cursorDiskKV` table,
+so a read of the workspace database alone misses type 1 and type 2
+bubbles. The export copies the global database when
+`composer.composerHeaders` names at least one composer. The snapshot
+calls `copyTrio`, then opens the copy read-only. The workspace
+database uses those same two steps. The reader does not open a live
+database. The merge puts matching `cursorDiskKV` rows into the
+workspace document field `cursor_disk_kv`. Membership is
+`allComposers[].composerId` on the ItemTable key
+`composer.composerHeaders`. `composer.composerData` is
+the older workspace list and is not the registry. A composer listed
+only on `composer.composerData` is not merged. A missing global file
+adds nothing to the document. If the copy or the open fails, the
+workspace export fails. The global export itself still does not leave
+the machine. The Cursor IDE pinned reader `Version` is `2`, and the
+document field `harness_version` is that string. `confidence` is
+`low`. The native session id stays `workspace/<id>`. `terva-lampi
+export --format events` writes `session_id` as `cursor:workspace/<id>`.
+A workspace database takes its cwd from `workspace.json`. A Cursor CLI export
 needs an absolute `cwd` in the sibling `meta.json`. A missing file, a
 relative path, or a file URI is an empty cwd, and the allowlist
 refuses the export. Neither case adds a permit rule or a schema field.

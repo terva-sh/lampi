@@ -201,13 +201,29 @@ rule written against that hash still matches. OpenCode takes the cwd
 from `info.directory` on the export. A discovered database file has
 no directory, so the allowlist refuses that blob. A Cursor IDE
 workspace takes its cwd from `workspace.json`. The global IDE
-database has an empty cwd and is refused by design. A workspace
-export also copies that global database read-only and merges
-`cursorDiskKV` rows for composers named by the workspace's
-`composer.composerHeaders`. The session id stays `workspace/<id>`. A Cursor CLI
-chat needs an absolute `cwd` in the sibling `meta.json`. A missing
-file, a relative path, or a file URI leaves that cwd empty, and the
-allowlist refuses the export. The CLI workspace hash is not a cwd.
+database has an empty cwd and is refused by design. Current Cursor
+builds keep chat bodies in the global database's `cursorDiskKV` table,
+so a read of the workspace database alone misses type 1 and type 2
+bubbles. The export copies the global database when
+`composer.composerHeaders` names at least one composer. The snapshot
+calls `copyTrio`, then opens the copy read-only. The workspace
+database uses those same two steps. The reader does not open a live
+database. The merge puts matching `cursorDiskKV` rows into the
+workspace document field `cursor_disk_kv`. Membership is
+`allComposers[].composerId` on the ItemTable key
+`composer.composerHeaders`. `composer.composerData` is
+the older workspace list and is not the registry. A composer listed
+only on `composer.composerData` is not merged. A missing global file
+adds nothing to the document. If the copy or the open fails, the
+workspace export fails. The global export itself still does not leave
+the machine. The Cursor IDE pinned reader `Version` is `2`, and the
+document field `harness_version` is that string. `confidence` is
+`low`. The native session id stays `workspace/<id>`. `terva-lampi
+export --format events` writes `session_id` as `cursor:workspace/<id>`.
+A Cursor CLI chat needs an absolute `cwd` in the sibling `meta.json`.
+A missing file, a relative path, or a file URI leaves that cwd empty,
+and the allowlist refuses the export. The CLI workspace hash is not
+a cwd.
 `git_remote` is
 origin's URL when the session cwd has a `.git`, and empty otherwise.
 `git_commit` is HEAD.
