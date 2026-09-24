@@ -48,6 +48,13 @@ is not uploaded. An absolute cwd in the sibling meta.json is the
 project path. Without one, the allowlist refuses the export. The
 workspace hash is not a path.
 
+config.json harnesses can set enabled false, which skips that
+harness, or root, an absolute path that replaces the environment
+variable and the default. The id is terva, claude, codex, opencode,
+cursor, or cursor-cli. Omit the map or the id and the harness stays
+on. A skipped harness does not move its watermark and does not
+upload. There is no per-harness root flag.
+
 Ruleset v1 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
 redaction.upload_hits is set.
@@ -89,7 +96,7 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	src, err := sources(env.getenv)
+	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
 	}

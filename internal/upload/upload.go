@@ -121,9 +121,10 @@ func (e *Rejected) Error() string {
 	return b.String()
 }
 
-// Sync pushes allowlisted session files for terva and, when their homes
-// are set, Claude Code, Codex, OpenCode, the Cursor IDE, and the
-// Cursor CLI.
+// Sync pushes allowlisted session files. An empty home skips that
+// harness, including terva. The agent leaves a home empty when
+// config says that harness is disabled, so this run does not read
+// it, does not move its watermark, and does not put its bytes.
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
@@ -624,36 +625,38 @@ func bundlesFor(opt Options) ([]adapter.Bundle, error) {
 		out = append(out, b)
 		return nil
 	}
-	b, err := terva.Manifests(opt.TervaHome, opt.MachineID)
-	if err := add(b, err); err != nil {
-		return nil, err
+	if opt.TervaHome != "" {
+		b, err := terva.Manifests(opt.TervaHome, opt.MachineID)
+		if err := add(b, err); err != nil {
+			return nil, err
+		}
 	}
 	if opt.ClaudeHome != "" {
-		b, err = claude.Manifests(opt.ClaudeHome, opt.MachineID)
+		b, err := claude.Manifests(opt.ClaudeHome, opt.MachineID)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}
 	}
 	if opt.CodexHome != "" {
-		b, err = codex.Manifests(opt.CodexHome, opt.MachineID)
+		b, err := codex.Manifests(opt.CodexHome, opt.MachineID)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}
 	}
 	if opt.OpenCodeHome != "" {
-		b, err = opencode.Manifests(opt.OpenCodeHome, opt.MachineID)
+		b, err := opencode.Manifests(opt.OpenCodeHome, opt.MachineID)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}
 	}
 	if opt.CursorHome != "" {
-		b, err = cursor.Manifests(opt.CursorHome, opt.MachineID)
+		b, err := cursor.Manifests(opt.CursorHome, opt.MachineID)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}
 	}
 	if opt.CursorCLIHome != "" {
-		b, err = cursorcli.Manifests(opt.CursorCLIHome, opt.MachineID)
+		b, err := cursorcli.Manifests(opt.CursorCLIHome, opt.MachineID)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}

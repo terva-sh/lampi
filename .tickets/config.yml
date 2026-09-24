@@ -70,6 +70,8 @@ actors:
     name: Atlas - Architect
   - id: agent:cursor/eee6
     name: Cursor cloud agent
+  - id: agent:cursor/6d91
+    name: Cursor cloud agent
 labels:
   - area/agent
   - area/server
