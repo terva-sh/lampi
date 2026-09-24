@@ -4,7 +4,8 @@
   Example launchd agent for terva-lampi. Not installed by this tree.
   Copy to ~/Library/LaunchAgents/sh.terva.lampi.agent.plist.
 
-  Phase 0 places the lake on a small VPS. See docs/policy.md.
+  Phase 0 places the lake on a small VPS. See docs/policy.md and
+  docs/vps-bringup.md.
   LAMPI_SERVER below is the loopback placeholder for a local lake.
   Set it to the VPS HTTPS URL on a machine that should upload there.
   Do not invent a production hostname in this plist.

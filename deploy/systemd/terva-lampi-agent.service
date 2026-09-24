@@ -1,7 +1,8 @@
 # Example user unit for `terva-lampi agent`. Not installed by this tree.
 # Copy to ~/.config/systemd/user/terva-lampi-agent.service
 #
-# Phase 0 places the lake on a small VPS. See docs/policy.md.
+# Phase 0 places the lake on a small VPS. See docs/policy.md and
+# docs/vps-bringup.md.
 # This unit keeps the loopback URL so a local lake works. Put the VPS
 # HTTPS URL in ~/.config/terva-lampi/agent.env. Do not put a production
 # hostname in this file, and do not publish plain HTTP.

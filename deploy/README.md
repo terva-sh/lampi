@@ -7,13 +7,14 @@ either. The [Hook](#hook) section is how to wire it.
 
 Phase 0 places the lake on a small VPS.
 [docs/policy.md](../docs/policy.md) is that decision: TLS in front of
-`serve`, device tokens, no TTL, and volume encryption or LUKS. Every
-example still defaults to `http://127.0.0.1:8787` and a device token at
-`~/.config/terva-lampi/token`, so a local lake works without a hostname
-in this tree. On a machine that should upload to the VPS, set
-`LAMPI_SERVER` to that host's HTTPS URL in the env file or the launchd
-plist. Do not put the production hostname in git, and do not point the
-agent at plain HTTP on a public interface.
+`serve`, device tokens, no TTL, and volume encryption or LUKS. The
+operator checklist is [docs/vps-bringup.md](../docs/vps-bringup.md).
+Every example still defaults to `http://127.0.0.1:8787` and a device
+token at `~/.config/terva-lampi/token`, so a local lake works without
+a hostname in this tree. On a machine that should upload to the VPS,
+set `LAMPI_SERVER` to that host's HTTPS URL in the env file or the
+launchd plist. Do not put the production hostname in git, and do not
+point the agent at plain HTTP on a public interface.
 
 The agent reads the URL from `--server`, then `LAMPI_SERVER`, then
 `config.json`, then the loopback default. The token file is `--token-file`,
@@ -41,6 +42,31 @@ systemctl --user enable --now terva-lampi-agent.service
 
 `SIGUSR1` asks the running agent to sync. The watch on
 `$TERVA_HOME/sessions` is still the source of truth.
+
+## systemd system service
+
+```text
+deploy/systemd/terva-lampi-serve.service
+deploy/systemd/serve.env.example
+```
+
+This unit runs `terva-lampi serve` on the VPS. It is a system service,
+so the lake can start at boot. The agent unit above is a user service.
+Copy the serve unit to `/etc/systemd/system/terva-lampi-serve.service`.
+It binds `127.0.0.1:8787` and passes `--data` and `--token-file`.
+`terva-lampi serve` does not read `LAMPI_SERVER` or `LAMPI_TOKEN_FILE`.
+Those are agent settings. systemd substitutes `LAMPI_SERVE_ADDR`,
+`LAMPI_SERVE_DATA`, and `LAMPI_SERVE_TOKEN_FILE` from the unit and,
+when the file exists, from `/etc/terva-lampi/serve.env`.
+
+The ordered checklist is [docs/vps-bringup.md](../docs/vps-bringup.md).
+Create the `terva-lampi` user and the data directory before enabling
+the unit. `make build` does not install it.
+
+```bash
+systemctl daemon-reload
+systemctl enable --now terva-lampi-serve.service
+```
 
 ## launchd agent
 

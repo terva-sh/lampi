@@ -120,12 +120,16 @@ the manifest ACK. The agent is the long-running loop: startup sync,
 then a sync when the watcher reports growth or a previous push failed,
 then one more sync on SIGTERM. On Unix, SIGUSR1 asks for a sync without
 waiting for the next filesystem event. The agent writes `agent.pid` in
-the state directory while it runs. Example user units live under
-`deploy/`. They are not installed by this tree. Phase 0 places the lake
-on a small VPS. [policy.md](policy.md) is that decision: retention,
-encryption at rest, the allowlist, and which machines run the agent.
-The examples keep a loopback placeholder and point operators at the
-policy for the VPS HTTPS URL. Restart the agent to reload config.
+the state directory while it runs. Example units live under
+`deploy/`. They are not installed by this tree. The agent unit is a
+user service. The serve unit is a system service and binds loopback.
+Phase 0 places the lake on a small VPS.
+[policy.md](policy.md) is that decision: retention, encryption at
+rest, the allowlist, and which machines run the agent.
+[vps-bringup.md](vps-bringup.md) is the operator checklist. The
+examples keep a loopback placeholder. On a machine that should
+upload, set `LAMPI_SERVER` to the VPS HTTPS URL. Restart the agent
+to reload config.
 
 `hooks/terva-post-tool-enqueue.sh` is a supported optional acceleration
 for terva `post_tool_use`. `make build` does not install it. On Unix
@@ -262,8 +266,9 @@ internal/accept/          MVP acceptance gate, fixture terva JSONL
 docs/protocol.md
 docs/architecture.md
 docs/policy.md            Phase 0 host, retention, encryption, inventory
+docs/vps-bringup.md       Phase 0 operator checklist, not a provisioner
 hooks/                    optional post_tool_use nudge, not installed
-deploy/                   example systemd and launchd units, alias installer
+deploy/                   example agent and serve units, launchd, alias
 ```
 
 `main` stays thin. The commands are an internal package because nothing
@@ -297,4 +302,5 @@ Phase 0 runs that lake on a small VPS with local disk. Put TLS in
 front of `serve`. The data disk uses the provider's volume encryption
 and/or LUKS. There is no TTL and no application-level age wrapping.
 Laptop, desktop, and a remote/cloud box run `terva-lampi agent`.
-[policy.md](policy.md) is the record.
+[policy.md](policy.md) is the record. [vps-bringup.md](vps-bringup.md)
+is how an operator applies it.
