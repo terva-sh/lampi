@@ -52,12 +52,12 @@ CLAUDE_CONFIG_DIR wins. When it is unset the directory is ~/.claude (USERPROFILE
 Version is pinned at 1 inside the adapter. The JSON object on each line stays internal to that package and is not added to capture protocol 1 or the README. The reader copies keys it does not interpret onto Record.Extra as raw JSON. harness_version on the manifest is that pinned reader version. The raw file bytes are what sync uploads.
 
 ### Wiring
-agent discover, the long-running watch, and sync all ask the harness for its home and its manifests. The allowlist is unchanged: cwd, cwd hash, and origin's git remote, still default deny. The synchronous normalizer still projects only terva. A Claude manifest is stored, and normalize_error records that this harness has no projector yet.
+agent discover, the long-running watch, and sync all ask the harness for its home and its manifests. The allowlist is unchanged: cwd, cwd hash, and origin's git remote, still default deny. When this adapter landed, the synchronous normalizer projected only terva, and a stored Claude manifest recorded normalize_error. normalize.Claude now projects that transcript onto schema_version 1.
 
 ## Summary
 
 internal/adapter/claude discovers and watches $CLAUDE_CONFIG_DIR/projects/**/*.jsonl. When CLAUDE_CONFIG_DIR is unset the directory is ~/.claude (USERPROFILE\.claude on Windows), the default Claude Code documents, resolved the same way terva resolves TERVA_HOME: the variable, then the default, with no XDG fallback.
 
-Version is pinned at 1. The JSON object on each line stays inside that package. Keys the reader does not interpret are kept on Record.Extra and survive a re-encode. harness_version on the manifest is that reader version, not the Claude Code version string in the file. agent discover, the long-running watch, and sync all use the harness. The allowlist is unchanged. The synchronous projector still implements terva only, so a stored Claude session records normalize_error until a later normalizer exists.
+Version is pinned at 1. The JSON object on each line stays inside that package. Keys the reader does not interpret are kept on Record.Extra and survive a re-encode. harness_version on the manifest is that reader version, not the Claude Code version string in the file. agent discover, the long-running watch, and sync all use the harness. The allowlist is unchanged. When this adapter landed, the synchronous projector implemented terva only. normalize.Claude now projects a stored Claude transcript onto schema_version 1.
 
 Tests cover the glob, a missing projects directory, the pinned version, unknown fields, and an fsnotify and poll watch that reports an append offset.
