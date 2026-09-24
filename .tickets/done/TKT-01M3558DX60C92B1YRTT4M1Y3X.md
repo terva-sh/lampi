@@ -59,4 +59,4 @@ project_id is protocol.ProjectLinkID: the origin URL folded the same way as an a
 
 Tests cover two absolute paths, ssh and https spellings, different HEADs, one shared root, and a project_id that is not either cwd hash. A second root, a second remote, a shallow clone, and a checkout with no git stay unlinked. go test ./... passed, including the MVP acceptance gate.
 
-Async normalizer workers, parquet partitions, and the terva hook polish are still open. When this ticket landed, the synchronous projector implemented terva only. Workers now project terva, claude, codex, and opencode. A shallow clone has an empty project_id because the root commit is not in the object store.
+Async normalizer workers, parquet partitions, and the terva hook polish are still open. When this ticket landed, the synchronous projector implemented terva only. Workers now project terva, claude, codex, opencode, and cursor. A shallow clone has an empty project_id because the root commit is not in the object store.

@@ -42,7 +42,7 @@ Prefer `opencode export` / db path discovery over live SQLite WAL tails.
 
 ## Implementation plan
 
-Add an OpenCode peer on the same Harness surface as terva, Claude Code, and Codex. Discovery, watch, and sync use that peer. The projector stays unimplemented, so a stored manifest records normalize_error.
+Add an OpenCode peer on the same Harness surface as terva, Claude Code, and Codex. Discovery, watch, and sync use that peer. When this adapter landed, the projector was unimplemented, so a stored manifest recorded normalize_error. normalize.OpenCode now projects an export document onto schema_version 1. A stored database blob still keeps normalize_error.
 
 ### On disk
 OpenCode's data directory is `$XDG_DATA_HOME/opencode`, or `~/.local/share/opencode` when that variable is unset (`%USERPROFILE%\.local\share\opencode` on Windows). That is the xdg-basedir path OpenCode uses. There is no `OPENCODE_HOME`.

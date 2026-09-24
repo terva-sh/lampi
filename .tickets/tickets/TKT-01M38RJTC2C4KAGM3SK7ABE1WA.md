@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-24T03:50:38Z
-updated_at: 2026-09-24T06:33:25Z
+updated_at: 2026-09-24T07:10:25Z
 created_by:
   id: agent:cursor/dcb2
   name: Cursor cloud agent
@@ -41,7 +41,7 @@ A key named `cursorAuth`, a key whose first slash-separated segment is `cursorAu
 
 The IDE document is a different shape (`cursor_state_json`, ItemTable and cursorDiskKV, harness `cursor`). This ticket does not call the IDE projector and does not assume the two stores match.
 
-`api.Server.Project` dispatches terva, claude, codex, and opencode, and it rejects `cursor-cli` before it reads a blob. terva reads `transcript_jsonl` and `errors_jsonl`. claude, codex, and opencode read `transcript_jsonl` only. A cursor-cli manifest's artifact is `cursor_cli_store_json`. This ticket reads that kind. Publishing an empty event list because the kind was skipped is a failure: the worker sets `normalize_error` and writes no derived files.
+`api.Server.Project` dispatches terva, claude, codex, opencode, and cursor, and it rejects `cursor-cli` before it reads a blob. terva reads `transcript_jsonl` and `errors_jsonl`. claude, codex, and opencode read `transcript_jsonl` only. cursor reads `cursor_state_json`. A cursor-cli manifest's artifact is `cursor_cli_store_json`. This ticket reads that kind. Publishing an empty event list because the kind was skipped is a failure: the worker sets `normalize_error` and writes no derived files.
 
 ### Fixture
 

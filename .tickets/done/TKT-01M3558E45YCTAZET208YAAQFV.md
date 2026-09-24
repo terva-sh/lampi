@@ -54,7 +54,7 @@ The chats layout, the blobs and meta tables, hex-encoded meta JSON, and WAL side
 The live database is never opened and never written. A read copies store.db and any store.db-wal and store.db-shm, opens the copy read-only, and deletes the copy. Version is 1. Confidence is low. blobs and meta are required. Keys under cursorAuth/ are dropped, including a different case, and the same rule drops JSON object keys. Exact credential field names (accessToken, refreshToken, and the underscore forms, plus idToken, sessionToken, and workosCursorSessionToken) are dropped the same way. Other tables, protobuf, and auth.json are not read.
 
 ### Separation
-Watermarks and catalog sessions include the harness name. A CLI export is not a cursor session, and an IDE export is not a cursor-cli session. An empty cwd is refused by the allowlist. When this adapter landed, normalize implemented terva only. Workers now project terva, claude, codex, and opencode. A stored Cursor CLI manifest still records normalize_error.
+Watermarks and catalog sessions include the harness name. A CLI export is not a cursor session, and an IDE export is not a cursor-cli session. An empty cwd is refused by the allowlist. When this adapter landed, normalize implemented terva only. Workers now project terva, claude, codex, opencode, and cursor. A stored Cursor CLI manifest still records normalize_error.
 
 ## Summary
 
@@ -64,6 +64,6 @@ The config directory is the one Cursor documents for cli-config.json. CURSOR_CON
 
 The live database is not opened. The reader copies store.db and any store.db-wal and store.db-shm, opens the copy read-only, and deletes the copy. Version is 1. Confidence is low. Keys under cursorAuth/ are dropped, and so are credential field names such as accessToken. An absolute cwd in the sibling meta.json is the project path. Without one, the allowlist refuses the export. The workspace hash is not a path.
 
-agent discover, the watch, and sync use the harness. Workers project terva, claude, codex, and opencode onto schema_version 1. A stored Cursor CLI manifest still records normalize_error.
+agent discover, the watch, and sync use the harness. Workers project terva, claude, codex, opencode, and cursor onto schema_version 1. A stored Cursor CLI manifest still records normalize_error.
 
 go test ./... is green. Landed on cursor/cursor-cli-store-db-ac2a as https://github.com/terva-sh/lampi/pull/26.
