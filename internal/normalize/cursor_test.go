@@ -764,10 +764,179 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 	})
 }
 
-func TestCursorPromoteComposerUsageAndSummary(t *testing.T) {
+func TestCursorComposerFixtureMatrix(t *testing.T) {
 	const created = "2026-09-22T16:00:00Z"
 
-	t.Run("costInCents becomes cost_usd", func(t *testing.T) {
+	t.Run("happy usage", func(t *testing.T) {
+		raw := cursorComposerDoc(t, map[string]any{
+			"name":      "thread",
+			"createdAt": created,
+			"usageData": map[string]any{
+				"claude-4-sonnet-thinking": map[string]any{
+					"costInCents": 250,
+					"amount":      32,
+				},
+			},
+		})
+		meta, usage, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
+		if compaction != nil {
+			t.Fatalf("compaction without a summary: %+v", compaction)
+		}
+		if meta.Extra["usageData"] != nil || meta.Extra["name"] != "thread" {
+			t.Fatalf("meta extra %#v", meta.Extra)
+		}
+		if usage == nil || usage.EventType != EventUsage {
+			t.Fatalf("usage: %+v", usage)
+		}
+		if usage.Usage.CostUSD == nil || *usage.Usage.CostUSD != 2.5 {
+			t.Fatalf("cost_usd %v", usage.Usage.CostUSD)
+		}
+		if usage.Usage.Input != nil || usage.Usage.Output != nil || usage.Usage.CacheRead != nil || usage.Usage.CacheWrite != nil {
+			t.Fatalf("invented tokens %+v", usage.Usage)
+		}
+		bucket, _ := usage.Extra["claude-4-sonnet-thinking"].(map[string]any)
+		if bucket["amount"] != float64(32) {
+			t.Fatalf("amount %#v", usage.Extra)
+		}
+		if _, ok := bucket["costInCents"]; ok {
+			t.Fatalf("cost stayed in extra %#v", bucket)
+		}
+		if usage.RecordedAt != meta.RecordedAt {
+			t.Fatalf("recorded usage %s meta %s", usage.RecordedAt, meta.RecordedAt)
+		}
+
+		flat := cursorComposerDoc(t, map[string]any{
+			"usageData": map[string]any{"costInCents": 250, "amount": 32},
+		})
+		_, usage, _ = composerSiblings(t, projectCursor(t, "workspace/ws1", flat), "composerData:c1")
+		if usage == nil || usage.Usage.CostUSD == nil || *usage.Usage.CostUSD != 2.5 {
+			t.Fatalf("flat cost %+v", usage)
+		}
+		if usage.Usage.Input != nil || usage.Usage.Output != nil || usage.Extra["amount"] != float64(32) {
+			t.Fatalf("flat amount became tokens %+v extra %#v", usage.Usage, usage.Extra)
+		}
+	})
+
+	t.Run("happy compaction", func(t *testing.T) {
+		raw := cursorComposerDoc(t, map[string]any{
+			"summary": "composer title is not a compaction",
+			"latestConversationSummary": map[string]any{
+				"summary": map[string]any{
+					"summary":                         "compacted the pond",
+					"truncationLastBubbleIdInclusive": "bubble-a",
+					"clientShouldStartSendingFromInclusiveBubbleId": "bubble-b",
+				},
+				"lastBubbleId": "bubble-c",
+			},
+		})
+		meta, usage, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
+		if usage != nil {
+			t.Fatalf("usage without usageData: %+v", usage)
+		}
+		if meta.Extra["summary"] != "composer title is not a compaction" || meta.Extra["latestConversationSummary"] != nil {
+			t.Fatalf("meta extra %#v", meta.Extra)
+		}
+		if compaction == nil || compaction.ContentText == nil || *compaction.ContentText != "compacted the pond" {
+			t.Fatalf("compaction: %+v", compaction)
+		}
+		nested, _ := compaction.Extra["summary"].(map[string]any)
+		if nested["truncationLastBubbleIdInclusive"] != "bubble-a" || nested["clientShouldStartSendingFromInclusiveBubbleId"] != "bubble-b" {
+			t.Fatalf("summary object %#v", compaction.Extra["summary"])
+		}
+		if _, ok := nested["summary"]; ok {
+			t.Fatalf("summary text stayed in extra %#v", nested)
+		}
+		if compaction.Extra["lastBubbleId"] != "bubble-c" {
+			t.Fatalf("lastBubbleId %#v", compaction.Extra)
+		}
+
+		oneLevel := cursorComposerDoc(t, map[string]any{
+			"latestConversationSummary": map[string]any{"summary": "object summary", "turns": 2},
+		})
+		_, _, compaction = composerSiblings(t, projectCursor(t, "workspace/ws1", oneLevel), "composerData:c1")
+		if compaction == nil || compaction.ContentText == nil || *compaction.ContentText != "object summary" || compaction.Extra["turns"] != float64(2) {
+			t.Fatalf("one-level summary: %+v", compaction)
+		}
+
+		asString := cursorComposerDoc(t, map[string]any{
+			"latestConversationSummary": "compacted the pond",
+		})
+		_, _, compaction = composerSiblings(t, projectCursor(t, "workspace/ws1", asString), "composerData:c1")
+		if compaction == nil || compaction.ContentText == nil || *compaction.ContentText != "compacted the pond" {
+			t.Fatalf("string summary: %+v", compaction)
+		}
+	})
+
+	t.Run("bubble stay-put", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:usage", "value": map[string]any{
+					"type": 2,
+					"text": "usage only",
+					"usageData": map[string]any{
+						"inputTokens": 3,
+						"costInCents": 250,
+						"amount":      32,
+					},
+				}},
+				map[string]any{"key": "bubbleId:c1:count", "value": map[string]any{
+					"type":       2,
+					"text":       "count only",
+					"tokenCount": 12,
+				}},
+				map[string]any{"key": "bubbleId:c1:both", "value": map[string]any{
+					"type":       2,
+					"text":       "both",
+					"tokenCount": map[string]any{"inputTokens": 1, "outputTokens": 2},
+					"usageData":  map[string]any{"marker": "usage-marker"},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		for _, ev := range events {
+			switch ev.EventType {
+			case EventUsage, EventCompaction:
+				t.Fatalf("bubble promoted %s from %s", ev.EventType, ev.RawType)
+			}
+		}
+		var usageOnly, countOnly, both *Event
+		for i := range events {
+			ev := &events[i]
+			if ev.EventType != EventMessage {
+				continue
+			}
+			switch ev.RawType {
+			case "bubbleId:c1:usage":
+				usageOnly = ev
+			case "bubbleId:c1:count":
+				countOnly = ev
+			case "bubbleId:c1:both":
+				both = ev
+			}
+		}
+		if usageOnly == nil {
+			t.Fatal("missing usage bubble")
+		}
+		usage, _ := usageOnly.Extra["usageData"].(map[string]any)
+		if usage["costInCents"] != float64(250) || usage["amount"] != float64(32) || usage["inputTokens"] != float64(3) {
+			t.Fatalf("usage bubble %#v", usageOnly.Extra)
+		}
+		if countOnly == nil || countOnly.Extra["tokenCount"] != float64(12) {
+			t.Fatalf("count bubble %#v", countOnly)
+		}
+		if both == nil || both.Extra["usageData"] == nil || both.Extra["tokenCount"] == nil {
+			t.Fatalf("both bubble %#v", both)
+		}
+	})
+
+	t.Run("assertNoPromoted allows usage and compaction", func(t *testing.T) {
+		const rawArgs = `{"path": "live.go"}`
 		raw := cursorRaw(t, map[string]any{
 			"harness_version": "1",
 			"confidence":      "low",
@@ -779,205 +948,186 @@ func TestCursorPromoteComposerUsageAndSummary(t *testing.T) {
 					"type":       2,
 					"text":       "assistant text",
 					"tokenCount": 12,
-					"usageData":  map[string]any{"inputTokens": 3, "outputTokens": 4},
+					"usageData":  map[string]any{"inputTokens": 3, "costInCents": 250, "marker": "usage-marker"},
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "live-call",
+						"rawArgs":    rawArgs,
+						"result":     "live-result",
+					},
+					"toolResults": []any{},
 				}},
 				map[string]any{"key": "composerData:c1", "value": map[string]any{
-					"name":      "thread",
-					"createdAt": created,
 					"usageData": map[string]any{
-						"costInCents":      250,
-						"inputTokens":      10,
-						"outputTokens":     4,
-						"cacheReadTokens":  1,
-						"cacheWriteTokens": 2,
-						"input_tokens":     99,
-						"model":            "gpt",
+						"default": map[string]any{"costInCents": 250, "amount": 4},
 					},
-					"latestConversationSummary": map[string]any{
-						"summary": "compacted the pond",
-						"marker":  "keep-me",
-					},
+					"latestConversationSummary": map[string]any{"summary": "compacted the pond"},
 				}},
 			},
 		})
 		events := projectCursor(t, "workspace/ws1", raw)
 		assertNoPromoted(t, events)
-		meta, usage, compaction := composerSiblings(t, events, "composerData:c1")
-		if meta.Extra["name"] != "thread" || meta.Extra["usageData"] != nil || meta.Extra["latestConversationSummary"] != nil {
-			t.Fatalf("meta extra %#v", meta.Extra)
-		}
-		if meta.ContentText != nil {
-			t.Fatalf("meta text %q", *meta.ContentText)
-		}
-		if usage.Usage.CostUSD == nil || *usage.Usage.CostUSD != 2.5 {
-			t.Fatalf("cost_usd %v", usage.Usage.CostUSD)
-		}
-		if usage.Usage.Input == nil || *usage.Usage.Input != 10 || usage.Usage.Output == nil || *usage.Usage.Output != 4 {
-			t.Fatalf("tokens %+v", usage.Usage)
-		}
-		if usage.Usage.CacheRead == nil || *usage.Usage.CacheRead != 1 || usage.Usage.CacheWrite == nil || *usage.Usage.CacheWrite != 2 {
-			t.Fatalf("cache %+v", usage.Usage)
-		}
-		if usage.Extra["model"] != "gpt" || usage.Extra["input_tokens"] != float64(99) {
-			t.Fatalf("usage extra %#v", usage.Extra)
-		}
-		for _, key := range []string{"costInCents", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "usageData"} {
-			if _, ok := usage.Extra[key]; ok {
-				t.Fatalf("promoted key %s stayed in extra %#v", key, usage.Extra)
-			}
-		}
-		if usage.Extra["composer_id"] != "c1" || usage.Extra["scope"] != "workspace" {
-			t.Fatalf("usage identity %#v", usage.Extra)
-		}
-		if usage.RecordedAt != meta.RecordedAt || compaction.RecordedAt != meta.RecordedAt {
-			t.Fatalf("recorded meta %s usage %s compaction %s", meta.RecordedAt, usage.RecordedAt, compaction.RecordedAt)
-		}
-		if usage.Actor != ActorHarness || compaction.Actor != ActorHarness {
-			t.Fatalf("actors usage %s compaction %s", usage.Actor, compaction.Actor)
-		}
-		if compaction.ContentText == nil || *compaction.ContentText != "compacted the pond" {
-			t.Fatalf("summary text %v", compaction.ContentText)
-		}
-		if compaction.Extra["marker"] != "keep-me" || compaction.Extra["summary"] != nil {
-			t.Fatalf("compaction extra %#v", compaction.Extra)
-		}
-		if compaction.Usage.CostUSD != nil || compaction.Usage.Input != nil {
-			t.Fatalf("compaction usage %+v", compaction.Usage)
-		}
-		var bubbleUsage int
+		var tools, usages, compactions int
 		for _, ev := range events {
-			if ev.RawType == "bubbleId:c1:assistant" && ev.EventType == EventMessage {
-				bubble, _ := ev.Extra["usageData"].(map[string]any)
-				if ev.Extra["tokenCount"] != float64(12) || bubble["inputTokens"] != float64(3) || bubble["outputTokens"] != float64(4) {
-					t.Fatalf("bubble usage %#v", ev.Extra)
+			switch ev.EventType {
+			case EventToolCall, EventToolResult:
+				tools++
+				if !strings.HasPrefix(ev.RawType, "bubbleId:") {
+					t.Fatalf("tool from %s", ev.RawType)
+				}
+			case EventUsage:
+				usages++
+				if ev.RawType != "composerData:c1" || ev.Usage.CostUSD == nil || *ev.Usage.CostUSD != 2.5 || ev.Usage.Input != nil {
+					t.Fatalf("usage %+v", ev)
+				}
+			case EventCompaction:
+				compactions++
+				if ev.RawType != "composerData:c1" || ev.ContentText == nil || *ev.ContentText != "compacted the pond" {
+					t.Fatalf("compaction %+v", ev)
 				}
 			}
-			if ev.EventType == EventUsage && !strings.HasPrefix(ev.RawType, "composerData:") {
-				bubbleUsage++
+			if strings.HasPrefix(ev.RawType, "bubbleId:") && (ev.EventType == EventUsage || ev.EventType == EventCompaction) {
+				t.Fatalf("bubble invented %s", ev.EventType)
 			}
 		}
-		if bubbleUsage != 0 {
-			t.Fatalf("bubble usage events %d", bubbleUsage)
+		if tools != 2 || usages != 1 || compactions != 1 {
+			t.Fatalf("tools %d usages %d compactions %d", tools, usages, compactions)
+		}
+		var assistant *Event
+		for i := range events {
+			ev := &events[i]
+			if ev.RawType == "bubbleId:c1:assistant" && ev.EventType == EventMessage {
+				assistant = ev
+			}
+		}
+		bubble, _ := assistant.Extra["usageData"].(map[string]any)
+		if assistant == nil || assistant.Extra["tokenCount"] != float64(12) || bubble["marker"] != "usage-marker" || bubble["costInCents"] != float64(250) {
+			t.Fatalf("bubble extra %#v", assistant)
+		}
+	})
+
+	t.Run("malformed does not invent", func(t *testing.T) {
+		t.Run("missing cost leaves cost_usd null", func(t *testing.T) {
+			raw := cursorComposerDoc(t, map[string]any{
+				"usageData": map[string]any{"inputTokens": 7, "note": "kept"},
+			})
+			_, usage, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
+			if compaction != nil {
+				t.Fatalf("compaction: %+v", compaction)
+			}
+			if usage == nil || usage.Usage.CostUSD != nil || usage.Usage.Input == nil || *usage.Usage.Input != 7 {
+				t.Fatalf("usage %+v", usage)
+			}
+			if usage.Extra["note"] != "kept" {
+				t.Fatalf("note %#v", usage.Extra)
+			}
+		})
+		t.Run("non-numeric cost invents no cost_usd", func(t *testing.T) {
+			raw := cursorComposerDoc(t, map[string]any{
+				"usageData": map[string]any{"costInCents": "250", "inputTokens": 1},
+			})
+			meta, usage, _ := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
+			if usage == nil || usage.Usage.CostUSD != nil || usage.Usage.Input == nil || *usage.Usage.Input != 1 {
+				t.Fatalf("usage %+v", usage)
+			}
+			if usage.Extra["costInCents"] != "250" || meta.Extra["usageData"] != nil {
+				t.Fatalf("cost extra %#v meta %#v", usage.Extra, meta.Extra["usageData"])
+			}
+
+			alone := cursorComposerDoc(t, map[string]any{
+				"usageData": map[string]any{"costInCents": "250"},
+			})
+			meta, usage, _ = composerSiblings(t, projectCursor(t, "workspace/ws1", alone), "composerData:c1")
+			if usage != nil {
+				t.Fatalf("non-numeric cost promoted: %+v", usage)
+			}
+			got, _ := meta.Extra["usageData"].(map[string]any)
+			if got["costInCents"] != "250" {
+				t.Fatalf("meta usage %#v", meta.Extra["usageData"])
+			}
+		})
+		t.Run("amount and junk do not promote", func(t *testing.T) {
+			for _, usageData := range []any{
+				map[string]any{"default": map[string]any{"amount": 32}},
+				map[string]any{"amount": 99, "price": 1.5, "cost": 3, "tokenCount": 40},
+				map[string]any{"marker": "usage-marker"},
+				"not-an-object",
+				[]any{1, 2},
+				12,
+			} {
+				raw := cursorComposerDoc(t, map[string]any{"usageData": usageData})
+				meta, usage, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
+				if usage != nil || compaction != nil {
+					t.Fatalf("promoted %#v usage %#v compaction %#v", usageData, usage, compaction)
+				}
+				if _, ok := meta.Extra["usageData"]; !ok {
+					t.Fatalf("usageData dropped %#v", meta.Extra)
+				}
+			}
+		})
+		t.Run("empty or malformed summary does not promote", func(t *testing.T) {
+			for _, summary := range []any{
+				"",
+				map[string]any{},
+				map[string]any{"summary": ""},
+				map[string]any{"note": "no text field"},
+				map[string]any{"summary": map[string]any{"truncationLastBubbleIdInclusive": "bubble-a"}},
+				12,
+				true,
+			} {
+				raw := cursorComposerDoc(t, map[string]any{"latestConversationSummary": summary})
+				meta, usage, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
+				if usage != nil || compaction != nil {
+					t.Fatalf("promoted %#v compaction %#v", summary, compaction)
+				}
+				if _, ok := meta.Extra["latestConversationSummary"]; !ok {
+					t.Fatalf("summary dropped %#v", meta.Extra)
+				}
+			}
+		})
+	})
+
+	t.Run("co-promote", func(t *testing.T) {
+		raw := cursorComposerDoc(t, map[string]any{
+			"name":      "thread",
+			"createdAt": created,
+			"usageData": map[string]any{
+				"claude-4-sonnet-thinking": map[string]any{
+					"costInCents": 250,
+					"amount":      32,
+				},
+			},
+			"latestConversationSummary": map[string]any{
+				"summary": map[string]any{
+					"summary":                         "compacted the pond",
+					"truncationLastBubbleIdInclusive": "bubble-a",
+				},
+				"lastBubbleId": "bubble-c",
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		meta, usage, compaction := composerSiblings(t, events, "composerData:c1")
+		if meta == nil || meta.EventType != EventMeta || meta.Extra["name"] != "thread" {
+			t.Fatalf("meta %+v", meta)
+		}
+		if meta.Extra["usageData"] != nil || meta.Extra["latestConversationSummary"] != nil || meta.ContentText != nil {
+			t.Fatalf("meta extra %#v", meta.Extra)
+		}
+		if usage == nil || usage.Usage.CostUSD == nil || *usage.Usage.CostUSD != 2.5 || usage.Usage.Input != nil || usage.Usage.Output != nil {
+			t.Fatalf("usage %+v", usage)
+		}
+		if compaction == nil || compaction.ContentText == nil || *compaction.ContentText != "compacted the pond" {
+			t.Fatalf("compaction %+v", compaction)
+		}
+		if compaction.Extra["lastBubbleId"] != "bubble-c" {
+			t.Fatalf("compaction extra %#v", compaction.Extra)
 		}
 		if indexOfRaw(events, "composerData:c1", EventMeta) > indexOfRaw(events, "composerData:c1", EventUsage) || indexOfRaw(events, "composerData:c1", EventUsage) > indexOfRaw(events, "composerData:c1", EventCompaction) {
 			t.Fatal("composer sibling order")
 		}
 	})
 
-	t.Run("missing cost leaves cost_usd null", func(t *testing.T) {
-		raw := cursorComposerDoc(t, map[string]any{
-			"usageData": map[string]any{"inputTokens": 7, "note": "kept"},
-		})
-		_, usage, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
-		if usage.Usage.CostUSD != nil {
-			t.Fatalf("cost_usd %v", usage.Usage.CostUSD)
-		}
-		if usage.Usage.Input == nil || *usage.Usage.Input != 7 || usage.Usage.Output != nil || usage.Usage.CacheRead != nil || usage.Usage.CacheWrite != nil {
-			t.Fatalf("tokens %+v", usage.Usage)
-		}
-		if usage.Extra["note"] != "kept" {
-			t.Fatalf("usage extra %#v", usage.Extra)
-		}
-		if compaction != nil {
-			t.Fatalf("compaction without a summary: %+v", compaction)
-		}
-	})
-
-	t.Run("malformed usage stays on meta extra", func(t *testing.T) {
-		for _, usageData := range []any{"not-an-object", []any{1, 2}, 12} {
-			raw := cursorComposerDoc(t, map[string]any{
-				"usageData":                 usageData,
-				"latestConversationSummary": 12,
-			})
-			events := projectCursor(t, "workspace/ws1", raw)
-			meta, usage, compaction := composerSiblings(t, events, "composerData:c1")
-			if usage != nil || compaction != nil {
-				t.Fatalf("promoted malformed usage %#v summary %#v", usage, compaction)
-			}
-			if _, ok := meta.Extra["usageData"]; !ok || meta.Extra["latestConversationSummary"] != float64(12) {
-				t.Fatalf("meta extra %#v", meta.Extra)
-			}
-		}
-	})
-
-	t.Run("non-numeric cost stays on the usage extra", func(t *testing.T) {
-		raw := cursorComposerDoc(t, map[string]any{
-			"usageData": map[string]any{"costInCents": "250", "input": 1},
-		})
-		_, usage, _ := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
-		if usage.Usage.CostUSD != nil {
-			t.Fatalf("cost_usd %v", usage.Usage.CostUSD)
-		}
-		if usage.Extra["costInCents"] != "250" {
-			t.Fatalf("cost extra %#v", usage.Extra)
-		}
-		if usage.Usage.Input == nil || *usage.Usage.Input != 1 {
-			t.Fatalf("input %+v", usage.Usage)
-		}
-	})
-
-	t.Run("summary string", func(t *testing.T) {
-		raw := cursorComposerDoc(t, map[string]any{
-			"summary":                   "composer title is not a compaction",
-			"latestConversationSummary": "compacted the pond",
-		})
-		events := projectCursor(t, "workspace/ws1", raw)
-		meta, usage, compaction := composerSiblings(t, events, "composerData:c1")
-		if usage != nil {
-			t.Fatalf("usage without usageData: %+v", usage)
-		}
-		if meta.Extra["summary"] != "composer title is not a compaction" || meta.Extra["latestConversationSummary"] != nil {
-			t.Fatalf("meta extra %#v", meta.Extra)
-		}
-		if compaction == nil || compaction.ContentText == nil || *compaction.ContentText != "compacted the pond" {
-			t.Fatalf("compaction: %+v", compaction)
-		}
-		if _, ok := compaction.Extra["summary"]; ok {
-			t.Fatalf("string summary nested in extra %#v", compaction.Extra)
-		}
-	})
-
-	t.Run("summary object", func(t *testing.T) {
-		raw := cursorComposerDoc(t, map[string]any{
-			"latestConversationSummary": map[string]any{"summary": "object summary", "turns": 2},
-		})
-		meta, _, compaction := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
-		if meta.Extra["latestConversationSummary"] != nil {
-			t.Fatalf("summary stayed on meta %#v", meta.Extra)
-		}
-		if compaction.ContentText == nil || *compaction.ContentText != "object summary" || compaction.Extra["turns"] != float64(2) || compaction.Extra["summary"] != nil {
-			t.Fatalf("compaction %+v extra %#v", compaction.ContentText, compaction.Extra)
-		}
-
-		raw = cursorComposerDoc(t, map[string]any{
-			"latestConversationSummary": map[string]any{"note": "no text field"},
-		})
-		meta, _, compaction = composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
-		if compaction == nil || compaction.ContentText != nil || compaction.Extra["note"] != "no text field" {
-			t.Fatalf("object without summary text: %+v", compaction)
-		}
-		if meta.Extra["latestConversationSummary"] != nil {
-			t.Fatalf("object summary stayed on meta %#v", meta.Extra)
-		}
-	})
-
-	t.Run("amount is not a token count", func(t *testing.T) {
-		raw := cursorComposerDoc(t, map[string]any{
-			"usageData": map[string]any{
-				"amount":     99,
-				"price":      1.5,
-				"cost":       3,
-				"tokenCount": 40,
-			},
-		})
-		_, usage, _ := composerSiblings(t, projectCursor(t, "workspace/ws1", raw), "composerData:c1")
-		if usage.Usage.Input != nil || usage.Usage.Output != nil || usage.Usage.CacheRead != nil || usage.Usage.CacheWrite != nil || usage.Usage.CostUSD != nil {
-			t.Fatalf("invented usage %+v", usage.Usage)
-		}
-		if usage.Extra["amount"] != float64(99) || usage.Extra["price"] != 1.5 || usage.Extra["cost"] != float64(3) || usage.Extra["tokenCount"] != float64(40) {
-			t.Fatalf("amount extra %#v", usage.Extra)
-		}
-	})
 }
 
 func cursorComposerDoc(t *testing.T, composer map[string]any) []byte {
@@ -1418,18 +1568,18 @@ func marshalEvents(t *testing.T, events []Event) []byte {
 	return b
 }
 
-// assertNoPromoted allows tool_call and tool_result. A usage or
-// compaction event is allowed only from a composerData row. Bubble
-// usageData, tokenCount, and every other raw type stay unpromoted.
+// assertNoPromoted allows tool_call, tool_result, usage, and
+// compaction. A usage or compaction event whose raw type is a bubble
+// row is still a failure: bubble usageData and tokenCount do not
+// promote.
 func assertNoPromoted(t *testing.T, events []Event) {
 	t.Helper()
 	for _, ev := range events {
 		switch ev.EventType {
 		case EventUsage, EventCompaction:
-			if strings.HasPrefix(ev.RawType, "composerData:") {
-				continue
+			if strings.HasPrefix(ev.RawType, "bubbleId:") {
+				t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
 			}
-			t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
 		}
 	}
 }

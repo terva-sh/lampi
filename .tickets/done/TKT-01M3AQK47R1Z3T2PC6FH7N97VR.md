@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-24T22:11:49Z
-updated_at: 2026-09-24T22:19:21Z
+updated_at: 2026-09-24T22:28:18Z
 created_by:
   id: agent:cursor/d660
   name: Cursor cloud agent
@@ -73,17 +73,17 @@ Bubble-level `tokenCount` and bubble-level `usageData` stay on the bubble event 
 
 ### Approach
 
-Change `Cursor.projectComposerData` so one `composerData:` row returns the meta event plus siblings. `row` already accepts a slice from `projectBubble`. The meta event stays first.
+Change `Cursor.projectComposerData` so one `composerData:` row returns the meta event plus siblings. The meta event stays first. `Cursor.emit` is unchanged. `Usage` is set on the usage event after emit.
 
-A `usageData` object is a sibling `usage` event. `cost_usd` is `costInCents / 100` when that value is a JSON number. Token fields map only when the key is a recognizable token name and the value is a JSON integer: `input` / `inputTokens` / `input_tokens` / `promptTokens` / `prompt_tokens` for input, the same shape for output and completion, and cache-read / cache-write names that already say cache read or cache write. The first integer match for a slot wins. Later aliases stay in extra. `cost`, `amount`, `price`, `tokenCount`, and `costInCents` are not token counts. Leftover `usageData` keys, plus `composer_id` and `scope`, are the usage event extra. The object is removed from the meta extra. A non-object `usageData` stays on the meta extra and emits no usage event.
+A `usageData` object promotes only when it has a numeric `costInCents` or a recognizable integer token field. The live shape is a model name mapped to `costInCents` and `amount`. `cost_usd` is the sum of those cents divided by 100. A numeric `costInCents` on the object itself is the same cost. Token fields map only under recognizable names. `amount`, `price`, `cost`, and `tokenCount` are not counts. Leftover keys, including `amount`, stay on the usage event extra. When nothing promotes, `usageData` stays on the meta extra.
 
-A `latestConversationSummary` string, or an object, is a sibling `compaction` event. `content_text` is the string, or the object's string field `summary` when that string is non-empty. Other object keys stay on the compaction extra with `composer_id` and `scope`. The value is removed from the meta extra. A number, array, or bool stays on the meta extra.
+A `latestConversationSummary` promotes only when a summary string is present. That string is the value itself, the object field `summary`, or the live nested `summary.summary`. `content_text` is that string. The rest of the object stays on the compaction extra. An empty string, an object with no summary string, and every other shape stay on the meta extra.
 
-`Cursor.emit` is unchanged. `Usage` is set on the usage event after emit, the same way a tool call sets `Tool`. Bubble `usageData` and `tokenCount` stay on the bubble extra. `cursorcli` is untouched.
+Bubble `usageData` and `tokenCount` stay on the bubble extra. `assertNoPromoted` allows `tool_call`, `tool_result`, `usage`, and `compaction`, and still fails when a usage or compaction event comes from a `bubbleId:` row.
 
 ### Tests
 
-`assertNoPromoted` still fails on a usage or compaction event whose raw type is not `composerData:`. Composer cases expect the sibling. Bubble cases still expect `usageData` and `tokenCount` on the bubble extra. Focused composer cases lock `costInCents` 250 to `cost_usd` 2.5, a missing cost, a non-object `usageData` left on meta extra, a string summary and an object summary, and an `amount` that does not become a token count.
+`TestCursorComposerFixtureMatrix` locks the six QE cases: happy usage (`costInCents` 250 to `cost_usd` 2.5, live model bucket, `amount` is not a token count), happy compaction (live nested summary string, one-level object, and a string value), bubble stay-put, the `assertNoPromoted` flip with a 1c tool still present, malformed and no-invent, and co-promote of usage plus compaction on one composer with the meta event kept.
 
 ## Notes
 
@@ -91,12 +91,18 @@ A `latestConversationSummary` string, or an object, is a sibling `compaction` ev
 
 Operator docs still say composer usageData and latestConversationSummary stay on extra. That sentence is stale after this projector change. Quill owns the docs pass. This ticket does not edit docs/architecture.md or the README.
 
+**agent:cursor/d660** at 2026-09-24T22:28:18Z
+
+Gage locked the fixture matrix after the first 1d tip. TestCursorComposerFixtureMatrix is that matrix. Live usageData is a model key whose value has costInCents and amount. Live latestConversationSummary nests the text at summary.summary. Amount-only, junk keys, and an empty or malformed summary do not promote.
+
 ## Summary
 
-Cursor.projectComposerData keeps the composer meta event and adds siblings. A usageData object is a usage event. cost_usd is costInCents / 100 when that value is a JSON number. Token counts are copied only from recognizable token names that are already JSON integers. cost, amount, price, and tokenCount are not counts. Leftover usageData keys sit on the usage event extra. A non-object usageData stays on the meta extra.
+Cursor.projectComposerData keeps the composer meta event and adds siblings when there is something to promote.
 
-A latestConversationSummary string, or object, is a compaction event. content_text is the string, or the object's non-empty summary field. The other object keys sit on the compaction event extra. A composer title field named summary is not that event.
+usageData becomes a usage event when costInCents is numeric or a recognizable token count is present. The live shape is a model name mapped to costInCents and amount. cost_usd is those cents divided by 100, so 250 is 2.5. amount, price, and cost are not token counts. Amount-only and junk usageData stay on the meta extra. A missing or non-numeric cost leaves cost_usd null.
 
-Bubble usageData and tokenCount stay on the bubble extra, including a bubble costInCents. The Cursor adapter Version is still 2. cursor-cli, soft-link, deploy, AgentsView, and operator docs are unchanged.
+latestConversationSummary becomes a compaction event when a summary string is present. The live text is summary.summary. A one-level summary string and a string value are content_text as well. The rest of the object stays on the compaction extra. An empty or malformed summary stays on the meta extra.
 
-ShareGPT already treats compaction as a training turn, so the Cursor export fixture's summary text is no longer the composer title. The title stays off the training view. go test ./... passed.
+Bubble usageData and tokenCount stay on the bubble extra. assertNoPromoted allows usage and compaction, and still fails when those events come from a bubble row. Tool calls from the 1c promote stay allowed.
+
+The Cursor adapter Version is still 2. cursor-cli, soft-link, deploy, AgentsView, e2e, and operator docs are unchanged. go test ./... passed.
