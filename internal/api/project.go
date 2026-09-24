@@ -27,11 +27,12 @@ import (
 // opencode read transcript_jsonl only. A codex history.jsonl artifact
 // is not a rollout and is not read. An opencode database blob is not
 // an export document; the opencode projector records that failure.
-// cursor reads cursor_state_json only. A cursor manifest with no such
-// artifact is an error, not an empty success. Other harnesses are
-// rejected before a blob is opened.
+// cursor reads cursor_state_json only. cursor-cli reads
+// cursor_cli_store_json only. A manifest of either harness with no
+// such artifact is an error, not an empty success. Other harnesses
+// are rejected before a blob is opened.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
-	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex && m.Harness != protocol.HarnessOpenCode && m.Harness != protocol.HarnessCursor {
+	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex && m.Harness != protocol.HarnessOpenCode && m.Harness != protocol.HarnessCursor && m.Harness != protocol.HarnessCursorCLI {
 		return nil, fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
 	}
 	_, arts, ok, err := s.Catalog.Current(ctx, m.Harness, m.NativeSessionID)
@@ -104,6 +105,17 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				ProjectID:      link,
 				Digest:         a.SHA256,
 			}).Normalize(ctx, raw)
+		case protocol.HarnessCursorCLI:
+			ev, err = (normalize.CursorCLI{
+				Now:            now,
+				NativeID:       m.NativeSessionID,
+				ParentNativeID: parent,
+				HarnessVersion: m.HarnessVersion,
+				CWD:            m.Project.CWD,
+				GitCommit:      m.Project.GitCommit,
+				ProjectID:      link,
+				Digest:         a.SHA256,
+			}).Normalize(ctx, raw)
 		default:
 			ev, err = (normalize.Terva{
 				Now:            now,
@@ -124,10 +136,14 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 	}
 	// Skipping every artifact and publishing nothing is a success for
 	// an empty terva sidecar set. For cursor it means the manifest
-	// named no cursor_state_json, and an empty event list would clear
+	// named no cursor_state_json. For cursor-cli it means the manifest
+	// named no cursor_cli_store_json. An empty event list would clear
 	// normalize_error. That is a failure.
 	if m.Harness == protocol.HarnessCursor && !projected {
 		return nil, fmt.Errorf("normalize: cursor session has no cursor_state_json artifact")
+	}
+	if m.Harness == protocol.HarnessCursorCLI && !projected {
+		return nil, fmt.Errorf("normalize: cursor-cli session has no cursor_cli_store_json artifact")
 	}
 	return all, nil
 }
@@ -135,14 +151,16 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 // projectKind is the artifact kinds that become events for harness.
 // raati_json and tasks_json are terva sidecars and stay out. Claude
 // Code, Codex CLI, and OpenCode upload transcript_jsonl only. Cursor
-// IDE uploads cursor_state_json. cursor_cli_store_json is a different
-// harness.
+// IDE uploads cursor_state_json. Cursor CLI uploads
+// cursor_cli_store_json. The two Cursor kinds are not interchangeable.
 func projectKind(harness, kind string) bool {
 	switch harness {
 	case protocol.HarnessClaude, protocol.HarnessCodex, protocol.HarnessOpenCode:
 		return kind == protocol.KindTranscriptJSONL
 	case protocol.HarnessCursor:
 		return kind == protocol.KindCursorStateJSON
+	case protocol.HarnessCursorCLI:
+		return kind == protocol.KindCursorCLIStoreJSON
 	default:
 		return kind == protocol.KindTranscriptJSONL || kind == protocol.KindErrorsJSONL
 	}

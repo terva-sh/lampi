@@ -196,9 +196,10 @@ func transcriptDigest(arts []catalog.ArtifactRow) string {
 		if a.SHA256 == "" {
 			continue
 		}
-		// The Cursor IDE projector reads cursor_state_json. The training
-		// row points at that export, which is the blob that was projected.
-		if a.Kind == protocol.KindCursorStateJSON {
+		// The Cursor IDE projector reads cursor_state_json. The Cursor
+		// CLI projector reads cursor_cli_store_json. The training row
+		// points at that export, which is the blob that was projected.
+		if a.Kind == protocol.KindCursorStateJSON || a.Kind == protocol.KindCursorCLIStoreJSON {
 			return a.SHA256
 		}
 		if a.Kind != protocol.KindTranscriptJSONL {

@@ -278,6 +278,45 @@ func TestUnimplementedHarnessRecordsNormalizeError(t *testing.T) {
 	if got := readBlobBytes(t, s, validSum); !bytes.Equal(got, valid) {
 		t.Fatal("valid cursor CAS object changed")
 	}
+
+	// A valid Cursor CLI export is projected. The transcript_jsonl case
+	// above still records normalize_error.
+	validCLI := []byte(`{"harness_version":"1","confidence":"low","source":"chats/ab12/sid-valid/store.db","scope":"session","meta":[{"key":"0","value":{"name":"cli"}}],"blobs":[{"id":"user","data":{"role":"user","content":"cli pond"}}]}`)
+	validCLISum := putBlob(t, h, "", validCLI)
+	validCLIAck := postManifest(t, h, protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessCursorCLI,
+		HarnessVersion:  "1",
+		NativeSessionID: "chats/ab12/sid-valid",
+		Artifacts: []protocol.Artifact{{
+			Kind:    protocol.KindCursorCLIStoreJSON,
+			RelPath: "chats/ab12/sid-valid/store.json",
+			Size:    int64(len(validCLI)),
+			SHA256:  validCLISum,
+		}},
+	})
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	msg, ok, err = s.Catalog.NormalizeError(t.Context(), validCLIAck.SessionUID)
+	if err != nil || !ok || msg != "" {
+		t.Fatalf("valid cursor-cli normalize_error %q ok=%v err=%v", msg, ok, err)
+	}
+	derived = readDerived(t, s, validCLIAck.SessionUID)
+	if !bytes.Contains(derived, []byte(`"session_id":"cursor-cli:chats/ab12/sid-valid"`)) || !bytes.Contains(derived, []byte(`"schema_version":1`)) || !bytes.Contains(derived, []byte(`"harness":"cursor-cli"`)) {
+		t.Fatalf("valid cursor-cli derived:\n%s", derived)
+	}
+	parts, err = normalize.SessionParquet(s.Parquet, validCLIAck.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 1 || !bytes.Contains([]byte(parts[0]), []byte("harness="+protocol.HarnessCursorCLI)) {
+		t.Fatalf("valid cursor-cli parquet: %v", parts)
+	}
+	if got := readBlobBytes(t, s, validCLISum); !bytes.Equal(got, validCLI) {
+		t.Fatal("valid cursor-cli CAS object changed")
+	}
 }
 
 func TestOpenResumesNormalizeJob(t *testing.T) {
