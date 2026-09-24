@@ -87,11 +87,12 @@ const (
 	KindCursorCLIStoreJSON = "cursor_cli_store_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
-	// meta line. Normalize workers project it. Claude, Codex, OpenCode,
-	// and Cursor manifests are stored; those projectors are not implemented.
+	// meta line. Normalize workers project it. Codex, OpenCode, and
+	// Cursor manifests are stored; those projectors are not implemented.
 	HarnessTerva = "terva"
 	// HarnessClaude is Claude Code. The on-disk record shape is internal
 	// to the adapter; harness_version is that adapter's pinned reader.
+	// Workers project transcript_jsonl onto schema_version 1.
 	HarnessClaude = "claude"
 	// HarnessCodex is the Codex CLI. Rollouts are session JSONL. The
 	// prompt history file is not a session.
