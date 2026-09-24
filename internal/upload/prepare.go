@@ -60,7 +60,6 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 	var reasons []string
 	var work []prepared
 	for _, m := range bundle.Manifests {
-		rel := sessionRel(m)
 		id := config.ProjectID{
 			CWD:       m.Project.CWD,
 			CWDHash:   m.Project.CWDHash,
@@ -68,10 +67,7 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 		}
 		if !opt.Projects.Permitted(id) {
 			res.Refused++
-			reasons = append(reasons, fmt.Sprintf(
-				"%s: not allowlisted for off-box raw (cwd %q, cwd_hash %q, git_remote %q)",
-				rel, m.Project.CWD, m.Project.CWDHash, m.Project.GitRemote,
-			))
+			reasons = append(reasons, allowlistRefusal(m))
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
 				return nil, res, err
 			}
@@ -300,6 +296,41 @@ func dropPending(ctx context.Context, opt Options, q *outbox.DB, root string, m 
 		}
 	}
 	return q.Ack(ctx, outbox.Item{Identity: manifestIdentity(opt.MachineID, m.Harness, m.NativeSessionID)})
+}
+
+// allowlistRefusal is the stderr line for a session the existing
+// permit check kept on the machine. The check itself is unchanged.
+// An empty cwd on the Cursor IDE or the Cursor CLI adds why that
+// export has no project path.
+func allowlistRefusal(m protocol.Manifest) string {
+	msg := fmt.Sprintf(
+		"%s: not allowlisted for off-box raw (cwd %q, cwd_hash %q, git_remote %q)",
+		sessionRel(m), m.Project.CWD, m.Project.CWDHash, m.Project.GitRemote,
+	)
+	if hint := cursorEmptyCWDHint(m); hint != "" {
+		msg += ". " + hint
+	}
+	return msg
+}
+
+// cursorEmptyCWDHint explains an empty cwd the Cursor readers store
+// on purpose. Other harnesses, and a Cursor session that has a cwd,
+// get no extra text. Matching still uses Projects.Permitted.
+func cursorEmptyCWDHint(m protocol.Manifest) string {
+	if m.Project.CWD != "" {
+		return ""
+	}
+	switch m.Harness {
+	case protocol.HarnessCursor:
+		if m.NativeSessionID == "global" {
+			return "Cursor IDE global database has an empty cwd and is refused by design; a workspace database takes its cwd from workspace.json"
+		}
+		return "Cursor IDE workspace has an empty cwd; its cwd comes from workspace.json, and a URI with no local path is refused"
+	case protocol.HarnessCursorCLI:
+		return "Cursor CLI export needs an absolute cwd in the sibling meta.json; without one the allowlist refuses it"
+	default:
+		return ""
+	}
 }
 
 func sessionRel(m protocol.Manifest) string {

@@ -194,6 +194,28 @@ empty id and is not linked. See [docs/protocol.md](docs/protocol.md).
 `terva-lampi agent config` prints how many allow and deny rules are
 loaded. `sync` names each refused session and exits non-zero.
 
+### Cursor sessions with an empty cwd
+
+The `projects` allow and deny rules are the same for every harness.
+An empty cwd matches no cwd prefix, no cwd hash, and no git remote,
+so default deny keeps the export on the machine.
+
+The Cursor IDE global database (`User/globalStorage/state.vscdb`) has
+an empty cwd. One database holds every workspace, and the reader does
+not split it, so that export is refused by design. A workspace
+database takes its cwd from the folder URI in the sibling
+`workspace.json`. A URI with no local path, such as `vscode-remote`,
+is an empty cwd as well, and that workspace stays on the machine.
+
+A Cursor CLI chat takes its cwd from the `cwd` field of the sibling
+`meta.json`, and only when that value is an absolute path. A missing
+file, a relative path, or a file URI leaves the cwd empty, and the
+allowlist refuses the export. The workspace directory name is a hash,
+not a path.
+
+When `sync` refuses a `cursor` or `cursor-cli` session whose cwd is
+empty, the stderr line names which of those cases it is.
+
 Before a request is sent, ruleset v1 scans the file. v1 is the
 high-signal shapes: cloud keys, personal access tokens, and PEM
 private-key blocks from the BEGIN line through the END line. It does

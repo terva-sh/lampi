@@ -239,15 +239,20 @@ Code, Codex CLI, OpenCode, and the Cursor IDE are wired for discovery,
 watch, and upload. OpenCode watches `export/`, not the live database.
 Cursor copies `state.vscdb` and its WAL sidecars, then uploads a JSON
 export. Keys under `cursorAuth/` are not in that export. The raw
-database stays on the machine. The global database has no single
-project cwd, so the allowlist refuses it. A workspace database takes
-its cwd from `workspace.json`. The Cursor CLI `store.db` is a second
+database stays on the machine. The global database has an empty cwd
+and the allowlist refuses it by design: one database holds every
+workspace, and this reader does not split it. A workspace database
+takes its cwd from `workspace.json`. A URI with no local path is an
+empty cwd too. The Cursor CLI `store.db` is a second
 harness, `cursor-cli`. It copies that database and its WAL sidecars
 the same way and uploads a separate JSON export. It does not read
 `state.vscdb`, and the IDE reader does not read `store.db`. The two
-do not share sessions or watermarks. A CLI chat uses the absolute
-`cwd` in the sibling `meta.json` when that field is present. Without
-one, the allowlist refuses the export. The Claude, Codex, OpenCode,
+do not share sessions or watermarks. A CLI chat needs an absolute
+`cwd` in the sibling `meta.json`. A missing file, a relative path, or
+a file URI leaves the cwd empty, and the allowlist refuses the export.
+The workspace hash is not a path. `sync` names those empty-cwd
+refusals on stderr. The `projects` allow and deny rules are unchanged.
+The Claude, Codex, OpenCode,
 and Cursor record shapes are internal to those packages. Each pins a
 reader version on `harness_version` and keeps keys it does not
 interpret. Normalize workers project terva, Claude Code, Codex CLI,

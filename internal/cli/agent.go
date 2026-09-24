@@ -62,8 +62,8 @@ is $XDG_CONFIG_HOME/Cursor, or ~/.config/Cursor. On macOS it is
 Global storage and each workspaceStorage directory are separate. The
 upload is a JSON export. Keys under cursorAuth/ are not in it. The raw
 database and its -wal and -shm files are not uploaded. The global
-database has no single project, so the allowlist refuses it. A
-workspace takes its cwd from workspace.json. The Cursor CLI store
+database has an empty cwd and is refused by design. A workspace
+database takes its cwd from workspace.json. The Cursor CLI store
 is a separate corpus. On Linux the config directory is
 $XDG_CONFIG_HOME/cursor when that variable is set, otherwise
 ~/.cursor. CURSOR_CONFIG_DIR replaces it. On macOS it is ~/.cursor.
@@ -72,10 +72,12 @@ chats/<workspace>/<session>/store.db. The upload is a JSON export
 of a snapshot. The IDE reader does not open it, and this reader
 does not open state.vscdb. Keys under cursorAuth/ and credential
 fields such as accessToken are not in the export. The raw database
-and its -wal and -shm files are not uploaded. A chat whose meta.json
-has an absolute cwd uses that path. Anything else has an empty cwd,
-so the allowlist refuses it. The workspace directory name is not a
-path. config.json harnesses can turn a harness off or point it at
+and its -wal and -shm files are not uploaded. A chat needs an
+absolute cwd in the sibling meta.json. A relative path or a file URI
+is an empty cwd, so the allowlist refuses it. The workspace directory
+name is not a path. A refused cursor or cursor-cli session with an
+empty cwd is named on stderr with that reason. config.json harnesses
+can turn a harness off or point it at
 another directory. The id is terva, claude, codex, opencode, cursor,
 or cursor-cli. enabled false skips discover, watch, and upload for
 that id. The watermark and any object already stored stay. root is

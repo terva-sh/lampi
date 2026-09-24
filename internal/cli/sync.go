@@ -35,8 +35,8 @@ state is read from the user-data directory: $XDG_CONFIG_HOME/Cursor
 or ~/.config/Cursor on Linux, ~/Library/Application Support/Cursor on
 macOS, and %APPDATA%\Cursor on Windows. The upload is a JSON export of
 a snapshot. Keys under cursorAuth/ are removed. The raw database is
-not uploaded. The global database has no single project, so the
-allowlist refuses it. A workspace takes its cwd from workspace.json.
+not uploaded. The global database has an empty cwd and is refused
+by design. A workspace database takes its cwd from workspace.json.
 The Cursor CLI store is separate. Its config directory is
 $CURSOR_CONFIG_DIR, or $XDG_CONFIG_HOME/cursor on Linux when that
 variable is set, otherwise ~/.cursor on macOS and Linux and the
@@ -44,9 +44,11 @@ variable is set, otherwise ~/.cursor on macOS and Linux and the
 chats/<workspace>/<session>/store.db. The upload is a JSON export
 of a snapshot. It is not an IDE session and it does not share the
 IDE watermark. Keys under cursorAuth/ are removed. The raw database
-is not uploaded. An absolute cwd in the sibling meta.json is the
-project path. Without one, the allowlist refuses the export. The
-workspace hash is not a path.
+is not uploaded. The export needs an absolute cwd in the sibling
+meta.json. A relative path or a file URI is an empty cwd, and the
+allowlist refuses it. The workspace hash is not a path. A refused
+cursor or cursor-cli session with an empty cwd is named on stderr
+with that reason. The projects allow and deny rules are unchanged.
 
 config.json harnesses can set enabled false, which skips that
 harness, or root, an absolute path that replaces the environment

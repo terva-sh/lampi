@@ -201,9 +201,11 @@ rule written against that hash still matches. OpenCode takes the cwd
 from `info.directory` on the export. A discovered database file has
 no directory, so the allowlist refuses that blob. A Cursor IDE
 workspace takes its cwd from `workspace.json`. The global IDE
-database has none. A Cursor CLI chat takes its cwd from an absolute
-`cwd` in the sibling `meta.json`. Without that, the allowlist refuses
-the export. The CLI workspace hash is not a cwd. `git_remote` is
+database has an empty cwd and is refused by design. A Cursor CLI
+chat needs an absolute `cwd` in the sibling `meta.json`. A missing
+file, a relative path, or a file URI leaves that cwd empty, and the
+allowlist refuses the export. The CLI workspace hash is not a cwd.
+`git_remote` is
 origin's URL when the session cwd has a `.git`, and empty otherwise.
 `git_commit` is HEAD.
 `git_root` is the first

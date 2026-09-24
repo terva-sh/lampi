@@ -296,6 +296,9 @@ func TestSyncRefusesNonAllowlisted(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not allowlisted") || !strings.Contains(err.Error(), "/work/app") {
 		t.Fatalf("err %v", err)
 	}
+	if strings.Contains(err.Error(), "workspace.json") || strings.Contains(err.Error(), "meta.json") || strings.Contains(err.Error(), "empty cwd") {
+		t.Fatalf("cwd refusal hint on a session that has a cwd: %v", err)
+	}
 	if cap.puts != 0 || blobCount(t, filepath.Join(data, "cas")) != 0 {
 		t.Fatalf("refused sync uploaded puts=%d", cap.puts)
 	}
@@ -1320,6 +1323,66 @@ func TestSyncOpenCodeDatabaseStaysLocal(t *testing.T) {
 	}
 }
 
+func TestCursorEmptyCWDHint(t *testing.T) {
+	cases := []struct {
+		name string
+		m    protocol.Manifest
+		want string
+	}{
+		{
+			name: "global",
+			m:    protocol.Manifest{Harness: protocol.HarnessCursor, NativeSessionID: "global"},
+			want: "empty cwd",
+		},
+		{
+			name: "workspace",
+			m:    protocol.Manifest{Harness: protocol.HarnessCursor, NativeSessionID: "workspace/ws1"},
+			want: "workspace.json",
+		},
+		{
+			name: "cli",
+			m:    protocol.Manifest{Harness: protocol.HarnessCursorCLI, NativeSessionID: "chats/ab/sid"},
+			want: "meta.json",
+		},
+		{
+			name: "cli with cwd",
+			m:    protocol.Manifest{Harness: protocol.HarnessCursorCLI, Project: protocol.Project{CWD: "/work/app"}},
+			want: "",
+		},
+		{
+			name: "other harness",
+			m:    protocol.Manifest{Harness: protocol.HarnessOpenCode},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		got := cursorEmptyCWDHint(tc.m)
+		if tc.want == "" {
+			if got != "" {
+				t.Fatalf("%s: %q", tc.name, got)
+			}
+			continue
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Fatalf("%s: %q", tc.name, got)
+		}
+		if tc.name == "global" && (!strings.Contains(got, "refused by design") || !strings.Contains(got, "workspace.json")) {
+			t.Fatalf("global: %q", got)
+		}
+		if tc.name == "cli" && !strings.Contains(got, "absolute cwd") {
+			t.Fatalf("cli: %q", got)
+		}
+	}
+	line := allowlistRefusal(protocol.Manifest{
+		Harness:         protocol.HarnessCursor,
+		NativeSessionID: "global",
+		Artifacts:       []protocol.Artifact{{RelPath: "User/globalStorage/state.json"}},
+	})
+	if !strings.Contains(line, "not allowlisted") || !strings.Contains(line, "refused by design") {
+		t.Fatalf("refusal line: %s", line)
+	}
+}
+
 func TestSyncCursorExportFiltersAuth(t *testing.T) {
 	lake, data := openLake(t)
 	srv := httptest.NewServer(lake.Handler())
@@ -1348,6 +1411,12 @@ func TestSyncCursorExportFiltersAuth(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "User/globalStorage/state.json") {
 		t.Fatalf("global export was not refused: %v", err)
+	}
+	if !strings.Contains(err.Error(), "empty cwd") || !strings.Contains(err.Error(), "refused by design") || !strings.Contains(err.Error(), "workspace.json") {
+		t.Fatalf("global refusal hint: %v", err)
+	}
+	if strings.Contains(err.Error(), "User/workspaceStorage/ws1/state.json") {
+		t.Fatalf("allowlisted workspace was named as refused: %v", err)
 	}
 	if strings.Contains(err.Error(), "sekret-token") || strings.Contains(err.Error(), "state.vscdb-wal") {
 		t.Fatalf("refusal leaked a secret or a sidecar: %v", err)
@@ -1452,6 +1521,15 @@ func TestSyncCursorCLIIsASeparateCorpus(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "User/globalStorage/state.json") || !strings.Contains(err.Error(), "chats/ab12/no-cwd/store.json") {
 		t.Fatalf("refusal: %v", err)
+	}
+	if !strings.Contains(err.Error(), "refused by design") || !strings.Contains(err.Error(), "workspace.json") {
+		t.Fatalf("global refusal hint: %v", err)
+	}
+	if !strings.Contains(err.Error(), "absolute cwd") || !strings.Contains(err.Error(), "meta.json") {
+		t.Fatalf("cli refusal hint: %v", err)
+	}
+	if strings.Contains(err.Error(), "chats/ab12/sid-1/store.json") {
+		t.Fatalf("allowlisted cli chat was named as refused: %v", err)
 	}
 	if strings.Contains(err.Error(), "sekret-token") || strings.Contains(err.Error(), "store.db-wal") || strings.Contains(err.Error(), "state.vscdb-wal") {
 		t.Fatalf("refusal leaked a secret or a sidecar: %v", err)
