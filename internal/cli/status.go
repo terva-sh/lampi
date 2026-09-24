@@ -39,6 +39,12 @@ variable won, and default otherwise. enabled false still prints the
 root and source. An omitted harnesses map, or an omitted id, is
 enabled true. sessions counts files from harnesses that are on.
 
+The Cursor IDE global database has an empty cwd and sync refuses it
+by design. A workspace database takes its cwd from workspace.json. A
+Cursor CLI chat needs an absolute cwd in the sibling meta.json, or
+sync refuses that export. Those refusals are named on sync stderr.
+The projects allow and deny rules are unchanged.
+
 GET /healthz reports whether the lake process is up. It carries no
 catalog data and does not need the token. GET /v1/stats reports how
 many sessions, artifacts, and machines the catalog holds, and uses the

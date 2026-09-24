@@ -64,6 +64,14 @@ implemented in `internal/config`. This policy confirms that surface.
   the normalized origin URL and the repository root commit. See
   [protocol.md](protocol.md).
 
+Cursor IDE and Cursor CLI exports use that same gate. The global IDE
+database has an empty cwd and is refused by design: one file holds
+every workspace, and the reader does not split it. A workspace
+database takes its cwd from `workspace.json`. A Cursor CLI export
+needs an absolute `cwd` in the sibling `meta.json`. A missing file, a
+relative path, or a file URI is an empty cwd, and the allowlist
+refuses the export. Neither case adds a permit rule or a schema field.
+
 Ruleset v1 still runs after the allowlist and before any request. A
 hit is quarantined unless `redaction.upload_hits` is set. Leave that
 false. Neither gate rewrites the raw file.
