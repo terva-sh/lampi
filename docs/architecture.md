@@ -93,7 +93,9 @@ projection: one ShareGPT conversation per allowlisted session that
 has a training turn. A session with none is named on stderr. Turns
 are message, tool call, tool result, compaction, and error rows.
 `content_text` becomes `value`. A tool call keeps its name and call
-id. Meta, usage, and unknown rows are left out. The `projects`
+id. A Cursor IDE bubble contributes those tool rows when normalize
+promotes it. The field rules are in the Flow section. Meta, usage,
+and unknown rows are left out. The `projects`
 allowlist in `config.json` gates the file, the same default-deny
 rules as off-box raw. The check uses the stored manifest cwd, cwd
 hash, and git remote. A session that is not permitted is named on
@@ -260,7 +262,36 @@ document field `harness_version` is that string. `confidence` is
 `low`. The native session id stays `workspace/<id>`. `terva-lampi
 export --format events` writes `session_id` as `cursor:workspace/<id>`.
 A workspace database takes its cwd from `workspace.json`. A URI with
-no local path is an empty cwd too. The Cursor CLI `store.db` is a second
+no local path is an empty cwd too.
+
+`internal/normalize` reads that Cursor IDE document. The adapter and
+its pinned reader `Version` stay `2`. A `bubbleId` object whose
+`toolFormerData` has a non-empty string `name` and a call id becomes
+a sibling `tool_call`. The call id is `toolCallId` when that value is
+a non-empty string, and `id` otherwise. `content_text` on the call is
+a non-empty `rawArgs` JSON string, otherwise a non-empty `params`
+JSON string, otherwise the JSON of object `args`. When that call is
+promoted, a `tool_result` uses `toolFormerData.result` when that
+value is a string, including when `toolResults` is empty. Otherwise
+each `toolResults` element with a call id and a result string is one
+result. A `toolResults` element follows that rule when
+`toolFormerData` does not promote. Type 1 and type 2 text stays a
+message when the text is non-empty. Empty text with a promoted tool
+emits the tool events only, and does not add an empty message. Empty
+text that promotes nothing still keeps the message.
+Inside one bubble the order is the message, then `tool_call`, then
+`tool_result`. `fullConversationHeadersOnly` moves that whole group.
+A missing name or call id on `toolFormerData` does not become a
+`tool_call`. The object stays on `extra`.
+`capabilityType`, `capabilities`, and a numeric `tool` field do not
+promote on their own. `usageData`, `tokenCount`, and
+`latestConversationSummary` stay on `extra`. They are not usage
+events or compaction events. The bubble object stays on `extra` of
+each sibling. Export code is unchanged. ShareGPT and trajectory
+already include message, `tool_call`, and `tool_result` turns, so a
+promoted call is a training turn and keeps its name and call id.
+
+The Cursor CLI `store.db` is a second
 harness, `cursor-cli`. It copies that database and its WAL sidecars
 the same way and uploads a separate JSON export. It does not read
 `state.vscdb`, and the IDE reader does not read `store.db`. The two
