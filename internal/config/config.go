@@ -26,11 +26,16 @@ const DefaultServer = "http://127.0.0.1:8787"
 // Projects is the gate for raw bytes leaving the machine. With no allow
 // rule, sync refuses every project. Redaction.UploadHits is the only
 // override that uploads a file ruleset v1 flagged.
+//
+// Harnesses is optional. Omit the map, or omit one harness id, and that
+// harness keeps today's behavior. Unknown top-level keys are still
+// ignored. A harness entry is not: it accepts enabled and root only.
 type File struct {
 	Server    string          `json:"server,omitempty"`
 	TokenFile string          `json:"token_file,omitempty"`
 	Projects  Projects        `json:"projects,omitempty"`
 	Redaction RedactionConfig `json:"redaction,omitempty"`
+	Harnesses Harnesses       `json:"harnesses,omitempty"`
 }
 
 // Machine is the stable identity written once.
