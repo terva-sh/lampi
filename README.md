@@ -228,6 +228,14 @@ A workspace database takes its cwd from the folder URI in the sibling
 `workspace.json`. A URI with no local path, such as `vscode-remote`,
 is an empty cwd as well, and that workspace stays on the machine.
 
+Normalize promotes a bubble tool out of that document. A
+`toolFormerData` name and call id become a `tool_call`, and a result
+string becomes a `tool_result`. A missing name or call id stays on
+`extra`, and so do `usageData`, `tokenCount`, and
+`latestConversationSummary`. The rules are in
+[docs/architecture.md](docs/architecture.md#flow). The adapter
+`Version` stays `2`. ShareGPT already includes that call.
+
 A Cursor CLI chat takes its cwd from the `cwd` field of the sibling
 `meta.json`, and only when that value is an absolute path. A missing
 file, a relative path, or a file URI leaves the cwd empty, and the
