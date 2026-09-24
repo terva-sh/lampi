@@ -22,9 +22,9 @@ func TestPlantLayouts(t *testing.T) {
 
 	t.Run("terva", func(t *testing.T) {
 		root := t.TempDir()
-		res := mustPlant(t, testharness.PlantTerva(root, cwd, []testharness.SessionSpec{{
+		res := plantTerva(t, root, cwd, []testharness.SessionSpec{{
 			ID: id, Prompt: prompt,
-		}}))
+		}})
 		if got := relSlash(t, root, res.Files[0]); got != "sessions/sess-1/sess-1.jsonl" {
 			t.Fatalf("path %s", got)
 		}
@@ -73,9 +73,9 @@ func TestPlantLayouts(t *testing.T) {
 
 	t.Run("claude", func(t *testing.T) {
 		root := t.TempDir()
-		res := mustPlant(t, testharness.PlantClaude(root, cwd, []testharness.SessionSpec{{
+		res := plantClaude(t, root, cwd, []testharness.SessionSpec{{
 			ID: id, Prompt: prompt,
-		}}))
+		}})
 		if got := relSlash(t, root, res.Files[0]); got != "projects/-work-demo/sess-1.jsonl" {
 			t.Fatalf("path %s", got)
 		}
@@ -105,9 +105,9 @@ func TestPlantLayouts(t *testing.T) {
 	t.Run("claude deeper cwd", func(t *testing.T) {
 		root := t.TempDir()
 		deep := "/home/drew/src/foo"
-		res := mustPlant(t, testharness.PlantClaude(root, deep, []testharness.SessionSpec{{
+		res := plantClaude(t, root, deep, []testharness.SessionSpec{{
 			ID: id, Prompt: prompt,
-		}}))
+		}})
 		if got := relSlash(t, root, res.Files[0]); got != "projects/-home-drew-src-foo/sess-1.jsonl" {
 			t.Fatalf("path %s", got)
 		}
@@ -116,9 +116,9 @@ func TestPlantLayouts(t *testing.T) {
 
 	t.Run("codex", func(t *testing.T) {
 		root := t.TempDir()
-		res := mustPlant(t, testharness.PlantCodex(root, cwd, []testharness.SessionSpec{{
+		res := plantCodex(t, root, cwd, []testharness.SessionSpec{{
 			ID: id, Prompt: prompt,
-		}}))
+		}})
 		got := relSlash(t, root, res.Files[0])
 		re := regexp.MustCompile(`^sessions/\d{4}/\d{2}/\d{2}/rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-sess-1\.jsonl$`)
 		if !re.MatchString(got) {
@@ -166,9 +166,9 @@ func TestPlantLayouts(t *testing.T) {
 
 	t.Run("opencode", func(t *testing.T) {
 		root := t.TempDir()
-		res := mustPlant(t, testharness.PlantOpenCode(root, cwd, []testharness.SessionSpec{{
+		res := plantOpenCode(t, root, cwd, []testharness.SessionSpec{{
 			ID: id, Prompt: prompt,
-		}}))
+		}})
 		if got := relSlash(t, root, res.Files[0]); got != "export/sess-1.json" {
 			t.Fatalf("path %s", got)
 		}
@@ -216,10 +216,10 @@ func TestPlantLayouts(t *testing.T) {
 func TestPlantDefaultsAndExtra(t *testing.T) {
 	root := t.TempDir()
 	cwd := "/work/demo"
-	res := mustPlant(t, testharness.PlantTerva(root, cwd, []testharness.SessionSpec{
+	res := plantTerva(t, root, cwd, []testharness.SessionSpec{
 		{Extra: map[string]string{"leak": "should-not-appear-xyz"}},
 		{Prompt: " "},
-	}))
+	})
 	if len(res.Files) != 2 || len(res.SessionIDs) != 2 {
 		t.Fatalf("result %+v", res)
 	}
@@ -248,14 +248,14 @@ func TestPlantIdempotent(t *testing.T) {
 
 	t.Run("terva", func(t *testing.T) {
 		root := t.TempDir()
-		first := mustPlant(t, testharness.PlantTerva(root, cwd, []testharness.SessionSpec{
+		first := plantTerva(t, root, cwd, []testharness.SessionSpec{
 			{ID: "keep", Prompt: "stay"},
 			{ID: "repl", Prompt: "first"},
-		}))
+		})
 		sibling := read(t, first.Files[0])
-		second := mustPlant(t, testharness.PlantTerva(root, cwd, []testharness.SessionSpec{
+		second := plantTerva(t, root, cwd, []testharness.SessionSpec{
 			{ID: "repl", Prompt: "second"},
-		}))
+		})
 		if second.Files[0] != first.Files[1] {
 			t.Fatalf("path %s want %s", second.Files[0], first.Files[1])
 		}
@@ -280,9 +280,9 @@ func TestPlantIdempotent(t *testing.T) {
 
 	t.Run("codex finds existing rollout", func(t *testing.T) {
 		root := t.TempDir()
-		first := mustPlant(t, testharness.PlantCodex(root, cwd, []testharness.SessionSpec{
+		first := plantCodex(t, root, cwd, []testharness.SessionSpec{
 			{ID: "thread-1", Prompt: "first"},
-		}))
+		})
 		renamed := filepath.Join(root, "sessions", "2020", "01", "02", "rollout-2020-01-02T03-04-05-thread-1.jsonl")
 		if err := os.MkdirAll(filepath.Dir(renamed), 0o755); err != nil {
 			t.Fatal(err)
@@ -294,9 +294,9 @@ func TestPlantIdempotent(t *testing.T) {
 		if err := os.WriteFile(hist, []byte("history-sentinel\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		second := mustPlant(t, testharness.PlantCodex(root, cwd, []testharness.SessionSpec{
+		second := plantCodex(t, root, cwd, []testharness.SessionSpec{
 			{ID: "thread-1", Prompt: "second"},
-		}))
+		})
 		if second.Files[0] != renamed {
 			t.Fatalf("wrote %s want %s", second.Files[0], renamed)
 		}
@@ -361,7 +361,7 @@ func TestPlantRejects(t *testing.T) {
 		t.Fatalf("partial plant wrote %d entries", len(left))
 	}
 
-	empty := mustPlant(t, testharness.PlantCodex(abs, "/work/demo", nil))
+	empty := plantCodex(t, abs, "/work/demo", nil)
 	if len(empty.Files) != 0 || len(empty.SessionIDs) != 0 {
 		t.Fatalf("empty %+v", empty)
 	}
@@ -405,6 +405,30 @@ func TestImportBoundary(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no non-test go files")
 	}
+}
+
+func plantTerva(t *testing.T, root, cwd string, specs []testharness.SessionSpec) testharness.PlantResult {
+	t.Helper()
+	res, err := testharness.PlantTerva(root, cwd, specs)
+	return mustPlant(t, res, err)
+}
+
+func plantClaude(t *testing.T, root, cwd string, specs []testharness.SessionSpec) testharness.PlantResult {
+	t.Helper()
+	res, err := testharness.PlantClaude(root, cwd, specs)
+	return mustPlant(t, res, err)
+}
+
+func plantCodex(t *testing.T, root, cwd string, specs []testharness.SessionSpec) testharness.PlantResult {
+	t.Helper()
+	res, err := testharness.PlantCodex(root, cwd, specs)
+	return mustPlant(t, res, err)
+}
+
+func plantOpenCode(t *testing.T, root, cwd string, specs []testharness.SessionSpec) testharness.PlantResult {
+	t.Helper()
+	res, err := testharness.PlantOpenCode(root, cwd, specs)
+	return mustPlant(t, res, err)
 }
 
 func mustPlant(t *testing.T, res testharness.PlantResult, err error) testharness.PlantResult {
