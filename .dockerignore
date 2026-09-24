@@ -1,0 +1,7 @@
+.git
+.github
+.tickets
+bin
+dist
+.env
+.env.*
