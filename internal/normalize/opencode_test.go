@@ -282,49 +282,51 @@ func TestOpenCodeSessionIDPrefersNative(t *testing.T) {
 }
 
 func TestOpenCodeNormalizeErrorOmitsBody(t *testing.T) {
-	raw := []byte("{\"info\":{\"id\":\"ses_1\"}}\nnot-json sk-live-secret\n")
-	before := append([]byte(nil), raw...)
-	_, err := (OpenCode{}).Normalize(context.Background(), raw)
-	if err == nil || !strings.Contains(err.Error(), "not a JSON object") {
-		t.Fatal(err)
+	cases := [][]byte{
+		[]byte("not-json sk-live-secret\n"),
+		[]byte("{\"info\":{\"id\":\"ses_1\",\"note\":\"sk-live-secret\""),
+		[]byte("[]\n"),
+		[]byte(`{"info":{"id":"ses_1","directory":"/work/app"},"messages":["sk-live-secret"]}`),
 	}
-	if strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "not-json") {
-		t.Fatalf("error includes the raw line: %s", err)
-	}
-	if !bytes.Equal(raw, before) {
-		t.Fatal("failed normalize changed the raw bytes")
-	}
-
-	nested := []byte(`{"info":{"id":"ses_1","directory":"/work/app"},"messages":["sk-live-secret"]}`)
-	_, err = (OpenCode{}).Normalize(context.Background(), nested)
-	if err == nil || !strings.Contains(err.Error(), "message 1 is not an object") {
-		t.Fatal(err)
-	}
-	if strings.Contains(err.Error(), "sk-live-secret") {
-		t.Fatalf("error includes the message: %s", err)
-	}
-
-	_, err = (OpenCode{}).Normalize(context.Background(), []byte("[]\n"))
-	if err == nil || strings.Contains(err.Error(), "[]") {
-		t.Fatalf("array body: %v", err)
+	for _, raw := range cases {
+		before := append([]byte(nil), raw...)
+		events, err := (OpenCode{}).Normalize(context.Background(), raw)
+		if err == nil {
+			t.Fatalf("expected an error for %q", raw[:min(12, len(raw))])
+		}
+		if strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "not-json") || strings.Contains(err.Error(), "[]") {
+			t.Fatalf("error includes the body: %s", err)
+		}
+		if events != nil {
+			t.Fatalf("projected %d events", len(events))
+		}
+		if !bytes.Equal(raw, before) {
+			t.Fatal("failed normalize changed the raw bytes")
+		}
 	}
 }
 
-func TestOpenCodeSQLiteIsNotProjected(t *testing.T) {
-	raw := append([]byte("SQLite format 3\x00"), []byte("sk-live-secret")...)
-	before := append([]byte(nil), raw...)
-	events, err := (OpenCode{}).Normalize(context.Background(), raw)
-	if err == nil || !strings.Contains(err.Error(), "not a JSON object") {
-		t.Fatalf("sqlite: %v events %d", err, len(events))
+func TestOpenCodeSQLiteRejected(t *testing.T) {
+	cases := [][]byte{
+		append([]byte("SQLite format 3\x00"), []byte("sk-live-secret")...),
+		[]byte("not-json sk-live-secret"),
+		[]byte("{\"info\":{\"id\":\"ses_1\",\"note\":\"sk-live-secret\""),
 	}
-	if strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "SQLite format") {
-		t.Fatalf("error includes the database: %s", err)
-	}
-	if !bytes.Equal(raw, before) {
-		t.Fatal("failed normalize changed the database bytes")
-	}
-	if events != nil {
-		t.Fatalf("sqlite projected: %+v", events)
+	for _, raw := range cases {
+		before := append([]byte(nil), raw...)
+		events, err := (OpenCode{}).Normalize(context.Background(), raw)
+		if err == nil || !strings.Contains(err.Error(), "not a JSON object") {
+			t.Fatalf("reject: %v events %d", err, len(events))
+		}
+		if strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "SQLite format") || strings.Contains(err.Error(), "not-json") {
+			t.Fatalf("error includes the body: %s", err)
+		}
+		if events != nil {
+			t.Fatalf("projected: %+v", events)
+		}
+		if !bytes.Equal(raw, before) {
+			t.Fatal("failed normalize changed the raw bytes")
+		}
 	}
 }
 

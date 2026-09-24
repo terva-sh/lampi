@@ -71,7 +71,9 @@ func (o OpenCode) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 
 func decodeOpenCodeExport(raw []byte) (map[string]json.RawMessage, error) {
 	trim := bytes.TrimSpace(raw)
-	if len(trim) == 0 || trim[0] != '{' {
+	// A root *.db upload is a SQLite file, not an export document.
+	// The header is enough; the database is not opened.
+	if bytes.HasPrefix(trim, []byte("SQLite format 3\x00")) || len(trim) == 0 || trim[0] != '{' {
 		return nil, fmt.Errorf("normalize: export is not a JSON object")
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
