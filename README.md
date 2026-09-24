@@ -231,10 +231,11 @@ is an empty cwd as well, and that workspace stays on the machine.
 Normalize promotes a bubble tool out of that document. A
 `toolFormerData` name and call id become a `tool_call`, and a result
 string becomes a `tool_result`. A missing name or call id stays on
-`extra`. On a `composerData:` row, a `usageData` object becomes a
-sibling usage event and `latestConversationSummary` becomes a sibling
-compaction event. Bubble `usageData` and `tokenCount` stay on
-`extra`. The rules are in
+`extra`. On a `composerData:` row, `usageData` becomes a sibling
+usage event only when it has a numeric `costInCents` or a recognizable
+token count, and `latestConversationSummary` becomes a sibling
+compaction event only when a summary string is present. Bubble
+`usageData` and `tokenCount` stay on `extra`. The rules are in
 [docs/architecture.md](docs/architecture.md#flow). The adapter
 `Version` stays `2`. ShareGPT already includes that call.
 

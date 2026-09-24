@@ -292,29 +292,35 @@ code is unchanged. ShareGPT and trajectory already include message,
 training turn and keeps its name and call id.
 
 A `usageData` object on a `composerData:` row is a sibling whose
-`event_type` is `usage`. `usage.cost_usd` is `costInCents / 100` when
-`costInCents` is present and numeric. Recognizable token fields
-already on that object are copied onto Usage `input`, `output`,
-`cache_read`, and `cache_write`. The first matching alias wins. A
-later alias stays on the usage event `extra`, and so does every other
-key that is not copied. `amount`, `cost`, and `price` do not become
-token counts, and neither does `tokenCount`. When the usage event is
-promoted, `usageData` is removed from the composer meta `extra`. A
-non-object `usageData` stays on that meta `extra` and is not promoted.
+`event_type` is `usage` only when it has a numeric `costInCents` or a
+recognizable token count. The live shape is a model name mapped to
+buckets with `costInCents` and `amount`. A numeric `costInCents` on
+the object itself is the same cost. `usage.cost_usd` is the sum of
+those cents divided by 100. Recognizable token fields copy onto Usage
+`input`, `output`, `cache_read`, and `cache_write`. The first matching
+alias wins per bucket, and token counts can sum across buckets.
+`amount`, `price`, and `cost` are not token counts, and neither is
+`tokenCount`. A `usageData` value with none of those fields stays on
+the composer meta `extra`. A non-object `usageData` stays on that
+meta `extra`. When the usage event is promoted, `usageData` is
+removed from the composer meta `extra`, and leftover keys stay on
+the usage event `extra`.
 
 `latestConversationSummary` on that same `composerData:` object is a
-sibling whose `event_type` is `compaction`. `content_text` is the
-string value when the field is a string, or the object field
-`summary` when that string is non-empty. The rest of an object stays
-on the compaction event `extra`. When the compaction is promoted,
+sibling whose `event_type` is `compaction` when a summary string is
+present. `content_text` is that string: the value itself when it is
+non-empty, the object field `summary` when that string is non-empty,
+or that field's own `summary` string (the live nested shape
+`summary.summary`). The rest of the object stays on the compaction
+event `extra`. When the compaction is promoted,
 `latestConversationSummary` is removed from the composer meta
-`extra`. A value that is neither a string nor an object stays on the
-meta `extra`. The composer `name` and title stay on the meta `extra`.
-They are not turns. That compaction is a training turn, and
-`content_text` becomes `value`. The composer title stays off the
-training view. Meta, usage, and unknown stay out of that view. The
-adapter and the pinned reader `Version` stay `2`, and
-`harness_version` is that string.
+`extra`. An empty or malformed summary stays on the composer meta
+event. It is not a compaction sibling. The composer `name` and title
+stay on the meta `extra`. They are not turns. That compaction is a
+ShareGPT and trajectory training turn, and `content_text` becomes
+`value`. The composer title stays off the training view. Meta, usage,
+and unknown stay out of that view. The adapter and the pinned reader
+`Version` stay `2`, and `harness_version` is that string.
 
 The Cursor CLI `store.db` is a second
 harness, `cursor-cli`. It copies that database and its WAL sidecars
