@@ -52,12 +52,8 @@ fmt-check:
 # What CI runs, in order.
 ci: vet fmt-check test build
 
-# Build and tag terva-lampi:synthetic. Does not push. CI does not call this.
-# The Makefile target is the same build, for a checkout without just.
-synthetic-image:
+# Build and tag terva-lampi:synthetic. Does not run tests and does not
+# push. CI does not call this. The Makefile target is the same build,
+# for a checkout without just.
+synthetic-container:
     docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
-
-# Build the synthetic image, then run the container smoke package.
-# CI does not call this. The Makefile target is the same.
-synthetic-container: synthetic-image
-    go test -tags=synthetic_container ./internal/synthetic/container/ -count=1 -timeout 10m

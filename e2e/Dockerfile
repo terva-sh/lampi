@@ -6,7 +6,7 @@
 #
 # The image contains the terva-lampi binary and empty mount points.
 # It does not contain config, tokens, homes, or session fixtures.
-# `make synthetic-image` tags it terva-lampi:synthetic and does not push.
+# `make synthetic-container` tags it terva-lampi:synthetic and does not push.
 
 FROM golang:1.27-bookworm AS build
 
@@ -18,7 +18,7 @@ RUN go mod download
 COPY . .
 
 # 0.0.0 and unknown are the defaults. Pass --build-arg VERSION and
-# COMMIT to stamp a build. make synthetic-image does not.
+# COMMIT to stamp a build. make synthetic-container does not.
 ARG VERSION=0.0.0
 ARG COMMIT=unknown
 

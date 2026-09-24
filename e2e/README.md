@@ -1,29 +1,19 @@
 # Synthetic container
 
 Local image for synthetic container smoke. The tag is
-`terva-lampi:synthetic` on the local daemon. Nothing here pushes to a
-registry. `make ci` and `just ci` do not build the image or run this
-package.
+`terva-lampi:synthetic` on the local daemon. This target builds and
+tags the image. It does not run tests, and it does not push to a
+registry. `make ci` and `just ci` do not call it.
 
 ```bash
-make synthetic-image
+make synthetic-container
 ```
 
-`just synthetic-image` is the same build. Without either tool:
+`just synthetic-container` is the same build. Without either tool:
 
 ```bash
 docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
 ```
-
-`make synthetic-container` builds that image, then runs the smoke
-package:
-
-```bash
-go test -tags=synthetic_container ./internal/synthetic/container/ -count=1 -timeout 10m
-```
-
-`just synthetic-container` is the same pair. Until the driver lands,
-that tagged test skips. Soft-link wiring is out of scope.
 
 The entrypoint is `/usr/local/bin/terva-lampi`, which is on `PATH`.
 The default command is:
@@ -47,4 +37,4 @@ config, tokens, homes, or session fixtures. The driver mounts:
 
 Harness environment variables are not set. Point `TERVA_HOME`,
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and the OpenCode data directory at
-those homes when the driver runs.
+those homes when the driver runs. Soft-link wiring is out of scope.
