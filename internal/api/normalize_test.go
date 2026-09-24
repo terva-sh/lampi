@@ -226,6 +226,163 @@ func TestProjectionUsesProjectLinkNotCWDHash(t *testing.T) {
 	}
 }
 
+func TestClaudeWorkerProjectsTranscript(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	s.Allow("sekret")
+	h := s.Handler()
+
+	good := transcriptLines(
+		`{"type":"user","sessionId":"sid-claude","cwd":"/work/app","version":"2.1.71","gitBranch":"main","timestamp":"2026-09-22T16:10:01.477Z","future_field":{"keep":true},"message":{"role":"user","content":"claude pond"}}`,
+		`{"type":"assistant","sessionId":"sid-claude","cwd":"/work/app","version":"2.1.71","timestamp":"2026-09-22T16:10:02.100Z","message":{"role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"I'll read the file."},{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01","content":[{"type":"web_search_result","title":"Pond","url":"https://example.com/pond","encrypted_content":"gAAAAABopaque==","page_age":"2d"}]}],"usage":{"input_tokens":10,"output_tokens":4,"cache_creation_input_tokens":2,"cache_read_input_tokens":1}}}`,
+		`{"type":"summary","summary":"pond session","leafUuid":"leaf-1"}`,
+	)
+	sidecar := []byte("not-json sidecar-secret\n")
+	goodSHA := putBlob(t, h, "", good)
+	tasksSHA := putBlob(t, h, "", sidecar)
+	raatiSHA := putBlob(t, h, "", sidecar)
+	parent := "parent-session"
+	ack := postManifest(t, h, protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessClaude,
+		HarnessVersion:  "1",
+		NativeSessionID: "sid-claude",
+		Project:         protocol.Project{CWD: "/work/app", CWDHash: adapter.CWDHash("/work/app")},
+		Lineage:         protocol.Lineage{ParentNativeID: &parent},
+		Artifacts: []protocol.Artifact{
+			{Kind: protocol.KindTranscriptJSONL, RelPath: "projects/-work-app/sid-claude.jsonl", Size: int64(len(good)), SHA256: goodSHA},
+			{Kind: protocol.KindTasksJSON, RelPath: "tasks/board.json", Size: int64(len(sidecar)), SHA256: tasksSHA},
+			{Kind: protocol.KindRaatiJSON, RelPath: "raati/note.json", Size: int64(len(sidecar)), SHA256: raatiSHA},
+		},
+	})
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	msg, ok, err := s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
+	if err != nil || !ok || msg != "" {
+		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
+	}
+	derived := readDerived(t, s, ack.SessionUID)
+	if !bytes.Contains(derived, []byte(`"session_id":"claude:sid-claude"`)) || !bytes.Contains(derived, []byte("claude pond")) {
+		t.Fatalf("derived:\n%s", derived)
+	}
+	if bytes.Contains(derived, []byte("sidecar-secret")) || bytes.Contains(derived, []byte(`"harness_version":"2.1.71"`)) {
+		t.Fatalf("sidecar or cli version leaked:\n%s", derived)
+	}
+	if !bytes.Contains(derived, []byte(`"harness_version":"1"`)) || !bytes.Contains(derived, []byte("gAAAAABopaque==")) {
+		t.Fatalf("projection dropped the reader version or ciphertext:\n%s", derived)
+	}
+	if bytes.Contains(derived, sidecar) {
+		t.Fatal("sidecar bytes were projected")
+	}
+	var sawPromptDay, sawIngestDay bool
+	for _, line := range bytes.Split(derived, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var ev struct {
+			RecordedAt string  `json:"recorded_at"`
+			IngestedAt string  `json:"ingested_at"`
+			Content    *string `json:"content_text"`
+			Harness    string  `json:"harness"`
+		}
+		if err := json.Unmarshal(line, &ev); err != nil {
+			t.Fatal(err)
+		}
+		if ev.Harness != protocol.HarnessClaude {
+			t.Fatalf("harness %s", ev.Harness)
+		}
+		day, err := normalize.PartitionDate(ev.RecordedAt, ev.IngestedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, err := normalize.ParquetPath(s.Parquet, day, protocol.HarnessClaude, ack.SessionUID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("parquet %s: %v", path, err)
+		}
+		if ev.Content != nil && *ev.Content == "claude pond" && day != "2026-09-22" {
+			t.Fatalf("prompt day %s", day)
+		}
+		if ev.Content != nil && *ev.Content == "claude pond" {
+			sawPromptDay = true
+		}
+		if ev.Content != nil && *ev.Content == "pond session" {
+			if ev.RecordedAt != ev.IngestedAt {
+				t.Fatalf("summary recorded_at %s ingested %s", ev.RecordedAt, ev.IngestedAt)
+			}
+			sawIngestDay = day != ""
+		}
+		if ev.Content != nil && strings.Contains(*ev.Content, "gAAAAABopaque==") {
+			t.Fatalf("ciphertext in content_text: %s", *ev.Content)
+		}
+	}
+	if !sawPromptDay || !sawIngestDay {
+		t.Fatal("missing prompt or summary event")
+	}
+	if got := readBlobBytes(t, s, goodSHA); !bytes.Equal(got, good) {
+		t.Fatal("transcript blob changed")
+	}
+	if got := readBlobBytes(t, s, tasksSHA); !bytes.Equal(got, sidecar) {
+		t.Fatal("tasks blob changed")
+	}
+
+	tail := []byte("not-json sk-live-secret\n")
+	full := append(append([]byte{}, good...), tail...)
+	tailSHA := putBlob(t, h, "", tail)
+	fullSHA := shaOf(t, full)
+	grown := postManifest(t, h, protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessClaude,
+		HarnessVersion:  "1",
+		NativeSessionID: "sid-claude",
+		Artifacts: []protocol.Artifact{{
+			Kind:              protocol.KindTranscriptJSONL,
+			RelPath:           "projects/-work-app/sid-claude.jsonl",
+			Size:              int64(len(full)),
+			SHA256:            fullSHA,
+			ByteWatermarkPrev: int64(len(good)),
+			TailSHA256:        tailSHA,
+		}},
+	})
+	if grown.SessionUID != ack.SessionUID || grown.Relation != protocol.RelationGrownFrom {
+		t.Fatalf("grown ack %+v", grown)
+	}
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	msg, ok, err = s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
+	if err != nil || !ok || !strings.Contains(msg, "not a JSON object") {
+		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
+	}
+	if strings.Contains(msg, "sk-live-secret") || strings.Contains(msg, "not-json") {
+		t.Fatalf("normalize_error includes the raw line: %s", msg)
+	}
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("derived file after failure: %v", err)
+	}
+	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 0 {
+		t.Fatalf("parquet after failure: %v", parts)
+	}
+	if got := readBlobBytes(t, s, goodSHA); !bytes.Equal(got, good) {
+		t.Fatal("raw prefix changed")
+	}
+	if got := readBlobBytes(t, s, fullSHA); !bytes.Equal(got, full) {
+		t.Fatal("failed head changed")
+	}
+}
+
 func transcriptLines(lines ...string) []byte {
 	return []byte(strings.Join(lines, "\n") + "\n")
 }

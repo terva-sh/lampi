@@ -21,8 +21,12 @@ import (
 // blob. A stale or divergent manifest does not replace that head.
 // It does not write the CAS. A non-nil error means no derived view;
 // callers record it and leave the blobs in place.
+//
+// terva reads transcript_jsonl and errors_jsonl. claude reads
+// transcript_jsonl only. Other harnesses are rejected before a blob
+// is opened.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
-	if m.Harness != protocol.HarnessTerva {
+	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude {
 		return nil, fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
 	}
 	_, arts, ok, err := s.Catalog.Current(ctx, m.Harness, m.NativeSessionID)
@@ -37,34 +41,60 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 		parent = *m.Lineage.ParentNativeID
 	}
 	now := s.now()
+	link := protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot)
 	var all []normalize.Event
 	for _, a := range arts {
-		switch a.Kind {
-		case protocol.KindTranscriptJSONL, protocol.KindErrorsJSONL:
-		default:
+		if !projectKind(m.Harness, a.Kind) {
 			continue
 		}
 		raw, err := readBlob(s.CAS, a.SHA256)
 		if err != nil {
 			return nil, err
 		}
-		ev, err := (normalize.Terva{
-			Now:            now,
-			NativeID:       m.NativeSessionID,
-			ParentNativeID: parent,
-			HarnessVersion: m.HarnessVersion,
-			CWD:            m.Project.CWD,
-			GitCommit:      m.Project.GitCommit,
-			ProjectID:      protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot),
-			Digest:         a.SHA256,
-			Kind:           a.Kind,
-		}).Normalize(ctx, raw)
+		var ev []normalize.Event
+		switch m.Harness {
+		case protocol.HarnessClaude:
+			ev, err = (normalize.Claude{
+				Now:            now,
+				NativeID:       m.NativeSessionID,
+				ParentNativeID: parent,
+				HarnessVersion: m.HarnessVersion,
+				CWD:            m.Project.CWD,
+				GitCommit:      m.Project.GitCommit,
+				ProjectID:      link,
+				Digest:         a.SHA256,
+			}).Normalize(ctx, raw)
+		default:
+			ev, err = (normalize.Terva{
+				Now:            now,
+				NativeID:       m.NativeSessionID,
+				ParentNativeID: parent,
+				HarnessVersion: m.HarnessVersion,
+				CWD:            m.Project.CWD,
+				GitCommit:      m.Project.GitCommit,
+				ProjectID:      link,
+				Digest:         a.SHA256,
+				Kind:           a.Kind,
+			}).Normalize(ctx, raw)
+		}
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, ev...)
 	}
 	return all, nil
+}
+
+// projectKind is the artifact kinds that become events for harness.
+// raati_json and tasks_json are terva sidecars and stay out. Claude
+// Code uploads transcript_jsonl only.
+func projectKind(harness, kind string) bool {
+	switch harness {
+	case protocol.HarnessClaude:
+		return kind == protocol.KindTranscriptJSONL
+	default:
+		return kind == protocol.KindTranscriptJSONL || kind == protocol.KindErrorsJSONL
+	}
 }
 
 // StoreEvents writes the derived JSONL and the date/harness parquet
