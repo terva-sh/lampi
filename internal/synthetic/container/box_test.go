@@ -422,6 +422,17 @@ var (
 	keeperErr  error
 )
 
+// TestMain removes the Once cache directory after the suite. The binary
+// stays for every test that calls buildKeeper. Clearing it from the
+// first test would delete the cache while later tests still need it.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if keeperBin != "" {
+		_ = os.RemoveAll(filepath.Dir(keeperBin))
+	}
+	os.Exit(code)
+}
+
 func buildKeeper() (string, error) {
 	keeperOnce.Do(func() {
 		root, err := moduleRoot()
@@ -435,6 +446,9 @@ func buildKeeper() (string, error) {
 			return
 		}
 		bin := filepath.Join(dir, "keeper")
+		// Set before the build so TestMain can remove the temp dir when
+		// the compile fails and never reaches the success assignment.
+		keeperBin = bin
 		cmd := exec.Command("go", "build", "-buildvcs=false", "-tags", "synthetic_container", "-trimpath", "-o", bin, "./internal/synthetic/container/keeper")
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
@@ -447,7 +461,6 @@ func buildKeeper() (string, error) {
 			keeperErr = err
 			return
 		}
-		keeperBin = bin
 	})
 	return keeperBin, keeperErr
 }
