@@ -75,8 +75,16 @@ fields such as accessToken are not in the export. The raw database
 and its -wal and -shm files are not uploaded. A chat whose meta.json
 has an absolute cwd uses that path. Anything else has an empty cwd,
 so the allowlist refuses it. The workspace directory name is not a
-path. A missing Claude, Codex, OpenCode, or Cursor directory is
-skipped. The watcher prefers fsnotify and falls back to polling.
+path. config.json harnesses can turn a harness off or point it at
+another directory. The id is terva, claude, codex, opencode, cursor,
+or cursor-cli. enabled false skips discover, watch, and upload for
+that id. The watermark and any object already stored stay. root is
+an absolute path and wins over the environment variable and the
+default above. There is no per-harness root flag. Omit harnesses,
+or omit one id, and that harness stays on and keeps the resolution
+above. A missing Claude, Codex, OpenCode, or Cursor
+directory is skipped. The watcher prefers fsnotify and falls back
+to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
@@ -94,7 +102,7 @@ it.
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
 the token path in config.json. The token is read from a file, never
-from an argument. The server URL, token, and allowlist are read at
+from an argument. The server URL, token, allowlist, and harnesses map are read at
 start; restart the process to reload them.
 `
 
@@ -321,7 +329,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 }
 
 func countSources(env Env) ([]source, int, error) {
-	src, err := sources(env.getenv)
+	src, err := configuredSources(env.getenv)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -395,7 +403,7 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 }
 
 func runAgentDiscover(env Env) error {
-	src, err := sources(env.getenv)
+	src, err := configuredSources(env.getenv)
 	if err != nil {
 		return err
 	}
@@ -432,7 +440,7 @@ func runAgentConfig(env Env) error {
 	if file.TokenFile != "" {
 		tokenPath = file.TokenFile
 	}
-	src, err := sources(env.getenv)
+	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
 	}

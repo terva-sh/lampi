@@ -810,6 +810,31 @@ func assertOutboxEmpty(t *testing.T, state string) {
 	}
 }
 
+func TestBundlesSkipEmptyTervaHome(t *testing.T) {
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+	if err := os.MkdirAll(filepath.Join("sessions", "abcd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("sessions", "abcd", "s.jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bundles, err := bundlesFor(Options{MachineID: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundles) != 0 {
+		t.Fatalf("empty terva home produced %d bundles", len(bundles))
+	}
+}
+
 func blobCount(t *testing.T, root string) int {
 	t.Helper()
 	n := 0
