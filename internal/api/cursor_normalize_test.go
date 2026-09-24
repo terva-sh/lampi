@@ -65,7 +65,7 @@ func TestCursorWorkerProjectsStateJSON(t *testing.T) {
 	if !bytes.Contains(derived, []byte("cursor pond")) || !bytes.Contains(derived, []byte(cipher)) {
 		t.Fatalf("projection dropped the turn or the ciphertext:\n%s", derived)
 	}
-	var sawPrompt, sawUsage bool
+	var sawPrompt bool
 	for _, line := range bytes.Split(derived, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -79,10 +79,6 @@ func TestCursorWorkerProjectsStateJSON(t *testing.T) {
 			Schema     int            `json:"schema_version"`
 			SessionID  string         `json:"session_id"`
 			Extra      map[string]any `json:"extra"`
-			Usage      struct {
-				Input  *int `json:"input"`
-				Output *int `json:"output"`
-			} `json:"usage"`
 		}
 		if err := json.Unmarshal(line, &ev); err != nil {
 			t.Fatal(err)
@@ -114,26 +110,17 @@ func TestCursorWorkerProjectsStateJSON(t *testing.T) {
 			sawPrompt = true
 		}
 		if ev.Content != nil && *ev.Content == "cursor reply" {
-			if _, stuffed := ev.Extra["tokenCount"]; stuffed {
-				t.Fatalf("tokenCount stuffed into the message: %#v", ev.Extra)
+			if ev.Extra["tokenCount"] != float64(4) || ev.Extra["encrypted_content"] != cipher {
+				t.Fatalf("reply extra %#v", ev.Extra)
 			}
-		}
-		if ev.EventType == normalize.EventUsage {
-			if ev.Content != nil || ev.Extra["tokenCount"] != float64(4) || ev.Usage.Input != nil || ev.Usage.Output != nil {
-				t.Fatalf("usage event %+v", ev)
-			}
-			sawUsage = true
 		}
 		switch ev.EventType {
-		case normalize.EventToolCall, normalize.EventToolResult:
+		case normalize.EventUsage, normalize.EventToolCall, normalize.EventToolResult, normalize.EventCompaction:
 			t.Fatalf("promoted %s", ev.EventType)
 		}
 	}
 	if !sawPrompt {
 		t.Fatal("missing prompt event")
-	}
-	if !sawUsage {
-		t.Fatal("missing usage event")
 	}
 	if got := readBlobBytes(t, s, sum); !bytes.Equal(got, body) {
 		t.Fatal("CAS object changed")

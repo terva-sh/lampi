@@ -197,8 +197,8 @@ func TestCursorBubbleMessages(t *testing.T) {
 		},
 	})
 	events := projectCursor(t, "workspace/ws1", raw)
-	assertNoToolPromotion(t, events)
-	var user, assistant, usage, other, meta *Event
+	assertNoPromoted(t, events)
+	var user, assistant, other, meta *Event
 	var sawEnvelope bool
 	for i := range events {
 		ev := &events[i]
@@ -212,10 +212,6 @@ func TestCursorBubbleMessages(t *testing.T) {
 		case "bubbleId:c1:user":
 			user = ev
 		case "bubbleId:c1:assistant":
-			if ev.EventType == EventUsage {
-				usage = ev
-				continue
-			}
 			assistant = ev
 		case "bubbleId:c1:other":
 			other = ev
@@ -241,17 +237,8 @@ func TestCursorBubbleMessages(t *testing.T) {
 	if assistant.ContentText == nil || *assistant.ContentText != "assistant text" {
 		t.Fatalf("assistant text %#v", assistant.ContentText)
 	}
-	if _, stuffed := assistant.Extra["tokenCount"]; stuffed || assistant.Extra["usageData"] == nil {
+	if assistant.Extra["tokenCount"] != float64(12) || assistant.Extra["usageData"] == nil {
 		t.Fatalf("usage fields %#v", assistant.Extra)
-	}
-	if usage == nil || usage.EventType != EventUsage || usage.ContentText != nil {
-		t.Fatalf("usage: %+v", usage)
-	}
-	if usage.Extra["tokenCount"] != float64(12) || usage.Extra["composer_id"] != "c1" || usage.Extra["bubble_id"] != "assistant" {
-		t.Fatalf("usage extra %#v", usage.Extra)
-	}
-	if usage.Usage.Input != nil || usage.Usage.Output != nil || usage.SessionID != assistant.SessionID {
-		t.Fatalf("usage split or session: %+v", usage)
 	}
 	tool, _ := assistant.Extra["toolFormerData"].(map[string]any)
 	if tool["name"] != "Read" || tool["id"] != "call-1" || tool["args"] == nil {
@@ -651,16 +638,6 @@ func assertNoPromoted(t *testing.T, events []Event) {
 	for _, ev := range events {
 		switch ev.EventType {
 		case EventUsage, EventToolCall, EventToolResult, EventCompaction:
-			t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
-		}
-	}
-}
-
-func assertNoToolPromotion(t *testing.T, events []Event) {
-	t.Helper()
-	for _, ev := range events {
-		switch ev.EventType {
-		case EventToolCall, EventToolResult, EventCompaction:
 			t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
 		}
 	}
