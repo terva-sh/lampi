@@ -127,6 +127,7 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 			From             string `json:"from"`
 			Value            string `json:"value"`
 			Name             string `json:"name"`
+			CallID           string `json:"call_id"`
 			EncryptedContent any    `json:"encrypted_content"`
 		} `json:"conversations"`
 	}
@@ -136,7 +137,7 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 	if rec.SessionUID != ack.SessionUID || rec.RawSHA256 != sum || rec.SessionID != "cursor:workspace/ws-train" {
 		t.Fatalf("lineage %+v", rec)
 	}
-	var sawHuman, sawCipher bool
+	var sawHuman, sawCipher, sawTool bool
 	for _, turn := range rec.Conversations {
 		if strings.Contains(turn.Value, opaque) || strings.Contains(turn.Value, aws) {
 			t.Fatalf("value kept ciphertext or a secret: %s", turn.Value)
@@ -145,7 +146,10 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 			sawHuman = true
 		}
 		if turn.Name == "Read" {
-			t.Fatal("toolFormerData was promoted into a training turn")
+			if turn.CallID != "call-1" {
+				t.Fatalf("tool call id %s", turn.CallID)
+			}
+			sawTool = true
 		}
 		if turn.EncryptedContent != nil {
 			s, ok := turn.EncryptedContent.(string)
@@ -158,7 +162,7 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 			t.Fatalf("non-training row exported: %+v", turn)
 		}
 	}
-	if !sawHuman || !sawCipher {
+	if !sawHuman || !sawCipher || !sawTool {
 		t.Fatalf("turns: %+v", rec.Conversations)
 	}
 	if !strings.Contains(stderr.String(), quietAck.SessionUID) || !strings.Contains(stderr.String(), "no training turns") {
