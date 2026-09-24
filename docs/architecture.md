@@ -32,7 +32,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Redaction | `internal/redact` | Ruleset v1. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
-| Normalize | `internal/normalize` | Workers project terva JSONL to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
+| Normalize | `internal/normalize` | Workers project terva JSONL, and a Cursor IDE `cursor_state_json` export, to schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
 | Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque. Plaintext training fields are stripped with ruleset v1 |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
@@ -87,6 +87,13 @@ reads that export with `read_ndjson`. sqlite reads each line and uses
 set is skipped. Until a worker finishes, `normalize_error` is empty
 and the derived files may be absent.
 
+A Cursor IDE `cursor_state_json` export is projected onto that same
+path. Bubble text becomes a message. Composer and UI rows become
+meta. Other rows stay unknown. A cursor manifest whose artifact is
+not `cursor_state_json` still sets `normalize_error`. Tool calls,
+token counts, and conversation summaries stay on the parent event
+until a fixture locks those shapes. Cursor CLI is not projected yet.
+
 `--format sharegpt` and `--format trajectory` write the same training
 projection: one ShareGPT conversation per allowlisted session that
 has a training turn. A session with none is named on stderr. Turns
@@ -111,7 +118,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/normalize` | Workers still implement terva only. A Claude, Codex, OpenCode, Cursor IDE, or Cursor CLI manifest is stored, and the worker sets `normalize_error` |
+| `internal/normalize` | Cursor CLI manifests are stored, and the worker sets `normalize_error`. Cursor IDE `cursor_state_json` is projected |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -249,9 +256,9 @@ do not share sessions or watermarks. A CLI chat uses the absolute
 one, the allowlist refuses the export. The Claude, Codex, OpenCode,
 and Cursor record shapes are internal to those packages. Each pins a
 reader version on `harness_version` and keeps keys it does not
-interpret. Normalize workers still implement terva only. A Claude,
-Codex, OpenCode, or Cursor manifest is stored, and a worker sets
-`normalize_error` when the projector for that harness is not
+interpret. A Cursor IDE `cursor_state_json` export is projected onto
+schema_version 1. A cursor manifest whose artifact is not that kind
+still sets `normalize_error`. The Cursor CLI projector is not
 implemented. Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link

@@ -239,6 +239,45 @@ func TestUnimplementedHarnessRecordsNormalizeError(t *testing.T) {
 			t.Fatalf("parquet for an unimplemented harness: %v", parts)
 		}
 	}
+
+	// A valid Cursor IDE export is projected. The transcript_jsonl case
+	// above still records normalize_error.
+	valid := []byte(`{"harness_version":"1","confidence":"low","source":"state.vscdb","scope":"workspace","item_table":[{"key":"composer.composerHeaders","value":{"allComposers":[]}}]}`)
+	validSum := putBlob(t, h, "", valid)
+	validAck := postManifest(t, h, protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessCursor,
+		HarnessVersion:  "1",
+		NativeSessionID: "workspace/ws-valid",
+		Artifacts: []protocol.Artifact{{
+			Kind:    protocol.KindCursorStateJSON,
+			RelPath: "User/workspaceStorage/ws-valid/state.json",
+			Size:    int64(len(valid)),
+			SHA256:  validSum,
+		}},
+	})
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	msg, ok, err := s.Catalog.NormalizeError(t.Context(), validAck.SessionUID)
+	if err != nil || !ok || msg != "" {
+		t.Fatalf("valid cursor normalize_error %q ok=%v err=%v", msg, ok, err)
+	}
+	derived := readDerived(t, s, validAck.SessionUID)
+	if !bytes.Contains(derived, []byte(`"session_id":"cursor:workspace/ws-valid"`)) || !bytes.Contains(derived, []byte(`"schema_version":1`)) || !bytes.Contains(derived, []byte(`"harness":"cursor"`)) {
+		t.Fatalf("valid cursor derived:\n%s", derived)
+	}
+	parts, err := normalize.SessionParquet(s.Parquet, validAck.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 1 || !bytes.Contains([]byte(parts[0]), []byte("harness="+protocol.HarnessCursor)) {
+		t.Fatalf("valid cursor parquet: %v", parts)
+	}
+	if got := readBlobBytes(t, s, validSum); !bytes.Equal(got, valid) {
+		t.Fatal("valid cursor CAS object changed")
+	}
 }
 
 func TestOpenResumesNormalizeJob(t *testing.T) {
