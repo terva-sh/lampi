@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"terva.sh/lampi/internal/protocol"
 )
 
 func TestEnsureMachineStable(t *testing.T) {
@@ -54,6 +56,12 @@ func TestLoadFileMissing(t *testing.T) {
 	}
 	if f.Server != "" {
 		t.Fatalf("server %q", f.Server)
+	}
+	if len(f.Harnesses) != 0 {
+		t.Fatalf("harnesses %#v", f.Harnesses)
+	}
+	if !f.Harnesses.Enabled(protocol.HarnessTerva) {
+		t.Fatal("missing config should leave harnesses default-on")
 	}
 	if got := ServerURL(f, ""); got != DefaultServer {
 		t.Fatalf("default server %s", got)
