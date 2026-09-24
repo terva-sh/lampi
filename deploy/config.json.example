@@ -1,0 +1,11 @@
+{
+  "server": "http://127.0.0.1:8787",
+  "harnesses": {
+    "claude": {
+      "enabled": false
+    },
+    "codex": {
+      "root": "/home/you/.codex"
+    }
+  }
+}

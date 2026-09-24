@@ -7,4 +7,3 @@ tickets, and the next fix pass overwrites it.
 | Epic | Title | Status |
 |---|---|---|
 | [TKT-01M38RJCDREDTTPTY2D7SR8W59](tickets/TKT-01M38RJCDREDTTPTY2D7SR8W59.md) | Normalize projectors for non-terva harnesses | ready |
-| [TKT-01M39306SFZNBM2YE2TJ49S7PP](tickets/TKT-01M39306SFZNBM2YE2TJ49S7PP.md) | Config/DX Shape A — harness enable and root overrides | ready |
