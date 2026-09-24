@@ -87,8 +87,8 @@ const (
 	KindCursorCLIStoreJSON = "cursor_cli_store_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
-	// meta line. Normalize workers project it. OpenCode and Cursor
-	// manifests are stored; those projectors are not implemented.
+	// meta line. Normalize workers project it. Cursor manifests are
+	// stored; those projectors are not implemented.
 	HarnessTerva = "terva"
 	// HarnessClaude is Claude Code. The on-disk record shape is internal
 	// to the adapter; harness_version is that adapter's pinned reader.
@@ -101,8 +101,10 @@ const (
 	HarnessCodex = "codex"
 	// HarnessOpenCode is OpenCode. The ingest path is a scheduled
 	// `opencode export` document, or the database file when that
-	// directory is empty. The WAL sidecar is not a session. The
-	// projector is not implemented.
+	// directory is empty. The WAL sidecar is not a session. Workers
+	// project an export document stored as transcript_jsonl onto
+	// schema_version 1. A database blob is not an export and keeps
+	// normalize_error.
 	HarnessOpenCode = "opencode"
 	// HarnessCursor is the Cursor IDE. The ingest path is a filtered
 	// JSON export of a state.vscdb snapshot. The live database is not
