@@ -23,12 +23,13 @@ import (
 // It does not write the CAS. A non-nil error means no derived view;
 // callers record it and leave the blobs in place.
 //
-// terva reads transcript_jsonl and errors_jsonl. claude and codex
-// read transcript_jsonl only. A codex history.jsonl artifact is not
-// a rollout and is not read. Other harnesses are rejected before a
-// blob is opened.
+// terva reads transcript_jsonl and errors_jsonl. claude, codex, and
+// opencode read transcript_jsonl only. A codex history.jsonl artifact
+// is not a rollout and is not read. An opencode database blob is not
+// an export document; the opencode projector records that failure.
+// Other harnesses are rejected before a blob is opened.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
-	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex {
+	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex && m.Harness != protocol.HarnessOpenCode {
 		return nil, fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
 	}
 	_, arts, ok, err := s.Catalog.Current(ctx, m.Harness, m.NativeSessionID)
@@ -77,6 +78,17 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				ProjectID:      link,
 				Digest:         a.SHA256,
 			}).Normalize(ctx, raw)
+		case protocol.HarnessOpenCode:
+			ev, err = (normalize.OpenCode{
+				Now:            now,
+				NativeID:       m.NativeSessionID,
+				ParentNativeID: parent,
+				HarnessVersion: m.HarnessVersion,
+				CWD:            m.Project.CWD,
+				GitCommit:      m.Project.GitCommit,
+				ProjectID:      link,
+				Digest:         a.SHA256,
+			}).Normalize(ctx, raw)
 		default:
 			ev, err = (normalize.Terva{
 				Now:            now,
@@ -100,10 +112,10 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 
 // projectKind is the artifact kinds that become events for harness.
 // raati_json and tasks_json are terva sidecars and stay out. Claude
-// Code and Codex CLI upload transcript_jsonl only.
+// Code, Codex CLI, and OpenCode upload transcript_jsonl only.
 func projectKind(harness, kind string) bool {
 	switch harness {
-	case protocol.HarnessClaude, protocol.HarnessCodex:
+	case protocol.HarnessClaude, protocol.HarnessCodex, protocol.HarnessOpenCode:
 		return kind == protocol.KindTranscriptJSONL
 	default:
 		return kind == protocol.KindTranscriptJSONL || kind == protocol.KindErrorsJSONL
