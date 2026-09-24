@@ -36,16 +36,19 @@ import (
 // that has a call id and a result string. A missing name or call id
 // stays on extra. capabilityType and a numeric tool field do not
 // promote on their own. A composerData usageData object is a sibling
-// usage event. cost_usd is costInCents divided by 100 when that value
-// is numeric. Token counts are copied only from recognizable token
-// fields already on that object. Other usageData keys stay on the
-// usage event. A composerData latestConversationSummary is a sibling
-// compaction event. content_text is the string value, or the object
-// field summary. The rest stays on the compaction event. Bubble
-// usageData and tokenCount stay on the bubble event. They are not
-// usage events. Bubble order follows fullConversationHeadersOnly, and
-// a header move carries the whole bubble group. createdAt is not an
-// order key.
+// usage event when it has a numeric costInCents or a recognizable
+// token count. The live shape is a model name mapped to costInCents
+// and amount. cost_usd is the sum of those cents divided by 100.
+// amount, price, and cost are not token counts. A usageData value
+// with none of those fields stays on the composer meta event. A
+// composerData latestConversationSummary is a sibling compaction
+// event when a summary string is present: the value itself, the
+// object field summary, or that field's own summary string. The rest
+// of the object stays on the compaction event. An empty or malformed
+// summary stays on the composer meta event. Bubble usageData and
+// tokenCount stay on the bubble event. They are not usage events.
+// Bubble order follows fullConversationHeadersOnly, and a header move
+// carries the whole bubble group. createdAt is not an order key.
 //
 // encrypted, cipher, and sealed fields are copied into extra and are
 // not written into content_text. They are not decrypted. A cursorAuth
@@ -408,42 +411,110 @@ var (
 )
 
 // cursorComposerUsage reads a composerData usageData object. A value
-// that is not an object is left for the meta extra. cost_usd is
-// costInCents / 100 when that value is a JSON number. Token counts are
-// copied only from cursorInputTokenKeys and its siblings.
+// that is not an object is left for the meta extra. The live shape is
+// one entry per model, each with costInCents and amount. A numeric
+// costInCents on the object itself is the same cost. cost_usd is the
+// sum of those cents divided by 100. Token counts are copied only from
+// cursorInputTokenKeys and its siblings. amount, price, and cost are
+// not counts. When no numeric cost and no token count is present, the
+// object is left on the meta extra.
 func cursorComposerUsage(raw json.RawMessage) (Usage, map[string]any, bool, error) {
 	obj, ok := jsonObject(raw)
 	if !ok {
 		return Usage{}, nil, false, nil
 	}
 	var u Usage
-	var drop []string
-	if n, ok := jsonFloat(obj["costInCents"]); ok {
-		usd := n / 100
-		u.CostUSD = &usd
-		drop = append(drop, "costInCents")
+	var cents float64
+	var hasCost bool
+	extra := map[string]any{}
+	promoted := false
+
+	drop, cost, sawCost := cursorUsageBucket(&u, obj)
+	if sawCost {
+		cents += cost
+		hasCost = true
 	}
-	if n, key, ok := cursorTokenCount(obj, cursorInputTokenKeys); ok {
-		u.Input = &n
-		drop = append(drop, key)
+	if sawCost || len(drop) > 0 {
+		promoted = true
 	}
-	if n, key, ok := cursorTokenCount(obj, cursorOutputTokenKeys); ok {
-		u.Output = &n
-		drop = append(drop, key)
-	}
-	if n, key, ok := cursorTokenCount(obj, cursorCacheReadTokenKeys); ok {
-		u.CacheRead = &n
-		drop = append(drop, key)
-	}
-	if n, key, ok := cursorTokenCount(obj, cursorCacheWriteTokenKeys); ok {
-		u.CacheWrite = &n
-		drop = append(drop, key)
-	}
-	extra, err := extraFrom(obj, drop...)
+	top, err := extraFrom(obj, drop...)
 	if err != nil {
 		return Usage{}, nil, false, err
 	}
+	for key, value := range top {
+		rawValue, ok := obj[key]
+		child, isObj := jsonObject(rawValue)
+		if !ok || !isObj {
+			extra[key] = value
+			continue
+		}
+		childDrop, childCost, childCostOK := cursorUsageBucket(&u, child)
+		if childCostOK {
+			cents += childCost
+			hasCost = true
+			promoted = true
+		}
+		if len(childDrop) > 0 {
+			promoted = true
+		}
+		if len(childDrop) == 0 {
+			extra[key] = value
+			continue
+		}
+		leftover, err := extraFrom(child, childDrop...)
+		if err != nil {
+			return Usage{}, nil, false, err
+		}
+		if len(leftover) > 0 {
+			extra[key] = leftover
+		}
+	}
+	if !promoted {
+		return Usage{}, nil, false, nil
+	}
+	if hasCost {
+		usd := cents / 100
+		u.CostUSD = &usd
+	}
 	return u, extra, true, nil
+}
+
+// cursorUsageBucket reads costInCents and token counts on one object.
+// The returned keys are the ones consumed. Nested model buckets are
+// not walked here.
+func cursorUsageBucket(u *Usage, obj map[string]json.RawMessage) (drop []string, cents float64, hasCost bool) {
+	if n, ok := jsonFloat(obj["costInCents"]); ok {
+		cents = n
+		hasCost = true
+		drop = append(drop, "costInCents")
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorInputTokenKeys); ok {
+		cursorAddInt(&u.Input, n)
+		drop = append(drop, key)
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorOutputTokenKeys); ok {
+		cursorAddInt(&u.Output, n)
+		drop = append(drop, key)
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorCacheReadTokenKeys); ok {
+		cursorAddInt(&u.CacheRead, n)
+		drop = append(drop, key)
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorCacheWriteTokenKeys); ok {
+		cursorAddInt(&u.CacheWrite, n)
+		drop = append(drop, key)
+	}
+	return drop, cents, hasCost
+}
+
+func cursorAddInt(dst **int, n int) {
+	if *dst == nil {
+		v := n
+		*dst = &v
+		return
+	}
+	v := **dst + n
+	*dst = &v
 }
 
 func cursorTokenCount(obj map[string]json.RawMessage, keys []string) (int, string, bool) {
@@ -456,32 +527,52 @@ func cursorTokenCount(obj map[string]json.RawMessage, keys []string) (int, strin
 	return 0, "", false
 }
 
-// cursorComposerSummary reads latestConversationSummary. A string is
-// the compaction text. An object uses its summary string when that
-// value is non-empty, and the other keys stay in extra. Anything else
-// stays on the meta extra.
+// cursorComposerSummary reads latestConversationSummary. A non-empty
+// string is the compaction text. An object uses its summary string, or
+// the summary string inside that object, which is the live shape. The
+// other keys stay in extra. An empty string, an object with no summary
+// string, and every other shape stay on the meta extra.
 func cursorComposerSummary(raw json.RawMessage) (string, map[string]any, bool, error) {
 	if isNull(raw) {
 		return "", nil, false, nil
 	}
 	if s, ok := jsonString(raw); ok {
+		if s == "" {
+			return "", nil, false, nil
+		}
 		return s, map[string]any{}, true, nil
 	}
 	obj, ok := jsonObject(raw)
 	if !ok {
 		return "", nil, false, nil
 	}
-	text := ""
-	var drop []string
 	if s, ok := jsonString(obj["summary"]); ok && s != "" {
-		text = s
-		drop = append(drop, "summary")
+		extra, err := extraFrom(obj, "summary")
+		if err != nil {
+			return "", nil, false, err
+		}
+		return s, extra, true, nil
 	}
-	extra, err := extraFrom(obj, drop...)
+	child, ok := jsonObject(obj["summary"])
+	if !ok {
+		return "", nil, false, nil
+	}
+	s, ok := jsonString(child["summary"])
+	if !ok || s == "" {
+		return "", nil, false, nil
+	}
+	childExtra, err := extraFrom(child, "summary")
 	if err != nil {
 		return "", nil, false, err
 	}
-	return text, extra, true, nil
+	extra, err := extraFrom(obj, "summary")
+	if err != nil {
+		return "", nil, false, err
+	}
+	if len(childExtra) > 0 {
+		extra["summary"] = childExtra
+	}
+	return s, extra, true, nil
 }
 
 func cursorRowIdentity(composer, scope string, rest map[string]any) map[string]any {
