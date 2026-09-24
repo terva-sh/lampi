@@ -36,7 +36,10 @@ or ~/.config/Cursor on Linux, ~/Library/Application Support/Cursor on
 macOS, and %APPDATA%\Cursor on Windows. The upload is a JSON export of
 a snapshot. Keys under cursorAuth/ are removed. The raw database is
 not uploaded. The global database has an empty cwd and is refused
-by design. A workspace database takes its cwd from workspace.json.
+by design. A workspace export copies that global database read-only
+and merges cursorDiskKV rows for composers named by that workspace's
+composer.composerHeaders. The session id stays workspace/<id>. A
+workspace database takes its cwd from workspace.json.
 The Cursor CLI store is separate. Its config directory is
 $CURSOR_CONFIG_DIR, or $XDG_CONFIG_HOME/cursor on Linux when that
 variable is set, otherwise ~/.cursor on macOS and Linux and the

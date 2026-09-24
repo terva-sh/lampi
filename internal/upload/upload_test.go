@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/outbox"
@@ -1425,7 +1426,7 @@ func TestSyncCursorExportFiltersAuth(t *testing.T) {
 		t.Fatalf("manifests %d", len(cap.manifests))
 	}
 	m := cap.manifests[0]
-	if m.Harness != protocol.HarnessCursor || m.HarnessVersion != "1" || m.NativeSessionID != "workspace/ws1" {
+	if m.Harness != protocol.HarnessCursor || m.HarnessVersion != cursor.Version || m.NativeSessionID != "workspace/ws1" {
 		t.Fatalf("header %+v", m)
 	}
 	if m.Project.CWD != "/work/app" {
@@ -1542,7 +1543,7 @@ func TestSyncCursorCLIIsASeparateCorpus(t *testing.T) {
 		byHarness[m.Harness] = m
 	}
 	ide := byHarness[protocol.HarnessCursor]
-	if ide.HarnessVersion != "1" || ide.NativeSessionID != "workspace/ws1" || ide.Project.CWD != "/work/app" {
+	if ide.HarnessVersion != cursor.Version || ide.NativeSessionID != "workspace/ws1" || ide.Project.CWD != "/work/app" {
 		t.Fatalf("ide %+v", ide)
 	}
 	if ide.Artifacts[0].Kind != protocol.KindCursorStateJSON {

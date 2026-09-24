@@ -40,7 +40,10 @@ root and source. An omitted harnesses map, or an omitted id, is
 enabled true. sessions counts files from harnesses that are on.
 
 The Cursor IDE global database has an empty cwd and sync refuses it
-by design. A workspace database takes its cwd from workspace.json. A
+by design. A workspace export copies that global database read-only
+and merges cursorDiskKV rows for composers named by that workspace's
+composer.composerHeaders. The session id stays workspace/<id>. A
+workspace database takes its cwd from workspace.json. A
 Cursor CLI chat needs an absolute cwd in the sibling meta.json, or
 sync refuses that export. Those refusals are named on sync stderr.
 The projects allow and deny rules are unchanged.
