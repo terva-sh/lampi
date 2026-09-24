@@ -37,7 +37,7 @@ The bytes are rollout JSONL the adapter already uploads, artifact kind `transcri
 
 `session_id` is `codex:` plus the native session id, the same shape terva uses.
 
-`api.Server.Project` currently rejects harness `codex` before it reads the blob. This ticket extends that branch so a codex manifest uses a Codex projector.
+Before this ticket, `api.Server.Project` rejected harness `codex` before it read the blob. This ticket extends that branch so a codex manifest uses a Codex projector.
 
 ### Fixture
 

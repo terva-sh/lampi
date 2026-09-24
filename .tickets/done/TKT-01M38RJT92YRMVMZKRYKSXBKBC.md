@@ -37,7 +37,7 @@ The bytes are the JSONL the adapter already uploads, artifact kind `transcript_j
 
 `session_id` is `claude:` plus the native session id, the same shape terva uses (`terva:` plus the native id).
 
-`api.Server.Project` currently rejects harness `claude` before it reads the blob. This ticket extends that branch so a claude manifest uses a Claude projector. `raati_json` and `tasks_json` stay out of the event stream; they are terva sidecars.
+Before this ticket, `api.Server.Project` rejected harness `claude` before it read the blob. This ticket extends that branch so a claude manifest uses a Claude projector. `raati_json` and `tasks_json` stay out of the event stream; they are terva sidecars.
 
 ### Fixture
 

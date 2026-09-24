@@ -42,7 +42,7 @@ Move normalize off synchronous MVP path; partition parquet by date/harness.
 
 ## Implementation plan
 
-POST /v1/manifests stores the catalog row, enqueues a normalize job, and returns the ACK without projecting. Two in-process workers claim jobs, read the catalog head, and call the existing projector. Only terva is implemented; Claude and Codex still record normalize_error once a worker runs. A generation on the session drops a stale publish when a newer ingest is queued. The job row stays until that publish, so a restart finishes it. Shutdown drains the queue.
+POST /v1/manifests stores the catalog row, enqueues a normalize job, and returns the ACK without projecting. Two in-process workers claim jobs, read the catalog head, and call the existing projector. When this ticket landed, only terva was implemented, and Claude and Codex recorded normalize_error once a worker ran. Workers now project terva, claude, codex, and opencode. Cursor IDE and Cursor CLI still record normalize_error. A generation on the session drops a stale publish when a newer ingest is queued. The job row stays until that publish, so a restart finishes it. Shutdown drains the queue.
 
 Derived JSONL stays at normalized/<session_uid>.jsonl. Parquet is written beside it under parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet. The date is the UTC day of recorded_at, and a session that spans days has one file in each partition. A failure removes that session's JSONL and parquet files and sets normalize_error. Export waits until the queue is idle, then reads JSONL, and still rebuilds a missing file.
 
@@ -52,6 +52,6 @@ POST /v1/manifests stores the session, enqueues a normalize job, and returns the
 
 JSONL stays at normalized/<session_uid>.jsonl. Parquet is parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet. The date is the UTC day of recorded_at, or ingested_at when that is missing. A session that spans days has one file in each partition. The writer is github.com/parquet-go/parquet-go. A failure removes that session's JSONL and parquet and sets normalize_error. Export waits until the queue is idle, then reads JSONL.
 
-terva still projects. Claude and Codex still have no projector; the worker records that, not the ACK handler. internal/accept TestMVPAcceptance passes.
+When this ticket landed, terva projected and Claude and Codex had no projector; the worker recorded that, not the ACK handler. Workers now project terva, claude, codex, and opencode. Cursor IDE and Cursor CLI still record normalize_error. internal/accept TestMVPAcceptance passes.
 
 TKT-01M3558DYH3FVT06XBPKWAAMKH (Optional terva hook nudge) is still ready, so the Phase 2 epic TKT-01M3558DV5NHYZBFMPV1AVRNYQ stays ready.

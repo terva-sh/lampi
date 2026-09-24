@@ -64,7 +64,7 @@ The global export has an empty cwd, so the allowlist refuses it. One global data
 The Cursor CLI store.db is a different corpus and is not opened. Raw state.vscdb, -wal, and -shm are not the bytes that sync uploads.
 
 ### Wiring
-agent discover, the long-running watch, and sync ask the harness for its home and its manifests. A missing user-data directory is skipped. The watcher follows globalStorage and workspaceStorage, including the WAL sidecars, so a write that lands in the WAL is noticed. Normalize workers still implement terva only.
+agent discover, the long-running watch, and sync ask the harness for its home and its manifests. A missing user-data directory is skipped. The watcher follows globalStorage and workspaceStorage, including the WAL sidecars, so a write that lands in the WAL is noticed. When this adapter landed, normalize workers implemented terva only. Workers now project terva, claude, codex, and opencode. A stored Cursor IDE manifest still records normalize_error.
 
 ## Summary
 
@@ -72,6 +72,6 @@ internal/adapter/cursor snapshots Cursor IDE state.vscdb and uploads a filtered 
 
 Version is pinned at 1. Confidence is low. ItemTable is required. cursorDiskKV is included when it exists. Keys under cursorAuth/ are not in the export. A major Cursor upgrade that renames those tables breaks the pin. agent discover, the watch, and sync use the harness. The global export has no single project cwd, so the allowlist refuses it. A workspace takes its cwd from workspace.json. A vscode-remote URI stays on the machine.
 
-The raw database is not uploaded. The Cursor CLI store.db is not read. Normalize workers still implement terva only. A stored Cursor manifest records normalize_error.
+The raw database is not uploaded. The Cursor CLI store.db is not read. Workers project terva, claude, codex, and opencode onto schema_version 1. A stored Cursor IDE manifest still records normalize_error.
 
 go test ./... is green. Landed on cursor/phase4-cursor-state-vscdb-9911 as https://github.com/terva-sh/lampi/pull/25.

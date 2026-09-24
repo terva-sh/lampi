@@ -56,7 +56,7 @@ The live database is SQLite WAL. `*.db-wal`, `*.db-shm`, and `*.db-journal` neve
 Version is pinned at 1 inside the adapter. The export document stays internal. Keys the reader does not interpret are kept and survive a re-encode. `harness_version` is that reader version. Sync uploads the file bytes.
 
 ### Wiring
-`agent discover`, the long-running watch, and `sync` ask the harness for its home and its manifests. A missing data directory is skipped, as with Claude and Codex. Normalize workers still implement terva only.
+`agent discover`, the long-running watch, and `sync` ask the harness for its home and its manifests. A missing data directory is skipped, as with Claude and Codex. When this adapter landed, normalize workers implemented terva only. normalize.OpenCode now projects an export document onto schema_version 1. A stored database blob still keeps `normalize_error`.
 
 ## Summary
 
@@ -66,4 +66,4 @@ When `export/` has no JSON, discovery uses a `*.db` file at the data-directory r
 
 Version is pinned at 1. Keys the reader does not interpret stay on the record and survive a re-encode. `harness_version` is that reader version. `agent discover`, the watch, and `sync` use the harness. A database blob has no session directory, so the allowlist refuses it: one file holds every project. An export is the path that can leave the machine.
 
-Normalize workers still implement terva only. A stored OpenCode manifest records `normalize_error` until a later projector exists.
+When this adapter landed, normalize workers implemented terva only. normalize.OpenCode now projects an export document onto schema_version 1. A stored database blob still keeps `normalize_error`.
