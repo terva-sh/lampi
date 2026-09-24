@@ -249,6 +249,18 @@ func TestCursorCLIContentPartsStayUnknown(t *testing.T) {
 		"scope":           "session",
 		"meta":            []any{},
 		"blobs": []any{
+			map[string]any{"id": "by-content", "data": map[string]any{
+				"role": "user", "content": "content string",
+			}},
+			map[string]any{"id": "by-text", "data": map[string]any{
+				"role": "assistant", "text": "text string",
+			}},
+			map[string]any{"id": "by-raw", "data": map[string]any{
+				"type": 1, "rawText": "rawText string",
+			}},
+			map[string]any{"id": "by-type", "data": map[string]any{
+				"type": 2, "text": "type two string",
+			}},
 			map[string]any{"id": "parts", "data": map[string]any{
 				"role":    "assistant",
 				"text":    "string-fallback-not-used",
@@ -261,21 +273,45 @@ func TestCursorCLIContentPartsStayUnknown(t *testing.T) {
 				},
 				"encrypted_content": cipher,
 			}},
-			map[string]any{"id": "still-string", "data": map[string]any{
-				"role": "user", "content": "plain string",
-			}},
 		},
 	})
 	events := projectCursorCLI(t, "chats/ab12/sid-1", raw)
-	assertNoPromoted(t, events)
-	var parts, plain *Event
+	// Envelope, four string messages, one parts blob. A walk of the
+	// parts would add events.
+	if len(events) != 6 {
+		t.Fatalf("events %d, raw types %v", len(events), cursorCLIRawTypes(events))
+	}
+	want := map[string]struct {
+		text string
+		role string
+	}{
+		"by-content": {text: "content string", role: ActorUser},
+		"by-text":    {text: "text string", role: ActorAssistant},
+		"by-raw":     {text: "rawText string", role: ActorUser},
+		"by-type":    {text: "type two string", role: ActorAssistant},
+	}
+	var parts *Event
+	var messages int
 	for i := range events {
-		switch events[i].RawType {
-		case "parts":
-			parts = &events[i]
-		case "still-string":
-			plain = &events[i]
+		ev := &events[i]
+		if ev.RawType == "cursor_cli_store_json" {
+			if ev.EventType != EventMeta {
+				t.Fatalf("envelope %+v", ev)
+			}
+			continue
 		}
+		if ev.RawType == "parts" {
+			parts = ev
+			continue
+		}
+		spec, ok := want[ev.RawType]
+		if !ok || ev.EventType != EventMessage || ev.Role == nil || *ev.Role != spec.role || ev.ContentText == nil || *ev.ContentText != spec.text {
+			t.Fatalf("string cleartext %s: %+v", ev.RawType, ev)
+		}
+		messages++
+	}
+	if messages != len(want) {
+		t.Fatalf("string messages %d", messages)
 	}
 	if parts == nil || parts.EventType != EventUnknown || parts.ContentText != nil || parts.Role != nil {
 		t.Fatalf("parts blob: %+v", parts)
@@ -295,9 +331,6 @@ func TestCursorCLIContentPartsStayUnknown(t *testing.T) {
 		if bytes.Contains(out, []byte(hidden)) {
 			t.Fatalf("promoted %s:\n%s", hidden, out)
 		}
-	}
-	if plain == nil || plain.EventType != EventMessage || plain.ContentText == nil || *plain.ContentText != "plain string" {
-		t.Fatalf("string content: %+v", plain)
 	}
 }
 
