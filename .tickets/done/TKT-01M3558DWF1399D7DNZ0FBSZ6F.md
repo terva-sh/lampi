@@ -51,7 +51,7 @@ CODEX_HOME wins. When it is unset the directory is ~/.codex (USERPROFILE\.codex 
 The rollout line is internal and the reader version is pinned at 1, the same rule as the Claude adapter. Unrecognized keys are kept. Session id and cwd are taken from a session_meta payload when one is present; otherwise the file name is the native id. history.jsonl is never opened as a session.
 
 ### Wiring
-agent discover, watch, and sync include this home next to terva and Claude. The allowlist and the terva-only projector are unchanged.
+agent discover, watch, and sync include this home next to terva and Claude. The allowlist is unchanged. When this adapter landed, the projector implemented terva only. normalize.Codex now projects a stored rollout onto schema_version 1.
 
 ## Summary
 
@@ -59,4 +59,4 @@ internal/adapter/codex watches $CODEX_HOME/sessions/**/rollout-*.jsonl. When COD
 
 agent discover, watch, and sync include this home beside terva and Claude Code. A temp-dir test places history.jsonl next to a rollout, under sessions/, and at the Codex home, and both discover and the watcher skip it. upload.Sync of an allowlisted rollout does not create a catalog session for that history file.
 
-The synchronous projector still implements terva only. Project linking, the async normalizer, and the terva hook polish are not in this change.
+When this adapter landed, the synchronous projector implemented terva only. normalize.Codex now projects a stored rollout onto schema_version 1. Project linking, the async normalizer, and the terva hook polish are not in this change.

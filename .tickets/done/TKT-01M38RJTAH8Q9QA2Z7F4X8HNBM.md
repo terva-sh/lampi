@@ -39,7 +39,7 @@ When `export/` has no JSON, discovery falls back to a `.db` file at the data-dir
 
 `session_id` is `opencode:` plus the native session id, the same shape terva uses.
 
-`api.Server.Project` currently rejects harness `opencode` before it reads the blob. This ticket extends that branch so an opencode export uses an OpenCode projector.
+Before this ticket, `api.Server.Project` rejected harness `opencode` before it read the blob. This ticket extends that branch so an opencode export uses an OpenCode projector.
 
 ### Fixture
 

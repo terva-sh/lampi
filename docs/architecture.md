@@ -65,9 +65,10 @@ parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet
 `date` is the UTC day of the event's `recorded_at`. When that timestamp
 is missing, the day is `ingested_at`. A session whose events fall on
 more than one day has one file in each of those partitions. `harness`
-is the event harness. The file name is the session uid,
-so a re-projection replaces that session and leaves the rest of the
-day in place. DuckDB reads the tree with
+is the event harness (terva, Claude Code, Codex CLI, OpenCode, Cursor IDE,
+or Cursor CLI). The file name is the session uid, so a re-projection
+replaces that session and leaves the rest of the day in place. DuckDB
+reads the tree with
 `read_parquet('parquet/**/*.parquet', hive_partitioning = true)`.
 Each row has the search columns (`content_text`, `session_id`,
 `event_type`, `recorded_at`) and `event_json`, the same object as the
