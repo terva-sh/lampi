@@ -2,7 +2,7 @@
 #
 # Build context is the repository root:
 #
-#	docker build -t terva-lampi:synthetic -f e2e/Dockerfile .
+#	docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
 #
 # The image contains the terva-lampi binary and empty mount points.
 # It does not contain config, tokens, homes, or session fixtures.
@@ -17,8 +17,8 @@ RUN go mod download
 
 COPY . .
 
-# 0.0.0 and unknown match an unstamped justfile build. make and just
-# pass the real short commit.
+# 0.0.0 and unknown are the defaults. Pass --build-arg VERSION and
+# COMMIT to stamp a build. make synthetic-container does not.
 ARG VERSION=0.0.0
 ARG COMMIT=unknown
 

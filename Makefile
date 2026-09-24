@@ -27,13 +27,7 @@ ci: vet test build
 	fi
 
 # Local image for synthetic container smoke. Tags terva-lampi:synthetic
-# and stops. It does not run the suite and does not push. CI does not
-# call this. VERSION and COMMIT match the justfile stamps.
-VERSION ?= 0.0.0
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-
+# and stops. It does not run tests and does not push. CI does not
+# call this.
 synthetic-container:
-	docker build -t terva-lampi:synthetic -f e2e/Dockerfile \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg COMMIT="$(COMMIT)" \
-		.
+	docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
