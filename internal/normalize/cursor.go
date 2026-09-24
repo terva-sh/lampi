@@ -26,12 +26,14 @@ import (
 // document. A version string inside a row is not that pin.
 //
 // v1 projects cleartext bubble messages (type 1 user, type 2
-// assistant, text from rawText then text), meta for composerData and
-// the ItemTable composer and UI keys, and unknown for everything else.
-// toolFormerData, toolResults, token counts, and
-// latestConversationSummary stay on the parent event. Promoting them
-// waits until a fixture locks the shape. Bubble order follows
-// fullConversationHeadersOnly. createdAt is not an order key.
+// assistant, text from rawText then text), one usage event when a
+// bubble carries a numeric tokenCount, meta for composerData and the
+// ItemTable composer and UI keys, and unknown for everything else.
+// The count is copied onto that usage event and removed from the
+// message. It is not written into content_text and it is not split
+// into input and output. toolFormerData, toolResults, usageData, and
+// latestConversationSummary stay on the parent event. Bubble order
+// follows fullConversationHeadersOnly. createdAt is not an order key.
 //
 // encrypted, cipher, and sealed fields are copied into extra and are
 // not written into content_text. They are not decrypted. A cursorAuth
@@ -95,11 +97,11 @@ func (c Cursor) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		if cursorAuthRow(row.Key) {
 			continue
 		}
-		ev, err := c.row(raw, doc.Scope, orders, row)
+		evs, err := c.row(raw, doc.Scope, orders, row)
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, ev)
+		events = append(events, evs...)
 	}
 	return orderCursorBubbles(events, orders), nil
 }
@@ -192,42 +194,49 @@ func (c Cursor) envelope(doc cursorExport) (Event, error) {
 	return c.emit("cursor_state_json", EventMeta, "", time.Time{}, 0, "", extra)
 }
 
-func (c Cursor) row(raw []byte, scope string, orders map[string][]string, row cursorKV) (Event, error) {
+func (c Cursor) row(raw []byte, scope string, orders map[string][]string, row cursorKV) ([]Event, error) {
 	switch {
 	case strings.HasPrefix(row.Key, "bubbleId:"):
 		composer, bubble, ok := bubbleIDs(row.Key)
 		if !ok {
-			return c.projectUnknown(raw, scope, row)
+			return cursorOne(c.projectUnknown(raw, scope, row))
 		}
 		return c.projectBubble(raw, scope, row, composer, bubble)
 	case strings.HasPrefix(row.Key, "composerData:"):
-		return c.projectComposerData(raw, scope, orders, row)
+		return cursorOne(c.projectComposerData(raw, scope, orders, row))
 	case strings.HasPrefix(row.Key, "composer.content."):
-		return c.projectUnknown(raw, scope, row)
+		return cursorOne(c.projectUnknown(raw, scope, row))
 	case strings.HasPrefix(row.Key, "composer."), cursorUIKey(row.Key):
-		return c.projectMeta(raw, scope, row)
+		return cursorOne(c.projectMeta(raw, scope, row))
 	default:
-		return c.projectUnknown(raw, scope, row)
+		return cursorOne(c.projectUnknown(raw, scope, row))
 	}
 }
 
-func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, bubble string) (Event, error) {
+func cursorOne(ev Event, err error) ([]Event, error) {
+	if err != nil {
+		return nil, err
+	}
+	return []Event{ev}, nil
+}
+
+func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, bubble string) ([]Event, error) {
 	if isBase64Wrapper(row.Value) || !jsonIsObject(row.Value) {
 		ev, err := c.projectUnknown(raw, scope, row)
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
 		ev.Extra["composer_id"] = composer
 		ev.Extra["bubble_id"] = bubble
-		return ev, nil
+		return []Event{ev}, nil
 	}
 	obj, ok := jsonObject(row.Value)
 	if !ok {
-		return c.projectUnknown(raw, scope, row)
+		return cursorOne(c.projectUnknown(raw, scope, row))
 	}
 	extra, err := cursorObjectExtra(obj)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	extra["composer_id"] = composer
 	extra["bubble_id"] = bubble
@@ -246,7 +255,33 @@ func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, 
 		role = ActorAssistant
 		text = cursorVisibleText(obj)
 	}
-	return c.emit(row.Key, eventType, role, cursorWhen(obj), cursorOffset(raw, row.Key), text, extra)
+	// A numeric tokenCount is its own usage event. A string or object
+	// stays on the parent extra. The count is not an input or output.
+	var count float64
+	var hasCount bool
+	if n, ok := jsonFloat(obj["tokenCount"]); ok {
+		delete(extra, "tokenCount")
+		count = n
+		hasCount = true
+	}
+	msg, err := c.emit(row.Key, eventType, role, cursorWhen(obj), cursorOffset(raw, row.Key), text, extra)
+	if err != nil {
+		return nil, err
+	}
+	out := []Event{msg}
+	if !hasCount {
+		return out, nil
+	}
+	usage, err := c.emit(row.Key, EventUsage, "", cursorWhen(obj), cursorOffset(raw, row.Key), "", map[string]any{
+		"scope":       scope,
+		"composer_id": composer,
+		"bubble_id":   bubble,
+		"tokenCount":  count,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append(out, usage), nil
 }
 
 func (c Cursor) projectComposerData(raw []byte, scope string, orders map[string][]string, row cursorKV) (Event, error) {

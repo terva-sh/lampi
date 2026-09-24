@@ -65,18 +65,24 @@ func TestCursorWorkerProjectsStateJSON(t *testing.T) {
 	if !bytes.Contains(derived, []byte("cursor pond")) || !bytes.Contains(derived, []byte(cipher)) {
 		t.Fatalf("projection dropped the turn or the ciphertext:\n%s", derived)
 	}
-	var sawPrompt bool
+	var sawPrompt, sawUsage bool
 	for _, line := range bytes.Split(derived, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
 		var ev struct {
-			RecordedAt string  `json:"recorded_at"`
-			IngestedAt string  `json:"ingested_at"`
-			Content    *string `json:"content_text"`
-			Harness    string  `json:"harness"`
-			Schema     int     `json:"schema_version"`
-			SessionID  string  `json:"session_id"`
+			EventType  string         `json:"event_type"`
+			RecordedAt string         `json:"recorded_at"`
+			IngestedAt string         `json:"ingested_at"`
+			Content    *string        `json:"content_text"`
+			Harness    string         `json:"harness"`
+			Schema     int            `json:"schema_version"`
+			SessionID  string         `json:"session_id"`
+			Extra      map[string]any `json:"extra"`
+			Usage      struct {
+				Input  *int `json:"input"`
+				Output *int `json:"output"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal(line, &ev); err != nil {
 			t.Fatal(err)
@@ -107,9 +113,27 @@ func TestCursorWorkerProjectsStateJSON(t *testing.T) {
 			}
 			sawPrompt = true
 		}
+		if ev.Content != nil && *ev.Content == "cursor reply" {
+			if _, stuffed := ev.Extra["tokenCount"]; stuffed {
+				t.Fatalf("tokenCount stuffed into the message: %#v", ev.Extra)
+			}
+		}
+		if ev.EventType == normalize.EventUsage {
+			if ev.Content != nil || ev.Extra["tokenCount"] != float64(4) || ev.Usage.Input != nil || ev.Usage.Output != nil {
+				t.Fatalf("usage event %+v", ev)
+			}
+			sawUsage = true
+		}
+		switch ev.EventType {
+		case normalize.EventToolCall, normalize.EventToolResult:
+			t.Fatalf("promoted %s", ev.EventType)
+		}
 	}
 	if !sawPrompt {
 		t.Fatal("missing prompt event")
+	}
+	if !sawUsage {
+		t.Fatal("missing usage event")
 	}
 	if got := readBlobBytes(t, s, sum); !bytes.Equal(got, body) {
 		t.Fatal("CAS object changed")
@@ -225,9 +249,10 @@ func TestCursorWorkerCorruptHeadDropsDerived(t *testing.T) {
 	if err := s.WaitNormalized(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); err != nil {
-		t.Fatal(err)
+	if msg, ok, err := s.Catalog.NormalizeError(t.Context(), ack.SessionUID); err != nil || !ok || msg != "" {
+		t.Fatalf("index-only normalize_error %q ok=%v err=%v", msg, ok, err)
 	}
+	assertCursorIndexOnly(t, readDerived(t, s, ack.SessionUID))
 
 	bad := []byte(`{"item_table":[{"key":"x","value":"` + secret)
 	badSum := putBlob(t, h, "", bad)
@@ -260,6 +285,33 @@ func TestCursorWorkerCorruptHeadDropsDerived(t *testing.T) {
 	}
 	if got := readBlobBytes(t, s, badSum); !bytes.Equal(got, bad) {
 		t.Fatal("failed head changed")
+	}
+}
+
+func assertCursorIndexOnly(t *testing.T, derived []byte) {
+	t.Helper()
+	var n int
+	for _, line := range bytes.Split(derived, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		n++
+		var ev struct {
+			EventType string  `json:"event_type"`
+			Content   *string `json:"content_text"`
+		}
+		if err := json.Unmarshal(line, &ev); err != nil {
+			t.Fatal(err)
+		}
+		if ev.EventType == normalize.EventMessage || (ev.Content != nil && *ev.Content != "") {
+			t.Fatalf("invented message: %s", line)
+		}
+		if ev.EventType != normalize.EventMeta && ev.EventType != normalize.EventUnknown {
+			t.Fatalf("index-only event %s", ev.EventType)
+		}
+	}
+	if n == 0 {
+		t.Fatal("index-only export produced no events")
 	}
 }
 
