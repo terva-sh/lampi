@@ -2,7 +2,7 @@
 # checks, for a checkout that does not have just installed. CI inlines
 # the commands rather than calling either file. See the justfile.
 
-.PHONY: build test vet fmt ci synthetic-container
+.PHONY: build test vet fmt ci synthetic-image synthetic-container
 
 build:
 	mkdir -p bin
@@ -27,13 +27,11 @@ ci: vet test build
 	fi
 
 # Local image for synthetic container smoke. Tags terva-lampi:synthetic
-# and stops. It does not run the suite and does not push. CI does not
-# call this. VERSION and COMMIT match the justfile stamps.
-VERSION ?= 0.0.0
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+# and stops. It does not push. CI does not call this.
+synthetic-image:
+	docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
 
-synthetic-container:
-	docker build -t terva-lampi:synthetic -f e2e/Dockerfile \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg COMMIT="$(COMMIT)" \
-		.
+# Build the image, then run the container smoke package. CI does not
+# call this. The package is internal/synthetic/container.
+synthetic-container: synthetic-image
+	go test -tags=synthetic_container ./internal/synthetic/container/ -count=1 -timeout 10m
