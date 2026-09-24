@@ -28,11 +28,18 @@ import (
 // v1 projects cleartext bubble messages (type 1 user, type 2
 // assistant, text from rawText then text), meta for composerData and
 // the ItemTable composer and UI keys, and unknown for everything else.
-// toolFormerData, toolResults, usageData, tokenCount, and
+// A bubble toolFormerData with a string name and a string call id
+// (toolCallId, otherwise id) is also a sibling tool_call. content_text
+// is rawArgs or params when that value is a non-empty JSON string,
+// otherwise the JSON of args. A tool_result uses toolFormerData.result
+// when that value is a string; otherwise each toolResults element
+// that has a call id and a result string. A missing name or call id
+// stays on extra. capabilityType and a numeric tool field do not
+// promote on their own. usageData, tokenCount, and
 // latestConversationSummary stay on the parent event. They are not
-// promoted to tool_call, tool_result, usage, or compaction. Bubble
-// order follows fullConversationHeadersOnly. createdAt is not an
-// order key.
+// promoted to usage or compaction. Bubble order follows
+// fullConversationHeadersOnly, and a header move carries the whole
+// bubble group. createdAt is not an order key.
 //
 // encrypted, cipher, and sealed fields are copied into extra and are
 // not written into content_text. They are not decrypted. A cursorAuth
@@ -96,11 +103,11 @@ func (c Cursor) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		if cursorAuthRow(row.Key) {
 			continue
 		}
-		ev, err := c.row(raw, doc.Scope, orders, row)
+		evs, err := c.row(raw, doc.Scope, orders, row)
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, ev)
+		events = append(events, evs...)
 	}
 	return orderCursorBubbles(events, orders), nil
 }
@@ -193,61 +200,106 @@ func (c Cursor) envelope(doc cursorExport) (Event, error) {
 	return c.emit("cursor_state_json", EventMeta, "", time.Time{}, 0, "", extra)
 }
 
-func (c Cursor) row(raw []byte, scope string, orders map[string][]string, row cursorKV) (Event, error) {
+func (c Cursor) row(raw []byte, scope string, orders map[string][]string, row cursorKV) ([]Event, error) {
 	switch {
 	case strings.HasPrefix(row.Key, "bubbleId:"):
 		composer, bubble, ok := bubbleIDs(row.Key)
 		if !ok {
-			return c.projectUnknown(raw, scope, row)
+			return c.one(c.projectUnknown(raw, scope, row))
 		}
 		return c.projectBubble(raw, scope, row, composer, bubble)
 	case strings.HasPrefix(row.Key, "composerData:"):
-		return c.projectComposerData(raw, scope, orders, row)
+		return c.one(c.projectComposerData(raw, scope, orders, row))
 	case strings.HasPrefix(row.Key, "composer.content."):
-		return c.projectUnknown(raw, scope, row)
+		return c.one(c.projectUnknown(raw, scope, row))
 	case strings.HasPrefix(row.Key, "composer."), cursorUIKey(row.Key):
-		return c.projectMeta(raw, scope, row)
+		return c.one(c.projectMeta(raw, scope, row))
 	default:
-		return c.projectUnknown(raw, scope, row)
+		return c.one(c.projectUnknown(raw, scope, row))
 	}
 }
 
-func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, bubble string) (Event, error) {
+func (c Cursor) one(ev Event, err error) ([]Event, error) {
+	if err != nil {
+		return nil, err
+	}
+	return []Event{ev}, nil
+}
+
+func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, bubble string) ([]Event, error) {
 	if isBase64Wrapper(row.Value) || !jsonIsObject(row.Value) {
 		ev, err := c.projectUnknown(raw, scope, row)
 		if err != nil {
-			return Event{}, err
+			return nil, err
 		}
 		ev.Extra["composer_id"] = composer
 		ev.Extra["bubble_id"] = bubble
-		return ev, nil
+		return []Event{ev}, nil
 	}
 	obj, ok := jsonObject(row.Value)
 	if !ok {
-		return c.projectUnknown(raw, scope, row)
+		return c.one(c.projectUnknown(raw, scope, row))
 	}
 	extra, err := cursorObjectExtra(obj)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	extra["composer_id"] = composer
 	extra["bubble_id"] = bubble
 	extra["scope"] = scope
 
-	eventType := EventUnknown
+	kind := cursorBubbleType(obj["type"])
 	role := ""
 	text := ""
-	switch cursorBubbleType(obj["type"]) {
+	switch kind {
 	case 1:
-		eventType = EventMessage
 		role = ActorUser
 		text = cursorVisibleText(obj)
 	case 2:
-		eventType = EventMessage
 		role = ActorAssistant
 		text = cursorVisibleText(obj)
 	}
-	return c.emit(row.Key, eventType, role, cursorWhen(obj), cursorOffset(raw, row.Key), text, extra)
+	call, results := cursorBubbleTools(obj)
+	when := cursorWhen(obj)
+	offset := cursorOffset(raw, row.Key)
+
+	var out []Event
+	switch kind {
+	case 1, 2:
+		// Empty text with a promoted tool is the tool-only path. A
+		// type 1 or 2 bubble with nothing promoted still keeps its
+		// message, including one whose text is empty.
+		if text != "" || (call == nil && len(results) == 0) {
+			ev, err := c.emit(row.Key, EventMessage, role, when, offset, text, extra)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ev)
+		}
+	default:
+		ev, err := c.emit(row.Key, EventUnknown, "", when, offset, "", extra)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	if call != nil {
+		ev, err := c.emit(row.Key, EventToolCall, ActorAssistant, when, offset, call.args, extra)
+		if err != nil {
+			return nil, err
+		}
+		ev.Tool = Tool{Name: strPtr(call.name), CallID: strPtr(call.callID)}
+		out = append(out, ev)
+	}
+	for _, res := range results {
+		ev, err := c.emit(row.Key, EventToolResult, ActorTool, when, offset, res.text, extra)
+		if err != nil {
+			return nil, err
+		}
+		ev.Tool = Tool{Name: strPtr(res.name), CallID: strPtr(res.callID)}
+		out = append(out, ev)
+	}
+	return out, nil
 }
 
 func (c Cursor) projectComposerData(raw []byte, scope string, orders map[string][]string, row cursorKV) (Event, error) {
@@ -366,6 +418,107 @@ func cursorVisibleText(obj map[string]json.RawMessage) string {
 
 func cursorOpaqueField(key string) bool {
 	return cursorOpaqueFieldRE.MatchString(key)
+}
+
+// cursorCall is one promoted tool_call. args is already the content_text
+// string: a rawArgs or params JSON string, or the JSON of args.
+type cursorCall struct {
+	name   string
+	callID string
+	args   string
+}
+
+// cursorResult is one promoted tool_result. text is the result string.
+type cursorResult struct {
+	name   string
+	callID string
+	text   string
+}
+
+// cursorBubbleTools reads toolFormerData and toolResults. A call needs
+// a non-empty string name and a non-empty string call id. The call id
+// is toolCallId, then id. A numeric tool field and capabilityType are
+// not a name or a call id. result on toolFormerData, when it is a
+// string, is the only tool_result. Otherwise each toolResults element
+// with a call id and a result string is one. An empty toolResults
+// array adds nothing. A malformed call or element is left for extra.
+func cursorBubbleTools(obj map[string]json.RawMessage) (*cursorCall, []cursorResult) {
+	var tf map[string]json.RawMessage
+	if raw, ok := obj["toolFormerData"]; ok {
+		tf, _ = jsonObject(raw)
+	}
+	var call *cursorCall
+	if tf != nil {
+		name, nameOK := jsonString(tf["name"])
+		callID, idOK := cursorCallID(tf)
+		if nameOK && name != "" && idOK {
+			call = &cursorCall{name: name, callID: callID, args: cursorToolArgs(tf)}
+		}
+	}
+	if call != nil {
+		if text, ok := jsonString(tf["result"]); ok {
+			return call, []cursorResult{{name: call.name, callID: call.callID, text: text}}
+		}
+	}
+	return call, cursorToolResults(obj["toolResults"])
+}
+
+// cursorCallID is toolCallId when that value is a non-empty string,
+// otherwise id on the same rule.
+func cursorCallID(obj map[string]json.RawMessage) (string, bool) {
+	for _, key := range []string{"toolCallId", "id"} {
+		s, ok := jsonString(obj[key])
+		if ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// cursorToolArgs prefers rawArgs, then params, when the value is a
+// non-empty JSON string. Otherwise it is the JSON text of args.
+func cursorToolArgs(tf map[string]json.RawMessage) string {
+	for _, key := range []string{"rawArgs", "params"} {
+		s, ok := jsonString(tf[key])
+		if ok && s != "" {
+			return s
+		}
+	}
+	raw := tf["args"]
+	if isNull(raw) {
+		return ""
+	}
+	if s, ok := jsonString(raw); ok {
+		return s
+	}
+	return string(bytes.TrimSpace(raw))
+}
+
+func cursorToolResults(raw json.RawMessage) []cursorResult {
+	if isNull(raw) {
+		return nil
+	}
+	var elems []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &elems); err != nil {
+		return nil
+	}
+	out := make([]cursorResult, 0, len(elems))
+	for _, el := range elems {
+		if el == nil {
+			continue
+		}
+		callID, ok := cursorCallID(el)
+		if !ok {
+			continue
+		}
+		text, ok := jsonString(el["result"])
+		if !ok {
+			continue
+		}
+		name, _ := jsonString(el["name"])
+		out = append(out, cursorResult{name: name, callID: callID, text: text})
+	}
+	return out
 }
 
 func cursorBubbleType(raw json.RawMessage) int {

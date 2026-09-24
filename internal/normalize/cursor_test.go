@@ -212,7 +212,9 @@ func TestCursorBubbleMessages(t *testing.T) {
 		case "bubbleId:c1:user":
 			user = ev
 		case "bubbleId:c1:assistant":
-			assistant = ev
+			if ev.EventType == EventMessage {
+				assistant = ev
+			}
 		case "bubbleId:c1:other":
 			other = ev
 		case "composerData:c1":
@@ -259,6 +261,479 @@ func TestCursorBubbleMessages(t *testing.T) {
 	if meta.Extra["name"] != "thread" || meta.Extra["unifiedMode"] != "agent" {
 		t.Fatalf("composer fields %#v", meta.Extra)
 	}
+}
+
+func TestCursorPromoteBubbleTools(t *testing.T) {
+	const rawArgs = `{"path": "live.go"}`
+	const params = `{"path": "params.go"}`
+
+	t.Run("empty text emits tools only", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:tool", "value": map[string]any{
+					"type":    2,
+					"text":    "",
+					"rawText": "",
+					"toolFormerData": map[string]any{
+						"name":           "Read",
+						"toolCallId":     "live-call",
+						"id":             "decoy-id",
+						"rawArgs":        rawArgs,
+						"params":         params,
+						"args":           map[string]any{"path": "args.go"},
+						"result":         "live-result",
+						"tool":           40,
+						"capabilityType": "read",
+						"capabilities":   []any{"read"},
+					},
+					"toolResults": []any{},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		var messages, calls, results []Event
+		for _, ev := range events {
+			if ev.RawType != "bubbleId:c1:tool" {
+				continue
+			}
+			switch ev.EventType {
+			case EventMessage:
+				messages = append(messages, ev)
+			case EventToolCall:
+				calls = append(calls, ev)
+			case EventToolResult:
+				results = append(results, ev)
+			default:
+				t.Fatalf("unexpected %s", ev.EventType)
+			}
+			if ev.Extra["usageData"] != nil || ev.Extra["tokenCount"] != nil {
+				t.Fatalf("usage invented on %s", ev.EventType)
+			}
+		}
+		if len(messages) != 0 {
+			t.Fatalf("empty-text tool bubble emitted %d message siblings", len(messages))
+		}
+		for _, ev := range events {
+			if ev.EventType != EventMessage {
+				continue
+			}
+			if ev.ContentText == nil || *ev.ContentText == "" {
+				t.Fatalf("empty message sibling: %+v", ev)
+			}
+		}
+		if len(calls) != 1 || len(results) != 1 {
+			t.Fatalf("calls %d results %d", len(calls), len(results))
+		}
+		call := calls[0]
+		if call.Actor != ActorAssistant || call.Role == nil || *call.Role != ActorAssistant {
+			t.Fatalf("tool_call actor %+v", call)
+		}
+		if call.Tool.Name == nil || *call.Tool.Name != "Read" || call.Tool.CallID == nil || *call.Tool.CallID != "live-call" {
+			t.Fatalf("tool_call identity %+v", call.Tool)
+		}
+		if call.ContentText == nil || *call.ContentText != rawArgs {
+			t.Fatalf("tool_call content %#v", call.ContentText)
+		}
+		if call.Extra["bubble_id"] != "tool" || call.Extra["composer_id"] != "c1" {
+			t.Fatalf("tool_call extra %#v", call.Extra)
+		}
+		former, _ := call.Extra["toolFormerData"].(map[string]any)
+		if former["toolCallId"] != "live-call" || former["capabilityType"] != "read" || former["tool"] != float64(40) {
+			t.Fatalf("toolFormerData dropped %#v", former)
+		}
+		res := results[0]
+		if res.Actor != ActorTool || res.Role == nil || *res.Role != ActorTool {
+			t.Fatalf("tool_result actor %+v", res)
+		}
+		if res.Tool.CallID == nil || *res.Tool.CallID != "live-call" || res.Tool.Name == nil || *res.Tool.Name != "Read" {
+			t.Fatalf("tool_result identity %+v", res.Tool)
+		}
+		if res.ContentText == nil || *res.ContentText != "live-result" {
+			t.Fatalf("tool_result content %#v", res.ContentText)
+		}
+		if _, ok := res.Extra["toolResults"].([]any); !ok {
+			t.Fatalf("empty toolResults dropped: %#v", res.Extra["toolResults"])
+		}
+	})
+
+	t.Run("id args and toolResults", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:assistant", "value": map[string]any{
+					"type": 2,
+					"text": "I'll read the pond.",
+					"toolFormerData": map[string]any{
+						"name": "Read",
+						"id":   "call-1",
+						"args": map[string]any{"path": "main.go"},
+					},
+					"toolResults": []any{
+						map[string]any{"name": "Read", "toolCallId": "call-live", "id": "call-decoy", "result": "package main"},
+						map[string]any{"id": "call-2", "result": "second"},
+						map[string]any{"name": "Read", "result": "missing-id"},
+					},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		var seq []string
+		for _, ev := range events {
+			if ev.RawType != "bubbleId:c1:assistant" {
+				continue
+			}
+			seq = append(seq, ev.EventType)
+			switch ev.EventType {
+			case EventMessage:
+				if ev.ContentText == nil || *ev.ContentText != "I'll read the pond." {
+					t.Fatalf("message %#v", ev.ContentText)
+				}
+			case EventToolCall:
+				if ev.Tool.CallID == nil || *ev.Tool.CallID != "call-1" || ev.Tool.Name == nil || *ev.Tool.Name != "Read" {
+					t.Fatalf("call identity %+v", ev.Tool)
+				}
+				if ev.ContentText == nil || *ev.ContentText != `{"path":"main.go"}` {
+					t.Fatalf("args content %#v", ev.ContentText)
+				}
+			case EventToolResult:
+			}
+		}
+		if strings.Join(seq, ",") != "message,tool_call,tool_result,tool_result" {
+			t.Fatalf("order %v", seq)
+		}
+		var results []Event
+		for _, ev := range events {
+			if ev.EventType == EventToolResult {
+				results = append(results, ev)
+			}
+		}
+		if len(results) != 2 {
+			t.Fatalf("results %d", len(results))
+		}
+		if results[0].Tool.CallID == nil || *results[0].Tool.CallID != "call-live" || results[0].ContentText == nil || *results[0].ContentText != "package main" {
+			t.Fatalf("first result %+v content %#v", results[0].Tool, results[0].ContentText)
+		}
+		if results[1].Tool.CallID == nil || *results[1].Tool.CallID != "call-2" || results[1].ContentText == nil || *results[1].ContentText != "second" {
+			t.Fatalf("second result %+v content %#v", results[1].Tool, results[1].ContentText)
+		}
+		if results[1].Tool.Name != nil {
+			t.Fatalf("result name invented: %s", *results[1].Tool.Name)
+		}
+	})
+
+	t.Run("params string before object args", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:tool", "value": map[string]any{
+					"type": 2,
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "live-call",
+						"params":     params,
+						"args":       map[string]any{"path": "args.go"},
+					},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		var call *Event
+		for i := range events {
+			if events[i].EventType == EventToolCall {
+				call = &events[i]
+			}
+			if events[i].EventType == EventToolResult {
+				t.Fatal("params-only bubble promoted a result")
+			}
+		}
+		if call == nil || call.ContentText == nil || *call.ContentText != params {
+			t.Fatalf("params content %#v", call)
+		}
+	})
+
+	t.Run("result string beats toolResults", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:tool", "value": map[string]any{
+					"type": 2,
+					"text": "with text",
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "live-call",
+						"rawArgs":    rawArgs,
+						"result":     "from-former",
+					},
+					"toolResults": []any{
+						map[string]any{"toolCallId": "other", "result": "from-array"},
+					},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		var seq []string
+		var result *Event
+		for _, ev := range events {
+			if ev.RawType != "bubbleId:c1:tool" {
+				continue
+			}
+			seq = append(seq, ev.EventType)
+			if ev.EventType == EventToolResult {
+				cp := ev
+				result = &cp
+			}
+		}
+		if strings.Join(seq, ",") != "message,tool_call,tool_result" {
+			t.Fatalf("order %v", seq)
+		}
+		if result == nil || result.ContentText == nil || *result.ContentText != "from-former" || result.Tool.CallID == nil || *result.Tool.CallID != "live-call" {
+			t.Fatalf("result %+v", result)
+		}
+	})
+
+	t.Run("malformed stays on extra", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:no-name", "value": map[string]any{
+					"type": 2,
+					"text": "kept",
+					"toolFormerData": map[string]any{
+						"toolCallId":     "live-call",
+						"rawArgs":        rawArgs,
+						"result":         "hidden",
+						"tool":           15,
+						"capabilityType": "read",
+					},
+				}},
+				map[string]any{"key": "bubbleId:c1:no-id", "value": map[string]any{
+					"type": 2,
+					"toolFormerData": map[string]any{
+						"name":    "Read",
+						"rawArgs": rawArgs,
+						"result":  "hidden",
+					},
+					"toolResults": []any{
+						map[string]any{"name": "Read", "result": "missing-id"},
+					},
+				}},
+				map[string]any{"key": "bubbleId:c1:capability", "value": map[string]any{
+					"type": 2,
+					"toolFormerData": map[string]any{
+						"tool":           40,
+						"capabilityType": "read",
+						"capabilities":   []any{"read"},
+						"rawArgs":        rawArgs,
+						"result":         "hidden",
+					},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		for _, ev := range events {
+			switch ev.EventType {
+			case EventToolCall, EventToolResult:
+				t.Fatalf("malformed promoted: %+v", ev)
+			}
+		}
+		var named, noID, capability *Event
+		for i := range events {
+			ev := &events[i]
+			switch ev.RawType {
+			case "bubbleId:c1:no-name":
+				named = ev
+			case "bubbleId:c1:no-id":
+				noID = ev
+			case "bubbleId:c1:capability":
+				capability = ev
+			}
+		}
+		if named == nil || named.EventType != EventMessage || named.ContentText == nil || *named.ContentText != "kept" {
+			t.Fatalf("no-name bubble: %+v", named)
+		}
+		former, _ := named.Extra["toolFormerData"].(map[string]any)
+		if former["toolCallId"] != "live-call" || former["result"] != "hidden" || former["rawArgs"] != rawArgs {
+			t.Fatalf("malformed toolFormerData was not left on extra: %#v", former)
+		}
+		for _, ev := range events {
+			if ev.ContentText != nil && *ev.ContentText == "hidden" {
+				t.Fatalf("malformed result became content_text on %s", ev.EventType)
+			}
+		}
+		if noID == nil || noID.EventType != EventMessage || noID.ContentText != nil {
+			t.Fatalf("no-id empty text should stay a message: %+v", noID)
+		}
+		if noID.Extra["toolFormerData"] == nil || noID.Extra["toolResults"] == nil {
+			t.Fatalf("no-id extra %#v", noID.Extra)
+		}
+		if capability == nil || capability.EventType != EventMessage || capability.Extra["toolFormerData"] == nil {
+			t.Fatalf("capability bubble: %+v", capability)
+		}
+	})
+
+	t.Run("usage tokenCount and summary stay unpromoted", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c1:assistant", "value": map[string]any{
+					"type":       2,
+					"text":       "assistant text",
+					"tokenCount": 12,
+					"usageData":  map[string]any{"inputTokens": 3, "marker": "usage-marker"},
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "live-call",
+						"rawArgs":    rawArgs,
+						"result":     "live-result",
+					},
+					"toolResults": []any{},
+				}},
+				map[string]any{"key": "composerData:c1", "value": map[string]any{
+					"latestConversationSummary": map[string]any{"summary": "compacted the pond"},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		var sawCall, sawResult bool
+		for _, ev := range events {
+			switch ev.EventType {
+			case EventUsage, EventCompaction:
+				t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
+			case EventToolCall:
+				sawCall = true
+			case EventToolResult:
+				sawResult = true
+			}
+			if ev.ContentText != nil && (*ev.ContentText == "12" || *ev.ContentText == "usage-marker" || *ev.ContentText == "compacted the pond" || strings.Contains(*ev.ContentText, "inputTokens")) {
+				t.Fatalf("usage or summary became content_text %q on %s", *ev.ContentText, ev.EventType)
+			}
+		}
+		if !sawCall || !sawResult {
+			t.Fatal("tool promote was rejected with usage and summary")
+		}
+		var assistant, meta *Event
+		for i := range events {
+			ev := &events[i]
+			switch {
+			case ev.RawType == "bubbleId:c1:assistant" && ev.EventType == EventMessage:
+				assistant = ev
+			case ev.RawType == "composerData:c1":
+				meta = ev
+			}
+		}
+		if assistant == nil || assistant.Extra["tokenCount"] != float64(12) || assistant.Extra["usageData"] == nil {
+			t.Fatalf("usage fields %#v", assistant)
+		}
+		usage, _ := assistant.Extra["usageData"].(map[string]any)
+		if usage["marker"] != "usage-marker" || usage["inputTokens"] != float64(3) {
+			t.Fatalf("usageData %#v", assistant.Extra["usageData"])
+		}
+		if meta == nil || meta.EventType != EventMeta || meta.Extra["latestConversationSummary"] == nil {
+			t.Fatalf("summary meta: %+v", meta)
+		}
+		summary, _ := meta.Extra["latestConversationSummary"].(map[string]any)
+		if summary["summary"] != "compacted the pond" {
+			t.Fatalf("summary %#v", meta.Extra["latestConversationSummary"])
+		}
+	})
+
+	t.Run("header reorder moves the whole group", func(t *testing.T) {
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				map[string]any{"key": "bubbleId:c:early", "value": map[string]any{
+					"type": 2,
+					"text": "early-text",
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "early-call",
+						"rawArgs":    rawArgs,
+						"result":     "early-result",
+					},
+					"toolResults": []any{},
+					"createdAt":   "2026-09-22T16:00:00Z",
+				}},
+				map[string]any{"key": "bubbleId:c:late", "value": map[string]any{
+					"type": 1, "rawText": "late-text", "createdAt": "2026-09-22T18:00:00Z",
+				}},
+				map[string]any{"key": "bubbleId:c:tools", "value": map[string]any{
+					"type": 2,
+					"toolFormerData": map[string]any{
+						"name":       "Read",
+						"toolCallId": "tools-call",
+						"rawArgs":    rawArgs,
+						"result":     "tools-result",
+					},
+					"toolResults": []any{},
+				}},
+				map[string]any{"key": "composerData:c", "value": map[string]any{
+					"fullConversationHeadersOnly": []any{
+						map[string]any{"bubbleId": "late"},
+						map[string]any{"bubbleId": "tools"},
+						map[string]any{"bubbleId": "early"},
+					},
+					"latestConversationSummary": map[string]any{"summary": "compacted the pond"},
+				}},
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		assertNoPromoted(t, events)
+		var seq []string
+		for _, ev := range events {
+			if !strings.HasPrefix(ev.RawType, "bubbleId:") {
+				continue
+			}
+			id, _ := ev.Extra["bubble_id"].(string)
+			seq = append(seq, id+"/"+ev.EventType)
+			if ev.ContentText != nil && *ev.ContentText == "compacted the pond" {
+				t.Fatal("summary became a turn")
+			}
+		}
+		want := []string{
+			"late/message",
+			"tools/tool_call",
+			"tools/tool_result",
+			"early/message",
+			"early/tool_call",
+			"early/tool_result",
+		}
+		if strings.Join(seq, ",") != strings.Join(want, ",") {
+			t.Fatalf("order %v", seq)
+		}
+	})
 }
 
 func TestCursorComposerDataHeadersOnly(t *testing.T) {
@@ -633,11 +1108,14 @@ func marshalEvents(t *testing.T, events []Event) []byte {
 	return b
 }
 
+// assertNoPromoted allows tool_call and tool_result. usageData,
+// tokenCount, and latestConversationSummary stay on extra: a usage
+// event or a compaction event is still a failure.
 func assertNoPromoted(t *testing.T, events []Event) {
 	t.Helper()
 	for _, ev := range events {
 		switch ev.EventType {
-		case EventUsage, EventToolCall, EventToolResult, EventCompaction:
+		case EventUsage, EventCompaction:
 			t.Fatalf("promoted %s from %s", ev.EventType, ev.RawType)
 		}
 	}
