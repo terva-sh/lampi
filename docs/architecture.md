@@ -149,6 +149,46 @@ second machine adds a provenance row and no blob. A strict prefix
 extension moves the head (`grown_from`). Anything else is
 `divergent_copy` and is not merged.
 
+A git-ticket claim does not resolve to that uid. The decision is to
+leave the claim unwired. A claim stays an opaque string in the ticket
+store. `session_uid` stays an identity this lake assigns at ingest.
+
+An actor `agent:terva/session-…` is the name git-ticket's examples put
+on a claim. Terva itself writes `agent:terva/` plus a persona, as in
+`agent:terva/mieli`. The suffix is a label for who holds the ticket.
+The catalog key for a terva transcript is `(terva, native_session_id)`.
+`internal/adapter/terva` sets `native_session_id` from the `id` on the
+first `type: meta` line, and from the filename stem when that line has
+no id. The stem terva generates is `YYYYMMDD-HHMMSS-` plus eight hex
+digits, which is the id `--resume` accepts. The meta `id` is a separate
+UUID (`Session.ID`). Schema 3 `claim.session` is free text. git-ticket
+stores it and does not parse it. When terva fills it, the value is that
+meta UUID, taken from the session task board at claim time, and terva
+leaves the field empty when the session has no task board. In the case
+where the field holds the meta UUID and the transcript has been
+ingested, the string is already `native_session_id`. `session_uid` is a
+different value, a ULID from `internal/id.New` for that
+`(harness, native_session_id)` pair. Normalized events name the session
+`terva:` plus the native id. A claim carries no `machine_id`, so it
+does not select an alias row. An alias is
+`(harness, native_session_id, machine_id)`.
+
+These strings do not identify a catalog row. The actor suffix, whether
+`session-…` or a persona, is not the meta UUID and is not the filename
+stem. The filename stem is not the meta UUID, so a claim or a resume id
+made of the stem misses the row the adapter stored under the meta UUID.
+An empty `claim.session` matches nothing. A hand-typed value matches
+only by coincidence. git-ticket's own examples put a ULID in
+`claim.session`. That alphabet is the one `session_uid` uses, and the
+example value is not a uid this lake minted and not a terva meta UUID.
+
+No package, command, or HTTP route in this tree reads a ticket.
+`export`, `conflicts`, and normalize select a session by `session_uid`
+or by `(harness, native_session_id)`. The bytes already carry the
+native id. A resolver would parse a store this lake does not own, for a
+question those paths do not ask, and it would treat free text as a
+native id the claim format does not promise.
+
 Layer C is the project. `project_id` is the normalized origin URL and
 the repository root commit (`protocol.ProjectLinkID`). Two sessions
 share it when those two inputs match, including when the checkouts
