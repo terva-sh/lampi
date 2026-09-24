@@ -35,11 +35,17 @@ import (
 // when that value is a string; otherwise each toolResults element
 // that has a call id and a result string. A missing name or call id
 // stays on extra. capabilityType and a numeric tool field do not
-// promote on their own. usageData, tokenCount, and
-// latestConversationSummary stay on the parent event. They are not
-// promoted to usage or compaction. Bubble order follows
-// fullConversationHeadersOnly, and a header move carries the whole
-// bubble group. createdAt is not an order key.
+// promote on their own. A composerData usageData object is a sibling
+// usage event. cost_usd is costInCents divided by 100 when that value
+// is numeric. Token counts are copied only from recognizable token
+// fields already on that object. Other usageData keys stay on the
+// usage event. A composerData latestConversationSummary is a sibling
+// compaction event. content_text is the string value, or the object
+// field summary. The rest stays on the compaction event. Bubble
+// usageData and tokenCount stay on the bubble event. They are not
+// usage events. Bubble order follows fullConversationHeadersOnly, and
+// a header move carries the whole bubble group. createdAt is not an
+// order key.
 //
 // encrypted, cipher, and sealed fields are copied into extra and are
 // not written into content_text. They are not decrypted. A cursorAuth
@@ -209,7 +215,7 @@ func (c Cursor) row(raw []byte, scope string, orders map[string][]string, row cu
 		}
 		return c.projectBubble(raw, scope, row, composer, bubble)
 	case strings.HasPrefix(row.Key, "composerData:"):
-		return c.one(c.projectComposerData(raw, scope, orders, row))
+		return c.projectComposerData(raw, scope, orders, row)
 	case strings.HasPrefix(row.Key, "composer.content."):
 		return c.one(c.projectUnknown(raw, scope, row))
 	case strings.HasPrefix(row.Key, "composer."), cursorUIKey(row.Key):
@@ -302,25 +308,194 @@ func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, 
 	return out, nil
 }
 
-func (c Cursor) projectComposerData(raw []byte, scope string, orders map[string][]string, row cursorKV) (Event, error) {
+func (c Cursor) projectComposerData(raw []byte, scope string, orders map[string][]string, row cursorKV) ([]Event, error) {
 	if isBase64Wrapper(row.Value) || !jsonIsObject(row.Value) {
-		return c.projectUnknown(raw, scope, row)
+		return c.one(c.projectUnknown(raw, scope, row))
 	}
 	obj, ok := jsonObject(row.Value)
 	if !ok {
-		return c.projectUnknown(raw, scope, row)
+		return c.one(c.projectUnknown(raw, scope, row))
 	}
-	noteBubbleHeaders(orders, strings.TrimPrefix(row.Key, "composerData:"), obj)
+	composer := strings.TrimPrefix(row.Key, "composerData:")
+	noteBubbleHeaders(orders, composer, obj)
 	extra, err := cursorObjectExtra(obj)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
-	if id := strings.TrimPrefix(row.Key, "composerData:"); id != "" {
-		extra["composer_id"] = id
+	if composer != "" {
+		extra["composer_id"] = composer
 	}
 	extra["scope"] = scope
-	// name, summary, and headers stay in extra. They are not turns.
-	return c.emit(row.Key, EventMeta, "", cursorWhen(obj), cursorOffset(raw, row.Key), "", extra)
+
+	usage, usageRest, usageOK, err := cursorComposerUsage(obj["usageData"])
+	if err != nil {
+		return nil, err
+	}
+	summary, summaryRest, summaryOK, err := cursorComposerSummary(obj["latestConversationSummary"])
+	if err != nil {
+		return nil, err
+	}
+	if usageOK {
+		delete(extra, "usageData")
+	}
+	if summaryOK {
+		delete(extra, "latestConversationSummary")
+	}
+
+	when := cursorWhen(obj)
+	offset := cursorOffset(raw, row.Key)
+	// name and a composer title stay in extra. They are not turns.
+	meta, err := c.emit(row.Key, EventMeta, "", when, offset, "", extra)
+	if err != nil {
+		return nil, err
+	}
+	out := []Event{meta}
+	if usageOK {
+		ev, err := c.emit(row.Key, EventUsage, "", when, offset, "", cursorRowIdentity(composer, scope, usageRest))
+		if err != nil {
+			return nil, err
+		}
+		ev.Usage = usage
+		out = append(out, ev)
+	}
+	if summaryOK {
+		ev, err := c.emit(row.Key, EventCompaction, "", when, offset, summary, cursorRowIdentity(composer, scope, summaryRest))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+// cursorInputTokenKeys, and the lists beside it, are token field names
+// a composer usageData object may already use. The first JSON integer
+// wins. A later alias stays in extra. cost, amount, price, and
+// tokenCount are not on these lists.
+var (
+	cursorInputTokenKeys = []string{
+		"input",
+		"inputTokens",
+		"input_tokens",
+		"promptTokens",
+		"prompt_tokens",
+	}
+	cursorOutputTokenKeys = []string{
+		"output",
+		"outputTokens",
+		"output_tokens",
+		"completionTokens",
+		"completion_tokens",
+	}
+	cursorCacheReadTokenKeys = []string{
+		"cacheRead",
+		"cache_read",
+		"cacheReadTokens",
+		"cache_read_tokens",
+		"cacheReadInputTokens",
+		"cache_read_input_tokens",
+	}
+	cursorCacheWriteTokenKeys = []string{
+		"cacheWrite",
+		"cache_write",
+		"cacheWriteTokens",
+		"cache_write_tokens",
+		"cacheCreationInputTokens",
+		"cache_creation_input_tokens",
+		"cacheCreationTokens",
+		"cache_creation_tokens",
+	}
+)
+
+// cursorComposerUsage reads a composerData usageData object. A value
+// that is not an object is left for the meta extra. cost_usd is
+// costInCents / 100 when that value is a JSON number. Token counts are
+// copied only from cursorInputTokenKeys and its siblings.
+func cursorComposerUsage(raw json.RawMessage) (Usage, map[string]any, bool, error) {
+	obj, ok := jsonObject(raw)
+	if !ok {
+		return Usage{}, nil, false, nil
+	}
+	var u Usage
+	var drop []string
+	if n, ok := jsonFloat(obj["costInCents"]); ok {
+		usd := n / 100
+		u.CostUSD = &usd
+		drop = append(drop, "costInCents")
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorInputTokenKeys); ok {
+		u.Input = &n
+		drop = append(drop, key)
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorOutputTokenKeys); ok {
+		u.Output = &n
+		drop = append(drop, key)
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorCacheReadTokenKeys); ok {
+		u.CacheRead = &n
+		drop = append(drop, key)
+	}
+	if n, key, ok := cursorTokenCount(obj, cursorCacheWriteTokenKeys); ok {
+		u.CacheWrite = &n
+		drop = append(drop, key)
+	}
+	extra, err := extraFrom(obj, drop...)
+	if err != nil {
+		return Usage{}, nil, false, err
+	}
+	return u, extra, true, nil
+}
+
+func cursorTokenCount(obj map[string]json.RawMessage, keys []string) (int, string, bool) {
+	for _, key := range keys {
+		n, ok := jsonInt(obj[key])
+		if ok {
+			return n, key, true
+		}
+	}
+	return 0, "", false
+}
+
+// cursorComposerSummary reads latestConversationSummary. A string is
+// the compaction text. An object uses its summary string when that
+// value is non-empty, and the other keys stay in extra. Anything else
+// stays on the meta extra.
+func cursorComposerSummary(raw json.RawMessage) (string, map[string]any, bool, error) {
+	if isNull(raw) {
+		return "", nil, false, nil
+	}
+	if s, ok := jsonString(raw); ok {
+		return s, map[string]any{}, true, nil
+	}
+	obj, ok := jsonObject(raw)
+	if !ok {
+		return "", nil, false, nil
+	}
+	text := ""
+	var drop []string
+	if s, ok := jsonString(obj["summary"]); ok && s != "" {
+		text = s
+		drop = append(drop, "summary")
+	}
+	extra, err := extraFrom(obj, drop...)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return text, extra, true, nil
+}
+
+func cursorRowIdentity(composer, scope string, rest map[string]any) map[string]any {
+	extra := map[string]any{"scope": scope}
+	if composer != "" {
+		extra["composer_id"] = composer
+	}
+	for k, v := range rest {
+		if k == "composer_id" || k == "scope" {
+			continue
+		}
+		extra[k] = v
+	}
+	return extra
 }
 
 func (c Cursor) projectMeta(raw []byte, scope string, row cursorKV) (Event, error) {

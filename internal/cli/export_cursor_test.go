@@ -116,6 +116,9 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 	if bytes.Contains(shareRaw, []byte("quiet-composer-title")) || bytes.Contains(shareRaw, []byte("unknown-marker-not-a-turn")) || bytes.Contains(shareRaw, []byte("meta-title-not-a-turn")) || bytes.Contains(shareRaw, []byte(aws)) {
 		t.Fatalf("training view kept a non-turn or a secret:\n%s", shareRaw)
 	}
+	if !bytes.Contains(shareRaw, []byte("composer summary is a compaction")) {
+		t.Fatalf("training view dropped the composer summary:\n%s", shareRaw)
+	}
 	if !bytes.Contains(shareRaw, []byte("[redacted:aws-access-key-id]")) {
 		t.Fatalf("placeholder missing:\n%s", shareRaw)
 	}
@@ -137,7 +140,7 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 	if rec.SessionUID != ack.SessionUID || rec.RawSHA256 != sum || rec.SessionID != "cursor:workspace/ws-train" {
 		t.Fatalf("lineage %+v", rec)
 	}
-	var sawHuman, sawCipher, sawTool bool
+	var sawHuman, sawCipher, sawTool, sawSummary bool
 	for _, turn := range rec.Conversations {
 		if strings.Contains(turn.Value, opaque) || strings.Contains(turn.Value, aws) {
 			t.Fatalf("value kept ciphertext or a secret: %s", turn.Value)
@@ -158,11 +161,17 @@ func TestCursorExportEventsShareGPTAndTrajectory(t *testing.T) {
 			}
 			sawCipher = true
 		}
-		if strings.Contains(turn.Value, "quiet-composer-title") || strings.Contains(turn.Value, "usage-marker") {
+		if strings.Contains(turn.Value, "quiet-composer-title") || strings.Contains(turn.Value, "usage-marker") || strings.Contains(turn.Value, "meta-title-not-a-turn") {
 			t.Fatalf("non-training row exported: %+v", turn)
 		}
+		if turn.Value == "composer summary is a compaction" {
+			if turn.From != "system" {
+				t.Fatalf("summary turn: %+v", turn)
+			}
+			sawSummary = true
+		}
 	}
-	if !sawHuman || !sawCipher || !sawTool {
+	if !sawHuman || !sawCipher || !sawTool || !sawSummary {
 		t.Fatalf("turns: %+v", rec.Conversations)
 	}
 	if !strings.Contains(stderr.String(), quietAck.SessionUID) || !strings.Contains(stderr.String(), "no training turns") {
@@ -224,7 +233,7 @@ func cursorTrainingExport(t *testing.T, prompt, opaque string) []byte {
 					map[string]any{"bubbleId": "user"},
 					map[string]any{"bubbleId": "assistant"},
 				},
-				"latestConversationSummary": map[string]any{"summary": "meta-title-not-a-turn"},
+				"latestConversationSummary": map[string]any{"summary": "composer summary is a compaction"},
 			}},
 			map[string]any{"key": "mystery.key", "value": map[string]any{"keep": "unknown-marker-not-a-turn"}},
 		},
