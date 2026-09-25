@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -40,8 +42,22 @@ The lake directory holds cas/ (sha256 blobs), catalog.db (SQLite),
 normalized/ (one JSONL file per session), and parquet/ (date and
 harness partitions). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
-Process exit waits for that queue.
+
+SIGTERM stops new requests and waits up to 20s for those in flight,
+then drains the normalize queue for up to 30s. Jobs left in the queue
+resume at the next start.
+
+Each request writes one line to stderr: method, path, status, bytes,
+body bytes, duration, remote address, and X-Forwarded-For when set.
+A 200 /healthz is not logged. The Authorization header is not logged.
 `
+
+// Shutdown budget. systemd sends SIGKILL 90s after SIGTERM by default;
+// the two waits stay under that.
+const (
+	shutdownGrace  = 20 * time.Second
+	normalizeDrain = 30 * time.Second
+)
 
 func runServe(env Env, args []string) error {
 	if len(args) > 0 && isHelp(args[0]) {
@@ -81,11 +97,12 @@ func runServe(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer lake.Close()
 	lake.Devices = devices
+	lake.Log = accessLogger(env.stderr())
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
+		lake.Close()
 		return err
 	}
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: listening on %s\n", ln.Addr())
@@ -98,28 +115,71 @@ func runServe(env Env, args []string) error {
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: %d device tokens required\n", devices.Len())
 	}
 
-	srv := &http.Server{
-		Handler: lake.Handler(),
-		// ReadHeaderTimeout closes the slowloris gap. ReadTimeout covers the
-		// body and is long enough for the 32 MiB blob cap. Both apply on
-		// loopback and on any address that passed the token check.
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       2 * time.Minute,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go func() {
-		<-ctx.Done()
-		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shut)
-	}()
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
+}
+
+// newHTTPServer has no ReadTimeout or WriteTimeout. For HTTP/1.1 the
+// write deadline starts when the headers are read, so a fixed one drops
+// the ACK of a blob whose body is slower than it. The lake handler sets
+// read and write deadlines per request, sized from the body.
+// ReadHeaderTimeout closes the slowloris gap. These apply on loopback
+// and on any address that passed the token check.
+func newHTTPServer(h http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
-	return nil
+}
+
+// serveLake serves until ctx ends, then shuts down in order: stop
+// accepting, wait up to grace for handlers, drain normalize up to
+// drain, close the catalog. A handler still running after grace has
+// its connection closed; lake.Shutdown still waits for it to return.
+func serveLake(ctx context.Context, env Env, lake *api.Server, ln net.Listener, grace, drain time.Duration) error {
+	srv := newHTTPServer(lake.Handler())
+	served := make(chan error, 1)
+	go func() { served <- srv.Serve(ln) }()
+
+	var serveErr error
+	select {
+	case serveErr = <-served:
+	case <-ctx.Done():
+		fmt.Fprintln(env.stderr(), "terva-lampi serve: stopping; waiting for requests in flight")
+		shut, cancel := context.WithTimeout(context.Background(), grace)
+		if err := srv.Shutdown(shut); err != nil {
+			fmt.Fprintf(env.stderr(), "terva-lampi serve: requests still open after %s; closing them\n", grace)
+			_ = srv.Close()
+		}
+		cancel()
+		serveErr = <-served
+	}
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		serveErr = nil
+	}
+
+	dctx, cancel := context.WithTimeout(context.Background(), drain)
+	defer cancel()
+	left, err := lake.Shutdown(dctx)
+	if left > 0 {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: %d normalize jobs left after %s; they resume at the next start\n", left, drain)
+	}
+	return errors.Join(serveErr, err)
+}
+
+// accessLogger writes slog text lines without a timestamp. journald
+// stamps each line; a terminal does not need two clocks.
+func accessLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}))
 }
 
 // refuseExposedWithoutToken rejects a listen that is not loopback when no

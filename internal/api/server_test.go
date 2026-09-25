@@ -172,6 +172,10 @@ func TestPutRejectsMismatchAndStorage(t *testing.T) {
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("storage status %d %s", rr.Code, rr.Body)
 	}
+	// The lake path stays in the server log, not the body.
+	if bytes.Contains(rr.Body.Bytes(), []byte(broken)) || bytes.Contains(rr.Body.Bytes(), []byte("not-a-directory")) {
+		t.Fatalf("storage body names a path: %s", rr.Body)
+	}
 }
 
 func TestStats(t *testing.T) {
