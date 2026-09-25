@@ -65,7 +65,11 @@ goes on. A missing harness home is polled until it appears, and a
 watcher that loses fsnotify polls. macOS polls by default.
 
 After a manifest is stored, the lake ACKs and enqueues normalize work.
-The HTTP handler does not project. Two workers read the catalog head
+A post that records nothing, every artifact unchanged or stale, with
+no new project id and no earlier projection failure, is not projected
+again. The lake compares a posted file with the stored one as two
+streams and hashes it the same way, so an unchanged post of a file
+past the blob cap reads none of it. The HTTP handler does not project. Two workers read the catalog head
 and write the derived view. That view lags the ACK until the worker
 for that generation finishes. On SIGTERM `terva-lampi serve` stops
 accepting, waits up to 20s for requests in flight, then drains the
@@ -82,7 +86,10 @@ refused.
 
 Each request has its own read and write deadline: a floor plus the
 body at 64 KiB/s. A blob PUT is sized from `Content-Length`, so a slow
-upload keeps its ACK. The server has no fixed `ReadTimeout` or
+upload keeps its ACK. At most four blob PUTs and manifest posts run at
+once. One past that waits for a slot for as long as its own budget,
+and its deadlines start again when it gets one. One that gets no slot
+in that time is `503` with `Retry-After`. The server has no fixed `ReadTimeout` or
 `WriteTimeout`. Each request writes one `log/slog` line to stderr with
 method, path, status, response bytes, body bytes, duration, remote
 address, and `X-Forwarded-For` as the proxy sent it. A failed request

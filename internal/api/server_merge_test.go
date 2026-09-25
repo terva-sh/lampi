@@ -357,7 +357,7 @@ func TestConcurrentGrownFromKeepsOneExtension(t *testing.T) {
 	}
 }
 
-func openServer(t *testing.T) *Server {
+func openServer(t testing.TB) *Server {
 	t.Helper()
 	s, err := Open(t.TempDir())
 	if err != nil {

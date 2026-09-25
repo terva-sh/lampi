@@ -157,6 +157,10 @@ same PUT is `400`.
 
 One logical session. The server stores a row only when every artifact
 digest is already in the CAS. Otherwise it returns 409 and `missing`.
+A post in which every artifact is `unchanged` or `stale` is ACKed and
+is not projected again. A blob PUT or a manifest post that finds the
+lake busy waits for its turn, and is `503` with `Retry-After` when its
+own deadline passes first; send it again.
 
 ```json
 {

@@ -19,9 +19,7 @@ package catalog
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -392,12 +390,6 @@ func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
 	return n, nil
 }
 
-// BlobReader reads one immutable object. CAS objects are content
-// addressed, so a read during the ingest transaction is stable.
-type BlobReader interface {
-	Read(digest string) ([]byte, error)
-}
-
 // Ingest records m under the relations in decisions and returns the
 // stable session uid. decisions[i] is the decision for m.Artifacts[i].
 // Repeating an unchanged digest returns the same ids. A grown_from
@@ -408,55 +400,75 @@ type BlobReader interface {
 // until this transaction commits. The relation applied is the one for
 // that head, not a decision computed against an earlier one.
 func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (protocol.ManifestAck, error) {
+	ack, _, err := c.IngestChanged(ctx, m, now, decisions, blobs)
+	return ack, err
+}
+
+// IngestChanged is Ingest, and it reports whether the post changed
+// what a projection of the session reads: a new session, a recorded
+// artifact, a head that moved, a project id the session did not have,
+// or a session whose last projection failed. A post whose every
+// artifact is unchanged or stale changes none of those.
+func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (ack protocol.ManifestAck, changed bool, err error) {
 	if m.CaptureProtocol != protocol.Version {
-		return protocol.ManifestAck{}, fmt.Errorf("catalog: capture_protocol %d", m.CaptureProtocol)
+		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: capture_protocol %d", m.CaptureProtocol)
 	}
 	if m.MachineID == "" || m.Harness == "" || m.NativeSessionID == "" {
-		return protocol.ManifestAck{}, fmt.Errorf("catalog: machine_id, harness, and native_session_id are required")
+		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: machine_id, harness, and native_session_id are required")
 	}
 	if len(m.Artifacts) == 0 {
-		return protocol.ManifestAck{}, fmt.Errorf("catalog: manifest has no artifacts")
+		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: manifest has no artifacts")
 	}
 	if len(decisions) != len(m.Artifacts) {
-		return protocol.ManifestAck{}, fmt.Errorf("catalog: %d decisions for %d artifacts", len(decisions), len(m.Artifacts))
+		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: %d decisions for %d artifacts", len(decisions), len(m.Artifacts))
 	}
 	for i, a := range m.Artifacts {
 		if !protocol.ValidDigest(a.SHA256) {
-			return protocol.ManifestAck{}, fmt.Errorf("catalog: artifact %q has an invalid sha256", a.RelPath)
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: artifact %q has an invalid sha256", a.RelPath)
 		}
 		switch decisions[i].Relation {
 		case protocol.RelationHead, protocol.RelationGrownFrom, protocol.RelationDivergentCopy, protocol.RelationUnchanged, protocol.RelationStale:
 		default:
-			return protocol.ManifestAck{}, fmt.Errorf("catalog: artifact %q: unknown relation %q", a.RelPath, decisions[i].Relation)
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: artifact %q: unknown relation %q", a.RelPath, decisions[i].Relation)
 		}
 	}
 	m.Project.ProjectID = protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot)
 	raw, err := json.Marshal(m)
 	if err != nil {
-		return protocol.ManifestAck{}, err
+		return protocol.ManifestAck{}, false, err
 	}
 
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
-		return protocol.ManifestAck{}, err
+		return protocol.ManifestAck{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	uid, head, exists, err := lookupSession(ctx, tx, m.Harness, m.NativeSessionID)
 	if err != nil {
-		return protocol.ManifestAck{}, err
+		return protocol.ManifestAck{}, false, err
 	}
 	if !exists {
 		uid, err = id.New(now)
 		if err != nil {
-			return protocol.ManifestAck{}, err
+			return protocol.ManifestAck{}, false, err
 		}
 		head = ""
+		changed = true
+	} else {
+		var project, normErr string
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE(project_id, ''), COALESCE(normalize_error, '') FROM sessions WHERE session_uid = ?`, uid).Scan(&project, &normErr); err != nil {
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
+		}
+		if normErr != "" || (m.Project.ProjectID != "" && m.Project.ProjectID != project) {
+			changed = true
+		}
 	}
 	if blobs != nil {
 		revised, err := reviseDecisions(ctx, tx, blobs, uid, head, m)
 		if err != nil {
-			return protocol.ManifestAck{}, err
+			return protocol.ManifestAck{}, false, err
 		}
 		decisions = revised
 	}
@@ -465,9 +477,15 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 		if d.Head {
 			newHead = m.Artifacts[i].SHA256
 		}
+		if d.Record {
+			changed = true
+		}
+	}
+	if newHead != head {
+		changed = true
 	}
 	if newHead == "" {
-		return protocol.ManifestAck{}, fmt.Errorf("catalog: manifest did not name a session head")
+		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: manifest did not name a session head")
 	}
 	ingested := now.UTC().Format(time.RFC3339Nano)
 	if !exists {
@@ -475,14 +493,14 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at, project_id)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID); err != nil {
-			return protocol.ManifestAck{}, fmt.Errorf("catalog: session: %w", err)
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
 	} else if newHead != head {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE sessions SET head_sha256 = ?, manifest_json = ?, ingested_at = ?
 			WHERE session_uid = ?`,
 			newHead, string(raw), ingested, uid); err != nil {
-			return protocol.ManifestAck{}, fmt.Errorf("catalog: session: %w", err)
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
 	}
 	// A later manifest can learn the root. Write that id onto the stored
@@ -494,12 +512,12 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE sessions SET project_id = ?, manifest_json = ? WHERE session_uid = ?`,
 			m.Project.ProjectID, string(raw), uid); err != nil {
-			return protocol.ManifestAck{}, fmt.Errorf("catalog: project: %w", err)
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: project: %w", err)
 		}
 	}
 
 	if err := insertAlias(ctx, tx, m, uid); err != nil {
-		return protocol.ManifestAck{}, err
+		return protocol.ManifestAck{}, false, err
 	}
 	for _, a := range m.Artifacts {
 		if _, err := tx.ExecContext(ctx, `
@@ -507,11 +525,11 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 			VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT DO NOTHING`,
 			uid, m.MachineID, a.SHA256, a.RelPath, ingested); err != nil {
-			return protocol.ManifestAck{}, fmt.Errorf("catalog: provenance: %w", err)
+			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: provenance: %w", err)
 		}
 	}
 
-	ack := protocol.ManifestAck{
+	ack = protocol.ManifestAck{
 		SessionUID:  uid,
 		HeadSHA256:  newHead,
 		Relation:    ackRelation(m.Artifacts, decisions),
@@ -520,7 +538,7 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 	for i, a := range m.Artifacts {
 		got, err := applyArtifact(ctx, tx, now, uid, a, decisions[i])
 		if err != nil {
-			return protocol.ManifestAck{}, err
+			return protocol.ManifestAck{}, false, err
 		}
 		ack.ArtifactIDs = append(ack.ArtifactIDs, got)
 	}
@@ -528,12 +546,12 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 		SELECT size FROM artifacts
 		WHERE session_uid = ? AND sha256 = ?
 		ORDER BY current DESC, size DESC LIMIT 1`, uid, newHead).Scan(&ack.HeadSize); err != nil {
-		return protocol.ManifestAck{}, fmt.Errorf("catalog: head size: %w", err)
+		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: head size: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return protocol.ManifestAck{}, err
+		return protocol.ManifestAck{}, false, err
 	}
-	return ack, nil
+	return ack, changed, nil
 }
 
 // reviseDecisions relates each artifact to the current row at its
@@ -569,19 +587,11 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid, ses
 			out[i] = Decision{Relation: protocol.RelationUnchanged, Base: base}
 			continue
 		}
-		stored, err := blobs.Read(cur)
+		rel, err := Relate(blobs, cur, a.SHA256)
 		if err != nil {
-			return nil, fmt.Errorf("catalog: head %s: %w", cur, err)
+			return nil, fmt.Errorf("catalog: artifact %q: %w", a.RelPath, err)
 		}
-		client, err := blobs.Read(a.SHA256)
-		if err != nil {
-			return nil, fmt.Errorf("catalog: blob %s: %w", a.SHA256, err)
-		}
-		sum := sha256.Sum256(client)
-		if hex.EncodeToString(sum[:]) != a.SHA256 {
-			return nil, fmt.Errorf("catalog: artifact %q sha256 does not match the blob", a.RelPath)
-		}
-		switch protocol.RelationOf(stored, client) {
+		switch rel {
 		case protocol.RelationUnchanged:
 			out[i] = Decision{Relation: protocol.RelationUnchanged, Base: base}
 		case protocol.RelationGrownFrom:
