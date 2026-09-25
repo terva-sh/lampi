@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,8 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	_ "modernc.org/sqlite"
-
+	"terva.sh/lampi/internal/adapter/sqlitesnap"
 	"terva.sh/lampi/internal/redact"
 )
 
@@ -56,21 +54,68 @@ func (d document) hidden() redact.Result {
 	return out
 }
 
-// exportDatabase copies the WAL trio, opens the snapshot, and returns
-// the filtered JSON. src is the live state.vscdb. sourceRel and scope
-// are written into the document. An empty sourceRel is used by ReadSlice,
-// which does not have a home-relative path; the base name is recorded
-// instead.
+// takeSnapshot is sqlitesnap.Take. A test swaps it to count copies.
+var takeSnapshot = sqlitesnap.Take
+
+// scanner is ruleset v2. A test swaps it for one that fails.
+var scanner redact.Redactor = redact.Ruleset{}
+
+const snapPrefix = "lampi-cursor-snap-"
+
+// globalSource is the global state.vscdb one Manifests call, or one
+// ReadSlice, shares. The snapshot is taken on first use and at most
+// once. A missing file is a nil snapshot and no error.
+type globalSource struct {
+	src   string
+	taken bool
+	snap  *sqlitesnap.Snapshot
+	err   error
+}
+
+func (g *globalSource) get(ctx context.Context) (*sqlitesnap.Snapshot, error) {
+	if g.taken {
+		return g.snap, g.err
+	}
+	g.taken = true
+	g.snap, g.err = takeSnapshot(ctx, g.src, snapPrefix)
+	if errors.Is(g.err, os.ErrNotExist) {
+		g.snap, g.err = nil, nil
+	}
+	return g.snap, g.err
+}
+
+// close removes the snapshot. A nil source and a second call are safe.
+func (g *globalSource) close() {
+	if g != nil {
+		_ = g.snap.Close()
+	}
+}
+
+// globalFor is the global database a read of src shares: the one beside
+// a workspace database, or src itself.
+func globalFor(src string) *globalSource {
+	if _, ok := workspaceStorageID(src); ok {
+		return &globalSource{src: globalDBBeside(src)}
+	}
+	return &globalSource{src: src}
+}
+
+// exportDatabase snapshots src and returns the filtered JSON. src is
+// the live state.vscdb. sourceRel and scope are written into the
+// document. An empty sourceRel is used by ReadSlice, which does not
+// have a home-relative path; the base name is recorded instead.
 func exportDatabase(ctx context.Context, src, sourceRel, scope string) ([]byte, error) {
-	body, _, err := exportScanned(ctx, src, sourceRel, scope)
+	g := globalFor(src)
+	defer g.close()
+	body, _, err := exportScanned(ctx, src, sourceRel, scope, g)
 	return body, err
 }
 
 // exportScanned is exportDatabase plus the ruleset's scan of the raw
 // values the export holds as base64, which a scan of the JSON cannot
-// read.
-func exportScanned(ctx context.Context, src, sourceRel, scope string) ([]byte, redact.Result, error) {
-	doc, err := exportDocument(ctx, src, sourceRel, scope)
+// read. g is the global database the export shares.
+func exportScanned(ctx context.Context, src, sourceRel, scope string, g *globalSource) ([]byte, redact.Result, error) {
+	doc, err := exportDocument(ctx, src, sourceRel, scope, g)
 	if err != nil {
 		return nil, redact.Result{}, err
 	}
@@ -81,21 +126,31 @@ func exportScanned(ctx context.Context, src, sourceRel, scope string) ([]byte, r
 	return body, doc.hidden(), nil
 }
 
-func exportDocument(ctx context.Context, src, sourceRel, scope string) (document, error) {
+// exportDocument reads src from a snapshot. When src is the global
+// database, that snapshot is g's, so the global export and the
+// workspace merges share one copy.
+func exportDocument(ctx context.Context, src, sourceRel, scope string, g *globalSource) (document, error) {
 	if err := ctx.Err(); err != nil {
 		return document{}, err
 	}
-	snap, err := copyTrio(src)
-	if err != nil {
-		return document{}, err
+	var db *sql.DB
+	if filepath.Clean(g.src) == filepath.Clean(src) {
+		snap, err := g.get(ctx)
+		if err != nil {
+			return document{}, err
+		}
+		if snap == nil {
+			return document{}, fmt.Errorf("cursor: %s: %w", filepath.Base(src), os.ErrNotExist)
+		}
+		db = snap.DB
+	} else {
+		snap, err := takeSnapshot(ctx, src, snapPrefix)
+		if err != nil {
+			return document{}, err
+		}
+		defer snap.Close()
+		db = snap.DB
 	}
-	defer os.RemoveAll(snap)
-
-	db, err := openSnapshot(ctx, filepath.Join(snap, filepath.Base(src)))
-	if err != nil {
-		return document{}, err
-	}
-	defer db.Close()
 
 	ok, err := tableExists(ctx, db, "ItemTable")
 	if err != nil {
@@ -132,13 +187,7 @@ func exportDocument(ctx context.Context, src, sourceRel, scope string) (document
 		}
 		doc.CursorDiskKV = &kv
 	}
-	// Close before the deferred RemoveAll so the snapshot files are not
-	// still mapped when the directory goes away. The global snapshot
-	// below opens its own copy.
-	if err := db.Close(); err != nil {
-		return document{}, err
-	}
-	if err := mergeWorkspaceComposers(ctx, src, &doc); err != nil {
+	if err := mergeWorkspaceComposers(ctx, src, &doc, g); err != nil {
 		return document{}, err
 	}
 	return doc, nil
@@ -151,11 +200,12 @@ func exportDocument(ctx context.Context, src, sourceRel, scope string) (document
 // here.
 const composerHeadersKey = "composer.composerHeaders"
 
-// mergeWorkspaceComposers copies the global state.vscdb and appends
-// cursorDiskKV rows for composers this workspace's composer.composerHeaders
-// names. A path that is not a workspace database is left alone. A
-// missing global file adds nothing. The live global file is not opened.
-func mergeWorkspaceComposers(ctx context.Context, src string, doc *document) error {
+// mergeWorkspaceComposers appends the global cursorDiskKV rows for
+// composers this workspace's composer.composerHeaders names. The rows
+// come from g, the shared global snapshot, filtered in SQL. A path that
+// is not a workspace database is left alone. A missing global file adds
+// nothing.
+func mergeWorkspaceComposers(ctx context.Context, src string, doc *document, g *globalSource) error {
 	if _, ok := workspaceStorageID(src); !ok {
 		return nil
 	}
@@ -163,7 +213,14 @@ func mergeWorkspaceComposers(ctx context.Context, src string, doc *document) err
 	if len(ids) == 0 {
 		return nil
 	}
-	rows, err := snapshotDisk(ctx, globalDBBeside(src))
+	snap, err := g.get(ctx)
+	if err != nil {
+		return fmt.Errorf("cursor: global snapshot: %w", err)
+	}
+	if snap == nil {
+		return nil
+	}
+	rows, err := composerRows(ctx, snap.DB, ids)
 	if err != nil {
 		return fmt.Errorf("cursor: global snapshot: %w", err)
 	}
@@ -224,35 +281,54 @@ func composerIDs(items []row) map[string]struct{} {
 	return ids
 }
 
-// snapshotDisk copies src and returns its cursorDiskKV rows. A missing
-// file or a database without that table is an empty slice. cursorAuth
-// keys are already dropped by readKV.
-func snapshotDisk(ctx context.Context, src string) ([]row, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(src); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	snap, err := copyTrio(src)
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(snap)
+// composerRowPrefixes open the cursorDiskKV keys that belong to one
+// composer as <prefix><composerId>:<rest>. composerData:<composerId> is
+// the other shape.
+var composerRowPrefixes = []string{"bubbleId:", "checkpointId:", "messageRequestContext:", "codeBlockDiff:"}
 
-	db, err := openSnapshot(ctx, filepath.Join(snap, filepath.Base(src)))
-	if err != nil {
-		return nil, err
+// composerRowsQuery selects one composer's cursorDiskKV rows by key: the
+// composerData key by equality, and each prefix by the key range
+// "<prefix><id>:" to "<prefix><id>;", which the key index serves. ';'
+// is the byte after ':'. The lower bound is exclusive, so a key with
+// nothing after the id is not selected.
+var composerRowsQuery = func() string {
+	parts := []string{`SELECT key, value FROM cursorDiskKV WHERE key = ?`}
+	for range composerRowPrefixes {
+		parts = append(parts, `SELECT key, value FROM cursorDiskKV WHERE key > ? AND key < ?`)
 	}
-	defer db.Close()
+	return strings.Join(parts, " UNION ALL ")
+}()
+
+func composerRowsArgs(id string) []any {
+	args := []any{"composerData:" + id}
+	for _, p := range composerRowPrefixes {
+		args = append(args, p+id+":", p+id+";")
+	}
+	return args
+}
+
+// composerRows reads the cursorDiskKV rows of the composers in ids. A
+// database without that table is an empty slice. cursorAuth keys are
+// already dropped by readKV. Rows of other composers are not read.
+func composerRows(ctx context.Context, db *sql.DB, ids map[string]struct{}) ([]row, error) {
 	ok, err := tableExists(ctx, db, "cursorDiskKV")
 	if err != nil || !ok {
 		return nil, err
 	}
-	return readKV(ctx, db, `SELECT key, value FROM cursorDiskKV ORDER BY key`)
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		sorted = append(sorted, id)
+	}
+	sort.Strings(sorted)
+	out := []row{}
+	for _, id := range sorted {
+		part, err := readKV(ctx, db, composerRowsQuery, composerRowsArgs(id)...)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, part...)
+	}
+	return out, nil
 }
 
 // filterDisk keeps rows whose composer id is in ids. The id is the
@@ -278,24 +354,18 @@ func filterDisk(rows []row, ids map[string]struct{}) []row {
 }
 
 func diskRowComposer(key string) (string, bool) {
-	switch {
-	case strings.HasPrefix(key, "composerData:"):
-		id := strings.TrimPrefix(key, "composerData:")
+	if id, ok := strings.CutPrefix(key, "composerData:"); ok {
 		if id == "" || strings.Contains(id, ":") {
 			return "", false
 		}
 		return id, true
-	case strings.HasPrefix(key, "bubbleId:"):
-		return composerSegment(key, "bubbleId:")
-	case strings.HasPrefix(key, "checkpointId:"):
-		return composerSegment(key, "checkpointId:")
-	case strings.HasPrefix(key, "messageRequestContext:"):
-		return composerSegment(key, "messageRequestContext:")
-	case strings.HasPrefix(key, "codeBlockDiff:"):
-		return composerSegment(key, "codeBlockDiff:")
-	default:
-		return "", false
 	}
+	for _, p := range composerRowPrefixes {
+		if strings.HasPrefix(key, p) {
+			return composerSegment(key, p)
+		}
+	}
+	return "", false
 }
 
 func composerSegment(key, prefix string) (string, bool) {
@@ -332,105 +402,6 @@ func mergeDisk(base *[]row, extra []row) *[]row {
 	return &out
 }
 
-// copyTrio copies state.vscdb and the sidecars that exist beside it.
-// The copy is the only database this package opens. A missing sidecar
-// is left absent. The main file is required.
-func copyTrio(src string) (string, error) {
-	dir, err := os.MkdirTemp("", "lampi-cursor-snap-")
-	if err != nil {
-		return "", err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = os.RemoveAll(dir)
-		}
-	}()
-	base := filepath.Base(src)
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		from := src + suffix
-		_, err := os.Stat(from)
-		if errors.Is(err, os.ErrNotExist) {
-			if suffix == "" {
-				return "", err
-			}
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if err := copyFile(from, filepath.Join(dir, base+suffix)); err != nil {
-			return "", err
-		}
-	}
-	ok = true
-	return dir, nil
-}
-
-// copyFile reads from and writes to. The source is opened read-only.
-func copyFile(from, to string) error {
-	in, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(to, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	return closeErr
-}
-
-// openSnapshot opens a copied database read-only. The path is inside
-// the snapshot directory, never the live file. If the copied shm stops
-// the open, it is removed from the snapshot and the open is tried once
-// more. SQLite then rebuilds the index in the snapshot. The live shm
-// is not touched.
-func openSnapshot(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := openRO(ctx, path)
-	if err == nil {
-		return db, nil
-	}
-	shm := path + "-shm"
-	if _, statErr := os.Stat(shm); statErr != nil {
-		return nil, err
-	}
-	if rmErr := os.Remove(shm); rmErr != nil {
-		return nil, err
-	}
-	return openRO(ctx, path)
-}
-
-func openRO(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", sqliteROURI(path))
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
-// sqliteROURI is a read-only file URI. mode=ro refuses a write. The
-// WAL copied beside the database is applied. immutable is not set:
-// that flag tells SQLite to ignore the WAL.
-func sqliteROURI(path string) string {
-	slash := filepath.ToSlash(path)
-	if !strings.HasPrefix(slash, "/") {
-		slash = "/" + slash
-	}
-	u := &url.URL{Scheme: "file", Path: slash, RawQuery: "mode=ro"}
-	return u.String()
-}
-
 func tableExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
 	var got string
 	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&got)
@@ -443,8 +414,10 @@ func tableExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
 	return true, nil
 }
 
-func readKV(ctx context.Context, db *sql.DB, query string) ([]row, error) {
-	rows, err := db.QueryContext(ctx, query)
+// readKV reads key and value rows. A value the ruleset cannot scan
+// fails the read with an error that names its key.
+func readKV(ctx context.Context, db *sql.DB, query string, args ...any) ([]row, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -459,7 +432,10 @@ func readKV(ctx context.Context, db *sql.DB, query string) ([]row, error) {
 		if excludedKey(key) {
 			continue
 		}
-		value, hidden := encodeValue(val)
+		value, hidden, err := encodeValue(val)
+		if err != nil {
+			return nil, fmt.Errorf("cursor: key %q: %w", key, err)
+		}
 		out = append(out, row{Key: key, Value: value, hidden: hidden})
 	}
 	if err := rows.Err(); err != nil {
@@ -483,34 +459,35 @@ func excludedKey(key string) bool {
 // encodeValue keeps a JSON value as JSON. Other UTF-8 bytes become a
 // JSON string. Anything else is base64. The key is not interpreted.
 // The Result is the ruleset's scan of b when b became base64, which a
-// scan of the export cannot read. It is zero otherwise.
-func encodeValue(b []byte) (json.RawMessage, redact.Result) {
+// scan of the export cannot read. It is zero otherwise. A scan that
+// fails is an error, so the value is never exported unscanned.
+func encodeValue(b []byte) (json.RawMessage, redact.Result, error) {
 	if len(b) == 0 {
-		return json.RawMessage("null"), redact.Result{}
+		return json.RawMessage("null"), redact.Result{}, nil
 	}
 	if json.Valid(b) {
 		var buf bytes.Buffer
 		if err := json.Compact(&buf, b); err == nil {
-			return buf.Bytes(), redact.Result{}
+			return buf.Bytes(), redact.Result{}, nil
 		}
 	}
 	if utf8.Valid(b) {
 		raw, err := json.Marshal(string(b))
 		if err == nil {
-			return raw, redact.Result{}
+			return raw, redact.Result{}, nil
 		}
 	}
-	hidden, err := (redact.Ruleset{}).Scan(b)
+	hidden, err := scanner.Scan(b)
 	if err != nil {
-		return json.RawMessage("null"), redact.Result{}
+		return nil, redact.Result{}, fmt.Errorf("ruleset %s scan: %w", redact.RulesetV2, err)
 	}
 	raw, err := json.Marshal(struct {
 		Base64 string `json:"base64"`
 	}{Base64: base64.StdEncoding.EncodeToString(b)})
 	if err != nil {
-		return json.RawMessage("null"), redact.Result{}
+		return nil, redact.Result{}, err
 	}
-	return raw, hidden
+	return raw, hidden, nil
 }
 
 // workspaceCWD reads the sibling workspace.json. folder is a directory
