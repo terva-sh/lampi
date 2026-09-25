@@ -15,7 +15,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 |-------|---------|--------|
 | CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
-| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put |
+| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |

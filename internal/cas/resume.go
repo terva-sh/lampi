@@ -24,8 +24,9 @@ type partialMeta struct {
 // PutRange writes the inclusive range [start, end] of an object whose
 // final size is total. The object is installed only when the stored
 // ranges cover every byte and hash to digest. A digest that is already
-// installed is left untouched: exists and complete are both true, and
-// the body is not written.
+// installed and intact is left untouched: exists and complete are both
+// true, and the body is not written. A damaged object is replaced once
+// the ranges cover it.
 //
 // limit caps total. limit <= 0 means no cap. A range is rejected when
 // its length does not match the reader.
@@ -48,7 +49,7 @@ func (s *Store) PutRange(digest string, start, end, total, limit int64, r io.Rea
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ok, err := s.Has(digest)
+	ok, err := s.intactLocked(digest, -1)
 	if err != nil {
 		return false, false, err
 	}
@@ -86,6 +87,11 @@ func (s *Store) PutRange(digest string, start, end, total, limit int64, r io.Rea
 		f.Close()
 		return false, false, fmt.Errorf("cas: %w", err)
 	}
+	// The data reaches the disk before meta.json claims the span.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return false, false, fmt.Errorf("cas: %w", err)
+	}
 	if err := f.Close(); err != nil {
 		return false, false, fmt.Errorf("cas: %w", err)
 	}
@@ -98,7 +104,7 @@ func (s *Store) PutRange(digest string, start, end, total, limit int64, r io.Rea
 		return false, false, nil
 	}
 
-	exists, err = s.installCoveredLocked(digest, dataPath)
+	exists, err = s.installCoveredLocked(digest, dataPath, total)
 	if err != nil {
 		// The ranges already cover the object. Leaving them in place
 		// makes every later range fail the same hash check. Drop the
@@ -117,7 +123,7 @@ func (s *Store) PutRange(digest string, start, end, total, limit int64, r io.Rea
 // installCoveredLocked hashes a fully covered partial and moves it onto
 // the object path. The caller holds s.mu and deletes dir if this returns
 // an error.
-func (s *Store) installCoveredLocked(digest, dataPath string) (bool, error) {
+func (s *Store) installCoveredLocked(digest, dataPath string, size int64) (bool, error) {
 	sum, err := hashFile(dataPath)
 	if err != nil {
 		return false, err
@@ -128,12 +134,16 @@ func (s *Store) installCoveredLocked(digest, dataPath string) (bool, error) {
 	if err := os.Chmod(dataPath, 0o600); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
-	return s.commitFileLocked(digest, dataPath)
+	if err := syncFile(dataPath); err != nil {
+		return false, err
+	}
+	return s.commitFileLocked(digest, dataPath, size)
 }
 
 // Concat installs digest as the concatenation of parts, which are
 // digests already in the store, in order. A digest that is already
-// installed is left untouched and the parts are not read.
+// installed and intact is left untouched and the parts are not read. A
+// damaged object is rebuilt from the parts.
 //
 // limit caps the assembled length. limit <= 0 means no cap. A sum of
 // part sizes past limit is rejected and nothing is installed.
@@ -150,7 +160,7 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ok, err := s.Has(digest)
+	ok, err := s.intactLocked(digest, -1)
 	if err != nil {
 		return false, err
 	}
@@ -181,8 +191,8 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 	if err != nil {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
+	if err := mkdirSynced(filepath.Dir(final)); err != nil {
+		return false, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(final), ".put-*")
 	if err != nil {
@@ -216,10 +226,13 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 	if err := tmp.Chmod(0o600); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		return false, fmt.Errorf("cas: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
-	exists, err = s.commitFileLocked(digest, tmpName)
+	exists, err = s.commitFileLocked(digest, tmpName, total)
 	if err != nil {
 		return false, err
 	}
@@ -229,24 +242,31 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 	return exists, nil
 }
 
-// commitFileLocked moves src onto the object path when the digest is
-// still absent. The caller holds s.mu. On exists, src is left for the
-// caller to delete.
-func (s *Store) commitFileLocked(digest, src string) (exists bool, err error) {
+// commitFileLocked moves src, a synced file of size bytes that hashes to
+// digest, onto the object path unless an intact object is already there.
+// A present object with the wrong size or hash is replaced. The rename is
+// flushed to the directory before this returns. The caller holds s.mu.
+// On exists, src is left for the caller to delete.
+func (s *Store) commitFileLocked(digest, src string, size int64) (exists bool, err error) {
 	final, err := s.Path(digest)
 	if err != nil {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
-	if _, err := os.Stat(final); err == nil {
-		return true, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := mkdirSynced(filepath.Dir(final)); err != nil {
 		return false, err
+	}
+	ok, err := s.intactLocked(digest, size)
+	if err != nil {
+		return false, err
+	}
+	if ok {
+		return true, nil
 	}
 	if err := os.Rename(src, final); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
+	}
+	if err := syncDir(filepath.Dir(final)); err != nil {
+		return false, err
 	}
 	return false, nil
 }
@@ -294,6 +314,9 @@ func writePartial(dir string, meta partialMeta) error {
 		return fmt.Errorf("cas: %w", err)
 	}
 	if _, err := tmp.Write(b); err != nil {
+		return fmt.Errorf("cas: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
 		return fmt.Errorf("cas: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

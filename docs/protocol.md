@@ -113,6 +113,10 @@ that is already stored is a success and writes nothing:
 `sha256/<ab>/<rest of the digest>`. `complete` is true for a finished
 object, including one that already existed.
 
+A stored object whose size or hash does not match its key is damaged.
+A PUT of the right bytes replaces it, and `exists` is false. Every
+install fsyncs the object and its directory before the response.
+
 A single body larger than `max_blob_bytes` is refused. Two resume forms
 are accepted. Both install the digest only when the pieces assemble, and
 both store nothing when that digest is already present.
