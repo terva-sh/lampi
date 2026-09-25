@@ -78,6 +78,11 @@ func TestSlowBlobBodyTimesOut(t *testing.T) {
 		t.Fatalf("stalled body %d %s", resp.StatusCode, raw)
 	}
 	logs.waitFor(t, "status=408")
+	// The CAS wraps the read error in its own words. The line carries
+	// the request's error, not the lake's.
+	if line := logs.String(); !strings.Contains(line, `err="request body timed out"`) || strings.Contains(line, "cas:") {
+		t.Fatalf("access line for a stalled body: %s", line)
+	}
 	if n := countBlobs(t, s); n != 0 {
 		t.Fatalf("stalled body stored %d blobs", n)
 	}

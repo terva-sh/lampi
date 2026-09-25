@@ -30,8 +30,15 @@ func newNormalizeQueue() *normalizeQueue {
 	return q
 }
 
+// push adds job. After shutdown it does nothing: no worker will pop
+// again, and the job's row in catalog.normalize_jobs is what the next
+// start loads.
 func (q *normalizeQueue) push(job catalog.NormalizeJob) {
 	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
 	q.items = append(q.items, job)
 	q.cond.Broadcast()
 	q.mu.Unlock()

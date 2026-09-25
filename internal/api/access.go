@@ -148,14 +148,15 @@ func (s *Server) logger() *slog.Logger {
 // fail writes an error body and keeps err for the access log. A 5xx
 // body is a fixed message: the detail can name a lake path, so it stays
 // in the server log. A failure after the request body could not be read
-// is the request's, not the lake's.
+// is the request's, not the lake's. The log keeps that mapped error,
+// not the lake's wrapping of it.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, code int, err error) {
 	info := infoOf(r)
-	if info != nil {
-		info.err = err
-	}
 	if code >= 500 && info != nil && info.body.err != nil {
 		code, err = bodyStatus(info.body.err)
+	}
+	if info != nil {
+		info.err = err
 	}
 	if code >= 500 {
 		writeJSON(w, code, protocol.ErrorBody{Error: "internal error; see the server log"})
