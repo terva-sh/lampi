@@ -216,7 +216,13 @@ func TestWatchSkipsHistory(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.Close()
+			// A slow runner can deliver the rollout's first sighting (a
+			// replace at offset 0) after the quiet window above. Skip
+			// events that predate the append rather than read them as it.
 			c := waitChange(t, ch, rollRel)
+			for c.Op != watch.OpAppend && c.Size <= int64(len("{}\n")) {
+				c = waitChange(t, ch, rollRel)
+			}
 			if c.Op != watch.OpAppend || c.Offset == 0 {
 				t.Fatalf("append %+v", c)
 			}
