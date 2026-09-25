@@ -124,7 +124,7 @@ type item struct {
 // record or tasks archive that belongs to that session, and fills
 // protocol 1 manifests. machineID is stamped on every manifest.
 // Redaction is left empty. The upload path scans the file and stamps
-// ruleset v1 before anything is sent. A sidecar with no session stays
+// ruleset v2 before anything is sent. A sidecar with no session stays
 // on the machine.
 func Manifests(tervaHome, machineID string) (adapter.Bundle, error) {
 	return buildManifests(tervaHome, machineID)

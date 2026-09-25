@@ -32,7 +32,7 @@
 // with underscores, and workosCursorSessionToken are dropped too.
 // Those are the credential fields this pin treats as equivalent to
 // cursorAuth/*. A secret that sits only inside a string or an opaque
-// blob is not pulled out. Ruleset v1 still scans the export.
+// blob is not pulled out. Ruleset v2 still scans the export.
 // auth.json is not a table in store.db and this package does not
 // open it.
 //
@@ -81,6 +81,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/redact"
 )
 
 const (
@@ -238,6 +239,7 @@ type item struct {
 	session string
 	cwd     string
 	abs     string
+	hidden  redact.Result
 }
 
 // Manifests builds one manifest per store.db. The artifact bytes are
@@ -267,7 +269,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 	items := make([]item, 0, len(refs))
 	for _, ref := range refs {
 		rel := exportRel(ref.RelPath)
-		body, err := exportDatabase(context.Background(), ref.AbsPath, ref.RelPath)
+		body, hidden, err := exportScanned(context.Background(), ref.AbsPath, ref.RelPath)
 		if err != nil {
 			return adapter.Bundle{}, fmt.Errorf("cursor-cli: %s: %w", ref.RelPath, err)
 		}
@@ -296,12 +298,16 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 			session: sessionID(ref.RelPath),
 			cwd:     projectCWD(root, rel),
 			abs:     out,
+			hidden:  hidden,
 		})
 	}
 
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Cleanup: cleanup}
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
 	for _, it := range items {
 		b.Paths[it.ref.RelPath] = it.abs
+		if it.hidden.Hits > 0 {
+			b.Hidden[it.sum] = it.hidden
+		}
 		b.Manifests = append(b.Manifests, protocol.Manifest{
 			CaptureProtocol: protocol.Version,
 			MachineID:       machineID,

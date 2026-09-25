@@ -93,7 +93,7 @@ to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
-terva-lampi sync: allowlist, ruleset v1, watermark, outbox, then the
+terva-lampi sync: allowlist, ruleset v2, watermark, outbox, then the
 lake. A failed push is logged and tried again after a short wait, even
 when the file does not grow. A project the allowlist or the scan refused
 is not retried. SIGTERM or interrupt drains the outbox best-effort and

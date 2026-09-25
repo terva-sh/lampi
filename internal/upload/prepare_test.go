@@ -114,7 +114,8 @@ func TestPrepareSkipsAFileThatChangedAfterHashing(t *testing.T) {
 // the manifest finds it. The manifest is refused and the secret stays
 // out of the error and the quarantine log.
 func TestSyncScansTheManifest(t *testing.T) {
-	secret := "AKIAIOSFODNN7EXAMPLE"
+	// Not a published example: those are skipped by the ruleset.
+	secret := "AKIA" + "Z7Q4M2X9K3W8N5R1"
 	lake, data := openLake(t)
 	srv := httptest.NewServer(lake.Handler())
 	t.Cleanup(srv.Close)

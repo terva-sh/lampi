@@ -122,7 +122,7 @@ device each. The token is not a command argument. Without a token file,
 `serve` accepts unauthenticated requests only on a loopback address and
 refuses any other `--addr`. `/healthz` stays open and returns no catalog
 data. Do not upload a project whose transcripts you would not copy onto
-that disk in the clear. Ruleset v1 scans for common tokens before the
+that disk in the clear. Ruleset v2 scans for common tokens before the
 upload and quarantines a hit. It does not rewrite the file, and it is
 not a promise that every secret is caught. It also scans the manifest,
 which carries the cwd, the remote, and the relpaths. A hit there is
@@ -135,7 +135,7 @@ after it was hashed is not sent in that sync; the next one sends it.
 |---------|----------------|
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
-| `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
+| `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
@@ -148,7 +148,7 @@ trajectory` write one ShareGPT conversation per session that
 with no training turn, and a session that is not permitted, are
 named on stderr and left out. Each training row carries
 `raw_sha256`, the current transcript blob. `encrypted_content` is
-copied onto the turn as stored and is not decrypted. Ruleset v1
+copied onto the turn as stored and is not decrypted. Ruleset v2
 strips matches from the plaintext training fields (`value`, tool
 name, and call id). The command does not rewrite the CAS or the
 normalized events, and `--format events` is not stripped.
@@ -270,14 +270,21 @@ not a path.
 When `sync` refuses a `cursor` or `cursor-cli` session whose cwd is
 empty, the stderr line names which of those cases it is.
 
-Before a request is sent, ruleset v1 scans the file. v1 is the
-high-signal shapes: cloud keys, personal access tokens, and PEM
-private-key blocks from the BEGIN line through the END line. It does
-not flag JWTs or generic `password=` / `api_key=`
-lines. Those show up in ordinary transcripts, and a hit would quarantine
-the upload. The manifest
-stamps `redaction.ruleset` as `v1` and `redaction.status` as `scanned`
-when there are no hits. A hit is appended to `quarantine.jsonl` in the
+Before a request is sent, ruleset v2 scans the file. v2 is the
+high-signal shapes: AWS keys, GitHub, GitLab, Slack, Anthropic, OpenAI,
+Google, Stripe, npm, PyPI, Hugging Face, SendGrid, and DigitalOcean
+tokens with their fixed prefixes, and PEM or PGP private-key blocks
+from the BEGIN line through the END line. It does not flag JWTs or
+generic `password=` / `api_key=` lines. Those show up in ordinary
+transcripts, and a hit would quarantine the upload. The AWS
+documentation example keys and Slack's placeholder webhook are not
+hits. The scan reads JSON string escapes as the text they stand for,
+so a key after an escaped line break, or a private key whose line
+breaks are `\n` escapes, is still found. A Cursor value that the
+export holds as base64 is scanned before it is encoded. The manifest
+stamps `redaction.ruleset` as `v2` and `redaction.status` as `scanned`
+when there are no hits. v1 missed keys inside JSON escapes. Manifests
+it stamped stay on the lake as they are. A hit is appended to `quarantine.jsonl` in the
 state directory (mode 0600) and is not uploaded. The log names the rule.
 It does not contain the matched text. `redaction.upload_hits` is the
 only override that uploads a hit, and the manifest status is then
@@ -404,7 +411,7 @@ instructions` prints the long form.
 
 Phase 0 placement, retention, and encryption are in
 [docs/policy.md](docs/policy.md). Phase 5 training export is
-`terva-lampi export --format sharegpt`. That view strips ruleset v1
+`terva-lampi export --format sharegpt`. That view strips ruleset v2
 matches from plaintext training fields. The CAS and `--format events`
 are not rewritten. The Cursor IDE `state.vscdb` reader and the
 Cursor CLI `store.db` reader are separate corpora.
@@ -415,13 +422,13 @@ This tree compiles and moves allowlisted terva JSONL end to end against
 a local lake. In: filesystem CAS, SQLite catalog, device-token file,
 discovery of `$TERVA_HOME/sessions` plus optional `raati/` and `tasks/`
 sidecars, an fsnotify/poll watcher, a durable outbox, per-path
-watermarks, a project allowlist, and ruleset v1.
+watermarks, a project allowlist, and ruleset v2.
 `sync` runs that pipeline and writes the watermark only after the
 manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
 as JSONL. `--format sharegpt` writes an allowlisted trajectory of
-the same sessions, with `raw_sha256` on each row and ruleset v1
+the same sessions, with `raw_sha256` on each row and ruleset v2
 matches stripped from the plaintext training fields. `internal/accept`
 is the MVP gate for the events path, and CI runs
 it with the rest of `go test ./...`. Cursor IDE `state.vscdb` and
