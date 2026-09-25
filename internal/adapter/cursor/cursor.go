@@ -6,17 +6,20 @@
 // upgrade can rename a table or a key, and this pin will not follow it.
 //
 // The live database is never opened and never written. A read copies
-// state.vscdb and, when they are present, state.vscdb-wal and
-// state.vscdb-shm into a temporary directory, then opens that snapshot
-// read-only. The copy is removed after the export is built. Sync uploads
-// the export, not the database.
+// state.vscdb and, when it is present, state.vscdb-wal into a temporary
+// directory with sqlitesnap.Take, which copies again when a checkpoint
+// tore the copy and runs quick_check, then opens that snapshot
+// read-only. The copy is removed after the export is built. Sync
+// uploads the export, not the database.
 //
 // Version 2 reads ItemTable (key TEXT, value BLOB). When cursorDiskKV
 // exists it is read too. Current Cursor builds keep chat bodies in the
-// global database. A workspace export snapshots that global database
-// the same way and merges cursorDiskKV rows for composers named by the
-// workspace ItemTable key composer.composerHeaders
-// (allComposers[].composerId). composer.composerData is the older
+// global database. A workspace export merges the global cursorDiskKV
+// rows for composers named by the workspace ItemTable key
+// composer.composerHeaders (allComposers[].composerId). The rows are
+// selected in SQL by key, so other composers are not read. One
+// Manifests call snapshots the global database at most once and shares
+// that copy across workspaces. composer.composerData is the older
 // workspace list and is not the registry. A database with no ItemTable
 // is an error. Keys under cursorAuth/ are dropped and do not appear in
 // the export. Other keys are kept, including ones this version does not
@@ -33,8 +36,10 @@
 // workspace.json. A vscode-remote URI has no local path, so that
 // workspace has an empty cwd and the allowlist keeps it. The global
 // database holds every workspace, so it has an empty cwd and does not
-// leave the machine. A workspace export is the session that carries
-// that workspace's composers. Its session id stays workspace/<id>.
+// leave the machine. With a Permit, as sync passes, a refused session
+// is not snapshotted or exported at all. A workspace export is the
+// session that carries that workspace's composers. Its session id
+// stays workspace/<id>.
 //
 // VSCODE_APPDATA, VSCODE_PORTABLE, and a Windows user-data directory
 // seen from WSL were not confirmed for current Cursor and are not
@@ -224,21 +229,22 @@ func (Adapter) Manifests(root, machineID string) (adapter.Bundle, error) {
 	return Manifests(root, machineID)
 }
 
-type item struct {
-	ref     adapter.Ref
-	sum     string
-	session string
-	cwd     string
-	abs     string
-	hidden  redact.Result
-}
-
 // Manifests builds one manifest per state.vscdb. The artifact bytes are
 // the filtered JSON export. harness_version is Version. The global
 // database has an empty project. A workspace project comes from
 // workspace.json.
 func Manifests(root, machineID string) (adapter.Bundle, error) {
-	refs, err := Adapter{}.Discover(context.Background(), root)
+	return ManifestsPermit(root, machineID, nil)
+}
+
+// ManifestsPermit is Manifests that asks permit about each session
+// before its export is built. A refused session is not snapshotted or
+// exported; its manifest is kept with no digest and no path. The
+// global database is copied at most once per call, and only when its
+// own export is permitted or a permitted workspace names a composer.
+func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bundle, error) {
+	ctx := context.Background()
+	refs, err := Adapter{}.Discover(ctx, root)
 	if err != nil {
 		return adapter.Bundle{}, err
 	}
@@ -256,11 +262,30 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 			cleanup()
 		}
 	}()
+	global := &globalSource{src: filepath.Join(root, filepath.FromSlash(globalRel))}
+	defer global.close()
 
-	items := make([]item, 0, len(refs))
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
 	for _, ref := range refs {
 		rel := exportRel(ref.RelPath)
-		body, hidden, err := exportScanned(context.Background(), ref.AbsPath, ref.RelPath, scopeOf(ref.RelPath))
+		m := protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       machineID,
+			Harness:         protocol.HarnessCursor,
+			HarnessVersion:  Version,
+			NativeSessionID: sessionID(strings.TrimSuffix(rel, ".json")),
+			Project:         adapter.ProjectAt(projectCWD(root, rel)),
+			Artifacts: []protocol.Artifact{{
+				Kind:    protocol.KindCursorStateJSON,
+				RelPath: rel,
+				MTime:   ref.ModTime.UTC(),
+			}},
+		}
+		if permit != nil && !permit(m) {
+			b.Manifests = append(b.Manifests, m)
+			continue
+		}
+		body, hidden, err := exportScanned(ctx, ref.AbsPath, ref.RelPath, scopeOf(ref.RelPath), global)
 		if err != nil {
 			return adapter.Bundle{}, fmt.Errorf("cursor: %s: %w", ref.RelPath, err)
 		}
@@ -279,43 +304,16 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 		if err != nil {
 			return adapter.Bundle{}, err
 		}
-		ref.Kind = protocol.KindCursorStateJSON
-		ref.AbsPath = out
-		ref.RelPath = rel
-		ref.Size = info.Size()
-		items = append(items, item{
-			ref:     ref,
-			sum:     sum,
-			session: sessionID(strings.TrimSuffix(rel, ".json")),
-			cwd:     projectCWD(root, rel),
-			abs:     out,
-			hidden:  hidden,
-		})
-	}
-
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
-	for _, it := range items {
-		b.Paths[it.ref.RelPath] = it.abs
-		if it.hidden.Hits > 0 {
-			b.Hidden[it.sum] = it.hidden
+		a := &m.Artifacts[0]
+		a.Size = info.Size()
+		a.SHA256 = sum
+		a.ByteWatermarkPrev = 0
+		a.TailSHA256 = sum
+		b.Paths[rel] = out
+		if hidden.Hits > 0 {
+			b.Hidden[sum] = hidden
 		}
-		b.Manifests = append(b.Manifests, protocol.Manifest{
-			CaptureProtocol: protocol.Version,
-			MachineID:       machineID,
-			Harness:         protocol.HarnessCursor,
-			HarnessVersion:  Version,
-			NativeSessionID: it.session,
-			Project:         adapter.ProjectAt(it.cwd),
-			Artifacts: []protocol.Artifact{{
-				Kind:              it.ref.Kind,
-				RelPath:           it.ref.RelPath,
-				Size:              it.ref.Size,
-				MTime:             it.ref.ModTime.UTC(),
-				SHA256:            it.sum,
-				ByteWatermarkPrev: 0,
-				TailSHA256:        it.sum,
-			}},
-		})
+		b.Manifests = append(b.Manifests, m)
 	}
 	ok = true
 	return b, nil

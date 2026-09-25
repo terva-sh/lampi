@@ -11,9 +11,10 @@ import (
 	"strings"
 )
 
-// lockAgentPID creates agent.pid with O_EXCL. A file left by a process
-// that is gone is replaced. One whose process is alive stops this
-// agent, naming that pid.
+// lockAgentPID creates agent.pid with O_EXCL. A file with no readable
+// pid is replaced. A file naming a pid stops this agent: on Windows
+// FindProcess succeeds for any pid, so a file left by a crash is not
+// told apart from a live agent, and the error says to delete it.
 func lockAgentPID(path string) (func(), error) {
 	body := []byte(strconv.Itoa(os.Getpid()) + "\n")
 	for range 3 {
@@ -37,7 +38,7 @@ func lockAgentPID(path string) (func(), error) {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 {
 			if p, err := os.FindProcess(pid); err == nil {
 				p.Release()
-				return nil, errAgentRunning(path)
+				return nil, fmt.Errorf("%w; if no terva-lampi agent is running, delete %s", errAgentRunning(path), path)
 			}
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {

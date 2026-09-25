@@ -714,6 +714,16 @@ func requireScanned(m protocol.Manifest) error {
 // other harnesses still upload. skipped also carries each file a
 // harness left out.
 func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
+	// The Cursor readers build an export per session. The allowlist
+	// check prepare makes runs first, so a refused session is not
+	// snapshotted; its manifest still reaches prepare to be reported.
+	permit := func(m protocol.Manifest) bool { return opt.Projects.Permitted(projectID(m)) }
+	cursorManifests := func(root, machineID string) (adapter.Bundle, error) {
+		return cursor.ManifestsPermit(root, machineID, permit)
+	}
+	cursorCLIManifests := func(root, machineID string) (adapter.Bundle, error) {
+		return cursorcli.ManifestsPermit(root, machineID, permit)
+	}
 	homes := []struct {
 		name      string
 		home      string
@@ -723,8 +733,8 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 		{protocol.HarnessClaude, opt.ClaudeHome, claude.Manifests},
 		{protocol.HarnessCodex, opt.CodexHome, codex.Manifests},
 		{protocol.HarnessOpenCode, opt.OpenCodeHome, opencode.Manifests},
-		{protocol.HarnessCursor, opt.CursorHome, cursor.Manifests},
-		{protocol.HarnessCursorCLI, opt.CursorCLIHome, cursorcli.Manifests},
+		{protocol.HarnessCursor, opt.CursorHome, cursorManifests},
+		{protocol.HarnessCursorCLI, opt.CursorCLIHome, cursorCLIManifests},
 	}
 	for _, h := range homes {
 		if h.home == "" {
