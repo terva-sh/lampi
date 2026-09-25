@@ -98,6 +98,10 @@ func TestRootWalkSurvivesCorruptPacks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// git writes pack and idx as 0444; WriteFile cannot replace them otherwise.
+		if err := os.Chmod(f, 0o644); err != nil {
+			t.Fatal(err)
+		}
 		for i := 0; i < len(orig); i += 1 + len(orig)/200 {
 			bad := append([]byte(nil), orig...)
 			bad[i] ^= 0xff
