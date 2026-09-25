@@ -146,7 +146,7 @@ to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
-terva-lampi sync: hello, allowlist, ruleset v1, watermark, outbox, then
+terva-lampi sync: hello, allowlist, ruleset v2, watermark, outbox, then
 the upload. A failed push is logged and tried again, even when the file
 does not grow. The first wait is 2s. Each further failure doubles the
 ceiling of a jittered wait, up to 5 minutes, and a success resets it.

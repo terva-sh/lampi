@@ -326,7 +326,8 @@ func writePartial(dir string, meta partialMeta) error {
 		return fmt.Errorf("cas: %w", err)
 	}
 	tmpName = ""
-	return nil
+	// The span is claimed once the rename is in the directory.
+	return syncDir(dir)
 }
 
 func addSpan(spans [][2]int64, start, end int64) [][2]int64 {

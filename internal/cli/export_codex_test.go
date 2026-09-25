@@ -15,7 +15,7 @@ import (
 )
 
 func TestCodexExportEventsShareGPTAndTrajectory(t *testing.T) {
-	aws := "AKIAIOSFODNN7EXAMPLE"
+	aws := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	opaque := "gAAAAABopaque=="
 	prompt := "please use " + aws + " to read the pond"
 

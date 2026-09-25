@@ -12,9 +12,11 @@ import (
 	"path"
 	"path/filepath"
 
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakelock"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
@@ -25,10 +27,16 @@ usage:
   terva-lampi export [--data DIR] [--out FILE] [--format events|sharegpt|trajectory]
 
 --format events (the default) writes schema_version 1 events, one JSON
-object per line. FILE defaults to stdout. The command waits until
-normalize workers have caught up with the catalog. A session whose
-last normalize failed is skipped and named on stderr. Its raw blob is
-left as it was. A session with no derived file yet is projected once.
+object per line. FILE defaults to stdout. A session whose last
+normalize failed is skipped and named on stderr. Its raw blob is left
+as it was.
+
+When serve is not running on DIR, export takes the lake lock, lets
+the normalize workers catch up with the catalog, and projects once a
+session with no derived file yet. While serve runs, export reads the
+catalog read-only and starts no worker. It reads the derived files as
+they are, and names a session with no derived file yet on stderr as
+not yet normalized.
 
 --format sharegpt and --format trajectory are the same training
 projection: one ShareGPT conversation per session. A session is
@@ -36,7 +44,7 @@ included only when config.json allowlists its manifest project.
 Default deny. Deny wins. A session that is not permitted is named on
 stderr and omitted. Each row carries raw_sha256, the current
 transcript blob. encrypted_content is copied onto the turn as stored
-and is not written into the turn value. Ruleset v1 strips matches
+and is not written into the turn value. Ruleset v2 strips matches
 from the plaintext training fields (value, tool name, and call id).
 The CAS and the normalized events are not rewritten.
 
@@ -76,11 +84,12 @@ func runExport(env Env, args []string) error {
 			return err
 		}
 	}
-	lake, err := api.Open(data)
+	lake, live, closeLake, err := openForExport(data)
 	if err != nil {
 		return err
 	}
-	defer lake.Close()
+	defer closeLake()
+	x := exporter{env: env, lake: lake, live: live}
 
 	out := env.stdout()
 	if outPath != "" && outPath != "-" {
@@ -93,17 +102,50 @@ func runExport(env Env, args []string) error {
 	}
 	switch format {
 	case "", "events":
-		return writeExport(env, lake, out)
+		return x.writeEvents(out)
 	default:
-		return writeShareGPT(env, lake, out)
+		return x.writeShareGPT(out)
 	}
 }
 
-func writeExport(env Env, lake *api.Server, out io.Writer) error {
+// exporter reads one lake. live is true when serve holds the lake: the
+// catalog is read-only and nothing here projects or stores.
+type exporter struct {
+	env  Env
+	lake *api.Server
+	live bool
+}
+
+// openForExport takes the lake lock and opens the lake with its
+// workers, as serve would. When serve holds the lock it opens the lake
+// read-only instead, so a second process does not publish derived
+// files over serve's. closeLake closes the lake, then drops the lock.
+func openForExport(data string) (lake *api.Server, live bool, closeLake func() error, err error) {
+	lock, err := lakelock.Acquire(data)
+	if errors.Is(err, lakelock.ErrHeld) {
+		lake, err := api.OpenReadOnly(data)
+		if err != nil {
+			return nil, false, nil, err
+		}
+		return lake, true, lake.Close, nil
+	}
+	if err != nil {
+		return nil, false, nil, err
+	}
+	lake, err = api.Open(data)
+	if err != nil {
+		lock.Release()
+		return nil, false, nil, err
+	}
+	return lake, false, func() error { return errors.Join(lake.Close(), lock.Release()) }, nil
+}
+
+func (x exporter) writeEvents(out io.Writer) error {
+	lake := x.lake
 	ctx := context.Background()
 	// The manifest ACK returns before workers project. Wait so this
 	// snapshot is the head, then read JSONL. A missing file is still
-	// rebuilt below.
+	// rebuilt below. A read-only lake has no queue to wait on.
 	if err := lake.WaitNormalized(ctx); err != nil {
 		return err
 	}
@@ -112,7 +154,7 @@ func writeExport(env Env, lake *api.Server, out io.Writer) error {
 		return err
 	}
 	for _, sess := range sessions {
-		body, ok, err := sessionJSONL(env, lake, sess)
+		body, ok, err := x.sessionJSONL(sess)
 		if err != nil {
 			return err
 		}
@@ -126,7 +168,8 @@ func writeExport(env Env, lake *api.Server, out io.Writer) error {
 	return nil
 }
 
-func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
+func (x exporter) writeShareGPT(out io.Writer) error {
+	env, lake := x.env, x.lake
 	ctx := context.Background()
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
@@ -150,12 +193,13 @@ func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
 			CWD:       sess.Manifest.Project.CWD,
 			CWDHash:   sess.Manifest.Project.CWDHash,
 			GitRemote: sess.Manifest.Project.GitRemote,
+			NoRepo:    sess.Manifest.Project.GitRemote == "" && adapter.OutsideCheckout(sess.Manifest.Project.CWD),
 		}
 		if !file.Projects.Permitted(project) {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s not allowlisted\n", sess.UID)
 			continue
 		}
-		body, ok, err := sessionJSONL(env, lake, sess)
+		body, ok, err := x.sessionJSONL(sess)
 		if err != nil {
 			return err
 		}
@@ -166,13 +210,13 @@ func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("session %s: %w", sess.UID, err)
 		}
-		_, arts, found, err := lake.Catalog.Current(ctx, sess.Harness, sess.NativeID)
+		view, found, err := lake.Catalog.Head(ctx, sess.Harness, sess.NativeID)
 		if err != nil {
 			return err
 		}
 		digest := ""
 		if found {
-			digest = transcriptDigest(arts)
+			digest = transcriptDigest(view)
 		}
 		if digest == "" {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s has no transcript digest\n", sess.UID)
@@ -190,31 +234,45 @@ func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
 	return nil
 }
 
-func transcriptDigest(arts []catalog.ArtifactRow) string {
+// transcriptDigest is the blob a training row points at. That is the
+// session head when the head is a transcript or an export, because the
+// projector reads the head. Otherwise it is the first such artifact.
+func transcriptDigest(v catalog.HeadView) string {
+	for _, a := range v.Current {
+		if a.SHA256 != "" && a.SHA256 == v.HeadSHA256 && sessionBlob(a) {
+			return a.SHA256
+		}
+	}
 	var transcript string
-	for _, a := range arts {
-		if a.SHA256 == "" {
+	for _, a := range v.Current {
+		if a.SHA256 == "" || !sessionBlob(a) {
 			continue
 		}
 		// The Cursor IDE projector reads cursor_state_json. The Cursor
-		// CLI projector reads cursor_cli_store_json. The training row
+		// CLI projector reads cursor_cli_store_json. The OpenCode
+		// projector reads opencode_export_json. The training row
 		// points at that export, which is the blob that was projected.
-		if a.Kind == protocol.KindCursorStateJSON || a.Kind == protocol.KindCursorCLIStoreJSON {
-			return a.SHA256
-		}
 		if a.Kind != protocol.KindTranscriptJSONL {
-			continue
-		}
-		// history.jsonl is Codex prompt history, not a rollout. The
-		// training row points at the transcript that was projected.
-		if path.Base(a.RelPath) == "history.jsonl" {
-			continue
+			return a.SHA256
 		}
 		if transcript == "" {
 			transcript = a.SHA256
 		}
 	}
 	return transcript
+}
+
+// sessionBlob is a transcript or an export a projector reads.
+// history.jsonl is Codex prompt history, not a rollout, and is not one.
+func sessionBlob(a catalog.ArtifactRow) bool {
+	switch a.Kind {
+	case protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON:
+		return true
+	case protocol.KindTranscriptJSONL:
+		return path.Base(a.RelPath) != "history.jsonl"
+	default:
+		return false
+	}
 }
 
 func decodeEvents(body []byte) ([]normalize.Event, error) {
@@ -234,9 +292,11 @@ func decodeEvents(body []byte) ([]normalize.Event, error) {
 }
 
 // sessionJSONL returns the derived JSONL for one session. ok is false
-// when the session is skipped because normalize failed. A missing file
-// is projected once. The raw blob is not opened for write.
-func sessionJSONL(env Env, lake *api.Server, sess catalog.SessionInfo) ([]byte, bool, error) {
+// when the session is skipped because normalize failed, or, while serve
+// runs, because it has no derived file yet. Otherwise a missing file is
+// projected once. The raw blob is not opened for write.
+func (x exporter) sessionJSONL(sess catalog.SessionInfo) ([]byte, bool, error) {
+	env, lake := x.env, x.lake
 	if sess.NormalizeError != "" {
 		fmt.Fprintf(env.stderr(), "terva-lampi: session %s normalize_error: %s\n", sess.UID, sess.NormalizeError)
 		return nil, false, nil
@@ -244,6 +304,10 @@ func sessionJSONL(env Env, lake *api.Server, sess catalog.SessionInfo) ([]byte, 
 	ctx := context.Background()
 	path := filepath.Join(lake.Normalized, sess.UID+".jsonl")
 	body, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) && x.live {
+		fmt.Fprintf(env.stderr(), "terva-lampi: session %s not yet normalized; serve is running\n", sess.UID)
+		return nil, false, nil
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		events, nerr := lake.Project(ctx, sess.Manifest)
 		if storeErr := lake.StoreEvents(ctx, sess.UID, events, nerr); storeErr != nil {

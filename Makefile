@@ -4,9 +4,17 @@
 
 .PHONY: build test vet fmt ci synthetic-container
 
+# The same stamp as the justfile. 0.0.0 means nothing was stamped.
+# -buildvcs=false only inside a linked git worktree; the justfile says why.
+VERSION ?= 0.0.0
+COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILDVCS := $(shell if [ "$$(git rev-parse --git-dir 2>/dev/null)" != "$$(git rev-parse --git-common-dir 2>/dev/null)" ]; then echo "-buildvcs=false"; fi)
+LDFLAGS := -s -w -X terva.sh/lampi/internal/cli.version=$(VERSION) -X terva.sh/lampi/internal/cli.commit=$(COMMIT)
+
 build:
 	mkdir -p bin
-	go build -trimpath -o bin/terva-lampi ./cmd/terva-lampi
+	go build $(BUILDVCS) -trimpath -ldflags "$(LDFLAGS)" -o bin/terva-lampi ./cmd/terva-lampi
+	@echo "built bin/terva-lampi ($(VERSION), $(COMMIT))"
 
 # internal/accept is the MVP acceptance gate (architecture section 7).
 test:

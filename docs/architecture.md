@@ -13,7 +13,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
+| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
@@ -29,11 +29,11 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
-| Redaction | `internal/redact` | Ruleset v1. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
+| Redaction | `internal/redact` | Ruleset v2. It reads JSON escapes as the text they stand for. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
 | Normalize | `internal/normalize` | Workers project terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
-| Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque. Plaintext training fields are stripped with ruleset v1 |
+| Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque. Plaintext training fields are stripped with ruleset v2 |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
@@ -61,7 +61,13 @@ accepting, waits up to 20s for requests in flight, then drains the
 queue for up to 30s before it closes the catalog. A newer ingest bumps `sessions.normalize_gen` and a publish for
 an older generation is dropped. The job row stays until the matching
 generation is published, so a restart finishes it, including a job
-the drain did not reach.
+the drain did not reach. A panic in a worker is logged with its stack,
+sets `normalize_error`, and deletes the job row, so a restart does not
+replay it. The worker keeps running.
+
+The catalog records its schema in `PRAGMA user_version`. Open runs the
+numbered migrations above that version. A file from a newer binary is
+refused.
 
 Each request has its own read and write deadline: a floor plus the
 body at 64 KiB/s. A blob PUT is sized from `Content-Length`, so a slow
@@ -100,7 +106,11 @@ copied through as an opaque string and is not written into
 stay in the projection so an earlier prompt is still searchable.
 `terva-lampi export` waits until the queue is idle. `--format events`
 (the default) writes one JSON object per event. A missing JSONL file
-is projected once, so a removed derived view can be rebuilt. DuckDB
+is projected once, so a removed derived view can be rebuilt. That
+holds when `serve` is stopped. `serve` holds `lake.lock` in the data
+directory. While it does, export opens the catalog read-only, starts
+no worker, and names a session with no JSONL yet as not yet
+normalized. Only one process publishes derived files. DuckDB
 reads that export with `read_ndjson`. sqlite reads each line and uses
 `json_extract(line, '$.content_text')`. A session with `normalize_error`
 set is skipped. Until a worker finishes, `normalize_error` is empty
@@ -120,7 +130,7 @@ hash, and git remote. A session that is not permitted is named on
 stderr and omitted. Each row carries `raw_sha256`, the current
 transcript blob, so the row can be traced without rewriting the CAS.
 `encrypted_content` is copied onto the turn as stored. It is not
-written into `value` and it is not decrypted. Ruleset v1 replaces
+written into `value` and it is not decrypted. Ruleset v2 replaces
 each match in the plaintext training fields (`value`, tool name, and
 call id) with a placeholder that names the rule. The CAS object and
 the normalized JSONL are not rewritten. `--format events` writes
@@ -132,7 +142,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, or Cursor CLI is stored, and the worker sets `normalize_error` |
+| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, or Cursor CLI is refused at the manifest with `400`. A new one needs a projector and an entry in the lake's allowlist |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -168,7 +178,15 @@ Layer B is the logical session. `session_uid` is assigned once per
 `(harness, native_id, machine_id)` to that uid. The same digest from a
 second machine adds a provenance row and no blob. A strict prefix
 extension moves the head (`grown_from`). Anything else is
-`divergent_copy` and is not merged.
+`divergent_copy` and is not merged. A Cursor export or an OpenCode
+export (`opencode_export_json`) is a snapshot, so a rewrite replaces
+the head instead. A session has one head. Relpaths embed the cwd, so
+the same session from a second machine or a moved home arrives under
+a new relpath. The manifest's head artifact is then compared with the
+session head, and a move clears the old path's current flag. Other
+artifacts stay keyed by relpath. Normalize reads the head, plus the
+current rows under the head's directory for terva, Claude, and Codex:
+error sidecars and subagent transcripts sit there.
 
 A git-ticket claim does not resolve to that uid. The decision is to
 leave the claim unwired. A claim stays an opaque string in the ticket
@@ -239,7 +257,7 @@ Cursor IDE user-data/User/workspaceStorage/*/state.vscdb
 Cursor CLI config/chats/*/*/store.db
         |
         v
-allowlist (default deny) → ruleset v1 → quarantine on a hit
+allowlist (default deny) → ruleset v2 → quarantine on a hit
         |
         v
 watermark plan → outbox → PUT missing blobs → manifest ACK
@@ -257,6 +275,8 @@ watermark commit and outbox ACK          terva-lampi serve
 Other harnesses are adapters behind the same manifest. terva, Claude
 Code, Codex CLI, OpenCode, and the Cursor IDE are wired for discovery,
 watch, and upload. OpenCode watches `export/`, not the live database.
+An export is `opencode_export_json`. The database fallback is labelled
+`opencode_db` on the machine, and the allowlist refuses it.
 Cursor copies `state.vscdb` and its WAL sidecars, then uploads a JSON
 export. Keys under `cursorAuth/` are not in that export. The raw
 database stays on the machine. The global database has an empty cwd
@@ -353,8 +373,8 @@ The Claude, Codex, OpenCode,
 and Cursor record shapes are internal to those packages. Each pins a
 reader version on `harness_version` and keeps keys it does not
 interpret. Normalize workers project terva, Claude Code, Codex CLI,
-OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1. A stored
-manifest for a harness that has no projector sets `normalize_error`.
+OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1. A manifest
+for any other harness is refused with `400`.
 Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link
@@ -401,7 +421,7 @@ internal/adapter/cursor/  Cursor IDE state.vscdb snapshot
 internal/adapter/cursorcli/ Cursor CLI store.db snapshot, separate corpus
 internal/upload/          one-shot push
 internal/watch/           fsnotify, poll fallback
-internal/redact/          ruleset v1 and quarantine.jsonl
+internal/redact/          ruleset v2 and quarantine.jsonl
 internal/outbox/          SQLite queue
 internal/watermark/       per-path cursor, ACK-gated
 internal/normalize/       schema_version 1 events, JSONL and parquet
@@ -425,8 +445,10 @@ Single tenant, many devices, one token per device. `terva-lampi login`
 writes a fresh 256-bit token and does not print it. The client reads
 that file with `--token-file` and will not take the token as an argument.
 Copy the file to the lake host. `terva-lampi serve --token-file` hashes
-each line (or each file, when the path is a directory) and rewrites the
-copy to `sha256:<hex>`. The client's file stays the secret. There is no
+each line (or each `<name>.token` file, when the path is a directory)
+and rewrites the copy to `sha256:<hex>`. A token is 64 lowercase hex
+characters, and a `#` line is a comment kept through the rewrite.
+SIGHUP reloads the set in place. The client's file stays the secret. There is no
 enrolment API.
 
 Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
@@ -434,8 +456,12 @@ Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
 `terva-lampi/` (override with `--data`), mode 0700, separate from
 `$TERVA_HOME`. `$TERVA_HOME` is the producer. The lake does not write into it.
 
-Secrets in transcripts are the main risk. Ruleset v1 runs before the
-upload and refuses a hit unless `redaction.upload_hits` is set. The
+Secrets in transcripts are the main risk. Ruleset v2 runs before the
+upload and refuses a hit unless `redaction.upload_hits` is set. It
+scans a view of the bytes in which each JSON escape keeps its length,
+so a span found there is the same span in the raw file. The Cursor
+readers scan a value before they export it as base64 and hand the
+result to the upload with the bundle. The
 allowlist is the other gate: a project that is not listed does not
 leave the machine. Neither one rewrites the raw file. Do not point
 `serve` at a network interface you do not control, and do not upload a

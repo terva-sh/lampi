@@ -22,7 +22,7 @@ type ShareGPTRecord struct {
 }
 
 // ShareGPTTurn is one ShareGPT message. From is human, gpt, system,
-// or tool. Value is content_text after ruleset v1 stripping. Name and
+// or tool. Value is content_text after ruleset v2 stripping. Name and
 // CallID are set on a tool call or result and are stripped the same
 // way. EncryptedContent is the opaque extra field when the event had
 // one; it is not stripped.
@@ -38,7 +38,7 @@ type ShareGPTTurn struct {
 // rawSHA256 is empty or the events have no training turn, so a caller
 // does not write a row that cannot be traced to a blob. Meta, usage,
 // and unknown rows are left out. Plaintext training fields (value,
-// name, and call id) are copied and then stripped with ruleset v1.
+// name, and call id) are copied and then stripped with ruleset v2.
 // encrypted_content is copied as stored and is not scanned. The events
 // and the raw blob are not modified.
 func ShareGPT(sessionUID, rawSHA256 string, events []Event) (ShareGPTRecord, bool) {
@@ -133,7 +133,7 @@ func shareRole(role string) (string, bool) {
 	}
 }
 
-// stripTraining applies ruleset v1 to one plaintext training field.
+// stripTraining applies ruleset v2 to one plaintext training field.
 // The caller's string is not rewritten. encrypted_content is not passed
 // here.
 func stripTraining(s string) string {

@@ -16,13 +16,21 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakelock"
 )
 
 const serveUsage = `terva-lampi serve — run the lake
 
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
+  terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
+                                 copy the catalog, the CAS, and the token file
+  terva-lampi serve fsck [--data DIR] [--repair]
+                                 re-hash every stored object
+  terva-lampi serve purge --session UID [--data DIR] [--yes]
+                                 remove one session and its blobs
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -36,15 +44,24 @@ speaks plain HTTP, so put TLS in front. Clients refuse to send a
 token to a non-loopback http:// URL.
 
 --token-file is a file of device tokens, one per line, or a directory
-with one file per device. Each plaintext token is hashed and the file
-is rewritten to sha256 lines. Copy the device's token file first; do
-not point this flag at the device's only copy. The token is not an
-argument.
+with one <name>.token file per device. Other files in the directory
+are not loaded. A token is 64 lowercase hex characters, as
+terva-lampi login writes. A line starting with # is a comment. Any
+other line is an error. Each plaintext token is hashed and the file is
+rewritten to sha256 lines, comments kept. Copy the device's token
+file first; do not point this flag at the device's only copy. The
+token is not an argument. SIGHUP reads the token file again. Requests
+in flight keep going. A file that does not load leaves the old tokens
+in place.
 
 The lake directory holds cas/ (sha256 blobs), catalog.db (SQLite),
 normalized/ (one JSONL file per session), and parquet/ (date and
 harness partitions). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
+
+serve holds lake.lock in the lake directory while it runs. A second
+serve on the same directory is refused. At start it removes upload
+temp files and cas/partial uploads that have not been written for 24h.
 
 SIGTERM stops new requests and waits up to 20s for those in flight,
 then drains the normalize queue for up to 30s. Jobs left in the queue
@@ -66,6 +83,16 @@ func runServe(env Env, args []string) error {
 	if len(args) > 0 && isHelp(args[0]) {
 		fmt.Fprint(env.stdout(), serveUsage)
 		return nil
+	}
+	if len(args) > 0 {
+		switch args[0] {
+		case "backup":
+			return runServeBackup(env, args[1:])
+		case "fsck":
+			return runServeFsck(env, args[1:])
+		case "purge":
+			return runServePurge(env, args[1:])
+		}
 	}
 	var addr, data, tokenFile string
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
@@ -92,6 +119,7 @@ func runServe(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
+		warnIgnored(env, tokenFile, devices)
 	}
 	if err := refuseExposedWithoutToken(addr, devices); err != nil {
 		return err
@@ -99,10 +127,16 @@ func runServe(env Env, args []string) error {
 	if warn := plaintextTokenWarning(addr, devices); warn != "" {
 		fmt.Fprintln(env.stderr(), warn)
 	}
+	lock, err := lakelock.Acquire(data)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
 	lake, err := api.Open(data)
 	if err != nil {
 		return err
 	}
+	sweepCAS(env, lake.CAS, time.Now())
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
 
@@ -123,7 +157,65 @@ func runServe(env Env, args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if devices != nil {
+		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices) })
+	}
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
+}
+
+// reloadDevices reads the token file again and swaps the set in place.
+// A handler that has passed the check is not affected. A file that no
+// longer loads, or holds no token, keeps the old set: an empty set
+// would open a lake that serve refused to expose without one.
+func reloadDevices(env Env, path string, devices *auth.Devices) {
+	next, err := auth.LoadDevices(path)
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: %v\n", devices.Len(), err)
+		return
+	}
+	warnIgnored(env, path, next)
+	devices.Replace(next)
+	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
+}
+
+func warnIgnored(env Env, path string, d *auth.Devices) {
+	for _, name := range d.Ignored {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: %s: not loading %s; a device file ends in %s\n", path, name, auth.TokenSuffix)
+	}
+}
+
+// reloadOnHangup calls reload on each SIGHUP until ctx ends.
+func reloadOnHangup(ctx context.Context, reload func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGHUP)
+	go func() {
+		defer signal.Stop(ch)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ch:
+				reload()
+			}
+		}
+	}()
+}
+
+// sweepAge is how long an upload temp file or a partial upload sits
+// untouched before start-up removes it. An agent resumes within it.
+const sweepAge = 24 * time.Hour
+
+// sweepCAS runs before the listener opens, so no put is in flight. A
+// failure is reported and serve still starts: the leftovers only cost
+// disk.
+func sweepCAS(env Env, store *cas.Store, now time.Time) {
+	n, err := store.Sweep(now.Add(-sweepAge))
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: sweep: %v\n", err)
+	}
+	if n > 0 {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: removed %d upload leftovers older than %s\n", n, sweepAge)
+	}
 }
 
 // newHTTPServer has no ReadTimeout or WriteTimeout. For HTTP/1.1 the

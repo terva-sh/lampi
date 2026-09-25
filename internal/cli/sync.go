@@ -60,7 +60,7 @@ cursor, or cursor-cli. Omit the map or the id and the harness stays
 on. A skipped harness does not move its watermark and does not
 upload. There is no per-harness root flag.
 
-Ruleset v1 scans each file before the lake is contacted. A hit is
+Ruleset v2 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
 redaction.upload_hits is set.
 

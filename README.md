@@ -87,7 +87,8 @@ at `$XDG_DATA_HOME/opencode/export/**/*.json`, and when `XDG_DATA_HOME`
 is unset the directory is `~/.local/share/opencode` (on Windows,
 `%USERPROFILE%\.local\share\opencode`). When `export/` has no JSON, the
 database file at that root is listed instead. `opencode.db-wal` is not
-read. The record shape for Claude, Codex, and OpenCode is internal to
+read. An export uploads as `opencode_export_json`, and a re-export
+replaces the session head. The record shape for Claude, Codex, and OpenCode is internal to
 those adapters; each pins a reader version and keeps keys it does not
 interpret. `sync` pushes the files `config.json`
 allowlists. With no allow rule it refuses the project; the shape of
@@ -120,25 +121,38 @@ is still `sync`.
 Copy that file to the lake host and pass the copy to `serve`. With
 `--token-file`, `/v1` routes require `Authorization: Bearer`. `serve`
 stores a SHA-256 of each device token and rewrites that copy; keep the
-original as the client's secret. A directory of token files is one
-device each. The token is not a command argument. Without a token file,
+original as the client's secret. A token is 64 lowercase hex
+characters, which is what `login` writes. A line starting with `#` is
+a comment and stays through the rewrite. Any other line is an error.
+In a token directory, only `<name>.token` files are loaded, one device
+each. A file with another name, such as `laptop~` or
+`laptop.revoked`, is named on stderr and not loaded. Earlier releases
+loaded every file there, so rename device files to `.token` before
+you upgrade. `kill -HUP` reloads the tokens without dropping requests
+in flight. The token is not a command argument. Without a token file,
 `serve` accepts unauthenticated requests only on a loopback address and
 refuses any other `--addr`. With one, a non-loopback `--addr` is a
 stderr warning: `serve` speaks plain HTTP, so TLS belongs in front.
 Clients refuse to send a token to an `http://` URL unless the host is
 `localhost`, 127.0.0.0/8, or `::1`. `/healthz` stays open and returns no catalog
 data. Do not upload a project whose transcripts you would not copy onto
-that disk in the clear. Ruleset v1 scans for common tokens before the
+that disk in the clear. Ruleset v2 scans for common tokens before the
 upload and quarantines a hit. It does not rewrite the file, and it is
-not a promise that every secret is caught.
+not a promise that every secret is caught. It also scans the manifest,
+which carries the cwd, the remote, and the relpaths. A hit there is
+refused even with `redaction.upload_hits` set. A file that changed
+after it was hashed is not sent in that sync; the next one sends it.
 
 ## Commands
 
 | Command | What it does |
 |---------|----------------|
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
+| `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, and the token file to `--out`. Runs while `serve` runs. |
+| `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
+| `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
-| `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
+| `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
@@ -151,10 +165,13 @@ trajectory` write one ShareGPT conversation per session that
 with no training turn, and a session that is not permitted, are
 named on stderr and left out. Each training row carries
 `raw_sha256`, the current transcript blob. `encrypted_content` is
-copied onto the turn as stored and is not decrypted. Ruleset v1
+copied onto the turn as stored and is not decrypted. Ruleset v2
 strips matches from the plaintext training fields (`value`, tool
 name, and call id). The command does not rewrite the CAS or the
-normalized events, and `--format events` is not stripped.
+normalized events, and `--format events` is not stripped. While
+`serve` runs on the same `--data`, export reads the catalog
+read-only and starts no normalize worker. A session that `serve` has
+not normalized yet is named on stderr and left out.
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
 
@@ -171,13 +188,31 @@ cwd (a path prefix, on a boundary), its terva cwd hash, or its git
 remote. Every field set on a rule has to match. `projects.deny` wins
 over allow. An empty rule matches nothing.
 
+A deny rule reads a doubt as a match. Its `cwd_prefix` ignores case,
+and it is checked against the cwd and the prefix as written and with
+symlinks resolved. Its `cwd_hash` also matches the hash of the
+resolved cwd. Its `git_remote` also matches a session whose remote
+cannot be read: the cwd is gone, or the checkout has no readable
+origin. A cwd that exists outside any repository has no remote, and a
+`git_remote` deny does not match it. Add a `cwd_prefix` to a
+`git_remote` deny to limit it to one tree. An allow rule compares
+exactly, so a case or symlink variant of an allowed path is refused.
+
 The cwd is the one in the terva meta line, not the path of the JSONL
 file. Git remotes are folded before comparison, so
 `git@github.com:terva-sh/lampi.git` and
 `https://github.com/terva-sh/lampi` are the same remote. When the
 session cwd still has a `.git`, the manifest records the remote named
-origin. Any other remote is ignored, so `git_remote` stays empty and a
-remote allow rule does not match. Allow those projects by cwd or cwd hash.
+origin. A URL remote loses its user part and password, except that an
+ssh URL keeps a bare login name such as `git`. Any other remote is
+ignored, so `git_remote` stays empty and a remote allow rule does not
+match. Allow those projects by cwd or cwd hash.
+
+The agent reads the remote, HEAD, and the root commit from files. It
+runs `git` only for a session the allowlist admitted, and only when
+the root commit is somewhere its reader does not follow. That call
+pins config so the checkout's own settings cannot start a transport,
+a hook, or another program.
 
 The lake's `project_id` is not the cwd hash. It is that same folded
 origin URL joined with the repository's root commit, so two machines
@@ -255,14 +290,21 @@ not a path.
 When `sync` refuses a `cursor` or `cursor-cli` session whose cwd is
 empty, the stderr line names which of those cases it is.
 
-Before a request is sent, ruleset v1 scans the file. v1 is the
-high-signal shapes: cloud keys, personal access tokens, and PEM
-private-key blocks from the BEGIN line through the END line. It does
-not flag JWTs or generic `password=` / `api_key=`
-lines. Those show up in ordinary transcripts, and a hit would quarantine
-the upload. The manifest
-stamps `redaction.ruleset` as `v1` and `redaction.status` as `scanned`
-when there are no hits. A hit is appended to `quarantine.jsonl` in the
+Before a request is sent, ruleset v2 scans the file. v2 is the
+high-signal shapes: AWS keys, GitHub, GitLab, Slack, Anthropic, OpenAI,
+Google, Stripe, npm, PyPI, Hugging Face, SendGrid, and DigitalOcean
+tokens with their fixed prefixes, and PEM or PGP private-key blocks
+from the BEGIN line through the END line. It does not flag JWTs or
+generic `password=` / `api_key=` lines. Those show up in ordinary
+transcripts, and a hit would quarantine the upload. The AWS
+documentation example keys and Slack's placeholder webhook are not
+hits. The scan reads JSON string escapes as the text they stand for,
+so a key after an escaped line break, or a private key whose line
+breaks are `\n` escapes, is still found. A Cursor value that the
+export holds as base64 is scanned before it is encoded. The manifest
+stamps `redaction.ruleset` as `v2` and `redaction.status` as `scanned`
+when there are no hits. v1 missed keys inside JSON escapes. Manifests
+it stamped stay on the lake as they are. A hit is appended to `quarantine.jsonl` in the
 state directory (mode 0600) and is not uploaded. The log names the rule.
 It does not contain the matched text. `redaction.upload_hits` is the
 only override that uploads a hit, and the manifest status is then
@@ -389,7 +431,7 @@ instructions` prints the long form.
 
 Phase 0 placement, retention, and encryption are in
 [docs/policy.md](docs/policy.md). Phase 5 training export is
-`terva-lampi export --format sharegpt`. That view strips ruleset v1
+`terva-lampi export --format sharegpt`. That view strips ruleset v2
 matches from plaintext training fields. The CAS and `--format events`
 are not rewritten. The Cursor IDE `state.vscdb` reader and the
 Cursor CLI `store.db` reader are separate corpora.
@@ -400,13 +442,13 @@ This tree compiles and moves allowlisted terva JSONL end to end against
 a local lake. In: filesystem CAS, SQLite catalog, device-token file,
 discovery of `$TERVA_HOME/sessions` plus optional `raati/` and `tasks/`
 sidecars, an fsnotify/poll watcher, a durable outbox, per-path
-watermarks, a project allowlist, and ruleset v1.
+watermarks, a project allowlist, and ruleset v2.
 `sync` runs that pipeline and writes the watermark only after the
 manifest ACK. Device tokens are stored as hashes. A strict append is
 assembled on the lake. A stored terva transcript is projected to
 schema_version 1 events, and `terva-lampi export` writes those events
 as JSONL. `--format sharegpt` writes an allowlisted trajectory of
-the same sessions, with `raw_sha256` on each row and ruleset v1
+the same sessions, with `raw_sha256` on each row and ruleset v2
 matches stripped from the plaintext training fields. `internal/accept`
 is the MVP gate for the events path, and CI runs
 it with the rest of `go test ./...`. Cursor IDE `state.vscdb` and

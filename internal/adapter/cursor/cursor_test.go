@@ -239,7 +239,7 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 		if len(m.Artifacts) != 1 || m.Artifacts[0].Kind != protocol.KindCursorStateJSON {
 			t.Fatalf("artifact %+v", m.Artifacts)
 		}
-		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].SHA256])
+		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].RelPath])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -362,7 +362,7 @@ func TestWorkspaceMergesComposerHeaders(t *testing.T) {
 	if w.NativeSessionID == "global" || w.Project.CWD != "/work/app" {
 		t.Fatalf("workspace session %+v", w)
 	}
-	raw, err := os.ReadFile(b.Paths[w.Artifacts[0].SHA256])
+	raw, err := os.ReadFile(b.Paths[w.Artifacts[0].RelPath])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,6 +468,30 @@ func writeStateDB(t *testing.T, path string, items, disk []stateKV) {
 		if _, err := db.Exec(`INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)`, item.key, item.val); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestEncodedValuesAreScannedRaw(t *testing.T) {
+	pat := "ghp_" + strings.Repeat("Q", 36)
+	raw, hidden := encodeValue([]byte("\xff\xfe" + pat + "\x00"))
+	if strings.Contains(string(raw), pat) || !strings.Contains(string(raw), `"base64"`) {
+		t.Fatalf("value %s", raw)
+	}
+	if hidden.Hits != 1 || len(hidden.Rules) != 1 || hidden.Rules[0] != "github-pat" {
+		t.Fatalf("scan %+v", hidden)
+	}
+	if _, clean := encodeValue([]byte("text " + pat)); clean.Hits != 0 {
+		t.Fatalf("utf-8 text is scanned in the export, not here: %+v", clean)
+	}
+
+	// A global row for a composer this workspace does not name is not
+	// in the export, so its scan does not count.
+	mine := row{Key: "bubbleId:c1:b1", hidden: hidden}
+	theirs := row{Key: "bubbleId:c2:b1", hidden: hidden}
+	doc := document{ItemTable: []row{{Key: "k"}}}
+	doc.CursorDiskKV = mergeDisk(nil, filterDisk([]row{mine, theirs}, map[string]struct{}{"c1": {}}))
+	if got := doc.hidden(); got.Hits != 1 || len(got.Rules) != 1 {
+		t.Fatalf("document scan %+v", got)
 	}
 }
 

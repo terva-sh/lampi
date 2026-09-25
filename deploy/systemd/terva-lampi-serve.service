@@ -37,6 +37,38 @@ Environment=LAMPI_SERVE_TOKEN_FILE=/var/lib/terva-lampi/tokens
 EnvironmentFile=-/etc/terva-lampi/serve.env
 ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE}
 Restart=on-failure
+# serve drains the normalize queue before it exits.
+TimeoutStopSec=120
+UMask=0077
+
+# Sandbox. The file system is read-only except ReadWritePaths.
+# serve writes the lake under --data. When the token file holds a
+# plaintext token, serve rewrites it: a temp file in the same
+# directory, then a rename. If you move LAMPI_SERVE_DATA or
+# LAMPI_SERVE_TOKEN_FILE, put the new directory under a ReadWritePaths
+# entry. Otherwise serve fails at start with a read-only file system.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/terva-lampi
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# Go code is compiled ahead of time. serve never maps memory that is
+# both writable and executable.
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

@@ -2,6 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -13,6 +18,18 @@ import (
 // workers take turns on the catalog and overlap on the blobs.
 const normalizeWorkers = 2
 
+// normalizeAttempts bounds retries of a transient failure in this
+// process: a catalog read, a CAS read, or storing the result. The
+// waits double from retryBase. A job out of attempts stays in
+// catalog.normalize_jobs, and the next start runs it again.
+const normalizeAttempts = 5
+
+const defaultRetryBase = 200 * time.Millisecond
+
+// workerLog receives a worker panic and its stack. serve's stderr is
+// the service journal.
+var workerLog = log.New(os.Stderr, "terva-lampi: ", log.LstdFlags)
+
 // normalizeQueue is the in-memory side of catalog.normalize_jobs.
 // The table is what survives a restart. This queue is what keeps the
 // manifest handler from waiting on projection.
@@ -21,7 +38,10 @@ type normalizeQueue struct {
 	cond     *sync.Cond
 	items    []catalog.NormalizeJob
 	inflight int
-	closed   bool
+	// delayed counts retries waiting on a timer. waitIdle waits for
+	// them too.
+	delayed int
+	closed  bool
 }
 
 func newNormalizeQueue() *normalizeQueue {
@@ -30,11 +50,38 @@ func newNormalizeQueue() *normalizeQueue {
 	return q
 }
 
+// push adds job. After shutdown it does nothing: no worker will pop
+// again, and the job's row in catalog.normalize_jobs is what the next
+// start loads.
 func (q *normalizeQueue) push(job catalog.NormalizeJob) {
 	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
 	q.items = append(q.items, job)
 	q.cond.Broadcast()
 	q.mu.Unlock()
+}
+
+// later pushes job after d.
+func (q *normalizeQueue) later(job catalog.NormalizeJob, d time.Duration) {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
+	q.delayed++
+	q.mu.Unlock()
+	time.AfterFunc(d, func() {
+		q.mu.Lock()
+		q.delayed--
+		if !q.closed {
+			q.items = append(q.items, job)
+		}
+		q.cond.Broadcast()
+		q.mu.Unlock()
+	})
 }
 
 func (q *normalizeQueue) pop() (catalog.NormalizeJob, bool) {
@@ -75,7 +122,7 @@ func (q *normalizeQueue) waitIdle(ctx context.Context) error {
 	}()
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for len(q.items) > 0 || q.inflight > 0 {
+	for len(q.items) > 0 || q.inflight > 0 || q.delayed > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -84,13 +131,14 @@ func (q *normalizeQueue) waitIdle(ctx context.Context) error {
 	return nil
 }
 
-// shutdown stops pop and returns how many jobs were still queued.
+// shutdown stops pop and returns how many jobs were still queued or
+// waiting to be retried.
 func (q *normalizeQueue) shutdown() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.closed = true
 	q.cond.Broadcast()
-	return len(q.items)
+	return len(q.items) + q.delayed
 }
 
 // WaitNormalized blocks until queued and in-flight normalize jobs in
@@ -147,52 +195,142 @@ func (s *Server) enqueueNormalize(ctx context.Context, sessionUID string) error 
 // still current. A newer ingest bumps gen and this publish is dropped.
 // The CAS is not opened for write. beforeProject, when set, runs first
 // so a test can show the ACK returning while projection waits.
+//
+// A catalog error, a CAS read error, or a failed store is transient:
+// the job is tried again after a wait. A projection error from the
+// bytes themselves is recorded on the session at once. A CAS read that
+// still fails after the last attempt is recorded too, and its job row
+// is kept, so the next start tries it again and a success clears it.
+//
+// A panic does not stop the process. It is logged, recorded as the
+// session's normalize_error, and the job row is deleted, so a restart
+// does not load the same panic again.
 func (s *Server) runNormalize(job catalog.NormalizeJob) {
+	defer func() {
+		if r := recover(); r != nil {
+			workerLog.Printf("normalize %s: panic: %v\n%s", job.SessionUID, r, debug.Stack())
+			s.recordPanic(job, r)
+		}
+	}()
 	if s.beforeProject != nil {
 		s.beforeProject()
 	}
 	ctx := context.Background()
 	gen, ok, err := s.Catalog.NormalizeGen(ctx, job.SessionUID)
-	if err != nil || !ok || gen != job.Gen {
+	if err != nil {
+		s.retryNormalize(job, "generation", err)
+		return
+	}
+	if !ok || gen != job.Gen {
 		return
 	}
 	info, ok, err := s.Catalog.Session(ctx, job.SessionUID)
-	if err != nil || !ok {
+	if err != nil {
+		s.retryNormalize(job, "session", err)
+		return
+	}
+	if !ok {
 		return
 	}
 	events, nerr := s.Project(ctx, info.Manifest)
+	keepJob := false
 	if nerr != nil {
+		if isTransient(nerr) {
+			if s.retryNormalize(job, "project", nerr) {
+				return
+			}
+			keepJob = true
+		}
 		s.logger().Warn("normalize failed", "session_uid", job.SessionUID, "err", nerr.Error())
 	}
 	unlock := s.lockSession(job.SessionUID)
 	defer unlock()
 	gen, ok, err = s.Catalog.NormalizeGen(ctx, job.SessionUID)
-	if err != nil || !ok || gen != job.Gen {
+	if err != nil {
+		s.retryNormalize(job, "generation", err)
+		return
+	}
+	if !ok || gen != job.Gen {
 		return
 	}
 	if err := s.StoreEvents(ctx, job.SessionUID, events, nerr); err != nil {
-		s.logger().Error("normalize store failed", "session_uid", job.SessionUID, "attempt", job.Attempt, "err", err.Error())
-		if job.Attempt < 3 {
-			job.Attempt++
-			time.Sleep(50 * time.Millisecond)
-			s.norm.push(job)
-		}
+		s.retryNormalize(job, "store", err)
 		return
 	}
-	_ = s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen)
+	if keepJob {
+		return
+	}
+	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
+		s.logger().Error("normalize job not cleared", "session_uid", job.SessionUID, "err", err.Error())
+	}
+}
+
+// retryNormalize queues job again after a wait and reports true, or
+// reports false when its attempts are spent. Its row stays in
+// catalog.normalize_jobs either way.
+func (s *Server) retryNormalize(job catalog.NormalizeJob, step string, err error) bool {
+	if job.Attempt+1 >= normalizeAttempts {
+		s.logger().Error("normalize left for the next start", "session_uid", job.SessionUID, "step", step, "attempts", job.Attempt+1, "err", err.Error())
+		return false
+	}
+	s.logger().Warn("normalize retry", "session_uid", job.SessionUID, "step", step, "attempt", job.Attempt+1, "err", err.Error())
+	base := s.retryBase
+	if base <= 0 {
+		base = defaultRetryBase
+	}
+	wait := base << job.Attempt
+	job.Attempt++
+	s.norm.later(job, wait)
+	return true
+}
+
+// sessionLock serializes publishes for one session. refs counts the
+// holders and waiters, so the entry is dropped when nobody needs it.
+type sessionLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// recordPanic stores a worker panic as the session's failure when job
+// is still the current generation. A newer ingest has its own job and
+// its own outcome. The derived files are removed, as for any failure.
+func (s *Server) recordPanic(job catalog.NormalizeJob, r any) {
+	ctx := context.Background()
+	unlock := s.lockSession(job.SessionUID)
+	defer unlock()
+	gen, ok, err := s.Catalog.NormalizeGen(ctx, job.SessionUID)
+	if err != nil || !ok || gen != job.Gen {
+		return
+	}
+	_ = removeDerived(filepath.Join(s.Normalized, job.SessionUID+".jsonl"), s.Parquet, job.SessionUID)
+	if err := s.Catalog.SetNormalizeError(ctx, job.SessionUID, fmt.Sprintf("normalize: panic: %v", r)); err != nil {
+		workerLog.Printf("normalize %s: record panic: %v", job.SessionUID, err)
+	}
+	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
+		workerLog.Printf("normalize %s: delete job: %v", job.SessionUID, err)
+	}
 }
 
 func (s *Server) lockSession(sessionUID string) func() {
 	s.pubMu.Lock()
 	if s.pubs == nil {
-		s.pubs = map[string]*sync.Mutex{}
+		s.pubs = map[string]*sessionLock{}
 	}
-	mu := s.pubs[sessionUID]
-	if mu == nil {
-		mu = &sync.Mutex{}
-		s.pubs[sessionUID] = mu
+	l := s.pubs[sessionUID]
+	if l == nil {
+		l = &sessionLock{}
+		s.pubs[sessionUID] = l
 	}
+	l.refs++
 	s.pubMu.Unlock()
-	mu.Lock()
-	return mu.Unlock
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		s.pubMu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(s.pubs, sessionUID)
+		}
+		s.pubMu.Unlock()
+	}
 }

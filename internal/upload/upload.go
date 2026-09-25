@@ -1,7 +1,7 @@
 // Package upload is the one-shot push shared by terva-lampi sync and the
 // long-running agent.
 //
-// The order is fixed. Hello, then allowlist, ruleset v1, watermark.Plan,
+// The order is fixed. Hello, then allowlist, ruleset v2, watermark.Plan,
 // and the outbox, then the blobs and manifests. Hello comes before the
 // files are read and scanned, so a lake that is down costs only
 // discovery. A manifest ACK is what commits the
@@ -64,7 +64,7 @@ import (
 
 // Options selects the lake, the local terva home, and the off-box gate.
 // Projects zero value denies every project. UploadHits is the explicit
-// override that sends bytes ruleset v1 flagged.
+// override that sends bytes ruleset v2 flagged.
 type Options struct {
 	ServerURL string
 	Token     string
@@ -264,11 +264,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 func anyPermitted(opt Options, bundles []adapter.Bundle) bool {
 	for _, b := range bundles {
 		for _, m := range b.Manifests {
-			if opt.Projects.Permitted(config.ProjectID{
-				CWD:       m.Project.CWD,
-				CWDHash:   m.Project.CWDHash,
-				GitRemote: m.Project.GitRemote,
-			}) {
+			if opt.Projects.Permitted(projectID(m)) {
 				return true
 			}
 		}
@@ -693,8 +689,8 @@ func putDigest(a protocol.Artifact) string {
 
 func requireScanned(m protocol.Manifest) error {
 	for _, a := range m.Artifacts {
-		if a.Redaction.Ruleset != redact.RulesetV1 {
-			return fmt.Errorf("upload: %s: redaction ruleset v1 did not run", a.RelPath)
+		if a.Redaction.Ruleset != redact.RulesetV2 {
+			return fmt.Errorf("upload: %s: redaction ruleset %s did not run", a.RelPath, redact.RulesetV2)
 		}
 		switch a.Redaction.Status {
 		case protocol.RedactionScanned:
@@ -706,7 +702,7 @@ func requireScanned(m protocol.Manifest) error {
 				return fmt.Errorf("upload: %s: override without a redaction hit", a.RelPath)
 			}
 		default:
-			return fmt.Errorf("upload: %s: redaction ruleset v1 did not run", a.RelPath)
+			return fmt.Errorf("upload: %s: redaction ruleset %s did not run", a.RelPath, redact.RulesetV2)
 		}
 	}
 	return nil

@@ -56,7 +56,10 @@ type Server struct {
 	norm        *normalizeQueue
 	normalizeWG sync.WaitGroup
 	pubMu       sync.Mutex
-	pubs        map[string]*sync.Mutex
+	pubs        map[string]*sessionLock
+	// retryBase is the first wait before a transient normalize failure
+	// is tried again. Zero is defaultRetryBase. Tests shorten it.
+	retryBase time.Duration
 	// beforeProject, when set, runs in the worker before Project.
 	// Tests use it to show that the manifest ACK does not wait.
 	beforeProject func()
@@ -70,8 +73,27 @@ func (s *Server) Allow(token string) {
 	s.Devices.Allow(token)
 }
 
-// Open loads a filesystem CAS and a SQLite catalog under dataDir.
+// Open loads a filesystem CAS and a SQLite catalog under dataDir, loads
+// the queued normalize jobs, and starts the workers.
 func Open(dataDir string) (*Server, error) {
+	s, err := OpenIdle(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	s.norm = newNormalizeQueue()
+	if err := s.loadNormalizeJobs(context.Background()); err != nil {
+		s.Catalog.Close()
+		return nil, err
+	}
+	s.startNormalizeWorkers()
+	return s, nil
+}
+
+// OpenIdle opens the lake for writing with no normalize queue and no
+// worker, for an operator command that holds lake.lock. Queued jobs
+// stay in the catalog for the next serve. Its Handler cannot take a
+// manifest; serve uses Open.
+func OpenIdle(dataDir string) (*Server, error) {
 	store, err := cas.Open(filepath.Join(dataDir, "cas"))
 	if err != nil {
 		return nil, err
@@ -96,14 +118,26 @@ func Open(dataDir string) (*Server, error) {
 		Normalized: norm,
 		Parquet:    parquetDir,
 		Now:        time.Now,
-		norm:       newNormalizeQueue(),
 	}
-	if err := s.loadNormalizeJobs(context.Background()); err != nil {
-		cat.Close()
+	return s, nil
+}
+
+// OpenReadOnly opens the lake under dataDir for a command that runs
+// beside serve. The catalog is read-only, and there is no normalize
+// queue and no worker: serve owns those. Project reads; StoreEvents
+// and the handler's writes fail.
+func OpenReadOnly(dataDir string) (*Server, error) {
+	cat, err := catalog.OpenReadOnly(filepath.Join(dataDir, "catalog.db"))
+	if err != nil {
 		return nil, err
 	}
-	s.startNormalizeWorkers()
-	return s, nil
+	return &Server{
+		CAS:        &cas.Store{Root: filepath.Join(dataDir, "cas")},
+		Catalog:    cat,
+		Normalized: filepath.Join(dataDir, "normalized"),
+		Parquet:    filepath.Join(dataDir, "parquet"),
+		Now:        time.Now,
+	}, nil
 }
 
 // Close drains the normalize queue, stops the workers, and releases
