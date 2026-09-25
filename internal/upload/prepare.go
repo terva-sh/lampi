@@ -199,11 +199,12 @@ func scanManifest(opt Options, m protocol.Manifest) (*quarantineHit, error) {
 	sum := sha256.Sum256(raw)
 	rel := (redact.Ruleset{}).Strip(sessionRel(m))
 	if err := redact.AppendQuarantine(opt.StateDir, redact.Record{
-		RelPath: rel,
-		SHA256:  hex.EncodeToString(sum[:]),
-		Ruleset: scan.Ruleset,
-		Hits:    scan.Hits,
-		Rules:   scan.Rules,
+		RelPath:  rel,
+		SHA256:   hex.EncodeToString(sum[:]),
+		Ruleset:  scan.Ruleset,
+		Hits:     scan.Hits,
+		Rules:    scan.Rules,
+		Manifest: true,
 	}); err != nil {
 		return nil, err
 	}
@@ -228,12 +229,15 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
 		scan = scan.Add(bundle.Hidden[a.SHA256])
-		if scan.Hits > 0 && !opt.UploadHits {
-			sum := sha256.Sum256(body)
+		sum := sha256.Sum256(body)
+		digest := hex.EncodeToString(sum[:])
+		// quarantine allow acknowledges these exact bytes. Anything
+		// else, including the same file after it grows, is held.
+		if scan.Hits > 0 && !opt.UploadHits && !opt.allowed[digest] {
 			if err := redact.AppendQuarantine(opt.StateDir, redact.Record{
 				RelPath: a.RelPath,
 				CWD:     m.Project.CWD,
-				SHA256:  hex.EncodeToString(sum[:]),
+				SHA256:  digest,
 				Ruleset: scan.Ruleset,
 				Hits:    scan.Hits,
 				Rules:   scan.Rules,

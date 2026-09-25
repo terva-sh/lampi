@@ -16,7 +16,8 @@
 // A finished run rewrites last_sync.json in the state directory. That
 // includes a pass that refused or quarantined every session. A lake
 // error leaves the previous stamp, so status does not report the failed
-// attempt as the last sync.
+// attempt as the last sync. last_attempt.json records every run and
+// the most recent error.
 //
 // A bearer token goes over https, or over http only to a loopback host.
 // No timeout covers a whole request. A request that moves no bytes for
@@ -99,6 +100,11 @@ type Options struct {
 	// the chunk digests. Zero sends one body. The manifest lists the
 	// chunks when the artifact is the whole file.
 	ChunkBytes int64
+
+	// allowed is the digests quarantine allow acknowledged, read from
+	// StateDir when the run starts. A file with exactly those bytes
+	// uploads with an override stamp, the way UploadHits does.
+	allowed map[string]bool
 }
 
 // Result counts what this run did. Sessions are the uids the server ACKed,
@@ -140,7 +146,17 @@ func (e *Rejected) Error() string {
 // harness, including terva. The agent leaves a home empty when
 // config says that harness is disabled, so this run does not read
 // it, does not move its watermark, and does not put its bytes.
+// Every run, finished or not, rewrites last_attempt.json. A run cut
+// short by ctx is a shutdown, not a failure, and is not recorded.
 func Sync(ctx context.Context, opt Options) (Result, error) {
+	res, err := syncOnce(ctx, opt)
+	if err == nil || ctx.Err() == nil {
+		recordAttempt(opt.StateDir, opt.now(), err)
+	}
+	return res, err
+}
+
+func syncOnce(ctx context.Context, opt Options) (Result, error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
 	}
@@ -149,6 +165,13 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	}
 	if err := CheckToken(opt.ServerURL, opt.Token); err != nil {
 		return Result{}, err
+	}
+	if opt.StateDir != "" {
+		allowed, err := redact.AllowedDigests(opt.StateDir)
+		if err != nil {
+			return Result{}, err
+		}
+		opt.allowed = allowed
 	}
 	bundles, skipped := bundlesFor(opt)
 	defer cleanupBundles(bundles)
@@ -338,9 +361,6 @@ func saveLastSync(opt Options, res Result) error {
 	if opt.StateDir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(opt.StateDir, 0o700); err != nil {
-		return fmt.Errorf("upload: last sync: %w", err)
-	}
 	raw, err := json.MarshalIndent(LastSync{
 		At:          time.Now().UTC(),
 		Server:      opt.ServerURL,
@@ -357,30 +377,9 @@ func saveLastSync(opt Options, res Result) error {
 	raw = append(raw, '\n')
 	// Rename a complete file over the stamp. A crash mid-write leaves the
 	// previous document in place; readers never see a truncated one.
-	tmp, err := os.CreateTemp(opt.StateDir, ".last-sync-*")
-	if err != nil {
+	if err := writeStateFile(opt.StateDir, LastSyncFile(opt.StateDir), raw); err != nil {
 		return fmt.Errorf("upload: last sync: %w", err)
 	}
-	tmpName := tmp.Name()
-	defer func() {
-		tmp.Close()
-		if tmpName != "" {
-			os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmp.Write(raw); err != nil {
-		return fmt.Errorf("upload: last sync: %w", err)
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		return fmt.Errorf("upload: last sync: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("upload: last sync: %w", err)
-	}
-	if err := os.Rename(tmpName, LastSyncFile(opt.StateDir)); err != nil {
-		return fmt.Errorf("upload: last sync: %w", err)
-	}
-	tmpName = ""
 	return nil
 }
 

@@ -158,7 +158,9 @@ does not grow. The first wait is 2s. Each further failure doubles the
 ceiling of a jittered wait, up to 5 minutes, and a success resets it.
 Growth during that wait does not start a push. A 401 or 403 is logged
 once, naming the token file, and waits the full 5 minutes. A project
-the allowlist or the scan refused is not retried. SIGTERM or interrupt
+the allowlist or the scan refused is not retried. A refusal or a
+skipped file is logged the first pass it appears and not again while
+it lasts. SIGTERM or interrupt
 drains the outbox best-effort and exits. On Unix, SIGUSR1 asks for a
 sync now. The filesystem watch is still the source of truth; the
 signal only skips the wait. While the
@@ -334,6 +336,8 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	}
 	defer disarmRetry()
 	bo := agentBackoff()
+	// seen keeps refusal and skip lines to one print while they last.
+	seen := &changeLog{}
 	// authLogged holds the 401 line to one per run of refusals. A success
 	// or a different error lets it print again.
 	authLogged := false
@@ -344,14 +348,14 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			disarmRetry()
 			watchCancel()
 			_ = waitWatches(watchErr, len(watchers))
-			return drainAgent(env, opt)
+			return drainAgent(env, opt, seen)
 		case err := <-watchErr:
 			disarmRetry()
 			watchCancel()
 			if rest := waitWatches(watchErr, len(watchers)-1); err == nil {
 				err = rest
 			}
-			drainAgent(env, opt)
+			drainAgent(env, opt, seen)
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -361,13 +365,13 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			// shutdown has begun. The drain below is the last push.
 			var err error
 			if ctx.Err() == nil {
-				err = runAgentSync(ctx, env, opt, "")
+				err = runAgentSync(ctx, env, opt, "", seen)
 			}
 			if ctx.Err() != nil {
 				disarmRetry()
 				watchCancel()
 				_ = waitWatches(watchErr, len(watchers))
-				return drainAgent(env, opt)
+				return drainAgent(env, opt, seen)
 			}
 			// A token the lake refuses will not start working in two
 			// seconds. Say so once, naming the file, and wait the cap.
@@ -381,15 +385,16 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			}
 			authLogged = false
 			if err != nil {
-				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
 				// A refusal is the allowlist or the scan. It will not
 				// change until the process is restarted with a new config.
-				// The rest of the pass reached the lake.
+				// The rest of the pass reached the lake. runAgentSync
+				// printed the refusals that are new.
 				if _, refused := err.(*upload.Rejected); refused {
 					bo.reset()
 					disarmRetry()
 					continue
 				}
+				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
 				armRetry(bo.next())
 				continue
 			}
@@ -497,22 +502,66 @@ func waitWatches(watchErr <-chan error, n int) error {
 	return first
 }
 
-func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string) error {
+// runAgentSync is one pass. A refusal or a skip that the previous
+// finished pass already printed is not printed again; one that is new,
+// or that returns after a pass without it, is.
+func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string, seen *changeLog) error {
 	res, err := upload.Sync(ctx, opt)
+	var rejected *upload.Rejected
+	isRejected := errors.As(err, &rejected)
+	if err == nil || isRejected {
+		var reasons []string
+		if isRejected {
+			reasons = rejected.Reasons
+		}
+		res.Skipped = seen.fresh("skip", res.Skipped)
+		if fresh := seen.fresh("refuse", reasons); len(fresh) > 0 {
+			fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", &upload.Rejected{Reasons: fresh})
+		}
+	}
 	printSync(env.stdout(), env.stderr(), prefix, res)
 	return err
+}
+
+// changeLog remembers the lines the last finished pass printed, by
+// kind. A lake error does not reset it: the pass did not get far
+// enough to say whether the refusal still holds.
+type changeLog struct {
+	last map[string]map[string]bool
+}
+
+// fresh returns the lines not printed last time and makes lines the
+// new set for kind. A line missing from this pass is forgotten, so it
+// prints again if it comes back.
+func (c *changeLog) fresh(kind string, lines []string) []string {
+	if c.last == nil {
+		c.last = map[string]map[string]bool{}
+	}
+	prev := c.last[kind]
+	next := map[string]bool{}
+	var out []string
+	for _, l := range lines {
+		if !prev[l] && !next[l] {
+			out = append(out, l)
+		}
+		next[l] = true
+	}
+	c.last[kind] = next
+	return out
 }
 
 // drainAgent pushes whatever the outbox still holds. The context is new
 // on purpose: the one that stopped the watch is already cancelled, and
 // using it would abort the drain it exists to finish. An error is logged
 // and not returned. Shutdown still succeeds.
-func drainAgent(env Env, opt upload.Options) error {
+func drainAgent(env Env, opt upload.Options, seen *changeLog) error {
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	fmt.Fprintln(env.stderr(), "terva-lampi: draining outbox")
-	if err := runAgentSync(ctx, env, opt, "drain: "); err != nil {
-		fmt.Fprintf(env.stderr(), "terva-lampi: drain: %v\n", err)
+	if err := runAgentSync(ctx, env, opt, "drain: ", seen); err != nil {
+		if _, refused := err.(*upload.Rejected); !refused {
+			fmt.Fprintf(env.stderr(), "terva-lampi: drain: %v\n", err)
+		}
 	}
 	return nil
 }

@@ -31,8 +31,10 @@ way. The server and token_file lines end in source=flag, env, config,
 or default, naming the layer that won.
 
 Prints the local machine id (creating it if needed), one line per
-known harness, outbox depth, a watermark summary, and the last
-finished sync. Those live under the state directory, next to the
+known harness, outbox depth, a watermark summary, the last finished
+sync, and the last attempt with the most recent error. last_attempt
+is the time of the last run and ok or failed. last_error is the time
+and text of the most recent failure, or none. Those live under the state directory, next to the
 files the agent and sync already use.
 
 Each harness line has this spelling, in order terva, claude, codex,
@@ -146,7 +148,33 @@ func writeCaptureState(w io.Writer, stateDir string) error {
 	fmt.Fprintf(w, "outbox: %d\n", depth)
 	fmt.Fprintln(w, formatWatermarks(sum))
 	fmt.Fprintln(w, lastSyncLine(stateDir))
+	fmt.Fprint(w, lastAttemptLines(stateDir))
 	return nil
+}
+
+// lastAttemptLines is the last run, finished or not, and the most
+// recent error. A finished run after a failure still shows that error
+// with its time.
+func lastAttemptLines(stateDir string) string {
+	a, ok, err := upload.ReadAttempt(stateDir)
+	if err != nil {
+		return "last_attempt: unreadable\n"
+	}
+	if !ok {
+		return "last_attempt: never\nlast_error: none\n"
+	}
+	result := "ok"
+	if a.Error != "" {
+		result = "failed"
+	}
+	out := fmt.Sprintf("last_attempt: %s %s\n", a.At.UTC().Format(time.RFC3339), result)
+	if a.LastError == "" {
+		return out + "last_error: none\n"
+	}
+	// An error can span lines, such as a refusal list. status keeps
+	// one line per field.
+	msg := strings.Join(strings.Fields(a.LastError), " ")
+	return out + fmt.Sprintf("last_error: %s %s\n", a.LastErrorAt.UTC().Format(time.RFC3339), msg)
 }
 
 func outboxDepth(stateDir string) (int, error) {

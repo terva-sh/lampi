@@ -104,8 +104,9 @@ relative path, or a file URI is an empty cwd, and the allowlist
 refuses the export. Neither case adds a permit rule or a schema field.
 
 Ruleset v2 still runs after the allowlist and before any request. A
-hit is quarantined unless `redaction.upload_hits` is set. Leave that
-false. The manifest is scanned too, and a hit there is refused
+hit is quarantined unless `redaction.upload_hits` is set, or unless
+`terva-lampi quarantine allow` acknowledged that file's exact digest.
+Leave `upload_hits` false. The manifest is scanned too, and a hit there is refused
 whatever `upload_hits` says. Neither gate rewrites the raw file.
 
 ## Machine inventory

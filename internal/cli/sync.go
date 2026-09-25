@@ -62,7 +62,9 @@ upload. There is no per-harness root flag.
 
 Ruleset v2 scans each file before the lake is contacted. A hit is
 quarantined under the state directory and is not uploaded, unless
-redaction.upload_hits is set.
+redaction.upload_hits is set or terva-lampi quarantine allow
+acknowledged that file's exact digest. See terva-lampi quarantine
+--help.
 
 Unchanged files upload no new blobs. The watermark moves only after the
 lake ACKs the manifest. Pending digests sit in the outbox until that ACK.
