@@ -164,7 +164,7 @@ func (e *Rejected) Error() string {
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	res, err := syncOnce(ctx, opt)
 	if err == nil || ctx.Err() == nil {
-		recordAttempt(opt.StateDir, opt.now(), err)
+		recordAttempt(opt.StateDir, opt.now(), res.Skipped, err)
 	}
 	return res, err
 }
@@ -225,11 +225,11 @@ func syncOnce(ctx context.Context, opt Options) (Result, error) {
 	if anyPermitted(opt, bundles) {
 		hello, err = postHello(ctx, client, opt)
 		if err != nil {
-			return Result{}, err
+			return Result{Skipped: skipped}, err
 		}
 		warning = clockWarning(opt.now(), hello.ServerTime)
 		if !slices.Contains(hello.ProtocolVersions, protocol.Version) {
-			return Result{Warning: warning}, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
+			return Result{Warning: warning, Skipped: skipped}, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
 		}
 	}
 
