@@ -38,7 +38,10 @@ TLS.
 ## Retention
 
 No TTL. Session bytes, catalog rows, and normalized projections stay
-until an explicit manual purge. This tree does not delete by age.
+until `terva-lampi serve purge --session <uid> --yes` removes that
+session, with `serve` stopped. Purge keeps a blob another session
+names. A backup taken earlier still holds the bytes. This tree does
+not delete by age.
 
 ## Encryption at rest
 

@@ -29,6 +29,8 @@ usage:
                                  copy the catalog, the CAS, and the token file
   terva-lampi serve fsck [--data DIR] [--repair]
                                  re-hash every stored object
+  terva-lampi serve purge --session UID [--data DIR] [--yes]
+                                 remove one session and its blobs
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -85,6 +87,8 @@ func runServe(env Env, args []string) error {
 			return runServeBackup(env, args[1:])
 		case "fsck":
 			return runServeFsck(env, args[1:])
+		case "purge":
+			return runServePurge(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile string

@@ -73,8 +73,27 @@ func (s *Server) Allow(token string) {
 	s.Devices.Allow(token)
 }
 
-// Open loads a filesystem CAS and a SQLite catalog under dataDir.
+// Open loads a filesystem CAS and a SQLite catalog under dataDir, loads
+// the queued normalize jobs, and starts the workers.
 func Open(dataDir string) (*Server, error) {
+	s, err := OpenIdle(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	s.norm = newNormalizeQueue()
+	if err := s.loadNormalizeJobs(context.Background()); err != nil {
+		s.Catalog.Close()
+		return nil, err
+	}
+	s.startNormalizeWorkers()
+	return s, nil
+}
+
+// OpenIdle opens the lake for writing with no normalize queue and no
+// worker, for an operator command that holds lake.lock. Queued jobs
+// stay in the catalog for the next serve. Its Handler cannot take a
+// manifest; serve uses Open.
+func OpenIdle(dataDir string) (*Server, error) {
 	store, err := cas.Open(filepath.Join(dataDir, "cas"))
 	if err != nil {
 		return nil, err
@@ -99,13 +118,7 @@ func Open(dataDir string) (*Server, error) {
 		Normalized: norm,
 		Parquet:    parquetDir,
 		Now:        time.Now,
-		norm:       newNormalizeQueue(),
 	}
-	if err := s.loadNormalizeJobs(context.Background()); err != nil {
-		cat.Close()
-		return nil, err
-	}
-	s.startNormalizeWorkers()
 	return s, nil
 }
 

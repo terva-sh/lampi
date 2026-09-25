@@ -159,7 +159,8 @@ the machines you run agents on, content-addressed, in one place.
 
 usage:
   terva-lampi serve     run the lake (health, blob check/put, manifests),
-                        or back it up or check it (serve backup, serve fsck)
+                        or back it up, check it, or purge a session
+                        (serve backup, serve fsck, serve purge)
   terva-lampi agent     local capture agent
   terva-lampi sync      push new bytes once
   terva-lampi status    agent state and lake health
