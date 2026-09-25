@@ -189,3 +189,76 @@ func gitRun(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 }
+
+// TestProjectResolutionIgnoresCheckoutCommands builds a partial clone
+// whose promisor remote is a command transport and whose HEAD names a
+// commit that is not there. Resolving that checkout's project must not
+// run the command, before or after the allowlist.
+func TestProjectResolutionIgnoresCheckoutCommands(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	hostile := func(marker string) string {
+		repo := t.TempDir()
+		gitRun(t, repo, "init", "-q", "-b", "main")
+		for _, kv := range [][2]string{
+			{"core.repositoryformatversion", "1"},
+			{"extensions.partialClone", "origin"},
+			{"remote.origin.url", "ext::sh -c touch% " + marker},
+			{"remote.origin.promisor", "true"},
+			{"protocol.allow", "always"},
+			{"protocol.ext.allow", "always"},
+			{"core.fsmonitor", "touch " + marker},
+			{"core.hooksPath", filepath.Dir(marker)},
+		} {
+			gitRun(t, repo, "config", kv[0], kv[1])
+		}
+		missing := strings.Repeat("1", 40)
+		if err := os.WriteFile(filepath.Join(repo, ".git", "refs", "heads", "main"), []byte(missing+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return repo
+	}
+
+	// The control proves this git would run the transport when asked.
+	// Without that, the check below proves nothing.
+	control := filepath.Join(t.TempDir(), "control")
+	repo := hostile(control)
+	cmd := exec.Command("git", "-C", repo, "rev-list", "--max-parents=0", "HEAD")
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/git-config-absent", "GIT_TERMINAL_PROMPT=0")
+	_ = cmd.Run()
+	if _, err := os.Stat(control); err != nil {
+		t.Skip("this git does not lazy fetch through the ext transport")
+	}
+
+	marker := filepath.Join(t.TempDir(), "marker")
+	repo = hostile(marker)
+	p := ProjectAt(repo)
+	if p.GitRemote == "" || p.GitCommit == "" {
+		t.Fatalf("fixture did not read: %+v", p)
+	}
+	p = ResolveRoot(p)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("project resolution ran a command from the checkout's config")
+	}
+	if p.GitRoot != "" || p.ProjectID != "" {
+		t.Fatalf("missing commit resolved a root: %+v", p)
+	}
+
+	// A git older than GIT_NO_LAZY_FETCH still fetches. The protocol
+	// block has to hold on its own, over the checkout's per-protocol
+	// allow.
+	saved := gitEnv
+	defer func() { gitEnv = saved }()
+	gitEnv = nil
+	for _, kv := range saved {
+		if kv != "GIT_NO_LAZY_FETCH=1" {
+			gitEnv = append(gitEnv, kv)
+		}
+	}
+	marker = filepath.Join(t.TempDir(), "marker")
+	ResolveRoot(ProjectAt(hostile(marker)))
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("without GIT_NO_LAZY_FETCH, project resolution ran a command from the checkout's config")
+	}
+}

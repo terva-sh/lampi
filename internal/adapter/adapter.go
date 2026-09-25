@@ -25,10 +25,12 @@ type Ref struct {
 	ModTime time.Time
 }
 
-// Bundle is a set of manifests plus the local path for each digest the
-// client still has to PUT. Two files with the same bytes share one path;
-// either file's bytes satisfy the put. Root is the harness home those
-// paths were walked from, and it is the watermark root.
+// Bundle is a set of manifests plus the local path for each artifact,
+// keyed by its relpath. Two files with the same bytes keep their own
+// paths, so one session never reads another's file. The file can change
+// after the digest was taken; the reader checks the bytes against the
+// artifact digest. Root is the harness home those paths were walked
+// from, and it is the watermark root.
 type Bundle struct {
 	Root      string
 	Manifests []protocol.Manifest

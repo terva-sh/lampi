@@ -286,7 +286,7 @@ func TestManifestDatabaseFallback(t *testing.T) {
 	if m.Project.CWD != "" || m.Project.CWDHash != "" {
 		t.Fatalf("database project should be empty: %+v", m.Project)
 	}
-	if _, ok := b.Paths[m.Artifacts[0].SHA256]; !ok {
+	if _, ok := b.Paths[m.Artifacts[0].RelPath]; !ok {
 		t.Fatal("database bytes were not a put path")
 	}
 }
