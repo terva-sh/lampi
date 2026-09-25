@@ -2,8 +2,9 @@
 // long-running agent.
 //
 // The order is fixed. Hello, then allowlist, ruleset v1, watermark.Plan,
-// and the outbox, then the blobs and manifests. Hello comes first so a
-// lake that is down costs no scan. A manifest ACK is what commits the
+// and the outbox, then the blobs and manifests. Hello comes before the
+// files are read and scanned, so a lake that is down costs only
+// discovery. A manifest ACK is what commits the
 // watermark and acks the outbox. A file whose bytes match the stored
 // watermark is checked and not PUT again. Plan KindTail PUTs only the
 // suffix: byte_watermark_prev is the stored offset, tail_sha256 is the

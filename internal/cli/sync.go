@@ -72,7 +72,7 @@ assembles the tail onto the stored prefix. A clock that disagrees with
 hello's server_time by more than five minutes is warned about and the
 push still runs.
 
-hello runs before the scan. A blob over 4 MiB goes as Content-Range
+hello runs before the files are read and scanned. A blob over 4 MiB goes as Content-Range
 pieces. No timeout covers a whole request; one that moves no bytes for
 60s is cancelled.
 

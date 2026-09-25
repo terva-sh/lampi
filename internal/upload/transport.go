@@ -104,17 +104,30 @@ var errStalled = errors.New("stalled")
 // between the last request byte and the response headers: bytes still
 // in the socket buffer drain there, and ResponseHeaderTimeout owns
 // that wait.
+//
+// The request body is read on the transport's goroutine and the
+// response on the caller's, so the timer is only touched under mu.
 type stallWatch struct {
-	d time.Duration
-	t *time.Timer
+	d  time.Duration
+	mu sync.Mutex
+	t  *time.Timer
 }
 
 func newStallWatch(d time.Duration, cancel context.CancelCauseFunc) *stallWatch {
 	return &stallWatch{d: d, t: time.AfterFunc(d, func() { cancel(errStalled) })}
 }
 
-func (w *stallWatch) touch() { w.t.Reset(w.d) }
-func (w *stallWatch) pause() { w.t.Stop() }
+func (w *stallWatch) touch() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.t.Reset(w.d)
+}
+
+func (w *stallWatch) pause() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.t.Stop()
+}
 
 // progressBody is a request body that feeds the watchdog.
 type progressBody struct {
