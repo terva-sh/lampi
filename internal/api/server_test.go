@@ -288,7 +288,7 @@ func postManifest(t *testing.T, h http.Handler, m protocol.Manifest) protocol.Ma
 	return ack
 }
 
-func mustJSON(t *testing.T, v any) []byte {
+func mustJSON(t testing.TB, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)
 	if err != nil {

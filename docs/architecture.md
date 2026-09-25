@@ -57,7 +57,11 @@ goes on. A missing harness home is polled until it appears, and a
 watcher that loses fsnotify polls. macOS polls by default.
 
 After a manifest is stored, the lake ACKs and enqueues normalize work.
-The HTTP handler does not project. Two workers read the catalog head
+A post that records nothing, every artifact unchanged or stale, with
+no new project id and no earlier projection failure, is not projected
+again. The lake compares a posted file with the stored one as two
+streams and hashes it the same way, so an unchanged post of a file
+past the blob cap reads none of it. The HTTP handler does not project. Two workers read the catalog head
 and write the derived view. That view lags the ACK until the worker
 for that generation finishes. On SIGTERM `terva-lampi serve` stops
 accepting, waits up to 20s for requests in flight, then drains the

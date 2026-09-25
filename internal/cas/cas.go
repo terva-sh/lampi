@@ -220,6 +220,39 @@ func (s *Store) Read(digest string) ([]byte, error) {
 	return b, nil
 }
 
+// Size is the length of the stored bytes for digest, without reading
+// them: the object's size, or the sum of a logical file's chunks.
+func (s *Store) Size(digest string) (int64, error) {
+	ok, err := s.Has(digest)
+	if err != nil {
+		return 0, err
+	}
+	if ok {
+		f, err := s.OpenBlob(digest)
+		if err != nil {
+			return 0, err
+		}
+		defer f.Close()
+		st, err := f.Stat()
+		if err != nil {
+			return 0, fmt.Errorf("cas: %w", err)
+		}
+		return st.Size(), nil
+	}
+	idx, err := s.readLogical(digest)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, fmt.Errorf("cas: blob %s is not in the store", digest)
+		}
+		return 0, err
+	}
+	var n int64
+	for _, l := range idx.ChunkLengths {
+		n += l
+	}
+	return n, nil
+}
+
 // OpenBlob opens a stored object for reading.
 func (s *Store) OpenBlob(digest string) (*os.File, error) {
 	p, err := s.Path(digest)

@@ -1,12 +1,10 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -29,24 +27,25 @@ func (e *missingBlobsError) Error() string { return "missing blobs" }
 // match the bytes, or a digest that does not match them.
 type clientError struct{ error }
 
-// resolve decides Layer B for each artifact. Equal full digests are a
-// no-op. A strict extension of the stored bytes moves the head. A stored
-// file that starts with the client bytes keeps the head (stale). Anything
-// else is a divergent copy and does not move the head.
+// resolve checks m against the stored bytes and returns the decisions
+// Ingest starts from. Every blob m names has to be stored, each size
+// has to match, and a tail has to extend the stored file; a chunked
+// file and an assembled tail are installed here. Objects are streamed
+// and hashed, never held whole, so a post of a file past the blob cap
+// costs buffers, not the file. An artifact whose digest is already the
+// current one at its relpath is not read at all.
+//
+// Ingest relates each artifact to the head it reads inside its own
+// write transaction (catalog.Relate), so the decisions here are only
+// head for a new relpath and unchanged for the rest.
 func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.Decision, error) {
 	_, current, _, err := s.Catalog.Current(ctx, m.Harness, m.NativeSessionID)
 	if err != nil {
 		return nil, err
 	}
 	byRel := map[string]catalog.ArtifactRow{}
-	prevBytes := map[string][]byte{}
 	for _, row := range current {
 		byRel[row.RelPath] = row
-		b, err := s.readStored(row.SHA256)
-		if err != nil {
-			return nil, err
-		}
-		prevBytes[row.RelPath] = b
 	}
 
 	var missing []string
@@ -95,7 +94,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 		if hasPrev && a.SHA256 == prev.SHA256 {
 			continue
 		}
-		if !hasPrev || int64(len(prevBytes[a.RelPath])) != a.ByteWatermarkPrev {
+		if !hasPrev || prev.Size != a.ByteWatermarkPrev {
 			return nil, errPrefixMismatch
 		}
 		ok, err := s.CAS.Has(a.TailSHA256)
@@ -114,12 +113,8 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 	decisions := make([]catalog.Decision, len(m.Artifacts))
 	for i, a := range m.Artifacts {
 		prev, hasPrev := byRel[a.RelPath]
-		client, err := s.clientBytes(a, prevBytes[a.RelPath], hasPrev)
-		if err != nil {
+		if err := s.checkClient(a, prev, hasPrev); err != nil {
 			return nil, err
-		}
-		if sha256Hex(client) != a.SHA256 {
-			return nil, &clientError{fmt.Errorf("artifact %q sha256 does not match the stored bytes", a.RelPath)}
 		}
 		if !hasPrev {
 			decisions[i] = catalog.Decision{
@@ -129,81 +124,99 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 			}
 			continue
 		}
-		switch protocol.RelationOf(prevBytes[a.RelPath], client) {
-		case protocol.RelationUnchanged:
-			decisions[i] = catalog.Decision{Relation: protocol.RelationUnchanged}
-		case protocol.RelationGrownFrom:
-			decisions[i] = catalog.Decision{
-				Relation:  protocol.RelationGrownFrom,
-				GrownFrom: prev.SHA256,
-				Record:    true,
-				Head:      i == headIdx,
-			}
-		case protocol.RelationStale:
-			decisions[i] = catalog.Decision{Relation: protocol.RelationStale}
-		default:
-			decisions[i] = catalog.Decision{
-				Relation: protocol.RelationDivergentCopy,
-				Record:   true,
-			}
-		}
+		decisions[i] = catalog.Decision{Relation: protocol.RelationUnchanged}
 	}
 	return decisions, nil
 }
 
-func (s *Server) clientBytes(a protocol.Artifact, prev []byte, hasPrev bool) ([]byte, error) {
+// checkClient makes a's bytes readable under a.SHA256 and checks them:
+// the size, and, unless a is the current digest at its relpath, the
+// hash. A tail is assembled onto the stored prefix by streaming both.
+func (s *Server) checkClient(a protocol.Artifact, prev catalog.ArtifactRow, hasPrev bool) error {
 	if len(a.ChunkSHA256s) > 0 {
 		if err := s.installChunks(a); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	if a.ByteWatermarkPrev == 0 {
-		b, err := s.readStored(a.SHA256)
+	current := hasPrev && a.SHA256 == prev.SHA256
+	if a.ByteWatermarkPrev == 0 || current {
+		n, err := s.CAS.Size(a.SHA256)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if int64(len(b)) != a.Size {
-			return nil, &clientError{fmt.Errorf("artifact %q size %d does not match stored bytes %d", a.RelPath, a.Size, len(b))}
+		if n != a.Size {
+			return &clientError{fmt.Errorf("artifact %q size %d does not match stored bytes %d", a.RelPath, a.Size, n)}
 		}
-		return b, nil
-	}
-	if hasPrev && a.SHA256 == sha256Hex(prev) {
-		if int64(len(prev)) != a.Size {
-			return nil, &clientError{fmt.Errorf("artifact %q size %d does not match stored bytes %d", a.RelPath, a.Size, len(prev))}
+		if current {
+			return nil
 		}
-		return prev, nil
+		sum, err := s.hashStored(a.SHA256)
+		if err != nil {
+			return err
+		}
+		if sum != a.SHA256 {
+			return &clientError{fmt.Errorf("artifact %q sha256 does not match the stored bytes", a.RelPath)}
+		}
+		return nil
 	}
-	if !hasPrev || int64(len(prev)) != a.ByteWatermarkPrev {
-		return nil, errPrefixMismatch
+	if !hasPrev || prev.Size != a.ByteWatermarkPrev {
+		return errPrefixMismatch
 	}
-	tail, err := s.readStored(a.TailSHA256)
+	tail, err := s.CAS.Size(a.TailSHA256)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if a.Size != int64(len(prev)+len(tail)) {
-		return nil, &clientError{fmt.Errorf("artifact %q size %d does not match %d prefix + %d tail", a.RelPath, a.Size, len(prev), len(tail))}
+	if a.Size != prev.Size+tail {
+		return &clientError{fmt.Errorf("artifact %q size %d does not match %d prefix + %d tail", a.RelPath, a.Size, prev.Size, tail)}
 	}
-	full := make([]byte, 0, len(prev)+len(tail))
-	full = append(full, prev...)
-	full = append(full, tail...)
-	if sha256Hex(full) != a.SHA256 {
-		return nil, errPrefixMismatch
+	sum, err := s.hashStored(prev.SHA256, a.TailSHA256)
+	if err != nil {
+		return err
 	}
-	if _, err := s.CAS.Put(a.SHA256, bytes.NewReader(full), protocol.MaxBlobBytes); err != nil {
-		return nil, err
+	if sum != a.SHA256 {
+		return errPrefixMismatch
 	}
-	return full, nil
+	r, closeAll, err := s.openStored(prev.SHA256, a.TailSHA256)
+	if err != nil {
+		return err
+	}
+	defer closeAll()
+	_, err = s.CAS.Put(a.SHA256, r, protocol.MaxBlobBytes)
+	return err
 }
 
-// readStored returns the bytes named by digest. A single object is that
-// blob. A logical file over the object cap is the concatenation of its
-// chunks; that concatenation is not itself a blob, so Has is false.
-func (s *Server) readStored(digest string) ([]byte, error) {
-	b, err := s.CAS.Read(digest)
-	if err != nil {
-		return nil, err
+// openStored reads the objects named by digests one after another. A
+// logical file is its chunks in order.
+func (s *Server) openStored(digests ...string) (io.Reader, func(), error) {
+	var readers []io.Reader
+	var closers []io.Closer
+	closeAll := func() {
+		for _, c := range closers {
+			c.Close()
+		}
 	}
-	return b, nil
+	for _, d := range digests {
+		rc, err := s.CAS.Open(d)
+		if err != nil {
+			closeAll()
+			return nil, nil, err
+		}
+		readers = append(readers, rc)
+		closers = append(closers, rc)
+	}
+	return io.MultiReader(readers...), closeAll, nil
+}
+
+// hashStored is the sha256 of the objects named by digests, one after
+// another, read as a stream.
+func (s *Server) hashStored(digests ...string) (string, error) {
+	r, closeAll, err := s.openStored(digests...)
+	if err != nil {
+		return "", err
+	}
+	defer closeAll()
+	sum, _, err := cas.Hash(r)
+	return sum, err
 }
 
 // installChunks makes a chunked artifact readable. A concatenation that
@@ -264,11 +277,6 @@ func headIndex(arts []protocol.Artifact) int {
 		}
 	}
 	return len(arts) - 1
-}
-
-func sha256Hex(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
 }
 
 // knownHarnesses and knownKinds are the manifest values the lake

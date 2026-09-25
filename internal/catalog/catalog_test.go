@@ -1,11 +1,13 @@
 package catalog
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -394,12 +396,12 @@ func TestIngestIgnoresStaleGrownFrom(t *testing.T) {
 
 type memBlobs map[string][]byte
 
-func (m memBlobs) Read(digest string) ([]byte, error) {
+func (m memBlobs) Open(digest string) (io.ReadCloser, error) {
 	b, ok := m[digest]
 	if !ok {
 		return nil, fmt.Errorf("missing %s", digest)
 	}
-	return append([]byte(nil), b...), nil
+	return io.NopCloser(bytes.NewReader(b)), nil
 }
 
 func digestHex(b []byte) string {

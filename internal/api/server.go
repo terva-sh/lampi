@@ -408,7 +408,7 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 	// validateManifest has checked what the client controls. An ingest
 	// error here is the catalog's: a busy or full disk, not a bad post.
-	ack, err := s.Catalog.Ingest(r.Context(), m, s.now(), decisions, s.CAS)
+	ack, changed, err := s.Catalog.IngestChanged(r.Context(), m, s.now(), decisions, s.CAS)
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
@@ -416,10 +416,14 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	// Normalization is derived and runs on the workers. The ACK does not
 	// wait for it. A failure is recorded on the session later. The CAS
 	// object is not written. WithoutCancel keeps the enqueue when the
-	// client has already dropped the request after ingest committed.
-	if err := s.enqueueNormalize(context.WithoutCancel(r.Context()), ack.SessionUID); err != nil {
-		s.fail(w, r, http.StatusInternalServerError, err)
-		return
+	// client has already dropped the request after ingest committed. A
+	// post that changed nothing a projection reads, every artifact
+	// unchanged or stale, is not projected again.
+	if changed {
+		if err := s.enqueueNormalize(context.WithoutCancel(r.Context()), ack.SessionUID); err != nil {
+			s.fail(w, r, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, ack)
 }

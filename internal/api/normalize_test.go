@@ -387,7 +387,7 @@ func transcriptLines(lines ...string) []byte {
 	return []byte(strings.Join(lines, "\n") + "\n")
 }
 
-func shaOf(t *testing.T, body []byte) string {
+func shaOf(t testing.TB, body []byte) string {
 	t.Helper()
 	sum, _, err := cas.Hash(bytes.NewReader(body))
 	if err != nil {
@@ -408,7 +408,7 @@ func readDerived(t *testing.T, s *Server, uid string) []byte {
 	return b
 }
 
-func putBlob(t *testing.T, h http.Handler, sum string, body []byte) string {
+func putBlob(t testing.TB, h http.Handler, sum string, body []byte) string {
 	t.Helper()
 	if sum == "" {
 		sum = shaOf(t, body)
