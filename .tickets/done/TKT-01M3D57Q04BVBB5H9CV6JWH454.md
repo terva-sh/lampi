@@ -32,7 +32,7 @@ extensions: {}
 
 ## Description
 
-`TestTakeGivesUpOnADatabaseThatAlwaysMoves` in `internal/adapter/sqlitesnap` fails every run on brokkr (Linux 6.12, `CONFIG_HZ=250`, 12 cores, `TMPDIR` on tmpfs) at `705a2b7`, while GitHub CI passes the same commit. The failure is `err <nil>`: `Take` returned a snapshot for a database that changed between every copy.
+`TestTakeGivesUpOnADatabaseThatAlwaysMoves` in `internal/adapter/sqlitesnap` fails every run on the owner's workstation (Linux 6.12, `CONFIG_HZ=250`, 12 cores, `TMPDIR` on tmpfs) at `705a2b7`, while GitHub CI passes the same commit. The failure is `err <nil>`: `Take` returned a snapshot for a database that changed between every copy.
 
 ### Cause (proven with a probe test, then removed)
 
