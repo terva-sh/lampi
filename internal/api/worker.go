@@ -52,7 +52,9 @@ func (q *normalizeQueue) pop() (catalog.NormalizeJob, bool) {
 	for len(q.items) == 0 && !q.closed {
 		q.cond.Wait()
 	}
-	if len(q.items) == 0 {
+	// A closed queue hands out nothing more. What is left stays in
+	// catalog.normalize_jobs for the next start.
+	if q.closed {
 		return catalog.NormalizeJob{}, false
 	}
 	job := q.items[0]
@@ -91,11 +93,13 @@ func (q *normalizeQueue) waitIdle(ctx context.Context) error {
 	return nil
 }
 
-func (q *normalizeQueue) shutdown() {
+// shutdown stops pop and returns how many jobs were still queued.
+func (q *normalizeQueue) shutdown() int {
 	q.mu.Lock()
+	defer q.mu.Unlock()
 	q.closed = true
 	q.cond.Broadcast()
-	q.mu.Unlock()
+	return len(q.items)
 }
 
 // WaitNormalized blocks until queued and in-flight normalize jobs in
@@ -176,6 +180,9 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 		return
 	}
 	events, nerr := s.Project(ctx, info.Manifest)
+	if nerr != nil {
+		s.logger().Warn("normalize failed", "session_uid", job.SessionUID, "err", nerr.Error())
+	}
 	unlock := s.lockSession(job.SessionUID)
 	defer unlock()
 	gen, ok, err = s.Catalog.NormalizeGen(ctx, job.SessionUID)
@@ -183,6 +190,7 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 		return
 	}
 	if err := s.StoreEvents(ctx, job.SessionUID, events, nerr); err != nil {
+		s.logger().Error("normalize store failed", "session_uid", job.SessionUID, "attempt", job.Attempt, "err", err.Error())
 		if job.Attempt < 3 {
 			job.Attempt++
 			time.Sleep(50 * time.Millisecond)

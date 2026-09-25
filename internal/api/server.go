@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,6 +45,13 @@ type Server struct {
 	// the check. The plaintext is not kept on the server.
 	Devices *auth.Devices
 	Now     func() time.Time
+	// Log gets one line per request and normalize failures. Nil discards.
+	Log *slog.Logger
+
+	// limits, when set, replaces defaultDeadlines. Tests shorten it.
+	limits *deadlines
+	// active counts requests in a handler. Shutdown waits for it.
+	active sync.WaitGroup
 
 	norm        *normalizeQueue
 	normalizeWG sync.WaitGroup
@@ -103,17 +110,28 @@ func Open(dataDir string) (*Server, error) {
 // the catalog. The CAS is just a directory. A manifest ACK does not
 // wait for projection; process exit does.
 func (s *Server) Close() error {
+	_, err := s.Shutdown(context.Background())
+	return err
+}
+
+// Shutdown waits for requests still in a handler, drains the normalize
+// queue until ctx ends, stops the workers, and releases the catalog.
+// Stop the HTTP server first so no request starts. A job a worker holds
+// finishes. Jobs still queued stay in catalog.normalize_jobs and the
+// next Open loads them; left is how many.
+func (s *Server) Shutdown(ctx context.Context) (left int, err error) {
 	if s.Catalog == nil {
-		return nil
+		return 0, nil
 	}
+	s.active.Wait()
 	if s.norm != nil {
-		_ = s.WaitNormalized(context.Background())
-		s.norm.shutdown()
+		_ = s.WaitNormalized(ctx)
+		left = s.norm.shutdown()
 		s.normalizeWG.Wait()
 	}
-	err := s.Catalog.Close()
+	err = s.Catalog.Close()
 	s.Catalog = nil
-	return err
+	return left, err
 }
 
 func (s *Server) now() time.Time {
@@ -133,7 +151,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
 	mux.HandleFunc("POST /v1/manifests", s.authed(s.manifest))
-	return mux
+	return s.serveHTTP(mux)
 }
 
 func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
@@ -143,7 +161,7 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		if !s.Devices.Match(r.Header.Get("Authorization")) {
-			writeJSON(w, http.StatusUnauthorized, protocol.ErrorBody{Error: "unauthorized"})
+			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
 		}
 		next(w, r)
@@ -157,7 +175,7 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 	n, err := s.Catalog.Counts(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, protocol.StatsResponse{
@@ -170,7 +188,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.Catalog.DivergentCopies(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, protocol.ConflictsResponse{Conflicts: wireConflicts(rows)})
@@ -207,8 +225,12 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 	var digests []string
-	if err := decodeJSON(w, r, &digests); err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+	hint := fmt.Sprintf("send at most %d digests per request", maxCheckDigests)
+	if !s.decodeJSON(w, r, &digests, maxCheckBytes, hint) {
+		return
+	}
+	if len(digests) > maxCheckDigests {
+		s.fail(w, r, http.StatusRequestEntityTooLarge, fmt.Errorf("blobs/check has %d digests; %s", len(digests), hint))
 		return
 	}
 	missing := make([]string, 0)
@@ -216,7 +238,7 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 	for _, d := range digests {
 		d = strings.ToLower(d)
 		if !protocol.ValidDigest(d) {
-			writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "invalid digest " + d})
+			s.fail(w, r, http.StatusBadRequest, errors.New("invalid digest "+d))
 			return
 		}
 		if seen[d] {
@@ -225,7 +247,7 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		seen[d] = true
 		ok, err := s.CAS.Has(d)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+			s.fail(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		if !ok {
@@ -238,12 +260,12 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 	digest := strings.ToLower(r.PathValue("digest"))
 	if !protocol.ValidDigest(digest) {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "invalid digest"})
+		s.fail(w, r, http.StatusBadRequest, errors.New("invalid digest"))
 		return
 	}
 	cr := r.Header.Get("Content-Range")
 	if cr != "" && isJSON(r.Header.Get("Content-Type")) {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "content-range and chunk digests are different puts"})
+		s.fail(w, r, http.StatusBadRequest, errors.New("content-range and chunk digests are different puts"))
 		return
 	}
 	if cr != "" {
@@ -255,40 +277,39 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exists, err := s.CAS.Put(digest, r.Body, protocol.MaxBlobBytes)
-	s.finishPut(w, digest, exists, true, err)
+	s.finishPut(w, r, digest, exists, true, err)
 }
 
 func (s *Server) putRange(w http.ResponseWriter, r *http.Request, digest, header string) {
 	start, end, total, err := parseContentRange(header)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	exists, complete, err := s.CAS.PutRange(digest, start, end, total, protocol.MaxBlobBytes, r.Body)
-	s.finishPut(w, digest, exists, complete, err)
+	s.finishPut(w, r, digest, exists, complete, err)
 }
 
 func (s *Server) putChunks(w http.ResponseWriter, r *http.Request, digest string) {
 	var body struct {
 		ChunkSHA256s []string `json:"chunk_sha256s"`
 	}
-	if err := decodeJSON(w, r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+	if !s.decodeJSON(w, r, &body, maxJSONBytes, "") {
 		return
 	}
 	parts, err := normalizeDigests(body.ChunkSHA256s)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	ok, err := s.CAS.Has(digest)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if ok {
 		// The digest is already stored. Do not read or rewrite the chunks.
-		s.finishPut(w, digest, true, true, nil)
+		s.finishPut(w, r, digest, true, true, nil)
 		return
 	}
 	var missing []string
@@ -300,7 +321,7 @@ func (s *Server) putChunks(w http.ResponseWriter, r *http.Request, digest string
 		seen[p] = true
 		have, err := s.CAS.Has(p)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+			s.fail(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		if !have {
@@ -308,22 +329,24 @@ func (s *Server) putChunks(w http.ResponseWriter, r *http.Request, digest string
 		}
 	}
 	if len(missing) > 0 {
+		note(r, errors.New("missing blobs"))
 		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: "missing blobs", Missing: missing})
 		return
 	}
 	exists, err := s.CAS.Concat(digest, parts, protocol.MaxBlobBytes)
-	s.finishPut(w, digest, exists, true, err)
+	s.finishPut(w, r, digest, exists, true, err)
 }
 
-func (s *Server) finishPut(w http.ResponseWriter, digest string, exists, complete bool, err error) {
+func (s *Server) finishPut(w http.ResponseWriter, r *http.Request, digest string, exists, complete bool, err error) {
 	if err != nil {
 		// A wrong digest, a bad range, or an oversize body is the client's
-		// mistake. mkdir, rename, and other IO are the lake's.
+		// mistake. mkdir, rename, and other IO are the lake's. A body that
+		// stopped arriving is the request's; fail maps it.
 		code := http.StatusInternalServerError
 		if errors.Is(err, cas.ErrRejected) {
 			code = http.StatusBadRequest
 		}
-		writeJSON(w, code, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, code, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, protocol.PutResponse{Exists: exists, SHA256: digest, Complete: complete})
@@ -331,23 +354,29 @@ func (s *Server) finishPut(w http.ResponseWriter, digest string, exists, complet
 
 func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	var m protocol.Manifest
-	if err := decodeJSON(w, r, &m); err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+	if !s.decodeJSON(w, r, &m, maxJSONBytes, "") {
 		return
 	}
 	if err := validateManifest(&m); err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusBadRequest, err)
 		return
 	}
 	decisions, err := s.resolve(r.Context(), &m)
 	if err != nil {
 		code, body := manifestStatus(err)
+		if code >= 500 {
+			s.fail(w, r, code, err)
+			return
+		}
+		note(r, err)
 		writeJSON(w, code, body)
 		return
 	}
+	// validateManifest has checked what the client controls. An ingest
+	// error here is the catalog's: a busy or full disk, not a bad post.
 	ack, err := s.Catalog.Ingest(r.Context(), m, s.now(), decisions, s.CAS)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	// Normalization is derived and runs on the workers. The ACK does not
@@ -355,19 +384,51 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	// object is not written. WithoutCancel keeps the enqueue when the
 	// client has already dropped the request after ingest committed.
 	if err := s.enqueueNormalize(context.WithoutCancel(r.Context()), ack.SessionUID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, protocol.ErrorBody{Error: err.Error()})
+		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, ack)
 }
 
-func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) error {
+// decodeJSON reads one JSON value of at most limit bytes into dest. On
+// failure it writes the error and returns false: 413 over the cap, with
+// hint appended when set, 408 when the body timed out, 400 otherwise.
+func (s *Server) decodeJSON(w http.ResponseWriter, r *http.Request, dest any, limit int64, hint string) bool {
 	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-	if err := dec.Decode(dest); err != nil {
-		return fmt.Errorf("invalid json: %w", err)
+	body := http.MaxBytesReader(innermost(w), r.Body, limit)
+	err := json.NewDecoder(body).Decode(dest)
+	if err == nil {
+		return true
 	}
-	return nil
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		msg := fmt.Sprintf("request body exceeds %d bytes", tooBig.Limit)
+		if hint != "" {
+			msg += "; " + hint
+		}
+		s.fail(w, r, http.StatusRequestEntityTooLarge, errors.New(msg))
+		return false
+	}
+	if info := infoOf(r); info != nil && info.body.err != nil {
+		code, berr := bodyStatus(info.body.err)
+		note(r, info.body.err)
+		writeJSON(w, code, protocol.ErrorBody{Error: berr.Error()})
+		return false
+	}
+	s.fail(w, r, http.StatusBadRequest, fmt.Errorf("invalid json: %w", err))
+	return false
+}
+
+// innermost unwraps middleware writers so http.MaxBytesReader can tell
+// the server to close the connection after a body over the cap.
+func innermost(w http.ResponseWriter) http.ResponseWriter {
+	for {
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return w
+		}
+		w = u.Unwrap()
+	}
 }
 
 func isJSON(ct string) bool {
