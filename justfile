@@ -1,7 +1,8 @@
 # lampi dev tasks. `just` lists them.
 #
-# These are the same steps .forgejo/workflows/ci.yml, the primary gate,
-# and .github/workflows/ci.yml, on the GitHub mirror, run. Both keep the
+# These are the same steps .forgejo/workflows/ci.yml, the gate for
+# internal pull requests, and .github/workflows/ci.yml, the gate for
+# external agents' pull requests on GitHub, run. Both keep the
 # commands inline because neither runner installs just. When you change
 # a gate here, change it in both, and in the Makefile, which exists so
 # `make test` works without just.
@@ -87,3 +88,45 @@ dev *args: build
 # Remove .dev/: the dev lake, machine id, token, and agent state.
 dev-clean:
     rm -rf {{dev_dir}}
+
+# Internal work merges on Forgejo (origin) and external agents' pull
+# requests merge on GitHub (github), so each main can move ahead of the
+# other. This fast-forwards whichever is behind. When both have moved
+# it stops and names the heads: merge them on a branch, open a Forgejo
+# PR, and run this again after it lands. It never force-pushes, and it
+# prints the plan and pushes nothing without --yes. docs/pr-reviews.md.
+# Fast-forward the stale main between Forgejo and GitHub. Needs --yes.
+sync-github *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    yes=false
+    for f in {{flags}}; do
+        case "$f" in
+            --yes) yes=true ;;
+            *) echo "sync-github: unknown flag $f" >&2; exit 2 ;;
+        esac
+    done
+    git fetch --quiet origin main
+    git fetch --quiet github main
+    forgejo=$(git rev-parse origin/main)
+    github=$(git rev-parse github/main)
+    if [ "$forgejo" = "$github" ]; then
+        echo "in sync at ${forgejo:0:12}"
+        exit 0
+    fi
+    if git merge-base --is-ancestor "$github" "$forgejo"; then
+        from=origin; to=github; head=$forgejo
+    elif git merge-base --is-ancestor "$forgejo" "$github"; then
+        from=github; to=origin; head=$github
+    else
+        echo "diverged: origin/main ${forgejo:0:12}, github/main ${github:0:12}" >&2
+        echo "merge them on a branch and land it through a Forgejo PR" >&2
+        exit 1
+    fi
+    echo "fast-forward $to/main to $from/main ${head:0:12}:"
+    git log --oneline "$to/main..$head"
+    if [ "$yes" != true ]; then
+        echo "dry run; pass --yes to push"
+        exit 0
+    fi
+    git push "$to" "$head:refs/heads/main"

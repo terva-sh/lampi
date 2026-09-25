@@ -1,6 +1,7 @@
-# CI for terva-lampi on the GitHub mirror. The primary gate is
-# .forgejo/workflows/ci.yml on the internal Forgejo, where pull requests
-# land. The gates match `just ci` / `make ci`: vet, gofmt, test, and a
+# CI for terva-lampi on GitHub, the gate for external agents' pull
+# requests. Internal pull requests land on the internal Forgejo and are
+# gated by .forgejo/workflows/ci.yml; docs/pr-reviews.md has both. The
+# gates match `just ci` / `make ci`: vet, gofmt, test, and a
 # build of the binary. The commands are inline because the runner does
 # not install just.
 #

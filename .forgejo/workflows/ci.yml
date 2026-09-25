@@ -1,6 +1,6 @@
-# Forgejo CI for terva-lampi, the primary gate. The internal Forgejo is
-# where lampi's pull requests land; GitHub is a mirror and keeps
-# .github/workflows/ci.yml as a second signal on what it receives.
+# Forgejo CI for terva-lampi, the gate for internal pull requests.
+# External agents' pull requests land on GitHub and are gated by
+# .github/workflows/ci.yml. docs/pr-reviews.md describes both.
 #
 # The gates match `just ci` / `make ci`: vet, gofmt, test, and a build
 # of the binary. The test step adds -race, which the suite passes and
