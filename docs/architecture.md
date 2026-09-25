@@ -52,7 +52,13 @@ and write the derived view. That view lags the ACK until the worker
 for that generation finishes. `terva-lampi serve` drains the queue on
 exit. A newer ingest bumps `sessions.normalize_gen` and a publish for
 an older generation is dropped. The job row stays until the matching
-generation is published, so a restart finishes it.
+generation is published, so a restart finishes it. A panic in a worker
+is logged with its stack, sets `normalize_error`, and deletes the job
+row, so a restart does not replay it. The worker keeps running.
+
+The catalog records its schema in `PRAGMA user_version`. Open runs the
+numbered migrations above that version. A file from a newer binary is
+refused.
 
 JSONL stays one file per session at `normalized/<session_uid>.jsonl`.
 Parquet is hive-partitioned beside it. `github.com/parquet-go/parquet-go`
@@ -114,7 +120,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, or Cursor CLI is stored, and the worker sets `normalize_error` |
+| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, or Cursor CLI is refused at the manifest with `400`. A new one needs a projector and an entry in the lake's allowlist |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -335,8 +341,8 @@ The Claude, Codex, OpenCode,
 and Cursor record shapes are internal to those packages. Each pins a
 reader version on `harness_version` and keeps keys it does not
 interpret. Normalize workers project terva, Claude Code, Codex CLI,
-OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1. A stored
-manifest for a harness that has no projector sets `normalize_error`.
+OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1. A manifest
+for any other harness is refused with `400`.
 Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link

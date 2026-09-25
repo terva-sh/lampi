@@ -90,12 +90,13 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 			continue
 		}
 		prev, hasPrev := byRel[a.RelPath]
-		stored := prevBytes[a.RelPath]
-		if !hasPrev || int64(len(stored)) != a.ByteWatermarkPrev {
-			return nil, errPrefixMismatch
-		}
-		if a.SHA256 == prev.SHA256 {
+		// A tail whose ACK was lost is sent again after the commit. The
+		// stored head is then the whole file, longer than the watermark.
+		if hasPrev && a.SHA256 == prev.SHA256 {
 			continue
+		}
+		if !hasPrev || int64(len(prevBytes[a.RelPath])) != a.ByteWatermarkPrev {
+			return nil, errPrefixMismatch
 		}
 		ok, err := s.CAS.Has(a.TailSHA256)
 		if err != nil {
@@ -157,9 +158,19 @@ func (s *Server) clientBytes(a protocol.Artifact, prev []byte, hasPrev bool) ([]
 		}
 	}
 	if a.ByteWatermarkPrev == 0 {
-		return s.readStored(a.SHA256)
+		b, err := s.readStored(a.SHA256)
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(b)) != a.Size {
+			return nil, &clientError{fmt.Errorf("artifact %q size %d does not match stored bytes %d", a.RelPath, a.Size, len(b))}
+		}
+		return b, nil
 	}
-	if hasPrev && a.SHA256 == sha256Hex(prev) && int64(len(prev)) == a.Size {
+	if hasPrev && a.SHA256 == sha256Hex(prev) {
+		if int64(len(prev)) != a.Size {
+			return nil, &clientError{fmt.Errorf("artifact %q size %d does not match stored bytes %d", a.RelPath, a.Size, len(prev))}
+		}
 		return prev, nil
 	}
 	if !hasPrev || int64(len(prev)) != a.ByteWatermarkPrev {
@@ -260,11 +271,42 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// knownHarnesses and knownKinds are the manifest values the lake
+// accepts. A new harness or artifact kind is added here with its
+// protocol constant.
+var (
+	knownHarnesses = map[string]bool{
+		protocol.HarnessTerva:     true,
+		protocol.HarnessClaude:    true,
+		protocol.HarnessCodex:     true,
+		protocol.HarnessOpenCode:  true,
+		protocol.HarnessCursor:    true,
+		protocol.HarnessCursorCLI: true,
+	}
+	knownKinds = map[string]bool{
+		protocol.KindTranscriptJSONL:    true,
+		protocol.KindErrorsJSONL:        true,
+		protocol.KindRaatiJSON:          true,
+		protocol.KindTasksJSON:          true,
+		protocol.KindCursorStateJSON:    true,
+		protocol.KindCursorCLIStoreJSON: true,
+	}
+)
+
 func validateManifest(m *protocol.Manifest) error {
 	if m.CaptureProtocol != protocol.Version {
 		return fmt.Errorf("capture_protocol %d is not supported", m.CaptureProtocol)
 	}
+	if !knownHarnesses[m.Harness] {
+		return fmt.Errorf("harness %q is not supported", m.Harness)
+	}
 	for i, a := range m.Artifacts {
+		if !knownKinds[a.Kind] {
+			return fmt.Errorf("artifact %q: kind %q is not supported", a.RelPath, a.Kind)
+		}
+		if a.Size < 0 {
+			return fmt.Errorf("artifact %q: size %d is negative", a.RelPath, a.Size)
+		}
 		if len(a.ChunkSHA256s) > 0 {
 			if a.ByteWatermarkPrev != 0 {
 				return fmt.Errorf("artifact %q: chunk_sha256s cannot be combined with a tail", a.RelPath)
