@@ -400,6 +400,29 @@ func TestExcludedKey(t *testing.T) {
 	}
 }
 
+func TestEncodedValuesAreScannedRaw(t *testing.T) {
+	pat := "ghp_" + strings.Repeat("Q", 36)
+	binary := []byte("\xff\xfe" + pat + "\x00")
+	raw, hidden := presentBlob(binary)
+	if strings.Contains(string(raw), pat) || !strings.Contains(string(raw), `"base64"`) {
+		t.Fatalf("blob %s", raw)
+	}
+	if hidden.Hits != 1 || len(hidden.Rules) != 1 || hidden.Rules[0] != "github-pat" {
+		t.Fatalf("blob scan %+v", hidden)
+	}
+	raw, hidden = presentMeta(hex.EncodeToString([]byte("\x01" + pat)))
+	if strings.Contains(string(raw), pat) || hidden.Hits != 1 {
+		t.Fatalf("hex meta %s %+v", raw, hidden)
+	}
+	for _, clean := range [][]byte{[]byte("\xff\xfe plain"), []byte(`{"text":"` + pat + `"}`), []byte("text " + pat)} {
+		// JSON and UTF-8 text stay readable in the export, where the
+		// upload scan finds the key itself.
+		if _, hidden := presentBlob(clean); hidden.Hits != 0 {
+			t.Fatalf("%q: %+v", clean, hidden)
+		}
+	}
+}
+
 func TestScrubKeepsKeyOrder(t *testing.T) {
 	raw := []byte(`{"name":"kept-title","accessToken":"sekret-token","n":1767396459642,"nested":{"refreshToken":"sekret-refresh","ok":true}}`)
 	got, ok := scrubIfJSON(raw)

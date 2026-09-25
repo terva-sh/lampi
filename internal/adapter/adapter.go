@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/redact"
 )
 
 // Ref is one artifact a harness can see without parsing it.
@@ -32,6 +33,12 @@ type Bundle struct {
 	Root      string
 	Manifests []protocol.Manifest
 	Paths     map[string]string
+	// Hidden is what the ruleset found in bytes that a file in Paths
+	// holds only in encoded form, keyed by the same digest: a Cursor
+	// value exported as base64. A scan of the file cannot see those
+	// bytes, so the upload adds this to it. A digest with no entry had
+	// nothing hidden.
+	Hidden map[string]redact.Result
 	// Cleanup removes temporary files this bundle created. Nil does
 	// nothing. Call it after Paths have been read. A second call is safe.
 	Cleanup func()
