@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/adapter/sqlitesnap"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/redact"
 	"terva.sh/lampi/internal/watch"
 
 	_ "modernc.org/sqlite"
@@ -214,7 +217,11 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 
 	// The row inserted after the checkpoint is not in the main file alone.
 	alone := filepath.Join(t.TempDir(), "state.vscdb")
-	if err := copyFile(global, alone); err != nil {
+	mainOnly, err := os.ReadFile(global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(alone, mainOnly, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	aloneBody, err := exportDatabase(context.Background(), alone, globalRel, "global")
@@ -473,14 +480,17 @@ func writeStateDB(t *testing.T, path string, items, disk []stateKV) {
 
 func TestEncodedValuesAreScannedRaw(t *testing.T) {
 	pat := "ghp_" + strings.Repeat("Q", 36)
-	raw, hidden := encodeValue([]byte("\xff\xfe" + pat + "\x00"))
+	raw, hidden, err := encodeValue([]byte("\xff\xfe" + pat + "\x00"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(raw), pat) || !strings.Contains(string(raw), `"base64"`) {
 		t.Fatalf("value %s", raw)
 	}
 	if hidden.Hits != 1 || len(hidden.Rules) != 1 || hidden.Rules[0] != "github-pat" {
 		t.Fatalf("scan %+v", hidden)
 	}
-	if _, clean := encodeValue([]byte("text " + pat)); clean.Hits != 0 {
+	if _, clean, _ := encodeValue([]byte("text " + pat)); clean.Hits != 0 {
 		t.Fatalf("utf-8 text is scanned in the export, not here: %+v", clean)
 	}
 
@@ -511,47 +521,214 @@ func TestMissingItemTable(t *testing.T) {
 	}
 }
 
-func TestCopyTrio(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "state.vscdb")
-	mustWrite(t, src, "db-bytes")
-	mustWrite(t, src+"-wal", "wal-bytes")
-	mustWrite(t, src+"-shm", "shm-bytes")
-	before := hashes(t, src)
-	snap, err := copyTrio(src)
+// countSnapshots swaps takeSnapshot for one that counts copies by
+// source path.
+func countSnapshots(t *testing.T) map[string]int {
+	t.Helper()
+	counts := map[string]int{}
+	takeSnapshot = func(ctx context.Context, src, prefix string) (*sqlitesnap.Snapshot, error) {
+		counts[filepath.Clean(src)]++
+		return sqlitesnap.Take(ctx, src, prefix)
+	}
+	t.Cleanup(func() { takeSnapshot = sqlitesnap.Take })
+	return counts
+}
+
+// composerRoot is a user-data directory whose global database holds
+// rows for three composers and whose three workspaces each name one.
+func composerRoot(t *testing.T) (root, global string) {
+	t.Helper()
+	root = t.TempDir()
+	global = filepath.Join(root, "User", "globalStorage", "state.vscdb")
+	var disk []stateKV
+	for _, ws := range []string{"a", "b", "c"} {
+		dir := filepath.Join(root, "User", "workspaceStorage", "ws-"+ws)
+		mustWrite(t, filepath.Join(dir, "workspace.json"), `{"folder":"file:///work/`+ws+`"}`)
+		writeStateDB(t, filepath.Join(dir, "state.vscdb"), []stateKV{
+			{"composer.composerHeaders", `{"allComposers":[{"composerId":"comp-` + ws + `"}]}`},
+		}, nil)
+		disk = append(disk,
+			stateKV{"composerData:comp-" + ws, `{"name":"thread-` + ws + `"}`},
+			stateKV{"bubbleId:comp-" + ws + ":b1", `{"text":"bubble-` + ws + `"}`},
+		)
+	}
+	writeStateDB(t, global, []stateKV{{"composer.composerData", `{}`}}, disk)
+	return root, global
+}
+
+func TestManifestsCopiesGlobalOnce(t *testing.T) {
+	root, global := composerRoot(t)
+	counts := countSnapshots(t)
+	b, err := Manifests(root, "machine-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(snap)
-	for _, name := range []string{"state.vscdb", "state.vscdb-wal", "state.vscdb-shm"} {
-		got, err := os.ReadFile(filepath.Join(snap, name))
+	defer b.Cleanup()
+	if len(b.Manifests) != 4 {
+		t.Fatalf("manifests %d", len(b.Manifests))
+	}
+	if counts[global] != 1 {
+		t.Fatalf("global copied %d times in one sync: %v", counts[global], counts)
+	}
+	for _, m := range b.Manifests {
+		if m.NativeSessionID == "global" {
+			continue
+		}
+		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].RelPath])
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
+		ws := strings.TrimPrefix(m.NativeSessionID, "workspace/ws-")
+		if !strings.Contains(string(raw), "bubble-"+ws) {
+			t.Fatalf("%s lost its bubble: %s", m.NativeSessionID, raw)
 		}
-		if string(got) != string(want) {
-			t.Fatalf("%s snapshot mismatch", name)
+		for _, other := range []string{"a", "b", "c"} {
+			if other != ws && strings.Contains(string(raw), "bubble-"+other) {
+				t.Fatalf("%s holds bubble-%s", m.NativeSessionID, other)
+			}
 		}
 	}
-	after := hashes(t, src)
-	for name, sum := range before {
-		if after[name] != sum {
-			t.Fatalf("source %s changed", name)
+}
+
+func TestManifestsPermitSkipsRefusedSessions(t *testing.T) {
+	root, global := composerRoot(t)
+	counts := countSnapshots(t)
+	var asked []string
+	permit := func(m protocol.Manifest) bool {
+		asked = append(asked, m.NativeSessionID)
+		if len(m.Artifacts) != 1 || m.Artifacts[0].SHA256 != "" {
+			t.Errorf("permit saw a built export: %+v", m.Artifacts)
+		}
+		return m.Project.CWD == "/work/a"
+	}
+	b, err := ManifestsPermit(root, "machine-1", permit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Cleanup()
+	if len(asked) != 4 || len(b.Manifests) != 4 {
+		t.Fatalf("asked %v manifests %d", asked, len(b.Manifests))
+	}
+	if counts[global] != 1 {
+		t.Fatalf("global copied %d times: %v", counts[global], counts)
+	}
+	for _, ws := range []string{"b", "c"} {
+		if n := counts[filepath.Join(root, "User", "workspaceStorage", "ws-"+ws, "state.vscdb")]; n != 0 {
+			t.Fatalf("refused ws-%s was copied %d times", ws, n)
+		}
+	}
+	for _, m := range b.Manifests {
+		a := m.Artifacts[0]
+		if m.Project.CWD == "/work/a" {
+			if a.SHA256 == "" || b.Paths[a.RelPath] == "" {
+				t.Fatalf("permitted session not exported: %+v", a)
+			}
+			continue
+		}
+		if a.SHA256 != "" || a.TailSHA256 != "" || a.Size != 0 {
+			t.Fatalf("refused %s carries an export: %+v", m.NativeSessionID, a)
+		}
+		if _, ok := b.Paths[a.RelPath]; ok {
+			t.Fatalf("refused %s has a path", m.NativeSessionID)
+		}
+		if a.RelPath == "" || a.Kind != protocol.KindCursorStateJSON {
+			t.Fatalf("refused %s lost its relpath: %+v", m.NativeSessionID, a)
+		}
+	}
+	if len(b.Paths) != 1 {
+		t.Fatalf("paths %v", b.Paths)
+	}
+
+	// No permitted session means no copy at all, the global one included.
+	counts = countSnapshots(t)
+	none, err := ManifestsPermit(root, "machine-1", func(protocol.Manifest) bool { return false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer none.Cleanup()
+	if len(counts) != 0 || len(none.Paths) != 0 || len(none.Manifests) != 4 {
+		t.Fatalf("copies %v paths %v manifests %d", counts, none.Paths, len(none.Manifests))
+	}
+}
+
+func TestComposerRowsSelectsInSQL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.vscdb")
+	writeStateDB(t, path, []stateKV{{"k", "v"}}, []stateKV{
+		{"composerData:c1", `{"mine":1}`},
+		{"bubbleId:c1:b1", `{"mine":2}`},
+		{"checkpointId:c1:k1", `{"mine":3}`},
+		{"messageRequestContext:c1:m1", `{"mine":4}`},
+		{"codeBlockDiff:c1:d1", `{"mine":5}`},
+		{"cursorAuth/accessToken", "sekret-token"},
+		{"bubbleId:c1:", `{"empty-tail":1}`},
+		{"bubbleId:c1x:b1", `{"longer-id":1}`},
+		{"bubbleId:c10:b1", `{"longer-id":2}`},
+		{"bubbleId:c2:b1", `{"other":1}`},
+		{"composerData:c1:extra", `{"not-composer-data":1}`},
+		{"composerData:c2", `{"other":2}`},
+		{"agentKv:c1", `{"unowned":1}`},
+		{"BubbleId:c1:b1", `{"case":1}`},
+	})
+	snap, err := sqlitesnap.Take(context.Background(), path, "lampi-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snap.Close()
+	rows, err := composerRows(context.Background(), snap.DB, map[string]struct{}{"c1": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range rows {
+		got = append(got, r.Key)
+	}
+	want := []string{"bubbleId:c1:b1", "checkpointId:c1:k1", "codeBlockDiff:c1:d1", "composerData:c1", "messageRequestContext:c1:m1"}
+	sorted := mergeDisk(nil, rows)
+	if len(*sorted) != len(want) {
+		t.Fatalf("rows %v want %v", got, want)
+	}
+	for i, r := range *sorted {
+		if r.Key != want[i] {
+			t.Fatalf("rows %v want %v", got, want)
 		}
 	}
 
-	only := filepath.Join(t.TempDir(), "state.vscdb")
-	mustWrite(t, only, "solo")
-	snap, err = copyTrio(only)
+	// A database without cursorDiskKV has no composer rows.
+	bare := filepath.Join(t.TempDir(), "state.vscdb")
+	writeStateDB(t, bare, []stateKV{{"k", "v"}}, nil)
+	snap2, err := sqlitesnap.Take(context.Background(), bare, "lampi-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(snap)
-	if _, err := os.Stat(filepath.Join(snap, "state.vscdb-wal")); !os.IsNotExist(err) {
-		t.Fatalf("missing wal was invented: %v", err)
+	defer snap2.Close()
+	if rows, err := composerRows(context.Background(), snap2.DB, map[string]struct{}{"c1": {}}); err != nil || len(rows) != 0 {
+		t.Fatalf("rows %v err %v", rows, err)
+	}
+}
+
+type failingScanner struct{}
+
+func (failingScanner) Scan([]byte) (redact.Result, error) {
+	return redact.Result{}, errors.New("scanner broke")
+}
+
+// A value the ruleset cannot scan is not exported. The export fails
+// and names the key.
+func TestScanErrorFailsClosed(t *testing.T) {
+	scanner = failingScanner{}
+	t.Cleanup(func() { scanner = redact.Ruleset{} })
+	if raw, _, err := encodeValue([]byte("\xff\xfe\x00")); err == nil || raw != nil {
+		t.Fatalf("raw %s err %v", raw, err)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "User", "globalStorage", "state.vscdb")
+	writeStateDB(t, path, []stateKV{{"binary.value", "\xff\xfe\x00"}}, nil)
+	_, err := exportDatabase(context.Background(), path, globalRel, "global")
+	if err == nil || !strings.Contains(err.Error(), `"binary.value"`) || !strings.Contains(err.Error(), "scanner broke") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := Manifests(root, "machine-1"); err == nil {
+		t.Fatal("manifests exported a value the ruleset could not scan")
 	}
 }
 

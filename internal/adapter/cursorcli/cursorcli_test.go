@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +14,9 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/adapter/cursor"
+	"terva.sh/lampi/internal/adapter/sqlitesnap"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/redact"
 	"terva.sh/lampi/internal/watch"
 
 	_ "modernc.org/sqlite"
@@ -227,7 +230,11 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 	}
 
 	alone := filepath.Join(t.TempDir(), "store.db")
-	if err := copyFile(dbPath, alone); err != nil {
+	mainOnly, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(alone, mainOnly, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	aloneBody, err := exportDatabase(context.Background(), alone, rel)
@@ -340,47 +347,93 @@ func TestClosedDBDoesNotGrowSidecars(t *testing.T) {
 	}
 }
 
-func TestCopyTrio(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "store.db")
-	mustWrite(t, src, "db-bytes")
-	mustWrite(t, src+"-wal", "wal-bytes")
-	mustWrite(t, src+"-shm", "shm-bytes")
-	before := hashes(t, src)
-	snap, err := copyTrio(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(snap)
-	for _, name := range []string{"store.db", "store.db-wal", "store.db-shm"} {
-		got, err := os.ReadFile(filepath.Join(snap, name))
-		if err != nil {
+func TestManifestsPermitSkipsRefusedChats(t *testing.T) {
+	root := t.TempDir()
+	for _, sid := range []string{"allowed", "refused", "no-cwd"} {
+		dbPath := filepath.Join(root, "chats", "ab12", sid, "store.db")
+		if err := seedClosed(dbPath); err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(got) != string(want) {
-			t.Fatalf("%s snapshot mismatch", name)
+		if sid != "no-cwd" {
+			mustWrite(t, filepath.Join(filepath.Dir(dbPath), "meta.json"), `{"cwd":"/work/`+sid+`"}`)
 		}
 	}
-	after := hashes(t, src)
-	for name, sum := range before {
-		if after[name] != sum {
-			t.Fatalf("source %s changed", name)
-		}
+	counts := map[string]int{}
+	takeSnapshot = func(ctx context.Context, src, prefix string) (*sqlitesnap.Snapshot, error) {
+		counts[filepath.Base(filepath.Dir(src))]++
+		return sqlitesnap.Take(ctx, src, prefix)
 	}
+	t.Cleanup(func() { takeSnapshot = sqlitesnap.Take })
 
-	only := filepath.Join(t.TempDir(), "store.db")
-	mustWrite(t, only, "solo")
-	snap, err = copyTrio(only)
+	b, err := ManifestsPermit(root, "machine-1", func(m protocol.Manifest) bool {
+		if m.Artifacts[0].SHA256 != "" {
+			t.Errorf("permit saw a built export: %+v", m.Artifacts)
+		}
+		return m.Project.CWD == "/work/allowed"
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(snap)
-	if _, err := os.Stat(filepath.Join(snap, "store.db-wal")); !os.IsNotExist(err) {
-		t.Fatalf("missing wal was invented: %v", err)
+	defer b.Cleanup()
+	if len(b.Manifests) != 3 || len(b.Paths) != 1 {
+		t.Fatalf("manifests %d paths %v", len(b.Manifests), b.Paths)
+	}
+	if counts["allowed"] != 1 || counts["refused"] != 0 || counts["no-cwd"] != 0 {
+		t.Fatalf("copies %v", counts)
+	}
+	for _, m := range b.Manifests {
+		a := m.Artifacts[0]
+		if m.NativeSessionID == "chats/ab12/allowed" {
+			if a.SHA256 == "" || b.Paths[a.RelPath] == "" {
+				t.Fatalf("permitted chat not exported: %+v", a)
+			}
+			continue
+		}
+		if a.SHA256 != "" || a.Size != 0 || b.Paths[a.RelPath] != "" || a.RelPath == "" {
+			t.Fatalf("refused %s carries an export: %+v", m.NativeSessionID, a)
+		}
+	}
+}
+
+type failingScanner struct{}
+
+func (failingScanner) Scan([]byte) (redact.Result, error) {
+	return redact.Result{}, errors.New("scanner broke")
+}
+
+// A value the ruleset cannot scan is not exported. The export fails
+// and names the key or the blob id.
+func TestScanErrorFailsClosed(t *testing.T) {
+	scanner = failingScanner{}
+	t.Cleanup(func() { scanner = redact.Ruleset{} })
+	if raw, _, err := presentMeta(hex.EncodeToString([]byte("\x01opaque"))); err == nil || raw != nil {
+		t.Fatalf("hex meta raw %s err %v", raw, err)
+	}
+	if raw, _, err := presentBlob([]byte("\xff\xfe\x00")); err == nil || raw != nil {
+		t.Fatalf("blob raw %s err %v", raw, err)
+	}
+	for _, tc := range []struct {
+		name, stmt, want string
+	}{
+		{"meta", `INSERT INTO meta (key, value) VALUES ('opaque.key', ?)`, `meta key "opaque.key"`},
+		{"blob", `INSERT INTO blobs (id, data) VALUES ('opaque-blob', ?)`, `blob id "opaque-blob"`},
+	} {
+		dbPath := filepath.Join(t.TempDir(), "store.db")
+		if err := seedClosed(dbPath); err != nil {
+			t.Fatal(err)
+		}
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(tc.stmt, []byte("\xff\xfe\x00")); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+		_, err = exportDatabase(context.Background(), dbPath, "chats/a/b/store.db")
+		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "scanner broke") {
+			t.Fatalf("%s: err %v", tc.name, err)
+		}
 	}
 }
 
@@ -403,21 +456,27 @@ func TestExcludedKey(t *testing.T) {
 func TestEncodedValuesAreScannedRaw(t *testing.T) {
 	pat := "ghp_" + strings.Repeat("Q", 36)
 	binary := []byte("\xff\xfe" + pat + "\x00")
-	raw, hidden := presentBlob(binary)
+	raw, hidden, err := presentBlob(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(raw), pat) || !strings.Contains(string(raw), `"base64"`) {
 		t.Fatalf("blob %s", raw)
 	}
 	if hidden.Hits != 1 || len(hidden.Rules) != 1 || hidden.Rules[0] != "github-pat" {
 		t.Fatalf("blob scan %+v", hidden)
 	}
-	raw, hidden = presentMeta(hex.EncodeToString([]byte("\x01" + pat)))
+	raw, hidden, err = presentMeta(hex.EncodeToString([]byte("\x01" + pat)))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(raw), pat) || hidden.Hits != 1 {
 		t.Fatalf("hex meta %s %+v", raw, hidden)
 	}
 	for _, clean := range [][]byte{[]byte("\xff\xfe plain"), []byte(`{"text":"` + pat + `"}`), []byte("text " + pat)} {
 		// JSON and UTF-8 text stay readable in the export, where the
 		// upload scan finds the key itself.
-		if _, hidden := presentBlob(clean); hidden.Hits != 0 {
+		if _, hidden, _ := presentBlob(clean); hidden.Hits != 0 {
 			t.Fatalf("%q: %+v", clean, hidden)
 		}
 	}

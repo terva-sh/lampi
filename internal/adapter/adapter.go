@@ -30,7 +30,9 @@ type Ref struct {
 // paths, so one session never reads another's file. The file can change
 // after the digest was taken; the reader checks the bytes against the
 // artifact digest. Root is the harness home those paths were walked
-// from, and it is the watermark root.
+// from, and it is the watermark root. A manifest a Permit refused is
+// kept so the caller can report it, but its artifacts carry no digest
+// and have no entry in Paths.
 type Bundle struct {
 	Root      string
 	Manifests []protocol.Manifest
@@ -45,6 +47,13 @@ type Bundle struct {
 	// nothing. Call it after Paths have been read. A second call is safe.
 	Cleanup func()
 }
+
+// Permit reports whether a session may leave the machine. A reader that
+// builds an export asks it before that work, with a manifest that has
+// the project and the artifact relpaths but no digests. The upload
+// passes the allowlist check it applies again to the finished manifest.
+// Nil permits every session.
+type Permit func(protocol.Manifest) bool
 
 // Harness discovers artifacts, reads a byte range, and builds manifests.
 // ReadSlice is how a tail-only upload avoids resending a prefix. Callers

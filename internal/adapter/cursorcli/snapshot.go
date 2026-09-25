@@ -9,15 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
-	_ "modernc.org/sqlite"
-
+	"terva.sh/lampi/internal/adapter/sqlitesnap"
 	"terva.sh/lampi/internal/redact"
 )
 
@@ -59,8 +56,13 @@ func (d document) hidden() redact.Result {
 	return out
 }
 
-// exportDatabase copies the WAL trio, opens the snapshot, and returns
-// the filtered JSON. src is the live store.db. sourceRel is written
+// takeSnapshot is sqlitesnap.Take. A test swaps it to count copies.
+var takeSnapshot = sqlitesnap.Take
+
+// scanner is ruleset v2. A test swaps it for one that fails.
+var scanner redact.Redactor = redact.Ruleset{}
+
+// exportDatabase snapshots src and returns the filtered JSON. src is the live store.db. sourceRel is written
 // into the document. An empty sourceRel is used by ReadSlice, which
 // does not have a home-relative path; the base name is recorded
 // instead.
@@ -88,17 +90,12 @@ func exportDocument(ctx context.Context, src, sourceRel string) (document, error
 	if err := ctx.Err(); err != nil {
 		return document{}, err
 	}
-	snap, err := copyTrio(src)
+	snap, err := takeSnapshot(ctx, src, "lampi-cursorcli-snap-")
 	if err != nil {
 		return document{}, err
 	}
-	defer os.RemoveAll(snap)
-
-	db, err := openSnapshot(ctx, filepath.Join(snap, filepath.Base(src)))
-	if err != nil {
-		return document{}, err
-	}
-	defer db.Close()
+	defer snap.Close()
+	db := snap.DB
 
 	for _, table := range []string{"blobs", "meta"} {
 		ok, err := tableExists(ctx, db, table)
@@ -128,12 +125,11 @@ func exportDocument(ctx context.Context, src, sourceRel string) (document, error
 	if sourceRel == "" {
 		doc.Source = filepath.Base(src)
 	}
-	if err := db.Close(); err != nil {
-		return document{}, err
-	}
 	return doc, nil
 }
 
+// readMeta reads the meta table. A value the ruleset cannot scan fails
+// the read with an error that names its key.
 func readMeta(ctx context.Context, db *sql.DB) ([]metaRow, error) {
 	rows, err := db.QueryContext(ctx, `SELECT key, value FROM meta ORDER BY key`)
 	if err != nil {
@@ -154,7 +150,10 @@ func readMeta(ctx context.Context, db *sql.DB) ([]metaRow, error) {
 		if val.Valid {
 			raw = val.String
 		}
-		value, hidden := presentMeta(raw)
+		value, hidden, err := presentMeta(raw)
+		if err != nil {
+			return nil, fmt.Errorf("cursor-cli: meta key %q: %w", key, err)
+		}
 		out = append(out, metaRow{Key: key, Value: value, hidden: hidden})
 	}
 	if err := rows.Err(); err != nil {
@@ -163,6 +162,8 @@ func readMeta(ctx context.Context, db *sql.DB) ([]metaRow, error) {
 	return out, nil
 }
 
+// readBlobs reads the blobs table. A blob the ruleset cannot scan
+// fails the read with an error that names its id.
 func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id, data FROM blobs ORDER BY id`)
 	if err != nil {
@@ -179,7 +180,10 @@ func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 		if excludedKey(id) {
 			continue
 		}
-		data, hidden := presentBlob(val)
+		data, hidden, err := presentBlob(val)
+		if err != nil {
+			return nil, fmt.Errorf("cursor-cli: blob id %q: %w", id, err)
+		}
 		out = append(out, blobRow{ID: id, Data: data, hidden: hidden})
 	}
 	if err := rows.Err(); err != nil {
@@ -194,32 +198,42 @@ func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 // else is encoded as text. Credential keys inside a JSON object are
 // removed before the value is returned. Hexadecimal text that does not
 // decode to JSON stays hex, so the Result scans the decoded bytes too.
-func presentMeta(s string) (json.RawMessage, redact.Result) {
+// A scan that fails is an error, so the value is never exported
+// unscanned.
+func presentMeta(s string) (json.RawMessage, redact.Result, error) {
 	trimmed := strings.TrimSpace(s)
 	if scrubbed, ok := scrubIfJSON([]byte(trimmed)); ok {
-		return scrubbed, redact.Result{}
+		return scrubbed, redact.Result{}, nil
 	}
 	var hidden redact.Result
 	if decoded, err := hex.DecodeString(trimmed); err == nil {
 		if scrubbed, ok := scrubIfJSON(decoded); ok {
-			return scrubbed, redact.Result{}
+			return scrubbed, redact.Result{}, nil
 		}
-		if scan, err := (redact.Ruleset{}).Scan(decoded); err == nil {
-			hidden = scan
+		scan, err := scanner.Scan(decoded)
+		if err != nil {
+			return nil, redact.Result{}, fmt.Errorf("ruleset %s scan: %w", redact.RulesetV2, err)
 		}
+		hidden = scan
 	}
-	encoded, inner := encodeValue([]byte(s))
-	return encoded, hidden.Add(inner)
+	encoded, inner, err := encodeValue([]byte(s))
+	if err != nil {
+		return nil, redact.Result{}, err
+	}
+	return encoded, hidden.Add(inner), nil
 }
 
 // presentBlob encodes blob bytes. They are not hex-decoded. JSON
 // objects still lose credential keys.
-func presentBlob(b []byte) (json.RawMessage, redact.Result) {
-	encoded, hidden := encodeValue(b)
-	if scrubbed, ok := scrubIfJSON(encoded); ok {
-		return scrubbed, hidden
+func presentBlob(b []byte) (json.RawMessage, redact.Result, error) {
+	encoded, hidden, err := encodeValue(b)
+	if err != nil {
+		return nil, redact.Result{}, err
 	}
-	return encoded, hidden
+	if scrubbed, ok := scrubIfJSON(encoded); ok {
+		return scrubbed, hidden, nil
+	}
+	return encoded, hidden, nil
 }
 
 func scrubIfJSON(raw []byte) (json.RawMessage, bool) {
@@ -371,133 +385,35 @@ func excludedKey(key string) bool {
 // encodeValue keeps a JSON value as JSON. Other UTF-8 bytes become a
 // JSON string. Anything else is base64. The key is not interpreted.
 // The Result is the ruleset's scan of b when b became base64, which a
-// scan of the export cannot read. It is zero otherwise.
-func encodeValue(b []byte) (json.RawMessage, redact.Result) {
+// scan of the export cannot read. It is zero otherwise. A scan that
+// fails is an error, so the value is never exported unscanned.
+func encodeValue(b []byte) (json.RawMessage, redact.Result, error) {
 	if len(b) == 0 {
-		return json.RawMessage("null"), redact.Result{}
+		return json.RawMessage("null"), redact.Result{}, nil
 	}
 	if json.Valid(b) {
 		var buf bytes.Buffer
 		if err := json.Compact(&buf, b); err == nil {
-			return buf.Bytes(), redact.Result{}
+			return buf.Bytes(), redact.Result{}, nil
 		}
 	}
 	if utf8.Valid(b) {
 		raw, err := json.Marshal(string(b))
 		if err == nil {
-			return raw, redact.Result{}
+			return raw, redact.Result{}, nil
 		}
 	}
-	hidden, err := (redact.Ruleset{}).Scan(b)
+	hidden, err := scanner.Scan(b)
 	if err != nil {
-		return json.RawMessage("null"), redact.Result{}
+		return nil, redact.Result{}, fmt.Errorf("ruleset %s scan: %w", redact.RulesetV2, err)
 	}
 	raw, err := json.Marshal(struct {
 		Base64 string `json:"base64"`
 	}{Base64: base64.StdEncoding.EncodeToString(b)})
 	if err != nil {
-		return json.RawMessage("null"), redact.Result{}
+		return nil, redact.Result{}, err
 	}
-	return raw, hidden
-}
-
-// copyTrio copies store.db and the sidecars that exist beside it.
-// The copy is the only database this package opens. A missing sidecar
-// is left absent. The main file is required.
-func copyTrio(src string) (string, error) {
-	dir, err := os.MkdirTemp("", "lampi-cursorcli-snap-")
-	if err != nil {
-		return "", err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = os.RemoveAll(dir)
-		}
-	}()
-	base := filepath.Base(src)
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		from := src + suffix
-		_, err := os.Stat(from)
-		if errors.Is(err, os.ErrNotExist) {
-			if suffix == "" {
-				return "", err
-			}
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if err := copyFile(from, filepath.Join(dir, base+suffix)); err != nil {
-			return "", err
-		}
-	}
-	ok = true
-	return dir, nil
-}
-
-// copyFile reads from and writes to. The source is opened read-only.
-func copyFile(from, to string) error {
-	in, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(to, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		return copyErr
-	}
-	return closeErr
-}
-
-// openSnapshot opens a copied database read-only. The path is inside
-// the snapshot directory, never the live file. If the copied shm stops
-// the open, it is removed from the snapshot and the open is tried once
-// more. SQLite then rebuilds the index in the snapshot. The live shm
-// is not touched.
-func openSnapshot(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := openRO(ctx, path)
-	if err == nil {
-		return db, nil
-	}
-	shm := path + "-shm"
-	if _, statErr := os.Stat(shm); statErr != nil {
-		return nil, err
-	}
-	if rmErr := os.Remove(shm); rmErr != nil {
-		return nil, err
-	}
-	return openRO(ctx, path)
-}
-
-func openRO(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", sqliteROURI(path))
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
-// sqliteROURI is a read-only file URI. mode=ro refuses a write. The
-// WAL copied beside the database is applied. immutable is not set:
-// that flag tells SQLite to ignore the WAL.
-func sqliteROURI(path string) string {
-	slash := filepath.ToSlash(path)
-	if !strings.HasPrefix(slash, "/") {
-		slash = "/" + slash
-	}
-	u := &url.URL{Scheme: "file", Path: slash, RawQuery: "mode=ro"}
-	return u.String()
+	return raw, hidden, nil
 }
 
 func tableExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
