@@ -48,7 +48,7 @@ Add a `just dev` or `make dev` recipe, or a `--dev` convention, that sets all fo
 
 The `just dev`, `just dev-serve` and `just dev-clean` recipes are in, with `make dev ARGS=...`, `make dev-serve` and `make dev-clean` for parity. They set `XDG_CONFIG_HOME` and `XDG_STATE_HOME` under `.dev/` in the checkout. They set `LAMPI_SERVER` to the dev address and set `LAMPI_TOKEN_FILE` empty, which clears an inherited value. `serve` gets `--data .dev/lake` and `--addr` from `LAMPI_DEV_ADDR`, which defaults to `127.0.0.1:18787`. `.dev/` is gitignored, and the README quickstart documents the recipes.
 
-Verified on brokkr with the live lake on `:8787` and the live agent running. The dev run got its own machine id and a token path under `.dev`. It reported `server source=env` at `:18787`. `sync` refused every real session and stored nothing. The live lake kept answering, and a fingerprint of `~/.config/terva-lampi` and the list of state files matched before and after.
+Verified on the owner's workstation with the live lake on `:8787` and the live agent running. The dev run got its own machine id and a token path under `.dev`. It reported `server source=env` at `:18787`. `sync` refused every real session and stored nothing. The live lake kept answering, and a fingerprint of `~/.config/terva-lampi` and the list of state files matched before and after.
 
 ### Decisions
 

@@ -75,7 +75,7 @@ A write between the two reads could shorten the file and then grow it back. That
 
 `copyOnce` in `internal/adapter/sqlitesnap` now compares content instead of trusting mtime. The main file is hashed as it is copied, and the live file is hashed again after the WAL copy. A mismatch marks the attempt unstable, and `Take` retries. The size, mtime, identity and WAL-header checks are kept.
 
-Verified on brokkr, where the test failed on every run before the change:
+Verified on the owner's workstation, where the test failed on every run before the change:
 
 - `TestTakeGivesUpOnADatabaseThatAlwaysMoves` passes 20 out of 20 runs.
 - New test `TestTakeRetriesWhenMainChangesWithinOneTick` rewrites a main-file page between the copies and restores the size and mtime. This reproduces the bug on any host, including CI, which the old test could not. It fails on the old code with "copy ... was stable" and passes with the fix.
