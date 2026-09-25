@@ -106,6 +106,24 @@ func Open(dataDir string) (*Server, error) {
 	return s, nil
 }
 
+// OpenReadOnly opens the lake under dataDir for a command that runs
+// beside serve. The catalog is read-only, and there is no normalize
+// queue and no worker: serve owns those. Project reads; StoreEvents
+// and the handler's writes fail.
+func OpenReadOnly(dataDir string) (*Server, error) {
+	cat, err := catalog.OpenReadOnly(filepath.Join(dataDir, "catalog.db"))
+	if err != nil {
+		return nil, err
+	}
+	return &Server{
+		CAS:        &cas.Store{Root: filepath.Join(dataDir, "cas")},
+		Catalog:    cat,
+		Normalized: filepath.Join(dataDir, "normalized"),
+		Parquet:    filepath.Join(dataDir, "parquet"),
+		Now:        time.Now,
+	}, nil
+}
+
 // Close drains the normalize queue, stops the workers, and releases
 // the catalog. The CAS is just a directory. A manifest ACK does not
 // wait for projection; process exit does.

@@ -215,6 +215,17 @@ Laptop, desktop, and the remote/cloud box each run `terva-lampi
 agent`. The names stay at the role. [policy.md](policy.md) lists
 them.
 
+## Backup
+
+`terva-lampi serve backup --out DIR` copies the catalog, then
+`cas/sha256` and `cas/logical`, then the token file with
+`--token-file`. Run it as the service user. It runs while `serve`
+runs. The catalog copy is `VACUUM INTO`, one consistent snapshot, and
+the CAS is copied after it. A second run into the same directory
+copies only new objects. Keep DIR on encrypted storage.
+`terva-lampi serve fsck` re-hashes every object and exits non-zero
+when one is bad.
+
 ## Leave out of git
 
 Do not commit the production hostname, a device token, a `sha256:`

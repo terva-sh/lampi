@@ -158,7 +158,8 @@ lampi is Finnish for a pond. This is that pond: raw session bytes from
 the machines you run agents on, content-addressed, in one place.
 
 usage:
-  terva-lampi serve     run the lake (health, blob check/put, manifests)
+  terva-lampi serve     run the lake (health, blob check/put, manifests),
+                        or back it up or check it (serve backup, serve fsck)
   terva-lampi agent     local capture agent
   terva-lampi sync      push new bytes once
   terva-lampi status    agent state and lake health

@@ -131,6 +131,8 @@ not a promise that every secret is caught.
 | Command | What it does |
 |---------|----------------|
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
+| `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, and the token file to `--out`. Runs while `serve` runs. |
+| `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v1, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, lake health and catalog counts. |
@@ -148,7 +150,10 @@ named on stderr and left out. Each training row carries
 copied onto the turn as stored and is not decrypted. Ruleset v1
 strips matches from the plaintext training fields (`value`, tool
 name, and call id). The command does not rewrite the CAS or the
-normalized events, and `--format events` is not stripped.
+normalized events, and `--format events` is not stripped. While
+`serve` runs on the same `--data`, export reads the catalog
+read-only and starts no normalize worker. A session that `serve` has
+not normalized yet is named on stderr and left out.
 
 `terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
 

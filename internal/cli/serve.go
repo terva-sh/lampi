@@ -16,13 +16,19 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakelock"
 )
 
 const serveUsage = `terva-lampi serve — run the lake
 
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
+  terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
+                                 copy the catalog, the CAS, and the token file
+  terva-lampi serve fsck [--data DIR] [--repair]
+                                 re-hash every stored object
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -42,6 +48,10 @@ The lake directory holds cas/ (sha256 blobs), catalog.db (SQLite),
 normalized/ (one JSONL file per session), and parquet/ (date and
 harness partitions). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
+
+serve holds lake.lock in the lake directory while it runs. A second
+serve on the same directory is refused. At start it removes upload
+temp files and cas/partial uploads that have not been written for 24h.
 
 SIGTERM stops new requests and waits up to 20s for those in flight,
 then drains the normalize queue for up to 30s. Jobs left in the queue
@@ -63,6 +73,14 @@ func runServe(env Env, args []string) error {
 	if len(args) > 0 && isHelp(args[0]) {
 		fmt.Fprint(env.stdout(), serveUsage)
 		return nil
+	}
+	if len(args) > 0 {
+		switch args[0] {
+		case "backup":
+			return runServeBackup(env, args[1:])
+		case "fsck":
+			return runServeFsck(env, args[1:])
+		}
 	}
 	var addr, data, tokenFile string
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
@@ -93,10 +111,16 @@ func runServe(env Env, args []string) error {
 	if err := refuseExposedWithoutToken(addr, devices); err != nil {
 		return err
 	}
+	lock, err := lakelock.Acquire(data)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
 	lake, err := api.Open(data)
 	if err != nil {
 		return err
 	}
+	sweepCAS(env, lake.CAS, time.Now())
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
 
@@ -118,6 +142,23 @@ func runServe(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
+}
+
+// sweepAge is how long an upload temp file or a partial upload sits
+// untouched before start-up removes it. An agent resumes within it.
+const sweepAge = 24 * time.Hour
+
+// sweepCAS runs before the listener opens, so no put is in flight. A
+// failure is reported and serve still starts: the leftovers only cost
+// disk.
+func sweepCAS(env Env, store *cas.Store, now time.Time) {
+	n, err := store.Sweep(now.Add(-sweepAge))
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: sweep: %v\n", err)
+	}
+	if n > 0 {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: removed %d upload leftovers older than %s\n", n, sweepAge)
+	}
 }
 
 // newHTTPServer has no ReadTimeout or WriteTimeout. For HTTP/1.1 the
