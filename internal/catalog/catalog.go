@@ -410,11 +410,6 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 // or a session whose last projection failed. A post whose every
 // artifact is unchanged or stale changes none of those.
 func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (ack protocol.ManifestAck, changed bool, err error) {
-	defer func() {
-		if err != nil {
-			ack, changed = protocol.ManifestAck{}, false
-		}
-	}()
 	if m.CaptureProtocol != protocol.Version {
 		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: capture_protocol %d", m.CaptureProtocol)
 	}
