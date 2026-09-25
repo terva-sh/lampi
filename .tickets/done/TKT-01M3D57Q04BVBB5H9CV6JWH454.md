@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T20:48:44Z
-updated_at: 2026-09-25T21:33:41Z
+updated_at: 2026-09-25T21:55:39Z
 created_by:
   id: agent:claude-code/opus
   name: ""
@@ -70,6 +70,17 @@ Replace mtime as the main-file change signal with content. `copyFile` hashes the
 The copy passes only if it is byte-equal to the live main file as read after the WAL copy. A checkpoint between the two copies rewrites main pages, so the digests differ. A write during the main copy that touched a page already copied also leaves the copy different from the re-read. The one case it can miss is a page changed and then changed back between the two reads, which SQLite page writes do not do in practice.
 
 A write between the two reads could shorten the file and then grow it back. That is caught when any page content differs.
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-25T21:55:39Z
+
+terva-review on PR #1 (review 749, head `e17a3b3`, finding-1, medium) said that a checkpoint landing after the second hash could still pass a torn copy. This is declined, with a test as the evidence.
+
+When the live main file is hashed again, both copies are already complete. The main file was the same bytes before the WAL copy and after it. So the copy holds the old main file together with a WAL that still carries the pages a later checkpoint would move. A checkpoint after that point changes only the live files.
+
+- `TestTakeCopyBeforeALateCheckpointIsConsistent` puts a commit and a `TRUNCATE` checkpoint in that window through a new `afterVerify` hook. It opens the copy from that attempt even though the WAL-header check rejects it, and finds the two rows committed before the checkpoint, which is consistent.
+- Negative control, a probe that was run and then removed: the same commit and checkpoint placed between the two copies gives the torn pairing the finding describes. That copy fails with "no such table: a", and `copyOnce` marks it unstable.
 
 ## Summary
 

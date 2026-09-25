@@ -272,6 +272,48 @@ func TestTakeRetriesWhenMainChangesWithinOneTick(t *testing.T) {
 	}
 }
 
+// A commit and checkpoint after the live main file is hashed again, in
+// the window after the last content check, change the live files and
+// not the copy. The copy already made is the state before them: the old
+// main file with the WAL that still holds its pages, never the old main
+// file without them. It is opened here even when a later check rejects
+// the attempt, because that copy is the one in question.
+func TestTakeCopyBeforeALateCheckpointIsConsistent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.vscdb")
+	w := openWriter(t, path)
+	for id := 0; id < 2; id++ {
+		if err := commit(w, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	afterVerify = func(string) {
+		if err := commit(w, 2); err != nil {
+			t.Error(err)
+		}
+		if _, err := w.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterVerify = nil })
+
+	dir, _, err := copyOnce(path, "lampi-test-snap-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	db, err := openChecked(context.Background(), filepath.Join(dir, filepath.Base(path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if a, b := counts(t, db); a != 2 || b != 2 {
+		t.Fatalf("rows a=%d b=%d want the 2 committed before the late checkpoint", a, b)
+	}
+	if a, b := counts(t, w); a != 3 || b != 3 {
+		t.Fatalf("live rows a=%d b=%d want 3", a, b)
+	}
+}
+
 // A writer that commits and checkpoints while snapshots are taken never
 // yields a copy with a half-applied transaction.
 func TestTakeIsConsistentUnderAWriter(t *testing.T) {

@@ -53,6 +53,11 @@ var ErrChanged = errors.New("sqlitesnap: database changed during every copy")
 // is. Tests use it to checkpoint in that window. Nil does nothing.
 var betweenCopies func(src string)
 
+// afterVerify runs once the live main file has been hashed again. Tests
+// use it to show that a checkpoint from then on changes the live files,
+// not the copy. Nil does nothing.
+var afterVerify func(src string)
+
 // Snapshot is a private copy of a database, open read-only.
 type Snapshot struct {
 	DB  *sql.DB
@@ -160,6 +165,15 @@ func copyOnce(src, prefix string) (string, bool, error) {
 	}
 	if !bytes.Equal(liveSum, copiedSum) {
 		stable = false
+	}
+	// Both copies are complete here, and the main file was the same
+	// bytes before the WAL copy and after it. A checkpoint from this
+	// point writes the live files only: the copy is the state before
+	// it, with the WAL that still holds the pages it would move. The
+	// checks below can only reject such a copy, never let a torn one
+	// through.
+	if afterVerify != nil {
+		afterVerify(src)
 	}
 	after, err := os.Stat(src)
 	if err != nil {
