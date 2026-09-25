@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T01:34:31Z
-updated_at: 2026-09-25T01:34:31Z
+updated_at: 2026-09-25T01:38:33Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -39,7 +39,7 @@ Every sync re-reads, re-scans, and re-posts the whole allowlisted corpus, and th
 ### Findings
 
 - Proven with 100 Claude sessions of 1 MiB. An unchanged sync took 35s and posted 100 manifests, and the heap grew by the corpus size. 88% of CPU was `redact.Scan`, at about 3 MB/s.
-- `internal/upload/prepare.go:130-241` reads and scans every file, keeps each body, and puts unchanged files back into the work list. `internal/cli/agent.go:199-202` runs a full `upload.Sync` per fsnotify write. The adapters hash every file and call `ProjectAt` for every session, refused ones included. `ProjectAt` spawns `git` for any packed repository (`internal/adapter/git.go:329-336`).
+- `internal/upload/prepare.go:130-241` reads and scans every file, keeps each body, and puts unchanged files back into the work list. `internal/cli/agent.go:199-202` runs a full `upload.Sync` per fsnotify write. The adapters hash every file and call `ProjectAt` for every session, refused ones included. `ProjectAt` spawns `git` whenever `rootLoose` misses, which is any packed repository (`internal/adapter/git.go:237-240`, `rootGit` at `:364`).
 - On the lake, `api/merge.go:43-50` re-reads every current blob of the session per post, and an unchanged post bumps the generation and re-projects the session. An unchanged re-post of a 41 MiB chunked file allocated 207 MiB and re-normalized for 13s.
 
 ### Approach

@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T01:34:31Z
-updated_at: 2026-09-25T01:34:32Z
+updated_at: 2026-09-25T01:41:57Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -41,8 +41,8 @@ Operator commands the lake needs soon after go-live.
 - `export` runs a second lake. Read. `internal/cli/export.go:79` calls `api.Open`, which loads `normalize_jobs` and starts workers. The generation check and `lockSession` hold within one process, so an older generation can overwrite newer derived files. Contention can also fail a serve write transaction, because a deferred transaction's upgrade returns `SQLITE_BUSY` without the `busy_timeout` retry.
 - No purge. `docs/policy.md` says bytes stay until an explicit manual purge, and there is no purge command. A secret that slips past the scan is manual SQL and file work.
 - No cleanup or fsck. Stale `.put-*` temp files and abandoned `cas/partial/*` stay forever. Nothing re-hashes stored objects.
-- Normalize worker. A transient catalog error drops the job from memory until the next restart (`internal/api/worker.go:277-283`). A transient CAS read error becomes a permanent `normalize_error`. `s.pubs` grows by one mutex per session.
-- Tokens. A token change needs a restart, which cuts uploads. A `#label` line in the token file became a working token, and in directory mode `laptop~` or `laptop.revoked` stays enrolled (`internal/auth/devices.go:218,266-270`). Proven.
+- Normalize worker. A transient catalog error drops the job from memory until the next restart: `runNormalize` returns without a requeue when `NormalizeGen` or `Session` errors (`internal/api/worker.go:151-157`, `:162-165`). A `StoreEvents` failure is retried three times and then dropped the same way (`:166-172`). A transient CAS read error becomes a permanent `normalize_error`. `s.pubs` grows by one mutex per session.
+- Tokens. A token change needs a restart, which cuts uploads. A `#label` line in the token file became a working token, and in directory mode `laptop~` or `laptop.revoked` stays enrolled (`loadDeviceDir` and `loadDeviceFile`, `internal/auth/devices.go:112-182`). Proven.
 - `make build` does not stamp a version; `just build` does.
 
 ### Approach

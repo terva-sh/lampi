@@ -35,7 +35,7 @@ The CAS is not durable across a crash, and one slow upload stalls every other wr
 
 ### Findings
 
-- No fsync. Proven. `internal/cas/cas.go:124-142` (`putLocked`), `internal/cas/resume.go:457-492` (`Concat`, `commitFileLocked`) and `internal/cas/logical.go:174-187` rename a temp file into place without syncing it or the directory. The catalog runs `synchronous=FULL`, so the manifest ACK can be durable while the blob it names is not. After a power loss on ext4 a new object can come back zero length.
+- No fsync. Proven. `internal/cas/cas.go:82-142` (`putLocked`), `internal/cas/resume.go:120-252` (`installCoveredLocked`, `Concat`, `commitFileLocked`) and `internal/cas/logical.go:150-187` (`writeLogical`) rename a temp file into place without syncing it or the directory. The catalog runs `synchronous=FULL`, so the manifest ACK can be durable while the blob it names is not. After a power loss on ext4 a new object can come back zero length.
 - A damaged object is never repaired. Proven. `Has` (`cas.go:55`) checks existence only, and `Put` returns `exists` without comparing. A re-PUT of the right bytes leaves the bad file. `blobs/check` never reports it missing. Every later append on that session becomes `divergent_copy`, and any other session naming the digest gets a permanent 400.
 - The lock is held across the network read. Proven. `Store.Put` (`cas.go:77-79`) takes the store-wide `s.mu` and then `io.Copy`s the request body. Caddy streams bodies, so a laptop on a slow link holds the lock for up to `ReadTimeout`. Every other PUT, and every tail assembly (`api/merge.go:181`), waits behind it. A 9-byte PUT took 1.8s behind a trickled body in the test. `PutRange` already reads before it locks.
 
