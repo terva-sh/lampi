@@ -56,7 +56,10 @@ type Server struct {
 	norm        *normalizeQueue
 	normalizeWG sync.WaitGroup
 	pubMu       sync.Mutex
-	pubs        map[string]*sync.Mutex
+	pubs        map[string]*sessionLock
+	// retryBase is the first wait before a transient normalize failure
+	// is tried again. Zero is defaultRetryBase. Tests shorten it.
+	retryBase time.Duration
 	// beforeProject, when set, runs in the worker before Project.
 	// Tests use it to show that the manifest ACK does not wait.
 	beforeProject func()
