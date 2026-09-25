@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -48,7 +49,7 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 	}
 	view, ok, err := s.Catalog.Head(ctx, m.Harness, m.NativeSessionID)
 	if err != nil {
-		return nil, err
+		return nil, transientError{err}
 	}
 	if !ok {
 		return nil, fmt.Errorf("normalize: session %s/%s is not in the catalog", m.Harness, m.NativeSessionID)
@@ -69,7 +70,7 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 		projected = true
 		raw, err := readBlob(s.CAS, a.SHA256)
 		if err != nil {
-			return nil, err
+			return nil, transientError{err}
 		}
 		var ev []normalize.Event
 		switch m.Harness {
@@ -162,6 +163,18 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 		return nil, fmt.Errorf("normalize: opencode session has no opencode_export_json artifact")
 	}
 	return all, nil
+}
+
+// transientError is a Project failure of the lake, not of the bytes: a
+// catalog read or a CAS read. The worker tries it again.
+type transientError struct{ err error }
+
+func (e transientError) Error() string { return e.err.Error() }
+func (e transientError) Unwrap() error { return e.err }
+
+func isTransient(err error) bool {
+	var t transientError
+	return errors.As(err, &t)
 }
 
 // headArtifacts is the current artifacts Project reads, in relpath

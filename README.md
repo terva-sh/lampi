@@ -118,8 +118,15 @@ is still `sync`.
 Copy that file to the lake host and pass the copy to `serve`. With
 `--token-file`, `/v1` routes require `Authorization: Bearer`. `serve`
 stores a SHA-256 of each device token and rewrites that copy; keep the
-original as the client's secret. A directory of token files is one
-device each. The token is not a command argument. Without a token file,
+original as the client's secret. A token is 64 lowercase hex
+characters, which is what `login` writes. A line starting with `#` is
+a comment and stays through the rewrite. Any other line is an error.
+In a token directory, only `<name>.token` files are loaded, one device
+each. A file with another name, such as `laptop~` or
+`laptop.revoked`, is named on stderr and not loaded. Earlier releases
+loaded every file there, so rename device files to `.token` before
+you upgrade. `kill -HUP` reloads the tokens without dropping requests
+in flight. The token is not a command argument. Without a token file,
 `serve` accepts unauthenticated requests only on a loopback address and
 refuses any other `--addr`. `/healthz` stays open and returns no catalog
 data. Do not upload a project whose transcripts you would not copy onto
@@ -137,6 +144,7 @@ after it was hashed is not sent in that sync; the next one sends it.
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
 | `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, and the token file to `--out`. Runs while `serve` runs. |
 | `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
+| `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, lake health and catalog counts. |

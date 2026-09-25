@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3B369JQHQK0ES07FEP1RX5B
 title: "Operator commands: backup, purge, fsck, read-only export"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ dependencies:
   - TKT-01M3B368ZXNN3AN518CGT3YSZ0
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/eh1m
-  branch: claude/elegant-feynman-eh1mdd-operator
-  worktree: /home/user/lampi/.claude/worktrees/agent-ad4d57b9b6c003b33
-  commit: 2a0726c84f2c21c29a0003a5a55479c8da2f3a6b
-  session: null
-  claimed_at: 2026-09-25T02:21:03Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-25T01:34:31Z
-updated_at: 2026-09-25T02:35:37Z
+updated_at: 2026-09-25T02:47:36Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -60,9 +53,9 @@ Operator commands the lake needs soon after go-live.
 
 - [x] serve backup writes a consistent catalog copy
 - [x] export against a live lake does not start workers
-- [ ] purge removes a session and its unreferenced blobs
+- [x] purge removes a session and its unreferenced blobs
 - [x] fsck re-hashes objects and names bad ones
-- [ ] Token files accept only 64-hex tokens and # comments, and SIGHUP reloads them
+- [x] Token files accept only 64-hex tokens and # comments, and SIGHUP reloads them
 
 ## Implementation plan
 
@@ -111,3 +104,46 @@ First of two stacked branches: claude/elegant-feynman-eh1mdd-operator. It holds 
 - docs/vps-bringup.md: #63 adds a longer Backup section. Here it is a short `## Backup` paragraph. #63 also says objects are never removed, which purge and fsck --repair now make false.
 - internal/catalog/catalog.go Open: #64.
 - internal/api/worker.go: #64 adds a recover. The second branch changes runNormalize.
+
+**agent:claude-code/eh1m** at 2026-09-25T02:47:26Z
+
+Second branch: claude/elegant-feynman-eh1mdd-operator-2, stacked on claude/elegant-feynman-eh1mdd-operator. Criteria 3 and 5 are ticked in this branch's ticket commit.
+
+### Purge
+
+- `serve purge --session UID [--yes]` is a dry run unless `--yes` is given, and it refuses while serve holds lake.lock. It opens the lake with `api.OpenIdle`, which starts no worker, so a queued job for the session cannot run during the purge.
+- A tail blob is not recorded anywhere in the catalog, so purge recomputes it. For each path it reads the newest bytes and hashes the span between each pair of recorded sizes that are both prefixes. That is what a tail PUT was, because a tail's prev must equal the stored head's length. TestPurgeRemovesSessionAndUnsharedBlobs checks that the first tail is found this way.
+- Purge does not find a chunk list or tail from an older manifest that no row records, a tail from a 409 prefix mismatch, or a blob put for a manifest that was never posted. Finding those needs a whole-lake sweep of unreferenced objects, which would also remove the Concat chunks of every other session. That is left out on purpose. The usage text and policy.md say so.
+
+### Tokens
+
+- The rewrite now keeps line order, blank lines, and comments. It used to sort the hashes, which would have separated a `# laptop` label from its token.
+- Directory mode loads only `*.token`. The names it skips go to stderr, and an error for a directory with no token names the skipped files. README, architecture.md, and vps-bringup.md say that existing directories must rename device files to `.token` before upgrading.
+- The unit file is not changed. `systemctl kill -s HUP` is documented instead, because #63 rewrites the unit.
+
+### Normalize worker
+
+- There are five attempts, and the wait doubles from 200ms. A job that runs out of attempts stays in normalize_jobs for the next start. A CAS read that is still failing at the end is also recorded as normalize_error so export names it, and its row is kept, so the next start's success clears the error. A catalog error cannot be recorded, so it is only logged.
+- `s.pubs` entries are refcounted and deleted at zero.
+
+## Summary
+
+The work landed on two stacked branches.
+
+### claude/elegant-feynman-eh1mdd-operator
+
+- serve holds lake.lock (`internal/lakelock`) and refuses to start a second time on the same data dir.
+- export takes the same lock. When serve holds it, export reads the catalog read-only, starts no worker, and names a session with no derived file as not yet normalized.
+- Catalog transactions use BEGIN IMMEDIATE (`_txlock=immediate`).
+- `serve backup` writes a VACUUM INTO copy of the catalog, then the CAS without temp files or partial uploads, then the token file. A second run copies only new objects.
+- `serve fsck [--repair]` re-hashes the objects, reads the logical indexes, names the bad ones, and exits non-zero.
+- At start, serve removes temp files and partial uploads older than 24h.
+- writePartial fsyncs its directory.
+- The Makefile stamps the version.
+- Two follow-ups from #65: a queue push after shutdown is dropped, and the access log records the remapped body error.
+
+### claude/elegant-feynman-eh1mdd-operator-2
+
+- `serve purge --session UID [--yes]` is a dry run unless `--yes` is given. It removes the session and every blob no other session names: logical indexes and their chunks, and tail blobs, which it recomputes.
+- A token file accepts only 64-hex tokens and `#` comments, and the comments are kept through the rewrite. A token directory loads `*.token` files only. SIGHUP reloads the tokens in place.
+- The normalize worker retries transient catalog and CAS errors with backoff. When the attempts run out it keeps the job row. It also drops session locks nobody holds.

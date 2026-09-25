@@ -13,7 +13,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
+| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
@@ -438,8 +438,10 @@ Single tenant, many devices, one token per device. `terva-lampi login`
 writes a fresh 256-bit token and does not print it. The client reads
 that file with `--token-file` and will not take the token as an argument.
 Copy the file to the lake host. `terva-lampi serve --token-file` hashes
-each line (or each file, when the path is a directory) and rewrites the
-copy to `sha256:<hex>`. The client's file stays the secret. There is no
+each line (or each `<name>.token` file, when the path is a directory)
+and rewrites the copy to `sha256:<hex>`. A token is 64 lowercase hex
+characters, and a `#` line is a comment kept through the rewrite.
+SIGHUP reloads the set in place. The client's file stays the secret. There is no
 enrolment API.
 
 Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without

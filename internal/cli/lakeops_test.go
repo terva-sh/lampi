@@ -15,6 +15,18 @@ import (
 	"terva.sh/lampi/internal/lakelock"
 )
 
+// liveLocks lets a test stop the stand-in serve: releaseLive drops
+// the lock liveLake took. Tests in this package do not run in parallel.
+var liveLocks = map[string]*lakelock.Lock{}
+
+func releaseLive(t *testing.T, dir string) {
+	t.Helper()
+	if err := liveLocks[dir].Release(); err != nil {
+		t.Fatal(err)
+	}
+	delete(liveLocks, dir)
+}
+
 // liveLake stands in for a running serve: it holds lake.lock and has
 // one normalized session.
 func liveLake(t *testing.T) (dir string, lake *api.Server, uid, sum string) {
@@ -25,6 +37,7 @@ func liveLake(t *testing.T) (dir string, lake *api.Server, uid, sum string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { lock.Release() })
+	liveLocks[dir] = lock
 	lake, err = api.Open(dir)
 	if err != nil {
 		t.Fatal(err)
