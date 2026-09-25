@@ -1,9 +1,9 @@
 ---
 schema: 3
 id: TKT-01M3D57Q04BVBB5H9CV6JWH454
-title: sqlitesnap misses a checkpoint within one mtime tick and returns a moved copy
+title: sqlitesnap misses a checkpoint within one mtime tick
 type: bug
-status: draft
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -17,16 +17,23 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/cd41c9ac
+  branch: t3code/repository-orientation-setup
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-cd41c9ac
+  commit: e82a8f388a0c1c05a5a6ce6f63b839bdc4060d6a
+  session: null
+  claimed_at: 2026-09-25T21:30:00Z
+  expires_at: null
 archive: null
 created_at: 2026-09-25T20:48:44Z
-updated_at: 2026-09-25T20:48:51Z
+updated_at: 2026-09-25T21:30:00Z
 created_by:
   id: agent:claude-code/opus
   name: ""
 updated_by:
-  id: agent:claude-code/opus
-  name: ""
+  id: agent:claude-code/cd41c9ac
+  name: Claude Code local agent
 extensions: {}
 ---
 
