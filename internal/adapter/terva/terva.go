@@ -14,8 +14,6 @@ package terva
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,7 +57,7 @@ func (Adapter) Match(rel string) (string, bool) {
 
 // Manifests implements adapter.Harness.
 func (Adapter) Manifests(root, machineID string) (adapter.Bundle, error) {
-	return buildManifests(root, machineID)
+	return buildManifests(root, machineID, nil)
 }
 
 // Discover lists session files. root is a terva home, not the sessions
@@ -112,6 +110,15 @@ type meta struct {
 	forkPoint json.RawMessage
 }
 
+// memoMeta is meta as the memo keeps it.
+type memoMeta struct {
+	OK        bool            `json:"ok,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	CWD       string          `json:"cwd,omitempty"`
+	Parent    string          `json:"parent,omitempty"`
+	ForkPoint json.RawMessage `json:"fork_point,omitempty"`
+}
+
 type item struct {
 	file discover.File
 	stem string
@@ -126,7 +133,15 @@ type item struct {
 // ruleset v2 before anything is sent. A sidecar with no session stays
 // on the machine.
 func Manifests(tervaHome, machineID string) (adapter.Bundle, error) {
-	return buildManifests(tervaHome, machineID)
+	return buildManifests(tervaHome, machineID, nil)
+}
+
+// ManifestsMemo is Manifests with a memo. A file the memo recalls at
+// the stat the walk saw is not opened: its digest and its meta line
+// come from the memo. A raati record is still read to find its
+// session.
+func ManifestsMemo(tervaHome, machineID string, memo adapter.Memo) (adapter.Bundle, error) {
+	return buildManifests(tervaHome, machineID, memo)
 }
 
 func listFiles(tervaHome string) ([]discover.File, []error, error) {
@@ -142,7 +157,7 @@ func listFiles(tervaHome string) ([]discover.File, []error, error) {
 	return append(files, extra...), skipped, nil
 }
 
-func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
+func buildManifests(tervaHome, machineID string, memo adapter.Memo) (adapter.Bundle, error) {
 	files, skipped, err := listFiles(tervaHome)
 	if err != nil {
 		return adapter.Bundle{}, err
@@ -151,21 +166,21 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 	var sidecars []item
 	for _, f := range files {
 		it := item{file: f, stem: stemOf(f.AbsPath)}
-		if f.Kind == discover.KindTranscript {
-			// One file that cannot be read is left out. The rest of
-			// the home still uploads.
-			m, err := readMeta(f.AbsPath)
-			if err != nil {
-				skipped = append(skipped, fmt.Errorf("terva: %s: %w", f.RelPath, err))
-				continue
+		ref := adapter.Ref{Kind: f.Kind, AbsPath: f.AbsPath, RelPath: f.RelPath, Size: f.Size, ModTime: f.ModTime, Inode: f.Inode}
+		// One file that cannot be read is left out. The rest of the
+		// home still uploads. Only a transcript has a meta line.
+		sum, m, err := adapter.Identify(memo, ref, func() (memoMeta, error) {
+			if f.Kind != discover.KindTranscript {
+				return memoMeta{}, nil
 			}
-			it.meta = m
-		}
-		sum, err := hashFile(f.AbsPath)
+			m, err := readMeta(f.AbsPath)
+			return memoMeta{OK: m.ok, ID: m.id, CWD: m.cwd, Parent: m.parent, ForkPoint: m.forkPoint}, err
+		})
 		if err != nil {
 			skipped = append(skipped, fmt.Errorf("terva: %s: %w", f.RelPath, err))
 			continue
 		}
+		it.meta = meta{ok: m.OK, id: m.ID, cwd: m.CWD, parent: m.Parent, forkPoint: m.ForkPoint}
 		it.sum = sum
 		if f.Kind == discover.KindRaati || f.Kind == discover.KindTasks {
 			sidecars = append(sidecars, it)
@@ -327,19 +342,6 @@ func readMeta(path string) (meta, error) {
 		parent:    env.Meta.Parent,
 		forkPoint: env.Meta.ForkPoint,
 	}, nil
-}
-
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // CWDHash is terva's project bucket: hex(sha256(cwd)[:8]). The absolute

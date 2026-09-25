@@ -98,6 +98,7 @@ func walkSidecarDir(home, dir string) ([]File, []error, error) {
 			RelPath: rel,
 			Size:    info.Size(),
 			ModTime: info.ModTime().UTC(),
+			Inode:   Inode(info),
 			Kind:    kind,
 		})
 		return nil

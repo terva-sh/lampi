@@ -49,6 +49,7 @@ func WalkSkipped(root, dir string, match func(rel string) (kind string, ok bool)
 			RelPath: rel,
 			Size:    info.Size(),
 			ModTime: info.ModTime().UTC(),
+			Inode:   discover.Inode(info),
 		})
 		return nil
 	})

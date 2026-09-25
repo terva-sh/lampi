@@ -26,7 +26,7 @@ import (
 func ProjectAt(cwd string) protocol.Project {
 	remote, head, root := "", "", ""
 	if cwd != "" {
-		remote, head, root = projectCheckout(cwd)
+		remote, head, root = cachedCheckout(cwd)
 	}
 	return protocol.Project{
 		CWD:       cwd,
@@ -71,8 +71,11 @@ func ResolveRoot(p protocol.Project) protocol.Project {
 	}
 	key := rootKey(common, p.GitCommit)
 	root := cachedRoot(key)
-	if root == "" {
+	if root == "" && !recentMiss(key) {
 		root = rootGit(gitDir, p.GitCommit)
+		if root == "" {
+			rememberMiss(key)
+		}
 	}
 	if root == "" {
 		return p
@@ -108,11 +111,7 @@ func OutsideCheckout(cwd string) bool {
 	}
 }
 
-func projectCheckout(cwd string) (remote, head, root string) {
-	gitDir := findGitDir(cwd)
-	if gitDir == "" {
-		return "", "", ""
-	}
+func readCheckout(gitDir string) (remote, head, root string) {
 	common := commonDir(gitDir)
 	remote = originURL(filepath.Join(common, "config"))
 	head = headCommit(gitDir, common)
@@ -120,6 +119,102 @@ func projectCheckout(cwd string) (remote, head, root string) {
 		return remote, head, ""
 	}
 	return remote, head, rootCommit(common, head)
+}
+
+// checkoutCache keeps what readCheckout read, per cwd, for the life of
+// the process. An entry is used while every file it was read from
+// still has the size and mtime it had then: HEAD, the ref HEAD names,
+// packed-refs, config, commondir, and shallow. A commit moves the ref,
+// a checkout moves HEAD, and a new origin moves config.
+var checkoutCache = struct {
+	sync.Mutex
+	m map[string]checkout
+}{m: map[string]checkout{}}
+
+type checkout struct {
+	gitDir             string
+	files              []fileMark
+	remote, head, root string
+}
+
+// fileMark is one input file's stat. A missing file is a mark too, so
+// one that appears later is a change.
+type fileMark struct {
+	path    string
+	exists  bool
+	size    int64
+	modTime time.Time
+}
+
+func markFile(path string) fileMark {
+	st, err := os.Stat(path)
+	if err != nil {
+		return fileMark{path: path}
+	}
+	return fileMark{path: path, exists: true, size: st.Size(), modTime: st.ModTime()}
+}
+
+func (c checkout) fresh(gitDir string) bool {
+	if c.gitDir != gitDir {
+		return false
+	}
+	for _, f := range c.files {
+		if m := markFile(f.path); m.exists != f.exists || m.size != f.size || !m.modTime.Equal(f.modTime) {
+			return false
+		}
+	}
+	return true
+}
+
+// checkoutFiles is every file readCheckout reads for gitDir. The ref is
+// the one HEAD names now; a HEAD that moves to another ref changes
+// HEAD's own mtime.
+func checkoutFiles(gitDir string) []fileMark {
+	common := commonDir(gitDir)
+	paths := []string{
+		filepath.Join(gitDir, "HEAD"),
+		filepath.Join(gitDir, "commondir"),
+		filepath.Join(common, "config"),
+		filepath.Join(common, "packed-refs"),
+		filepath.Join(common, "shallow"),
+	}
+	if b, err := os.ReadFile(filepath.Join(gitDir, "HEAD")); err == nil {
+		line := strings.TrimSpace(string(b))
+		if ref, ok := strings.CutPrefix(line, "ref:"); ok {
+			ref = filepath.FromSlash(strings.TrimSpace(ref))
+			paths = append(paths, filepath.Join(gitDir, ref), filepath.Join(common, ref))
+		}
+	}
+	out := make([]fileMark, len(paths))
+	for i, p := range paths {
+		out[i] = markFile(p)
+	}
+	return out
+}
+
+// cachedCheckout finds the repository that contains cwd and reads it
+// through checkoutCache. The marks are taken before the read, so a
+// write during it is a change next time.
+func cachedCheckout(cwd string) (remote, head, root string) {
+	gitDir := findGitDir(cwd)
+	if gitDir == "" {
+		return "", "", ""
+	}
+	checkoutCache.Lock()
+	c, ok := checkoutCache.m[cwd]
+	checkoutCache.Unlock()
+	if ok && c.fresh(gitDir) {
+		return c.remote, c.head, c.root
+	}
+	files := checkoutFiles(gitDir)
+	remote, head, root = readCheckout(gitDir)
+	checkoutCache.Lock()
+	defer checkoutCache.Unlock()
+	if len(checkoutCache.m) >= 4096 {
+		checkoutCache.m = map[string]checkout{}
+	}
+	checkoutCache.m[cwd] = checkout{gitDir: gitDir, files: files, remote: remote, head: head, root: root}
+	return remote, head, root
 }
 
 func findGitDir(start string) string {
@@ -362,6 +457,33 @@ func rememberRoot(key, root string) {
 		rootCache.m = map[string]string{}
 	}
 	rootCache.m[key] = root
+}
+
+// rootMisses is when git last failed to find a root, by repository
+// and HEAD. git is not asked again for that pair until rootMissTTL has
+// passed, so a checkout git cannot walk does not start a process for
+// every session on every pass.
+var rootMisses = struct {
+	sync.Mutex
+	m map[string]time.Time
+}{m: map[string]time.Time{}}
+
+const rootMissTTL = time.Hour
+
+func recentMiss(key string) bool {
+	rootMisses.Lock()
+	defer rootMisses.Unlock()
+	at, ok := rootMisses.m[key]
+	return ok && time.Since(at) < rootMissTTL
+}
+
+func rememberMiss(key string) {
+	rootMisses.Lock()
+	defer rootMisses.Unlock()
+	if len(rootMisses.m) >= 4096 {
+		rootMisses.m = map[string]time.Time{}
+	}
+	rootMisses.m[key] = time.Now()
 }
 
 func shallowRepo(common string) bool {

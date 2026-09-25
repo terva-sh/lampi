@@ -21,7 +21,9 @@ type File struct {
 	RelPath string
 	Size    int64
 	ModTime time.Time
-	Kind    string
+	// Inode is zero where the platform has none.
+	Inode uint64
+	Kind  string
 }
 
 const (
@@ -120,6 +122,7 @@ func SessionsSkipped(tervaHome string) ([]File, []error, error) {
 			RelPath: filepath.ToSlash(rel),
 			Size:    info.Size(),
 			ModTime: info.ModTime().UTC(),
+			Inode:   Inode(info),
 			Kind:    kind,
 		})
 		return nil
