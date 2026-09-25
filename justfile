@@ -40,8 +40,9 @@ vet:
 fmt:
     gofmt -w .
 
-# Fail if gofmt would change a file. CI runs this too. just hands the
-# line to bash as written, so `$` is single here, unlike the Makefile.
+# just hands each line to bash as written, so `$` is single here,
+# unlike the Makefile.
+# Fail if gofmt would change a file. CI runs this too.
 fmt-check:
     @diff=$(gofmt -l .); \
     if [ -n "$diff" ]; then \
@@ -58,3 +59,30 @@ ci: vet fmt-check test build
 # for a checkout without just.
 synthetic-container:
     docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
+
+# Development runs, kept apart from a live lake and agent on the same
+# machine. With no flags, serve writes to the XDG state dir and binds
+# 127.0.0.1:8787, and the client commands read the real device token,
+# machine id, server URL, and allowlist from the XDG config dir. The
+# recipes below move all four: config and state under .dev/ in this
+# checkout, the lake in .dev/lake, and the address to LAMPI_DEV_ADDR.
+# XDG_CONFIG_HOME also moves the Cursor IDE and Cursor CLI defaults,
+# so those two find nothing unless .dev/config sets their roots.
+dev_dir := justfile_directory() / ".dev"
+dev_addr := env("LAMPI_DEV_ADDR", "127.0.0.1:18787")
+dev_env := "XDG_CONFIG_HOME=" + dev_dir / "config" + " XDG_STATE_HOME=" + dev_dir / "state" + " LAMPI_SERVER=http://" + dev_addr + " LAMPI_TOKEN_FILE="
+
+# Run a lake from .dev/lake on the dev address. Extra flags go to serve.
+[positional-arguments]
+dev-serve *args: build
+    env {{dev_env}} bin/terva-lampi serve --data {{dev_dir}}/lake --addr {{dev_addr}} "$@"
+
+# `just dev sync`, `just dev status`, `just dev agent discover`.
+# Run any command with .dev config and state, against the dev lake.
+[positional-arguments]
+dev *args: build
+    env {{dev_env}} bin/terva-lampi "$@"
+
+# Remove .dev/: the dev lake, machine id, token, and agent state.
+dev-clean:
+    rm -rf {{dev_dir}}

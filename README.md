@@ -60,6 +60,24 @@ make build          # bin/terva-lampi; `just build` is the same binary
 ./bin/terva-lampi serve
 ```
 
+On a machine that already runs a lake or an agent, use the `dev`
+recipes instead. With no flags, `serve` writes to the agent's state
+directory and binds the live lake's port. `sync` reads the real device
+token, machine id, server URL, and allowlist. The recipes put config
+and state under `.dev/` in the checkout, put the lake in `.dev/lake`,
+and bind `127.0.0.1:18787`. Set `LAMPI_DEV_ADDR` to change the address.
+
+```bash
+just dev-serve              # make dev-serve
+just dev status             # make dev ARGS=status
+just dev sync               # refuses every project until .dev/config allows one
+just dev-clean              # make dev-clean
+```
+
+The dev allowlist is `.dev/config/terva-lampi/config.json` and starts
+empty. `XDG_CONFIG_HOME` also moves the default Cursor IDE and Cursor
+CLI roots, so set `harnesses` there to read them.
+
 `serve` listens on `127.0.0.1:8787` and prints the data directory
 (the XDG state dir `terva-lampi/`, override with `--data`). It writes
 one stderr line per request, except a 200 `/healthz`. In another

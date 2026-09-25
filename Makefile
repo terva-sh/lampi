@@ -2,7 +2,7 @@
 # checks, for a checkout that does not have just installed. CI inlines
 # the commands rather than calling either file. See the justfile.
 
-.PHONY: build test vet fmt ci synthetic-container
+.PHONY: build test vet fmt ci synthetic-container dev dev-serve dev-clean
 
 # The same stamp as the justfile. 0.0.0 means nothing was stamped.
 # -buildvcs=false only inside a linked git worktree; the justfile says why.
@@ -39,3 +39,18 @@ ci: vet test build
 # call this.
 synthetic-container:
 	docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
+
+# Development runs apart from a live lake and agent. The justfile's dev
+# recipes say why. ARGS carries the command: `make dev ARGS=status`.
+DEV_DIR := $(CURDIR)/.dev
+LAMPI_DEV_ADDR ?= 127.0.0.1:18787
+DEV_ENV := XDG_CONFIG_HOME=$(DEV_DIR)/config XDG_STATE_HOME=$(DEV_DIR)/state LAMPI_SERVER=http://$(LAMPI_DEV_ADDR) LAMPI_TOKEN_FILE=
+
+dev-serve: build
+	env $(DEV_ENV) bin/terva-lampi serve --data $(DEV_DIR)/lake --addr $(LAMPI_DEV_ADDR) $(ARGS)
+
+dev: build
+	env $(DEV_ENV) bin/terva-lampi $(ARGS)
+
+dev-clean:
+	rm -rf $(DEV_DIR)
