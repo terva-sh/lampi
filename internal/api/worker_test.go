@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"sync"
 	"testing"
@@ -392,5 +393,20 @@ func TestOpenResumesNormalizeJob(t *testing.T) {
 	}
 	if len(jobs) != 0 {
 		t.Fatalf("job left queued: %+v", jobs)
+	}
+}
+
+// A retry pushed after shutdown must not sit in the queue: no worker
+// pops it, and waitIdle would wait for it forever.
+func TestQueuePushAfterShutdownIsDropped(t *testing.T) {
+	q := newNormalizeQueue()
+	if left := q.shutdown(); left != 0 {
+		t.Fatalf("empty queue left %d", left)
+	}
+	q.push(catalog.NormalizeJob{SessionUID: "late", Gen: 1})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := q.waitIdle(ctx); err != nil {
+		t.Fatalf("closed queue holds a pushed job: %v", err)
 	}
 }

@@ -248,8 +248,17 @@ them.
 
 ## Backup
 
-Back up the catalog first, then `cas/sha256`, then `cas/logical`.
-Copy the token file too. Keep that order.
+`terva-lampi serve backup --out DIR` copies the catalog, then
+`cas/sha256` and `cas/logical`, then the token file with
+`--token-file`. Run it as the service user. It runs while `serve`
+runs. The catalog copy is `VACUUM INTO`, one consistent snapshot, and
+the CAS is copied after it. A second run into the same directory
+copies only new objects. Keep DIR on encrypted storage.
+`terva-lampi serve fsck` re-hashes every object and exits non-zero
+when one is bad.
+
+Without the command, the order is the same: the catalog first, then
+`cas/sha256`, then `cas/logical`, then the token file.
 
 Do not `cp` `catalog.db` while `serve` runs. The catalog is in WAL
 mode, and a plain copy can miss or tear the WAL. Use the SQLite
@@ -262,9 +271,10 @@ sudo install -d -o terva-lampi -g terva-lampi -m 0700 /var/backups/terva-lampi
 sudo -u terva-lampi sqlite3 /var/lib/terva-lampi/catalog.db ".backup '/var/backups/terva-lampi/catalog.db'"
 ```
 
-Then copy the CAS. Objects are only added, never changed or removed,
-so a copy taken after the catalog holds every object that catalog
-names. Leave out the `.put-*` and `.logical-*` temp files. The
+Then copy the CAS. Objects are only added while `serve` runs.
+`serve fsck --repair` removes objects, and it refuses while `serve`
+holds the lake. A copy taken after the catalog
+holds every object that catalog names. Leave out the `.put-*` and `.logical-*` temp files. The
 example uses `rsync`. Any copy that keeps the tree works.
 
 ```bash
@@ -289,10 +299,6 @@ them too if a restore should need no rebuild.
 
 The backup holds the lake in plaintext. Keep it on encrypted
 storage, the same as the data disk.
-
-There is no backup command in this tree. A `terva-lampi serve backup`
-command is tracked as later work. These steps are the procedure
-until then.
 
 ### Restore drill
 

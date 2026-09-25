@@ -116,6 +116,43 @@ func Open(path string) (*Catalog, error) {
 	return &Catalog{db: db}, nil
 }
 
+// OpenReadOnly opens an existing catalog without write access, for a
+// command that reads while serve runs. It does not create or migrate
+// the file. WAL lets it read while serve writes.
+func OpenReadOnly(path string) (*Catalog, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	q := url.Values{}
+	q.Set("mode", "ro")
+	q.Add("_pragma", "busy_timeout(5000)")
+	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: q.Encode()}
+	db, err := sql.Open("sqlite", u.String())
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return &Catalog{db: db}, nil
+}
+
+// VacuumInto writes a consistent copy of the catalog to dest, which
+// must not exist. It works on a read-only catalog and while serve
+// writes: the copy is one read transaction.
+func (c *Catalog) VacuumInto(ctx context.Context, dest string) error {
+	if _, err := c.db.ExecContext(ctx, `VACUUM INTO ?`, dest); err != nil {
+		return fmt.Errorf("catalog: vacuum into %s: %w", dest, err)
+	}
+	return nil
+}
+
 // dataSource is a file URI carrying the per-connection pragmas. The
 // driver runs them on every connection it opens, so a reopened
 // connection keeps busy_timeout. synchronous is FULL because the
@@ -134,6 +171,11 @@ func dataSource(path string) (string, error) {
 	} {
 		q.Add("_pragma", p)
 	}
+	// _txlock=immediate makes every transaction BEGIN IMMEDIATE. A
+	// deferred one that reads and then writes cannot wait on
+	// busy_timeout for the write lock: the upgrade fails with
+	// SQLITE_BUSY at once when another connection is writing.
+	q.Set("_txlock", "immediate")
 	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: q.Encode()}
 	return u.String(), nil
 }

@@ -123,6 +123,24 @@ func TestConcatRangeAndLogicalSyncDirectory(t *testing.T) {
 	}
 }
 
+func TestPartialMetaSyncsDirectoryAfterRename(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("two ranges")
+	d := digestOf(body)
+	meta := filepath.Join(s.partialDir(d), "meta.json")
+	syncs := recordSyncs(t, meta)
+	n := int64(len(body))
+	if _, complete, err := s.PutRange(d, 0, 3, n, 0, bytes.NewReader(body[:4])); err != nil || complete {
+		t.Fatalf("first range complete %v err %v", complete, err)
+	}
+	if !syncs()[s.partialDir(d)] {
+		t.Fatalf("partial directory not flushed after meta.json was renamed: %v", syncs())
+	}
+}
+
 func TestPutRepairsDamagedObject(t *testing.T) {
 	body := []byte("the right bytes\n")
 	d := digestOf(body)

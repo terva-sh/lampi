@@ -13,7 +13,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve`, `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
+| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
@@ -99,7 +99,11 @@ copied through as an opaque string and is not written into
 stay in the projection so an earlier prompt is still searchable.
 `terva-lampi export` waits until the queue is idle. `--format events`
 (the default) writes one JSON object per event. A missing JSONL file
-is projected once, so a removed derived view can be rebuilt. DuckDB
+is projected once, so a removed derived view can be rebuilt. That
+holds when `serve` is stopped. `serve` holds `lake.lock` in the data
+directory. While it does, export opens the catalog read-only, starts
+no worker, and names a session with no JSONL yet as not yet
+normalized. Only one process publishes derived files. DuckDB
 reads that export with `read_ndjson`. sqlite reads each line and uses
 `json_extract(line, '$.content_text')`. A session with `normalize_error`
 set is skipped. Until a worker finishes, `normalize_error` is empty
