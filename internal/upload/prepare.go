@@ -36,11 +36,16 @@ func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, b
 	var res Result
 	var reasons []string
 	var work []prepared
+	pending, err := q.Identities(ctx)
+	if err != nil {
+		return nil, res, err
+	}
 	for _, bundle := range bundles {
-		part, resPart, err := prepareBundle(ctx, opt, wm, q, bundle)
+		part, resPart, err := prepareBundle(ctx, opt, wm, q, pending, bundle)
 		res.Checked += resPart.Checked
 		res.Refused += resPart.Refused
 		res.Quarantined += resPart.Quarantined
+		res.Unchanged += resPart.Unchanged
 		res.Skipped = append(res.Skipped, resPart.Skipped...)
 		work = append(work, part...)
 		if err != nil {
@@ -57,7 +62,7 @@ func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, b
 	return work, res, &Rejected{Reasons: reasons}
 }
 
-func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundle adapter.Bundle) ([]prepared, Result, error) {
+func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, pending map[string]bool, bundle adapter.Bundle) ([]prepared, Result, error) {
 	var res Result
 	var reasons []string
 	var work []prepared
@@ -68,6 +73,14 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
 				return nil, res, err
 			}
+			continue
+		}
+		same, err := unchanged(ctx, opt, wm, pending, bundle.Root, m)
+		if err != nil {
+			return nil, res, err
+		}
+		if same {
+			res.Unchanged++
 			continue
 		}
 		// Only an admitted session may run git for its root commit.
@@ -113,6 +126,56 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 		return work, res, nil
 	}
 	return work, res, &Rejected{Reasons: reasons}
+}
+
+// unchanged reports whether every artifact of m is the file its
+// watermark already holds, and the outbox has no row for the session.
+// The lake has those bytes and that manifest, so the session is not
+// read, scanned, or posted again. The digests come from the reader;
+// with a Memo they are the ones taken when the file last had this
+// size, mtime, and inode.
+func unchanged(ctx context.Context, opt Options, wm *watermark.DB, pending map[string]bool, root string, m protocol.Manifest) (bool, error) {
+	if len(m.Artifacts) == 0 || pending[manifestIdentity(opt.MachineID, m.Harness, m.NativeSessionID)] {
+		return false, nil
+	}
+	for _, a := range m.Artifacts {
+		if pending[blobIdentity(opt.MachineID, root, a.RelPath)] {
+			return false, nil
+		}
+		mark, ok, err := wm.Get(ctx, markKey(opt, m.Harness, root, a.RelPath))
+		if err != nil {
+			return false, err
+		}
+		if !ok || mark.SHA256 != a.SHA256 || mark.Size != a.Size {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func markKey(opt Options, harness, root, rel string) watermark.Mark {
+	return watermark.Mark{MachineID: opt.MachineID, Harness: harness, Root: root, RelPath: rel}
+}
+
+// scanHook, when set, hears where each artifact's scan started: 0 for
+// the whole file, or the clean prefix it scanned after. Tests set it.
+var scanHook func(rel string, clean int64)
+
+// cleanPrefix is how many leading bytes of body an earlier scan found
+// clean: the watermarked bytes, when body still starts with them and
+// their scan under this ruleset had no hit. Zero means scan it all.
+// prefix is the sha256 of body[:mark.Size], or empty when body is
+// shorter; stamp uses it for the watermark plan.
+func cleanPrefix(mark watermark.Mark, ok bool, body []byte) (clean int64, prefix string) {
+	if !ok || mark.Size <= 0 || int64(len(body)) < mark.Size {
+		return 0, ""
+	}
+	sum := sha256.Sum256(body[:mark.Size])
+	prefix = hex.EncodeToString(sum[:])
+	if prefix != mark.SHA256 || mark.Ruleset != redact.RulesetV2 || mark.Hits != 0 {
+		return 0, prefix
+	}
+	return mark.Size, prefix
 }
 
 type quarantineHit struct {
@@ -224,13 +287,21 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 	seenRules := map[string]bool{}
 	for i, a := range m.Artifacts {
 		body := raws[i]
-		scan, err := (redact.Ruleset{}).Scan(body)
+		// readArtifacts checked body against a.SHA256.
+		digest := a.SHA256
+		mark, ok, err := wm.Get(ctx, markKey(opt, m.Harness, bundle.Root, a.RelPath))
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
-		scan = scan.Add(bundle.Hidden[a.SHA256])
-		sum := sha256.Sum256(body)
-		digest := hex.EncodeToString(sum[:])
+		clean, prefix := cleanPrefix(mark, ok, body)
+		if scanHook != nil {
+			scanHook(a.RelPath, clean)
+		}
+		scan, err := (redact.Ruleset{}).ScanAppended(body, int(clean))
+		if err != nil {
+			return protocol.Manifest{}, nil, nil, nil, err
+		}
+		scan = scan.Add(bundle.Hidden[digest])
 		// quarantine allow acknowledges these exact bytes. Anything
 		// else, including the same file after it grows, is held.
 		if scan.Hits > 0 && !opt.UploadHits && !opt.allowed[digest] {
@@ -257,7 +328,7 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 			}
 			continue
 		}
-		art, blob, hold, err := stamp(ctx, opt, wm, bundle.Root, m.Harness, a, body, scan)
+		art, blob, hold, err := stamp(mark, ok, prefix, a, body, scan)
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
@@ -274,21 +345,12 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 	return next, bodies, full, nil, nil
 }
 
-func stamp(ctx context.Context, opt Options, wm *watermark.DB, root, harness string, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, bool, error) {
-	sum := sha256.Sum256(body)
-	digest := hex.EncodeToString(sum[:])
-	key := watermark.Mark{
-		MachineID: opt.MachineID,
-		Harness:   harness,
-		Root:      root,
-		RelPath:   a.RelPath,
-	}
-	mark, ok, err := wm.Get(ctx, key)
-	if err != nil {
-		return protocol.Artifact{}, nil, false, err
-	}
+// stamp plans the upload of body against mark. prefix, when set, is
+// the sha256 of body[:mark.Size], already taken for the scan.
+func stamp(mark watermark.Mark, ok bool, prefix string, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, bool, error) {
+	digest := a.SHA256
 	if !ok {
-		mark = key
+		mark = watermark.Mark{}
 	}
 	st := watermark.Stat{
 		Size:    int64(len(body)),
@@ -296,11 +358,15 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, root, harness str
 		FullSHA: digest,
 	}
 	if ok && int64(len(body)) > mark.Offset {
-		pfx, err := watermark.HashPrefix(bytes.NewReader(body), mark.Offset)
-		if err != nil {
-			return protocol.Artifact{}, nil, false, err
+		if prefix != "" && mark.Offset == mark.Size {
+			st.PrefixSHA = prefix
+		} else {
+			pfx, err := watermark.HashPrefix(bytes.NewReader(body), mark.Offset)
+			if err != nil {
+				return protocol.Artifact{}, nil, false, err
+			}
+			st.PrefixSHA = pfx
 		}
-		st.PrefixSHA = pfx
 	}
 	dec := watermark.Plan(mark, st)
 	// The lake head is ahead of this file and the local bytes still

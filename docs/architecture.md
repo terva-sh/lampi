@@ -28,7 +28,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Cursor CLI | `internal/adapter/cursorcli` | Read-only snapshot of `store.db` under the CLI config directory. Separate harness `cursor-cli`. Not assumed to match IDE state |
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
-| Watermarks | `internal/watermark` | Per-path cursor, written only after a manifest ACK |
+| Watermarks | `internal/watermark` | Per-path cursor and the scan of its bytes, written only after a manifest ACK |
 | Redaction | `internal/redact` | Ruleset v2. It reads JSON escapes as the text they stand for. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
@@ -37,8 +37,16 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
 `terva-lampi agent` lists those files, watches them, and uploads through
-`upload.Sync`. `terva-lampi sync` is the same function, once. An unchanged
-file uploads nothing. A strict append uploads only the new tail;
+`upload.Sync`. `terva-lampi sync` is the same function, once. A
+session whose files all match their watermark digests, with nothing in
+the outbox, is not read, scanned, or posted. The watermark keeps the
+ruleset and hit count of the bytes it covers, so an append to bytes
+that scanned clean scans only the tail and 64 KiB before it, further
+back over a run a rule repeats. The agent keeps a memo of each file's
+digest and session by size, mtime, and inode, and does not open a file
+whose stat has not moved. Its first pass, and one every 6 hours, hashes
+every file. `ProjectAt` is cached per cwd until HEAD, its ref,
+packed-refs, or config changes. A strict append uploads only the new tail;
 `byte_watermark_prev` is the previous length and `tail_sha256` is the
 hash of those bytes. The lake assembles the tail onto the stored prefix
 and moves the head. Bytes that are not a prefix either way are stored
@@ -160,7 +168,8 @@ Left as interfaces, with the reason next to the type:
 the manifest ACK. The outbox is not replayed. Its rows hold digests,
 not bytes, so each pass rebuilds the work from the files and the
 watermarks. The outbox is the durable count that status reports. The agent is the long-running loop: startup sync,
-then a sync when the watcher reports growth or a previous push failed,
+then a sync when the watcher reports growth (after 5s of quiet, at
+most 30s after the first change) or a previous push failed,
 then one more sync on SIGTERM. On Unix, SIGUSR1 asks for a sync without
 waiting for the next filesystem event. The agent writes `agent.pid` in
 the state directory while it runs. Example units live under
@@ -410,7 +419,7 @@ a local lake, writes one fixture terva JSONL, and pushes it with
 `upload.Sync`.
 
 1. Ingest records a `session_uid` and the blob sha256.
-2. A second sync uploads no blob.
+2. A second sync uploads no blob and posts no manifest.
 3. An appended line uploads the tail only, and the head sha256 updates.
 4. The same file synced from a second machine is a CAS hit. Provenance
    for that digest has one row per machine.

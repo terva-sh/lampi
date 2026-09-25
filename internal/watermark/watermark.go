@@ -52,6 +52,12 @@ const (
 // When Offset equals Size, SHA256 is the hash of the whole file. Plan
 // compares both a full-file hash and a prefix hash against this value;
 // they are the same hash only for that snapshot.
+//
+// Ruleset and Hits are the redaction scan of bytes [0:Size], the bytes
+// SHA256 names. A mark with Hits 0 under the current ruleset is a clean
+// prefix: when the file still starts with those bytes, only what
+// follows needs a scan. A mark written before these fields existed has
+// an empty Ruleset and is scanned in full.
 type Mark struct {
 	MachineID string
 	Harness   string
@@ -61,6 +67,8 @@ type Mark struct {
 	ModTime   time.Time
 	SHA256    string
 	Offset    int64
+	Ruleset   string
+	Hits      int
 }
 
 // Stat is the file as it sits on disk now. FullSHA and PrefixSHA are
@@ -125,6 +133,10 @@ func Open(path string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("watermark: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("watermark: %w", err)
+	}
 	// The parent directory is 0700. The database and its WAL sidecars
 	// are 0600. Sidecars appear when WAL mode is turned on.
 	if err := chmodPrivate(path); err != nil {
@@ -145,9 +157,48 @@ CREATE TABLE IF NOT EXISTS watermarks (
     sha256 TEXT NOT NULL,
     byte_offset INTEGER NOT NULL,
     updated_at TEXT NOT NULL,
+    ruleset TEXT NOT NULL DEFAULT '',
+    hits INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (machine_id, harness, root_path, relative_path)
 );
 `
+
+// added is each column a later release put on the table. A store an
+// older release created gets them with their defaults, which read as a
+// prefix that was not scanned.
+var added = []struct{ name, def string }{
+	{"ruleset", `TEXT NOT NULL DEFAULT ''`},
+	{"hits", `INTEGER NOT NULL DEFAULT 0`},
+}
+
+func migrate(db *sql.DB) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('watermarks')`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range added {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE watermarks ADD COLUMN ` + c.name + ` ` + c.def); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // Close releases the database.
 func (s *DB) Close() error {
@@ -188,11 +239,11 @@ func (s *DB) Get(ctx context.Context, key Mark) (Mark, bool, error) {
 	var m Mark
 	var nano int64
 	err := s.db.QueryRowContext(ctx, `
-		SELECT machine_id, harness, root_path, relative_path, size, mtime_unix_nano, sha256, byte_offset
+		SELECT machine_id, harness, root_path, relative_path, size, mtime_unix_nano, sha256, byte_offset, ruleset, hits
 		FROM watermarks
 		WHERE machine_id = ? AND harness = ? AND root_path = ? AND relative_path = ?`,
 		key.MachineID, key.Harness, key.Root, key.RelPath,
-	).Scan(&m.MachineID, &m.Harness, &m.Root, &m.RelPath, &m.Size, &nano, &m.SHA256, &m.Offset)
+	).Scan(&m.MachineID, &m.Harness, &m.Root, &m.RelPath, &m.Size, &nano, &m.SHA256, &m.Offset, &m.Ruleset, &m.Hits)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Mark{}, false, nil
 	}
@@ -213,7 +264,7 @@ func (s *DB) Commit(ctx context.Context, mark Mark, ack protocol.ManifestAck) er
 	if mark.MachineID == "" || mark.Harness == "" || mark.Root == "" || mark.RelPath == "" {
 		return fmt.Errorf("watermark: machine_id, harness, root_path, and relative_path are required")
 	}
-	if mark.Size < 0 || mark.Offset < 0 {
+	if mark.Size < 0 || mark.Offset < 0 || mark.Hits < 0 {
 		return fmt.Errorf("watermark: negative size or offset")
 	}
 	// Offset may pass Size. A stale client stores the local file as
@@ -226,16 +277,18 @@ func (s *DB) Commit(ctx context.Context, mark Mark, ack protocol.ManifestAck) er
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO watermarks (
 			machine_id, harness, root_path, relative_path,
-			size, mtime_unix_nano, sha256, byte_offset, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			size, mtime_unix_nano, sha256, byte_offset, updated_at, ruleset, hits
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (machine_id, harness, root_path, relative_path) DO UPDATE SET
 			size = excluded.size,
 			mtime_unix_nano = excluded.mtime_unix_nano,
 			sha256 = excluded.sha256,
 			byte_offset = excluded.byte_offset,
-			updated_at = excluded.updated_at`,
+			updated_at = excluded.updated_at,
+			ruleset = excluded.ruleset,
+			hits = excluded.hits`,
 		mark.MachineID, mark.Harness, mark.Root, mark.RelPath,
-		mark.Size, mark.ModTime.UTC().UnixNano(), mark.SHA256, mark.Offset, now,
+		mark.Size, mark.ModTime.UTC().UnixNano(), mark.SHA256, mark.Offset, now, mark.Ruleset, mark.Hits,
 	)
 	if err != nil {
 		return fmt.Errorf("watermark: %w", err)

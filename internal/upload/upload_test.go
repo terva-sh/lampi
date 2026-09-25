@@ -153,13 +153,13 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Uploaded != 0 || second.Missing != 0 || second.Sessions[0] != first.Sessions[0] {
+	// The file matches its watermark: nothing is checked, put, or posted.
+	if second.Uploaded != 0 || second.Checked != 0 || second.Manifests != 0 || second.Unchanged != 1 || len(second.Sessions) != 0 {
 		t.Fatalf("second: %+v", second)
 	}
-	if cap.puts != 0 {
-		t.Fatalf("re-sync PUT count %d", cap.puts)
+	if cap.puts != 0 || len(cap.manifests) != 0 {
+		t.Fatalf("re-sync PUT count %d, manifests %d", cap.puts, len(cap.manifests))
 	}
-	assertFullFileWire(t, cap.manifests)
 	if blobCount(t, filepath.Join(data, "cas")) != 1 {
 		t.Fatal("re-sync stored another blob")
 	}
@@ -208,8 +208,8 @@ func TestSyncIdempotentThenGrowth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fourth.Uploaded != 0 || fourth.Missing != 0 || cap.puts != 0 || fourth.Sessions[0] != first.Sessions[0] {
-		t.Fatalf("re-sync after tail: %+v puts=%d", fourth, cap.puts)
+	if fourth.Uploaded != 0 || fourth.Manifests != 0 || fourth.Unchanged != 1 || cap.puts != 0 || len(cap.manifests) != 0 {
+		t.Fatalf("re-sync after tail: %+v puts=%d manifests=%d", fourth, cap.puts, len(cap.manifests))
 	}
 	if blobCount(t, filepath.Join(data, "cas")) != after {
 		t.Fatal("unchanged re-sync stored a blob")
@@ -715,7 +715,7 @@ func TestTailMismatchFallsBackToFullFile(t *testing.T) {
 	}
 }
 
-func openLake(t *testing.T) (*api.Server, string) {
+func openLake(t testing.TB) (*api.Server, string) {
 	t.Helper()
 	data := t.TempDir()
 	lake, err := api.Open(data)
@@ -1615,7 +1615,8 @@ func TestSyncCursorCLIIsASeparateCorpus(t *testing.T) {
 	}
 	cap.reset()
 	again, err := Sync(context.Background(), opt)
-	if err == nil || again.Uploaded != 1 || again.Manifests != 2 || again.Refused != 2 {
+	// The IDE export did not change, so only the CLI session is posted.
+	if err == nil || again.Uploaded != 1 || again.Manifests != 1 || again.Unchanged != 1 || again.Refused != 2 {
 		t.Fatalf("rewrite %+v err=%v", again, err)
 	}
 	_, ideArts, ok, err = lake.Catalog.Current(ctx, protocol.HarnessCursor, "workspace/ws1")

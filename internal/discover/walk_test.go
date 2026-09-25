@@ -140,3 +140,31 @@ func TestWalkFilesFollowsASymlinkedBase(t *testing.T) {
 		t.Fatalf("dirs %v", dirs)
 	}
 }
+
+// A session file that is a symlink is described by its target, so a
+// target that grows is a new size and mtime, not the link's.
+func TestSessionsStatASymlinkTarget(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(t.TempDir(), "real.jsonl")
+	if err := os.WriteFile(target, []byte("{\"type\":\"meta\"}\n{\"type\":\"message\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "sessions", "abcd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "s.jsonl")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	files, err := Sessions(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Size != st.Size() || !files[0].ModTime.Equal(st.ModTime().UTC()) {
+		t.Fatalf("files %+v, target size %d", files, st.Size())
+	}
+}

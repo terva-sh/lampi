@@ -70,10 +70,10 @@ type Ruleset struct{}
 
 var _ Redactor = Ruleset{}
 
-// rule is one secret shape. A match starts with one of prefixes, which
-// the scan finds with bytes.Index before it runs re anchored there. A
-// leading \b in re would stop Go's regexp from using the literal, and
-// every rule would walk every byte.
+// rule is one secret shape. A match starts with one of prefixes. The
+// scan finds every prefix in one pass (see find) and runs re anchored
+// there. A leading \b in re would stop Go's regexp from using the
+// literal, and every rule would walk every byte.
 type rule struct {
 	name     string
 	prefixes [][]byte
@@ -92,8 +92,10 @@ type rule struct {
 	// A match followed by one of these bytes is part of a longer token.
 	notAfter string
 	// examples are values published in vendor documentation. A match
-	// that contains one is not a hit, so a session that read SDK docs
-	// is not quarantined.
+	// whose key material is exactly one of them is not a hit, so a
+	// session that read SDK docs is not quarantined. The key material is
+	// the group named key in re, or the whole match when re has none.
+	// A real key that merely contains an example is still a hit.
 	examples [][]byte
 }
 
@@ -149,7 +151,7 @@ var rules = func() []rule {
 	// The key name may sit in quotes (JSON, YAML), may be the CLI's
 	// SecretAccessKey, and may follow a prefix such as TF_VAR_.
 	awsSecret := newRule("aws-secret-access-key",
-		`(?i)secret_?access_?key\b[\s'"]*[=:][\s'"]*[A-Za-z0-9/+=]{40,}`, "secret").
+		`(?i)secret_?access_?key\b[\s'"]*[=:][\s'"]*(?P<key>[A-Za-z0-9/+=]{40,})`, "secret").
 		withExamples("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "je7MtGbClwBF/2Zp9Utk/h3yCo8nvbEXAMPLEKEY")
 	awsSecret.fold = true
 	awsSecret.word = false
@@ -170,7 +172,7 @@ var rules = func() []rule {
 		newRule("gitlab-pat", `glpat-[A-Za-z0-9\-_]{20,}\b`, "glpat-"),
 		newRule("slack-token", `(?:xox[a-z]|xapp)-[A-Za-z0-9-]{10,}`, "xox", "xapp-"),
 		// The slashes may be \/ escapes, which the view doubles.
-		newRule("slack-webhook", `hooks\.slack\.com/+services/+[A-Z0-9]+/+[A-Z0-9]+/+[A-Za-z0-9]+`, "hooks.slack.com").
+		newRule("slack-webhook", `hooks\.slack\.com/+services/+(?P<key>[A-Z0-9]+/+[A-Z0-9]+/+[A-Za-z0-9]+)`, "hooks.slack.com").
 			withExamples("T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"),
 		newRule("anthropic-key", `sk-ant-[A-Za-z0-9_\-]{20,}\b`, "sk-ant-"),
 		newRule("openai-key", `sk-[A-Za-z0-9_\-]{20,}\b`, "sk-"),
@@ -190,10 +192,97 @@ var rules = func() []rule {
 // two rules match is one hit. The matched bytes are not copied onto
 // Result. Scan does not modify b and does not call Strip.
 func (Ruleset) Scan(b []byte) (Result, error) {
+	return result(choose(find(jsonView(b)))), nil
+}
+
+// Overlap is how far before the end of a clean prefix ScanAppended
+// starts. It is more than any rule's span with a bounded length: the
+// longest literal plus its fixed part is under 100 bytes, and a PEM
+// block for a 16384-bit RSA key is about 13 KiB even with every line
+// break escaped. A span with no bound, a run a rule repeats, is found
+// by walking back over that run (see appendedFrom).
+const Overlap = 64 << 10
+
+// ScanAppended is Scan for b whose first clean bytes an earlier Scan
+// with this ruleset found nothing in. Only a span that ends past clean
+// can be new, so it scans from before clean and counts only those.
+//
+// A span that ends past clean and starts before it is caught when its
+// start is inside the window. Every rule whose span can be longer than
+// Overlap repeats a run of whitespace, quotes, slashes, '=' or ':',
+// upper-case letters, or digits, so the window's start walks back over
+// such a run to the literal before it. A private-key BEGIN line
+// matches on its own, so a clean prefix cannot hold an open block;
+// only a BEGIN line cut by the boundary is open, and that is short.
+// clean 0 is Scan. clean at or past len(b) has nothing new to scan.
+func (r Ruleset) ScanAppended(b []byte, clean int) (Result, error) {
+	if clean <= 0 {
+		return r.Scan(b)
+	}
+	if clean >= len(b) {
+		return result(nil), nil
+	}
+	from := appendedFrom(b, clean)
+	var fresh []span
+	for _, sp := range find(jsonView(b[from:])) {
+		if sp.end > clean-from {
+			fresh = append(fresh, sp)
+		}
+	}
+	return result(choose(fresh)), nil
+}
+
+// appendedFrom is where ScanAppended starts for a prefix of clean
+// bytes: Overlap before clean, then back over a repeatable run and the
+// literal before it, twice. The Slack webhook is the case that needs
+// two: a run of slashes, "services", another run, then the host.
+func appendedFrom(b []byte, clean int) int {
+	from := max(clean-Overlap, 0)
+	for range 2 {
+		from = max(runStart(b, from)-literalSlack, 0)
+	}
+	return from
+}
+
+// literalSlack covers the literal and fixed text in front of a run:
+// "aws_secret_access_key", "hooks.slack.com", "services", "-----BEGIN".
+const literalSlack = 32
+
+// runStart walks back from i over bytes a rule can repeat without a
+// bound, in the raw form the view is built from: a backslash and the
+// escape after it become whitespace, a quote, or a slash.
+func runStart(b []byte, i int) int {
+	for i > 0 {
+		c := b[i-1]
+		switch {
+		case repeatable(c) || c == '\\':
+			i--
+		case i >= 2 && b[i-2] == '\\' && strings.IndexByte("ntrbf", c) >= 0:
+			i -= 2
+		case i >= 6 && b[i-6] == '\\' && b[i-5] == 'u':
+			if _, ok := hex4(b[i-4 : i]); !ok {
+				return i
+			}
+			i -= 6
+		default:
+			return i
+		}
+	}
+	return 0
+}
+
+func repeatable(c byte) bool {
+	switch {
+	case c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.IndexByte(" \t\r\n\f\v\"'/=:", c) >= 0
+}
+
+func result(chosen []span) Result {
 	res := Result{Status: protocol.RedactionScanned, Ruleset: RulesetV2}
-	chosen := choose(find(jsonView(b)))
 	if len(chosen) == 0 {
-		return res, nil
+		return res
 	}
 	res.Hits = len(chosen)
 	hit := make([]bool, len(rules))
@@ -205,7 +294,7 @@ func (Ruleset) Scan(b []byte) (Result, error) {
 			res.Rules = append(res.Rules, r.name)
 		}
 	}
-	return res, nil
+	return res
 }
 
 type span struct {
@@ -243,58 +332,151 @@ func (Ruleset) Strip(s string) string {
 	return buf.String()
 }
 
-// find returns every match of every rule in v.
-func find(v []byte) []span {
-	var out []span
-	fold := folded{v: v, start: -1}
+// literal is one rule prefix. The scan keeps, per literal, the offset
+// where the next match may start, which is how a search per literal
+// would go on after a match or a miss.
+type literal struct {
+	rule int
+	lit  []byte
+	fold bool
+}
+
+// literals lists every prefix in rule order. pairs maps the first two
+// bytes of a literal, every case of them for a fold rule, to an index
+// into pairGroups, which lists the literals that start with them.
+// Index zero is no literal.
+var literals, pairs, pairGroups = func() ([]literal, *[1 << 16]uint16, [][]int) {
+	var lits []literal
 	for idx, r := range rules {
 		for _, p := range r.prefixes {
-			for off := 0; off < len(v); {
-				var at int
-				if r.fold {
-					at = fold.index(off, p)
-				} else if i := bytes.Index(v[off:], p); i >= 0 {
-					at = off + i
-				} else {
-					at = -1
-				}
-				if at < 0 {
-					break
-				}
-				off = at + 1
-				if r.word && at > 0 && isWord(v[at-1]) {
-					continue
-				}
-				loc := r.re.FindIndex(v[at:])
-				if loc == nil {
-					continue
-				}
-				end := at + loc[1]
-				if end < len(v) && strings.IndexByte(r.notAfter, v[end]) >= 0 {
-					continue
-				}
-				off = end
-				if r.example(v[at:end]) {
-					continue
-				}
-				start := at
-				if n := len(r.lead); n > 0 && at >= n && bytes.EqualFold(v[at-n:at], r.lead) {
-					start = at - n
-				}
-				out = append(out, span{start: start, end: end, order: len(out), rule: idx})
+			lits = append(lits, literal{rule: idx, lit: p, fold: r.fold})
+		}
+	}
+	var table [1 << 16]uint16
+	groups := [][]int{nil}
+	add := func(a, b byte, li int) {
+		k := int(a)<<8 | int(b)
+		if table[k] == 0 {
+			groups = append(groups, nil)
+			table[k] = uint16(len(groups) - 1)
+		}
+		groups[table[k]] = append(groups[table[k]], li)
+	}
+	for li, l := range lits {
+		a, b := l.lit[0], l.lit[1]
+		if !l.fold {
+			add(a, b, li)
+			continue
+		}
+		for _, x := range cases(a) {
+			for _, y := range cases(b) {
+				add(x, y, li)
 			}
+		}
+	}
+	return lits, &table, groups
+}()
+
+func cases(c byte) []byte {
+	if c >= 'a' && c <= 'z' {
+		return []byte{c, c - 'a' + 'A'}
+	}
+	return []byte{c}
+}
+
+// find returns every match of every rule in v. One pass over v looks
+// up each pair of bytes in pairs. Most text has no rule literal at a
+// given offset, so this is one table load per byte instead of one
+// bytes.Index pass per literal.
+func find(v []byte) []span {
+	var out []span
+	next := make([]int, len(literals))
+	for i := 0; i+1 < len(v); i++ {
+		g := pairs[int(v[i])<<8|int(v[i+1])]
+		if g == 0 {
+			continue
+		}
+		for _, li := range pairGroups[g] {
+			l := &literals[li]
+			if i < next[li] || !hasLiteral(v[i:], l) {
+				continue
+			}
+			next[li] = i + 1
+			r := &rules[l.rule]
+			at := i
+			if r.word && at > 0 && isWord(v[at-1]) {
+				continue
+			}
+			loc := r.re.FindIndex(v[at:])
+			if loc == nil {
+				continue
+			}
+			end := at + loc[1]
+			if end < len(v) && strings.IndexByte(r.notAfter, v[end]) >= 0 {
+				continue
+			}
+			next[li] = end
+			if r.example(v[at:]) {
+				continue
+			}
+			start := at
+			if n := len(r.lead); n > 0 && at >= n && bytes.EqualFold(v[at-n:at], r.lead) {
+				start = at - n
+			}
+			out = append(out, span{start: start, end: end, order: li, rule: l.rule})
 		}
 	}
 	return out
 }
 
-func (r rule) example(m []byte) bool {
+func hasLiteral(v []byte, l *literal) bool {
+	if len(v) < len(l.lit) {
+		return false
+	}
+	if l.fold {
+		return bytes.EqualFold(v[:len(l.lit)], l.lit)
+	}
+	return bytes.HasPrefix(v, l.lit)
+}
+
+// example reports whether the match of r at the start of v is a
+// published example: its key material, with a run of slashes read as
+// one (an escaped slash is two in the view), is exactly one of them.
+func (r rule) example(v []byte) bool {
+	if len(r.examples) == 0 {
+		return false
+	}
+	loc := r.re.FindSubmatchIndex(v)
+	if loc == nil {
+		return false
+	}
+	key := v[loc[0]:loc[1]]
+	if i := r.re.SubexpIndex("key"); i > 0 && loc[2*i] >= 0 {
+		key = v[loc[2*i]:loc[2*i+1]]
+	}
+	key = oneSlash(key)
 	for _, e := range r.examples {
-		if bytes.Contains(m, e) {
+		if bytes.Equal(key, e) {
 			return true
 		}
 	}
 	return false
+}
+
+// oneSlash is b with each run of '/' made one. b is returned as is when
+// it has no run.
+func oneSlash(b []byte) []byte {
+	if !bytes.Contains(b, []byte("//")) {
+		return b
+	}
+	out := make([]byte, 0, len(b))
+	for i, c := range b {
+		if c == '/' && i > 0 && b[i-1] == '/' {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // choose keeps the earliest, longest span where spans overlap. A tie
@@ -415,41 +597,4 @@ func hex4(b []byte) (rune, bool) {
 
 func isWord(c byte) bool {
 	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-// foldWindow is how much of the buffer folded lowers at a time. Each
-// window also lowers the next foldPad bytes, so a literal of up to
-// foldPad bytes that starts in the window is found there.
-const (
-	foldWindow = 64 << 10
-	foldPad    = 64
-)
-
-// folded finds a lowercase literal in v ignoring ASCII case. It lowers
-// one window at a time into buf, so a fold rule does not hold a second
-// copy of the buffer. Only A-Z change, so offsets stay where they were.
-type folded struct {
-	v     []byte
-	buf   []byte
-	start int // offset of buf in v, or -1
-}
-
-func (f *folded) index(off int, p []byte) int {
-	for w := off - off%foldWindow; w < len(f.v); w += foldWindow {
-		if f.start != w {
-			end := min(w+foldWindow+foldPad, len(f.v))
-			f.buf = append(f.buf[:0], f.v[w:end]...)
-			for i, c := range f.buf {
-				if c >= 'A' && c <= 'Z' {
-					f.buf[i] = c + 'a' - 'A'
-				}
-			}
-			f.start = w
-		}
-		from := max(off-w, 0)
-		if i := bytes.Index(f.buf[from:], p); i >= 0 {
-			return w + from + i
-		}
-	}
-	return -1
 }
