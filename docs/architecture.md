@@ -52,6 +52,9 @@ no limit on a whole request. A blob over 4 MiB goes as `Content-Range`
 pieces, and a retry in the same process resumes after the last piece
 the lake acknowledged. `blobs/check` carries at most 1000 digests.
 SIGTERM stops the watch and drains the outbox best-effort. The server URL, token, and allowlist are read at start.
+One file that cannot be read is skipped and named; the rest of the pass
+goes on. A missing harness home is polled until it appears, and a
+watcher that loses fsnotify polls. macOS polls by default.
 
 After a manifest is stored, the lake ACKs and enqueues normalize work.
 The HTTP handler does not project. Two workers read the catalog head
@@ -147,7 +150,9 @@ Left as interfaces, with the reason next to the type:
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
 `terva-lampi agent` both enqueue, scan, and advance a watermark after
-the manifest ACK. The agent is the long-running loop: startup sync,
+the manifest ACK. The outbox is not replayed. Its rows hold digests,
+not bytes, so each pass rebuilds the work from the files and the
+watermarks. The outbox is the durable count that status reports. The agent is the long-running loop: startup sync,
 then a sync when the watcher reports growth or a previous push failed,
 then one more sync on SIGTERM. On Unix, SIGUSR1 asks for a sync without
 waiting for the next filesystem event. The agent writes `agent.pid` in

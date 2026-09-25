@@ -6,7 +6,11 @@
 // harness tree, such as Claude Code's projects/ or Codex's sessions/.
 // fsnotify is the preferred backend. A poll of the same walk is the
 // fallback when fsnotify cannot be opened, and when ForcePoll is set
-// (network filesystems, tests).
+// (network filesystems, darwin, tests). A root that does not exist yet
+// is polled until it does, and then fsnotify is tried. A watch that
+// cannot be added, such as an inotify limit, or an error from fsnotify,
+// such as a queue overflow, moves that watcher to polling for the rest
+// of the run. OnFallback hears why, with the path. Run keeps going.
 //
 // Each path remembers size, mtime, and, on Unix, the inode. An append on
 // a stable inode reports the previous size as Offset so the consumer
@@ -18,10 +22,12 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -87,6 +93,9 @@ type Watcher struct {
 	SkipErrors bool
 	// Layout is the harness tree. The zero value is terva's sessions directory.
 	Layout Layout
+	// OnFallback is invoked from Run when this watcher moves to polling
+	// after an fsnotify failure. The error names the path. Nil discards it.
+	OnFallback func(error)
 
 	ready   chan struct{}
 	mu      sync.Mutex
@@ -119,6 +128,31 @@ func Probe() string {
 	}
 	fsw.Close()
 	return "fsnotify"
+}
+
+// PollByDefault reports whether the agent should set ForcePoll.
+// LAMPI_WATCH=poll or LAMPI_WATCH=fsnotify decides. Unset polls on
+// darwin, where kqueue holds one descriptor per watched file, and
+// prefers fsnotify elsewhere.
+func PollByDefault(getenv func(string) string) (bool, error) {
+	switch v := getenv("LAMPI_WATCH"); v {
+	case "poll":
+		return true, nil
+	case "fsnotify":
+		return false, nil
+	case "":
+		return runtime.GOOS == "darwin", nil
+	default:
+		return false, fmt.Errorf("watch: LAMPI_WATCH is %q; use poll or fsnotify", v)
+	}
+}
+
+// Backend is what Run will use with ForcePoll set to poll.
+func Backend(poll bool) string {
+	if poll {
+		return "poll"
+	}
+	return Probe()
 }
 
 // ensure returns the ready channel. The map and the channel are created
@@ -189,24 +223,20 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 
 	var fsw *fsnotify.Watcher
+	// retry is a root that is not there yet. Polling finds it, and
+	// then fsnotify is tried again.
+	retry := false
 	if !w.ForcePoll {
 		var err error
-		fsw, err = fsnotify.NewWatcher()
-		if err != nil {
-			fsw = nil
+		fsw, err = w.openFS()
+		switch {
+		case errors.Is(err, errNoRoot):
+			retry = true
+		case err != nil:
+			w.fallback(err)
 		}
 	}
 	if fsw != nil {
-		// Watch before the seed so a create during the walk is queued
-		// and reconciled against the cursor instead of lost.
-		if err := fsw.Add(w.Root); err != nil {
-			fsw.Close()
-			return fmt.Errorf("watch: %w", err)
-		}
-		if err := addTree(fsw, filepath.Join(w.Root, w.subdir())); err != nil {
-			fsw.Close()
-			return err
-		}
 		w.setMode("fsnotify")
 	} else {
 		w.setMode("poll")
@@ -226,10 +256,74 @@ func (w *Watcher) Run(ctx context.Context) error {
 		}
 		return nil
 	}
-	if fsw != nil {
-		return w.loopFS(ctx, fsw, debounce)
+	for {
+		if fsw != nil {
+			err := w.loopFS(ctx, fsw, debounce)
+			if err == nil || ctx.Err() != nil {
+				return nil
+			}
+			// Events may have been lost. Poll from here on, and diff at
+			// once so a change fsnotify dropped is not left waiting.
+			w.fallback(err)
+			w.setMode("poll")
+			fsw = nil
+			retry = false
+			changes, err := w.diff()
+			if err != nil {
+				return err
+			}
+			w.emit(changes)
+		}
+		next, err := w.loopPoll(ctx, pollEvery, retry)
+		if err != nil || next == nil {
+			return err
+		}
+		fsw = next
+		w.setMode("fsnotify")
 	}
-	return w.loopPoll(ctx, pollEvery)
+}
+
+// errNoRoot is a Root that does not exist yet.
+var errNoRoot = errors.New("watch: root does not exist")
+
+// openFS starts fsnotify on Root and the layout tree. A missing Root is
+// errNoRoot. Any other failure names the path it was adding.
+func (w *Watcher) openFS() (*fsnotify.Watcher, error) {
+	if _, err := os.Stat(w.Root); errors.Is(err, fs.ErrNotExist) {
+		return nil, errNoRoot
+	}
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("watch: fsnotify: %w", err)
+	}
+	// Watch before the seed so a create during the walk is queued
+	// and reconciled against the cursor instead of lost.
+	if err := addWatch(fsw, w.Root); err != nil {
+		fsw.Close()
+		return nil, fmt.Errorf("watch: %s: %w", w.Root, err)
+	}
+	if err := addTree(fsw, filepath.Join(w.Root, w.subdir())); err != nil {
+		fsw.Close()
+		return nil, err
+	}
+	if testOpened != nil {
+		testOpened(fsw)
+	}
+	return fsw, nil
+}
+
+// addWatch is fsw.Add. A test replaces it to fail the way an inotify
+// watch limit does.
+var addWatch = func(fsw *fsnotify.Watcher, path string) error { return fsw.Add(path) }
+
+// testOpened sees each fsnotify watcher openFS starts. It is nil
+// outside tests.
+var testOpened func(*fsnotify.Watcher)
+
+func (w *Watcher) fallback(err error) {
+	if w.OnFallback != nil {
+		w.OnFallback(fmt.Errorf("%w; polling %s", err, filepath.Join(w.Root, w.subdir())))
+	}
 }
 
 func (w *Watcher) setMode(mode string) {
@@ -304,19 +398,37 @@ func (w *Watcher) seed() error {
 	return nil
 }
 
-func (w *Watcher) loopPoll(ctx context.Context, every time.Duration) error {
+// loopPoll diffs every tick. With retry set, a tick that finds Root
+// tries fsnotify, and on success returns that watcher after one diff so
+// nothing written in between is missed. A nil watcher is a stop.
+func (w *Watcher) loopPoll(ctx context.Context, every time.Duration, retry bool) (*fsnotify.Watcher, error) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return nil, nil
 		case <-ticker.C:
+			var fsw *fsnotify.Watcher
+			if retry {
+				var err error
+				fsw, err = w.openFS()
+				if err != nil && !errors.Is(err, errNoRoot) {
+					retry = false
+					w.fallback(err)
+				}
+			}
 			changes, err := w.diff()
 			if err != nil {
-				return err
+				if fsw != nil {
+					fsw.Close()
+				}
+				return nil, err
 			}
 			w.emit(changes)
+			if fsw != nil {
+				return fsw, nil
+			}
 		}
 	}
 }
@@ -339,14 +451,14 @@ func (w *Watcher) loopFS(ctx context.Context, fsw *fsnotify.Watcher, debounce ti
 			return nil
 		case err, ok := <-fsw.Errors:
 			if !ok {
-				return fmt.Errorf("watch: fsnotify closed")
+				return fmt.Errorf("watch: %s: fsnotify closed", w.Root)
 			}
 			if err != nil {
-				return fmt.Errorf("watch: %w", err)
+				return fmt.Errorf("watch: %s: %w", w.Root, err)
 			}
 		case ev, ok := <-fsw.Events:
 			if !ok {
-				return fmt.Errorf("watch: fsnotify closed")
+				return fmt.Errorf("watch: %s: fsnotify closed", w.Root)
 			}
 			if err := w.noteEvent(fsw, ev, dirty, debounce); err != nil {
 				return err
@@ -556,9 +668,13 @@ func relPath(root, path string) (string, error) {
 	return filepath.ToSlash(rel), nil
 }
 
+// addTree watches root and every directory under it. A symlinked root
+// is followed. A directory that vanished or cannot be read is not
+// watched; the poll fallback would not see into it either. An Add that
+// fails, such as the inotify watch limit, names the path.
 func addTree(fsw *fsnotify.Watcher, root string) error {
 	info, err := os.Stat(root)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
@@ -567,32 +683,23 @@ func addTree(fsw *fsnotify.Watcher, root string) error {
 	if !info.IsDir() {
 		return nil
 	}
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			return nil
-		}
-		if err := fsw.Add(path); err != nil {
+	if err := addWatch(fsw, root); err != nil {
+		return fmt.Errorf("watch: %s: %w", root, err)
+	}
+	_, err = discover.WalkDirs(root, func(path string) error {
+		if err := addWatch(fsw, path); err != nil {
+			if discover.Skippable(err) {
+				return err
+			}
 			return fmt.Errorf("watch: %s: %w", path, err)
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func (w *Watcher) noteTree(dir string, dirty map[string]*dirtyNote, debounce time.Duration) error {
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
+	_, err := discover.WalkFiles(dir, func(path string, d fs.DirEntry) error {
 		if _, _, ok := w.classifyPath(path); !ok {
 			return nil
 		}
@@ -603,6 +710,7 @@ func (w *Watcher) noteTree(dir string, dirty map[string]*dirtyNote, debounce tim
 		touchDirty(dirty, path, info.Size(), false, debounce)
 		return nil
 	})
+	return err
 }
 
 func touchDirty(dirty map[string]*dirtyNote, path string, size int64, reset bool, debounce time.Duration) {

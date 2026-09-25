@@ -106,7 +106,15 @@ A failed push is tried again without waiting for the file to grow. The
 first wait is 2s. Each further failure doubles the ceiling of a
 jittered wait, up to 5 minutes, and a success resets it. Growth during
 that wait does not start a push. A 401 or 403 is logged once, naming
-the token file, and waits the full 5 minutes. SIGTERM drains the outbox and exits. The server URL,
+the token file, and waits the full 5 minutes. A file that cannot be
+read, or whose session id would sit on a line too long to read, is
+skipped and named on stderr; the other files upload. A harness home
+that does not exist yet, terva included, is polled until it appears.
+A watcher that cannot use fsnotify, at the inotify watch limit or
+after a queue overflow, polls that tree and says so. On macOS the
+agent polls by default; `LAMPI_WATCH=fsnotify` or `LAMPI_WATCH=poll`
+overrides that. A second agent on the same state directory exits and
+names the first one's pid. SIGTERM drains the outbox and exits. The server URL,
 the device token, the allowlist, and the harnesses map are read when
 the process starts; restart it to reload them. The one-shot command
 is still `sync`.

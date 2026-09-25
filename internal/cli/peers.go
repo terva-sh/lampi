@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/adapter/claude"
@@ -18,11 +17,12 @@ import (
 )
 
 // source is one harness home the agent will read. required is terva
-// when that harness is enabled: a missing directory is still watched,
-// and Run reports it. Claude, Codex, OpenCode, the Cursor IDE, and the
-// Cursor CLI are skipped when the directory is not there. enabled
-// false omits the harness before that check, including terva, so a
-// disabled terva home is not watched and is not an error.
+// when that harness is enabled: a home that cannot be named, because
+// HOME is unset, is an error for terva and a skip for the others. A
+// home that can be named but does not exist yet is watched either way;
+// the watcher polls until it appears. enabled false omits the harness
+// before that check, including terva, so a disabled terva home is not
+// watched and is not an error.
 type source struct {
 	harness  adapter.Harness
 	home     string
@@ -208,17 +208,6 @@ func (s source) watchDirs() []string {
 		}
 	}
 	return []string{s.harness.WatchDir()}
-}
-
-// watch reports whether Run should be started. A missing optional home
-// is not an error: that harness is not installed. A missing terva home
-// is still started so the watcher reports it.
-func (s source) watch() bool {
-	st, err := os.Stat(s.home)
-	if err != nil || !st.IsDir() {
-		return s.required
-	}
-	return true
 }
 
 func homeLabel(name string) string {
