@@ -63,6 +63,8 @@ contents when it starts. Those directories are mode 0700.
 
 ```text
 /var/lib/terva-lampi/cas/sha256/…     content-addressed blobs
+/var/lib/terva-lampi/cas/logical/…    chunk lists for files over 32 MiB
+/var/lib/terva-lampi/cas/partial/…    resumable uploads in flight
 /var/lib/terva-lampi/catalog.db       SQLite catalog, plus WAL sidecars
 /var/lib/terva-lampi/normalized/      one JSONL file per session
 /var/lib/terva-lampi/parquet/         date=…/harness=… partitions
@@ -106,7 +108,11 @@ no enrolment API and no TTL.
 
 `serve` replaces the file in that directory, so the service user has
 to be able to write there. The example path is on the encrypted
-volume, next to the catalog.
+volume, next to the catalog. The example unit makes the file system
+read-only except `/var/lib/terva-lampi`. A token file somewhere else
+needs its directory added to `ReadWritePaths=`. Otherwise `serve`
+stops at start with `read-only file system` when it rewrites the
+file.
 
 ```bash
 sudo install -m 0600 -o terva-lampi -g terva-lampi ./token /var/lib/terva-lampi/tokens
@@ -140,12 +146,21 @@ substitutes `LAMPI_SERVE_ADDR`, `LAMPI_SERVE_DATA`, and
 `LAMPI_SERVE_TOKEN_FILE` into `--addr`, `--data`, and `--token-file`.
 The process does not read those names.
 
+The unit sandboxes the process. It has no capabilities and cannot
+gain privileges. It cannot see `/home`, and it gets a private `/tmp`
+and a minimal `/dev`. The file system is read-only except
+`ReadWritePaths=`, which is `/var/lib/terva-lampi`. If you move
+`--data` or `--token-file`, change that line to match. `UMask=0077`
+keeps what `serve` creates private to the service user.
+`TimeoutStopSec=120` gives `serve` time to finish queued
+normalization when it stops.
+
 `serve` writes one line per request to stderr, so
 `journalctl -u terva-lampi-serve` shows them. A 200 `/healthz` is not
 logged. `X-Forwarded-For` is logged as the proxy sent it.
 `Authorization` is not logged. `systemctl stop` waits up to 20s for
-requests in flight and 30s for the normalize queue, under systemd's
-90s default. Jobs the drain did not reach run at the next start.
+requests in flight and 30s for the normalize queue. Jobs the drain
+did not reach run at the next start.
 
 Nothing in `deploy/` is installed by `make build`.
 
@@ -156,7 +171,11 @@ Put a TLS terminator on the public interface and proxy to
 stays on loopback. A public port 80 that only answers a certificate
 challenge is not the lake. Do not proxy `serve` on that port.
 
-Caddy, copy and edit:
+A blob upload is up to 32 MiB in one request. The proxy has to pass
+a body that size, and give it time on a slow uplink.
+
+Caddy, copy and edit. `reverse_proxy` streams the request body and
+has no default body size limit, so this needs nothing more.
 
 ```text
 lake.example {
@@ -164,8 +183,14 @@ lake.example {
 }
 ```
 
-nginx is the same shape. The certificate paths are placeholders.
-They belong on the host, not in git.
+nginx is the same shape, with more lines. Its default body limit is
+1 MiB, so a larger blob gets `413`. It also buffers the whole body
+before it proxies, and times out after 60 seconds. The snippet below
+raises the limit to 40 MiB, streams the body, and allows 300
+seconds. `serve` has no fixed read timeout: each request's deadline
+is a floor plus the body at 64 KiB/s. The
+certificate paths are placeholders. They belong on the host, not in
+git.
 
 ```text
 server {
@@ -175,9 +200,15 @@ server {
 	ssl_certificate     /etc/ssl/certs/lake.example.crt;
 	ssl_certificate_key /etc/ssl/private/lake.example.key;
 
+	client_max_body_size 40m;
+
 	location / {
 		proxy_pass http://127.0.0.1:8787;
 		proxy_set_header Host $host;
+		proxy_http_version 1.1;
+		proxy_request_buffering off;
+		proxy_read_timeout 300s;
+		proxy_send_timeout 300s;
 	}
 }
 ```
@@ -225,6 +256,95 @@ the CAS is copied after it. A second run into the same directory
 copies only new objects. Keep DIR on encrypted storage.
 `terva-lampi serve fsck` re-hashes every object and exits non-zero
 when one is bad.
+
+Without the command, the order is the same: the catalog first, then
+`cas/sha256`, then `cas/logical`, then the token file.
+
+Do not `cp` `catalog.db` while `serve` runs. The catalog is in WAL
+mode, and a plain copy can miss or tear the WAL. Use the SQLite
+online backup. It needs the `sqlite3` command, which this tree does
+not install. Run it as the service user, so a sidecar it creates
+stays theirs.
+
+```bash
+sudo install -d -o terva-lampi -g terva-lampi -m 0700 /var/backups/terva-lampi
+sudo -u terva-lampi sqlite3 /var/lib/terva-lampi/catalog.db ".backup '/var/backups/terva-lampi/catalog.db'"
+```
+
+Then copy the CAS. Objects are only added while `serve` runs.
+`serve fsck --repair` removes objects, and it refuses while `serve`
+holds the lake. A copy taken after the catalog
+holds every object that catalog names. Leave out the `.put-*` and `.logical-*` temp files. The
+example uses `rsync`. Any copy that keeps the tree works.
+
+```bash
+sudo rsync -a --exclude '.put-*' /var/lib/terva-lampi/cas/sha256 /var/backups/terva-lampi/cas/
+sudo rsync -a --exclude '.logical-*' /var/lib/terva-lampi/cas/logical /var/backups/terva-lampi/cas/
+sudo install -m 0600 -o terva-lampi -g terva-lampi /var/lib/terva-lampi/tokens /var/backups/terva-lampi/tokens
+```
+
+`cas/logical` is not optional. A file over 32 MiB is stored as
+chunks, and its entry there is how the lake reads it back. Without
+it, that file cannot be read and its session does not project.
+
+The token file holds only `sha256:` lines once `serve` has run.
+Without it, every agent gets `401` after a restore until you copy
+each device token to the host again.
+
+Leave out `cas/partial/`. It holds uploads in flight, and the agent
+sends those again. `normalized/` and `parquet/` are derived from the
+catalog and the CAS. `terva-lampi export` rebuilds a session whose
+JSONL is missing, and writes that session's parquet with it. Copy
+them too if a restore should need no rebuild.
+
+The backup holds the lake in plaintext. Keep it on encrypted
+storage, the same as the data disk.
+
+### Restore drill
+
+Run this once before the lake matters, and again after the layout
+changes. On an uploading machine, note the counts first.
+
+```bash
+terva-lampi status
+```
+
+Keep the `catalog_sessions`, `catalog_artifacts`, and
+`catalog_machines` lines. On the VPS, stop `serve`, then take the
+backup above. Nothing changes the lake while `serve` is stopped, so
+the backup holds those counts. An upload that lands between `status`
+and the stop raises them. If the counts differ at the end, run the
+drill again.
+
+```bash
+sudo systemctl stop terva-lampi-serve.service
+```
+
+Move the old data directory aside and restore into a fresh one. If
+`/var/lib/terva-lampi` is a mount point, move its contents aside
+instead of the directory.
+
+```bash
+sudo mv /var/lib/terva-lampi /var/lib/terva-lampi.old
+sudo install -d -o terva-lampi -g terva-lampi -m 0700 /var/lib/terva-lampi
+sudo cp -a /var/backups/terva-lampi/. /var/lib/terva-lampi/
+sudo chown -R terva-lampi:terva-lampi /var/lib/terva-lampi
+```
+
+If you left out `normalized/` and `parquet/`, rebuild them before
+`serve` starts.
+
+```bash
+sudo -u terva-lampi terva-lampi export --data /var/lib/terva-lampi --out /dev/null
+```
+
+Start `serve` and run `terva-lampi status` again on the uploading
+machine. The three `catalog_` counts match the ones you kept. Delete
+`/var/lib/terva-lampi.old` only after they do.
+
+```bash
+sudo systemctl start terva-lampi-serve.service
+```
 
 ## Leave out of git
 

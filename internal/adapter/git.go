@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"terva.sh/lampi/internal/protocol"
@@ -17,6 +18,11 @@ import (
 // ProjectAt is the manifest project for a session cwd. CWDHash stays the
 // path bucket the allowlist already matches. ProjectID is set only when
 // origin and the root commit are both known. Those two are its only inputs.
+//
+// It reads files and does not run git. The checkout is not trusted
+// before the allowlist admits it, and its own config can make git run
+// a command. A root the in-process reader cannot find stays empty
+// until ResolveRoot.
 func ProjectAt(cwd string) protocol.Project {
 	remote, head, root := "", "", ""
 	if cwd != "" {
@@ -39,8 +45,67 @@ func ProjectGit(cwd string) (remote, commit string) {
 	if cwd == "" {
 		return "", ""
 	}
-	remote, commit, _ = projectCheckout(cwd)
-	return remote, commit
+	gitDir := findGitDir(cwd)
+	if gitDir == "" {
+		return "", ""
+	}
+	common := commonDir(gitDir)
+	return originURL(filepath.Join(common, "config")), headCommit(gitDir, common)
+}
+
+// ResolveRoot fills GitRoot and ProjectID with git rev-list when the
+// in-process reader left the root empty. It runs git, so call it only
+// for a session the allowlist already admitted. A shallow checkout, or
+// a HEAD git cannot walk, keeps the empty root.
+func ResolveRoot(p protocol.Project) protocol.Project {
+	if p.GitRoot != "" || p.CWD == "" || p.GitRemote == "" || !isHexCommit(p.GitCommit) {
+		return p
+	}
+	gitDir := findGitDir(p.CWD)
+	if gitDir == "" {
+		return p
+	}
+	common := commonDir(gitDir)
+	if shallowRepo(common) {
+		return p
+	}
+	key := rootKey(common, p.GitCommit)
+	root := cachedRoot(key)
+	if root == "" {
+		root = rootGit(gitDir, p.GitCommit)
+	}
+	if root == "" {
+		return p
+	}
+	rememberRoot(key, root)
+	p.GitRoot = root
+	p.ProjectID = protocol.ProjectLinkID(p.GitRemote, root)
+	return p
+}
+
+// OutsideCheckout reports whether cwd is a directory that no
+// repository contains, so its empty remote is known rather than
+// unreadable. A missing cwd, one inside a checkout, and one whose
+// parents cannot be read are all false.
+func OutsideCheckout(cwd string) bool {
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return false
+	}
+	dir := filepath.Clean(cwd)
+	st, err := os.Stat(dir)
+	if err != nil || !st.IsDir() {
+		return false
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); !os.IsNotExist(err) {
+			return false
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return true
+		}
+		dir = parent
+	}
 }
 
 func projectCheckout(cwd string) (remote, head, root string) {
@@ -54,7 +119,7 @@ func projectCheckout(cwd string) (remote, head, root string) {
 	if remote == "" || head == "" {
 		return remote, head, ""
 	}
-	return remote, head, rootCommit(cwd, common, head)
+	return remote, head, rootCommit(common, head)
 }
 
 func findGitDir(start string) string {
@@ -119,10 +184,10 @@ func commonDir(gitDir string) string {
 	return filepath.Clean(filepath.Join(gitDir, line))
 }
 
-// originURL returns the URL of the remote named origin. A repository
-// that only has other remotes yields an empty string. A git_remote
-// allow rule then fails closed. The operator can still allow the
-// project by cwd prefix or cwd hash.
+// originURL returns the URL of the remote named origin, without
+// credentials. A repository that only has other remotes yields an
+// empty string. A git_remote allow rule then fails closed. The
+// operator can still allow the project by cwd prefix or cwd hash.
 func originURL(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -142,9 +207,35 @@ func originURL(path string) string {
 		if !ok || key != "url" || !strings.HasPrefix(section, "[remote ") || !strings.Contains(section, `"origin"`) {
 			continue
 		}
-		return val
+		return stripUserinfo(val)
 	}
 	return ""
+}
+
+// stripUserinfo drops credentials from a remote. An http or other URL
+// loses its whole userinfo, since a token often sits in the user part
+// alone. An ssh URL keeps a bare login name such as git and loses a
+// password. The scp form is left as is: git ends its host at the first
+// colon, so the part before an @ there is a login name, never a
+// password.
+func stripUserinfo(remote string) string {
+	scheme, rest, ok := strings.Cut(remote, "://")
+	if !ok {
+		return remote
+	}
+	authority, _, _ := strings.Cut(rest, "/")
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return remote
+	}
+	user := authority[:at]
+	switch strings.ToLower(scheme) {
+	case "ssh", "git+ssh", "ssh+git":
+		if !strings.Contains(user, ":") {
+			return remote
+		}
+	}
+	return scheme + "://" + rest[at+1:]
 }
 
 func splitINI(line string) (key, val string, ok bool) {
@@ -227,17 +318,50 @@ func isHexCommit(s string) bool {
 
 // rootCommit is the first parentless commit on HEAD's first-parent
 // chain. A shallow repository does not reveal that commit, so the id
-// stays empty rather than using the shallow boundary. Loose objects are
-// read directly. When that chain is packed or stored in an alternate
-// this process cannot see, git rev-list is the fallback.
-func rootCommit(cwd, common, head string) string {
+// stays empty rather than using the shallow boundary. Loose and packed
+// objects are read in this process. A chain it cannot finish stays
+// empty here, and ResolveRoot asks git once the allowlist has admitted
+// the session.
+func rootCommit(common, head string) string {
 	if shallowRepo(common) {
 		return ""
 	}
-	if r := rootLoose(common, head); r != "" {
+	head = strings.ToLower(head)
+	key := rootKey(common, head)
+	if r := cachedRoot(key); r != "" {
 		return r
 	}
-	return rootGit(cwd)
+	r := rootWalk(common, head)
+	if r != "" {
+		rememberRoot(key, r)
+	}
+	return r
+}
+
+// rootCache keeps found roots. A commit's ancestry never changes, and
+// every session in one checkout usually walks from the same HEAD.
+var rootCache = struct {
+	sync.Mutex
+	m map[string]string
+}{m: map[string]string{}}
+
+func rootKey(common, head string) string {
+	return common + "\x00" + strings.ToLower(head)
+}
+
+func cachedRoot(key string) string {
+	rootCache.Lock()
+	defer rootCache.Unlock()
+	return rootCache.m[key]
+}
+
+func rememberRoot(key, root string) {
+	rootCache.Lock()
+	defer rootCache.Unlock()
+	if len(rootCache.m) >= 4096 {
+		rootCache.m = map[string]string{}
+	}
+	rootCache.m[key] = root
 }
 
 func shallowRepo(common string) bool {
@@ -245,16 +369,17 @@ func shallowRepo(common string) bool {
 	return err == nil && st.Size() > 0
 }
 
-func rootLoose(common, head string) string {
-	dirs := objectDirs(common)
-	cur := strings.ToLower(head)
+func rootWalk(common, head string) string {
+	store := newObjectStore(common, len(head)/2)
+	defer store.close()
+	cur := head
 	seen := map[string]struct{}{}
 	for i := 0; i < 100000; i++ {
 		if _, ok := seen[cur]; ok {
 			return ""
 		}
 		seen[cur] = struct{}{}
-		data, ok := looseCommit(dirs, cur)
+		data, ok := store.commit(cur)
 		if !ok {
 			return ""
 		}
@@ -262,14 +387,20 @@ func rootLoose(common, head string) string {
 		if parent == "" {
 			return cur
 		}
+		if len(parent) != len(head) {
+			return ""
+		}
 		cur = parent
 	}
 	return ""
 }
 
+// objectDirs is the repository's object directory and its alternates.
+// A relative alternate is relative to the objects directory.
 func objectDirs(common string) []string {
-	dirs := []string{filepath.Join(common, "objects")}
-	b, err := os.ReadFile(filepath.Join(common, "objects", "info", "alternates"))
+	objects := filepath.Join(common, "objects")
+	dirs := []string{objects}
+	b, err := os.ReadFile(filepath.Join(objects, "info", "alternates"))
 	if err != nil {
 		return dirs
 	}
@@ -279,7 +410,7 @@ func objectDirs(common string) []string {
 			continue
 		}
 		if !filepath.IsAbs(line) {
-			line = filepath.Join(common, line)
+			line = filepath.Join(objects, line)
 		}
 		dirs = append(dirs, filepath.Clean(line))
 	}
@@ -312,7 +443,7 @@ func looseCommit(dirs []string, hash string) ([]byte, bool) {
 }
 
 func readLoose(path string) ([]byte, bool) {
-	f, err := os.Open(path)
+	f, err := openRegular(path)
 	if err != nil {
 		return nil, false
 	}
@@ -361,24 +492,55 @@ func firstParent(data []byte) string {
 	return ""
 }
 
-func rootGit(cwd string) string {
+// gitHardening is the config every git call here pins on the command
+// line, where it outranks the checkout's own .git/config. It turns off
+// the settings that run a program: transports, hooks, fsmonitor, the
+// ssh command, credential helpers, and automatic maintenance.
+var gitHardening = []string{
+	"-c", "protocol.allow=never",
+	"-c", "core.fsmonitor=false",
+	"-c", "core.hooksPath=/dev/null",
+	"-c", "core.sshCommand=false",
+	"-c", "credential.helper=",
+	"-c", "gc.auto=0",
+	"-c", "maintenance.auto=false",
+}
+
+// gitEnv drops the parent environment. GIT_DIR would point git at the
+// wrong repository, and a global or system config is not part of the
+// checkout. GIT_ALLOW_PROTOCOL set to nothing overrides a per-protocol
+// allow in the repository config, which protocol.allow does not.
+// GIT_NO_LAZY_FETCH stops a partial clone from fetching a missing
+// object; git older than 2.44 ignores it, and the protocol block holds.
+var gitEnv = []string{
+	"HOME=/",
+	"GIT_TERMINAL_PROMPT=0",
+	"GIT_CONFIG_NOSYSTEM=1",
+	"GIT_CONFIG_GLOBAL=/git-config-absent",
+	"GIT_PAGER=cat",
+	"GIT_ALLOW_PROTOCOL=",
+	"GIT_PROTOCOL_FROM_USER=0",
+	"GIT_NO_LAZY_FETCH=1",
+	"GIT_NO_REPLACE_OBJECTS=1",
+	"GIT_OPTIONAL_LOCKS=0",
+}
+
+// rootGit asks git for the root of head's first-parent chain in the
+// repository at gitDir, the one this process already read.
+func rootGit(gitDir, head string) string {
+	if !isHexCommit(head) {
+		return ""
+	}
 	git, err := exec.LookPath("git")
 	if err != nil {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, git, "-C", cwd, "rev-list", "--max-parents=0", "--first-parent", "HEAD")
-	// Drop the parent environment. GIT_DIR would point this process at
-	// the wrong repository, and a global config is not part of the checkout.
-	cmd.Env = []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=/",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/git-config-absent",
-		"GIT_PAGER=cat",
-	}
+	args := append([]string{"--git-dir=" + gitDir}, gitHardening...)
+	args = append(args, "rev-list", "--max-parents=0", "--first-parent", head)
+	cmd := exec.CommandContext(ctx, git, args...)
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, gitEnv...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = io.Discard

@@ -17,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
+
+	"terva.sh/lampi/internal/redact"
 )
 
 // document is the filtered export. It is internal to this package.
@@ -31,14 +33,30 @@ type document struct {
 	Blobs          []blobRow `json:"blobs"`
 }
 
+// metaRow and blobRow carry hidden, the ruleset's scan of bytes the
+// export holds only in encoded form. It is not part of the export.
 type metaRow struct {
-	Key   string          `json:"key"`
-	Value json.RawMessage `json:"value"`
+	Key    string          `json:"key"`
+	Value  json.RawMessage `json:"value"`
+	hidden redact.Result
 }
 
 type blobRow struct {
-	ID   string          `json:"id"`
-	Data json.RawMessage `json:"data"`
+	ID     string          `json:"id"`
+	Data   json.RawMessage `json:"data"`
+	hidden redact.Result
+}
+
+// hidden adds up the rows' scans of encoded bytes.
+func (d document) hidden() redact.Result {
+	var out redact.Result
+	for _, r := range d.Meta {
+		out = out.Add(r.hidden)
+	}
+	for _, r := range d.Blobs {
+		out = out.Add(r.hidden)
+	}
+	return out
 }
 
 // exportDatabase copies the WAL trio, opens the snapshot, and returns
@@ -47,37 +65,57 @@ type blobRow struct {
 // does not have a home-relative path; the base name is recorded
 // instead.
 func exportDatabase(ctx context.Context, src, sourceRel string) ([]byte, error) {
+	body, _, err := exportScanned(ctx, src, sourceRel)
+	return body, err
+}
+
+// exportScanned is exportDatabase plus the ruleset's scan of the raw
+// values the export holds as base64 or hex text, which a scan of the
+// JSON cannot read.
+func exportScanned(ctx context.Context, src, sourceRel string) ([]byte, redact.Result, error) {
+	doc, err := exportDocument(ctx, src, sourceRel)
+	if err != nil {
+		return nil, redact.Result{}, err
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return nil, redact.Result{}, err
+	}
+	return body, doc.hidden(), nil
+}
+
+func exportDocument(ctx context.Context, src, sourceRel string) (document, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return document{}, err
 	}
 	snap, err := copyTrio(src)
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	defer os.RemoveAll(snap)
 
 	db, err := openSnapshot(ctx, filepath.Join(snap, filepath.Base(src)))
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	defer db.Close()
 
 	for _, table := range []string{"blobs", "meta"} {
 		ok, err := tableExists(ctx, db, table)
 		if err != nil {
-			return nil, err
+			return document{}, err
 		}
 		if !ok {
-			return nil, fmt.Errorf("cursor-cli: reader %s: no %s table", Version, table)
+			return document{}, fmt.Errorf("cursor-cli: reader %s: no %s table", Version, table)
 		}
 	}
 	meta, err := readMeta(ctx, db)
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	blobs, err := readBlobs(ctx, db)
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	doc := document{
 		HarnessVersion: Version,
@@ -91,9 +129,9 @@ func exportDatabase(ctx context.Context, src, sourceRel string) ([]byte, error) 
 		doc.Source = filepath.Base(src)
 	}
 	if err := db.Close(); err != nil {
-		return nil, err
+		return document{}, err
 	}
-	return json.Marshal(doc)
+	return doc, nil
 }
 
 func readMeta(ctx context.Context, db *sql.DB) ([]metaRow, error) {
@@ -116,7 +154,8 @@ func readMeta(ctx context.Context, db *sql.DB) ([]metaRow, error) {
 		if val.Valid {
 			raw = val.String
 		}
-		out = append(out, metaRow{Key: key, Value: presentMeta(raw)})
+		value, hidden := presentMeta(raw)
+		out = append(out, metaRow{Key: key, Value: value, hidden: hidden})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -140,7 +179,8 @@ func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 		if excludedKey(id) {
 			continue
 		}
-		out = append(out, blobRow{ID: id, Data: presentBlob(val)})
+		data, hidden := presentBlob(val)
+		out = append(out, blobRow{ID: id, Data: data, hidden: hidden})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -152,28 +192,34 @@ func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 // that decodes to JSON is kept as that JSON, which is how current
 // CLI builds store the session record under meta key "0". Anything
 // else is encoded as text. Credential keys inside a JSON object are
-// removed before the value is returned.
-func presentMeta(s string) json.RawMessage {
+// removed before the value is returned. Hexadecimal text that does not
+// decode to JSON stays hex, so the Result scans the decoded bytes too.
+func presentMeta(s string) (json.RawMessage, redact.Result) {
 	trimmed := strings.TrimSpace(s)
 	if scrubbed, ok := scrubIfJSON([]byte(trimmed)); ok {
-		return scrubbed
+		return scrubbed, redact.Result{}
 	}
+	var hidden redact.Result
 	if decoded, err := hex.DecodeString(trimmed); err == nil {
 		if scrubbed, ok := scrubIfJSON(decoded); ok {
-			return scrubbed
+			return scrubbed, redact.Result{}
+		}
+		if scan, err := (redact.Ruleset{}).Scan(decoded); err == nil {
+			hidden = scan
 		}
 	}
-	return encodeValue([]byte(s))
+	encoded, inner := encodeValue([]byte(s))
+	return encoded, hidden.Add(inner)
 }
 
 // presentBlob encodes blob bytes. They are not hex-decoded. JSON
 // objects still lose credential keys.
-func presentBlob(b []byte) json.RawMessage {
-	encoded := encodeValue(b)
+func presentBlob(b []byte) (json.RawMessage, redact.Result) {
+	encoded, hidden := encodeValue(b)
 	if scrubbed, ok := scrubIfJSON(encoded); ok {
-		return scrubbed
+		return scrubbed, hidden
 	}
-	return encoded
+	return encoded, hidden
 }
 
 func scrubIfJSON(raw []byte) (json.RawMessage, bool) {
@@ -324,29 +370,35 @@ func excludedKey(key string) bool {
 
 // encodeValue keeps a JSON value as JSON. Other UTF-8 bytes become a
 // JSON string. Anything else is base64. The key is not interpreted.
-func encodeValue(b []byte) json.RawMessage {
+// The Result is the ruleset's scan of b when b became base64, which a
+// scan of the export cannot read. It is zero otherwise.
+func encodeValue(b []byte) (json.RawMessage, redact.Result) {
 	if len(b) == 0 {
-		return json.RawMessage("null")
+		return json.RawMessage("null"), redact.Result{}
 	}
 	if json.Valid(b) {
 		var buf bytes.Buffer
 		if err := json.Compact(&buf, b); err == nil {
-			return buf.Bytes()
+			return buf.Bytes(), redact.Result{}
 		}
 	}
 	if utf8.Valid(b) {
 		raw, err := json.Marshal(string(b))
 		if err == nil {
-			return raw
+			return raw, redact.Result{}
 		}
+	}
+	hidden, err := (redact.Ruleset{}).Scan(b)
+	if err != nil {
+		return json.RawMessage("null"), redact.Result{}
 	}
 	raw, err := json.Marshal(struct {
 		Base64 string `json:"base64"`
 	}{Base64: base64.StdEncoding.EncodeToString(b)})
 	if err != nil {
-		return json.RawMessage("null")
+		return json.RawMessage("null"), redact.Result{}
 	}
-	return raw
+	return raw, hidden
 }
 
 // copyTrio copies store.db and the sidecars that exist beside it.
