@@ -137,8 +137,9 @@ The agent reads `--token-file`, then `LAMPI_TOKEN_FILE`, then
 
 The default bind is `127.0.0.1:8787`. Keep it. A non-loopback
 `--addr` without `--token-file` is an error. With a token file,
-still do not bind a public address. The reachable listener is the
-TLS endpoint in front of this process.
+still do not bind a public address; `serve` warns on stderr when it
+is. The reachable listener is the TLS endpoint in front of this
+process.
 
 From the checkout:
 
@@ -252,6 +253,10 @@ LAMPI_TOKEN_FILE=/home/you/.config/terva-lampi/token
 
 Restart the agent after either value changes. `GET /v1` requires
 `Authorization: Bearer` and the device token. `/healthz` does not.
+The agent, `sync`, `status`, and `conflicts` refuse to send the token
+to an `http://` URL whose host is not `localhost`, 127.0.0.0/8, or
+`::1`. A lake that answers 401 or 403 is logged once, naming the token
+file, and the agent retries every five minutes until it is accepted.
 
 Laptop, desktop, and the remote/cloud box each run `terva-lampi
 agent`. The names stay at the role. [policy.md](policy.md) lists

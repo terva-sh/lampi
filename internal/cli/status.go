@@ -51,7 +51,9 @@ The projects allow and deny rules are unchanged.
 GET /healthz reports whether the lake process is up. It carries no
 catalog data and does not need the token. GET /v1/stats reports how
 many sessions, artifacts, and machines the catalog holds, and uses the
-device token when one is configured. A lake that does not answer is
+device token when one is configured. The token is not sent to an
+http:// URL whose host is not localhost, 127.0.0.0/8, or ::1; the
+catalog line says so instead. A lake that does not answer is
 reported, and a last-sync stamp that cannot be read is reported as
 unreadable. The other lines are still printed.
 `
@@ -211,6 +213,9 @@ func probeHealth(server string) string {
 }
 
 func probeCatalog(server, token string) string {
+	if err := upload.CheckToken(server, token); err != nil {
+		return "catalog: " + err.Error() + "\n"
+	}
 	client := http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(server, "/")+"/v1/stats", nil)
 	if err != nil {

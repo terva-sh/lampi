@@ -39,6 +39,9 @@ same auth as the other /v1 routes. /v1/* requires
 a device token when --token-file is set. With no token file the
 process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.
+With --token-file, a non-loopback --addr is a stderr warning: serve
+speaks plain HTTP, so put TLS in front. Clients refuse to send a
+token to a non-loopback http:// URL.
 
 --token-file is a file of device tokens, one per line, or a directory
 with one <name>.token file per device. Other files in the directory
@@ -120,6 +123,9 @@ func runServe(env Env, args []string) error {
 	}
 	if err := refuseExposedWithoutToken(addr, devices); err != nil {
 		return err
+	}
+	if warn := plaintextTokenWarning(addr, devices); warn != "" {
+		fmt.Fprintln(env.stderr(), warn)
 	}
 	lock, err := lakelock.Acquire(data)
 	if err != nil {
@@ -289,6 +295,20 @@ func refuseExposedWithoutToken(addr string, devices *auth.Devices) error {
 		return nil
 	}
 	return fmt.Errorf("refusing %s without a device token; pass --token-file or bind a loopback address", addr)
+}
+
+// plaintextTokenWarning is set when device tokens are required on an
+// address that is not loopback. serve speaks plain HTTP, so the tokens
+// cross that network in the clear unless TLS terminates in front, and
+// clients refuse to send a token to a non-loopback http:// URL.
+func plaintextTokenWarning(addr string, devices *auth.Devices) string {
+	if devices == nil || devices.Empty() {
+		return ""
+	}
+	if ok, err := listenLoopback(addr); err == nil && ok {
+		return ""
+	}
+	return fmt.Sprintf("terva-lampi serve: warning: %s is not loopback and serve speaks plain HTTP; put TLS in front and bind 127.0.0.1, or device tokens cross the network in the clear", addr)
 }
 
 // listenLoopback reports whether addr's host is a loopback IP. An empty

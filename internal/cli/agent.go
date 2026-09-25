@@ -2,15 +2,18 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,12 +28,62 @@ const (
 	// watch must not also give up on rows already sitting in the outbox, and
 	// it must not wait forever on a lake that is not answering.
 	drainTimeout = 30 * time.Second
-	// syncRetryAfter is how long a failed push waits before trying again.
-	// File growth still syncs immediately. Each new failure resets the wait
-	// so a down lake is not hammered, and a quiet machine is not stuck
-	// until the next append or SIGTERM.
+	// syncRetryAfter is the first wait after a failed push. Each further
+	// failure doubles the ceiling of a jittered wait, up to syncRetryCap,
+	// so a down lake is not hammered and a quiet machine is not stuck
+	// until the next append or SIGTERM. A success resets it.
 	syncRetryAfter = 2 * time.Second
+	syncRetryCap   = 5 * time.Minute
 )
+
+// backoff is the wait after a failed push: full jitter between base and
+// a ceiling that starts at base and doubles with each failure, up to max.
+type backoff struct {
+	base, max time.Duration
+	fails     int
+	// rand returns a value in [0, n).
+	rand func(n int64) int64
+}
+
+func newBackoff() *backoff {
+	return &backoff{base: syncRetryAfter, max: syncRetryCap, rand: rand.Int64N}
+}
+
+// next is the wait after one more failure.
+func (b *backoff) next() time.Duration {
+	ceil := b.max
+	if b.fails < 32 && b.base<<b.fails < ceil {
+		ceil = b.base << b.fails
+	}
+	b.fails++
+	if ceil <= b.base {
+		return ceil
+	}
+	return b.base + time.Duration(b.rand(int64(ceil-b.base)+1))
+}
+
+// capped is the wait after a failure that retrying sooner cannot fix.
+func (b *backoff) capped() time.Duration {
+	b.fails++
+	return b.max
+}
+
+func (b *backoff) reset() { b.fails = 0 }
+
+// agentBackoff is replaced in tests.
+var agentBackoff = newBackoff
+
+func tokenRefused(path, token string, err error, wait time.Duration) string {
+	var se *upload.StatusError
+	status := "refused"
+	if errors.As(err, &se) {
+		status = se.Status
+	}
+	if token == "" {
+		return fmt.Sprintf("lake answered %s and no device token was sent; %s does not exist. Run terva-lampi login or pass --token-file. Retrying every %s", status, path, wait)
+	}
+	return fmt.Sprintf("lake answered %s to the device token in %s. Check that serve --token-file lists it. Retrying every %s", status, path, wait)
+}
 
 const agentUsage = `terva-lampi agent — local capture
 
@@ -93,12 +146,16 @@ to polling.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
-terva-lampi sync: allowlist, ruleset v2, watermark, outbox, then the
-lake. A failed push is logged and tried again after a short wait, even
-when the file does not grow. A project the allowlist or the scan refused
-is not retried. SIGTERM or interrupt drains the outbox best-effort and
-exits. On Unix, SIGUSR1 asks for a sync now. The filesystem watch is
-still the source of truth; the signal only skips the wait. While the
+terva-lampi sync: hello, allowlist, ruleset v2, watermark, outbox, then
+the upload. A failed push is logged and tried again, even when the file
+does not grow. The first wait is 2s. Each further failure doubles the
+ceiling of a jittered wait, up to 5 minutes, and a success resets it.
+Growth during that wait does not start a push. A 401 or 403 is logged
+once, naming the token file, and waits the full 5 minutes. A project
+the allowlist or the scan refused is not retried. SIGTERM or interrupt
+drains the outbox best-effort and exits. On Unix, SIGUSR1 asks for a
+sync now. The filesystem watch is still the source of truth; the
+signal only skips the wait. While the
 daemon runs it writes agent.pid in the state directory.
 hooks/terva-post-tool-enqueue.sh can send that signal from a terva
 post_tool_use hook. It is optional, and make build does not install
@@ -107,8 +164,10 @@ it.
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
 the token path in config.json. The token is read from a file, never
-from an argument. The server URL, token, allowlist, and harnesses map are read at
-start; restart the process to reload them.
+from an argument. The agent does not start when a token would go to an
+http:// URL whose host is not localhost, 127.0.0.0/8, or ::1. Use
+https for a remote lake. The server URL, token, allowlist, and
+harnesses map are read at start; restart the process to reload them.
 `
 
 func runAgent(env Env, args []string) error {
@@ -166,7 +225,7 @@ func runAgentDaemon(env Env, args []string) error {
 // serverFlag and tokenFlag are the command-line overrides. Empty
 // falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json.
 func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
-	opt, src, n, err := loadAgent(env, serverFlag, tokenFlag)
+	opt, tokenPath, src, n, err := loadAgent(env, serverFlag, tokenFlag)
 	if err != nil {
 		return err
 	}
@@ -195,10 +254,19 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		default:
 		}
 	}
-	watchKick(ctx, wake)
+	// waiting is set while a failed push waits to retry. Growth then does
+	// not start a push: the retry picks it up, and the lake is not asked
+	// again on every append. SIGUSR1 still asks for one now.
+	var waiting atomic.Bool
+	watchKick(ctx, func() {
+		waiting.Store(false)
+		wake()
+	})
 	watchers := startWatches(src, func(c watch.Change) {
 		fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
-		wake()
+		if !waiting.Load() {
+			wake()
+		}
 	})
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	defer watchCancel()
@@ -228,20 +296,29 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	disarmRetry := func() {
 		retryMu.Lock()
 		defer retryMu.Unlock()
+		waiting.Store(false)
 		if retry != nil {
 			retry.Stop()
 			retry = nil
 		}
 	}
-	armRetry := func() {
+	armRetry := func(d time.Duration) {
 		retryMu.Lock()
 		defer retryMu.Unlock()
 		if retry != nil {
 			retry.Stop()
 		}
-		retry = time.AfterFunc(syncRetryAfter, wake)
+		waiting.Store(true)
+		retry = time.AfterFunc(d, func() {
+			waiting.Store(false)
+			wake()
+		})
 	}
 	defer disarmRetry()
+	bo := agentBackoff()
+	// authLogged holds the 401 line to one per run of refusals. A success
+	// or a different error lets it print again.
+	authLogged := false
 
 	for {
 		select {
@@ -274,26 +351,42 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 				_ = waitWatches(watchErr, len(watchers))
 				return drainAgent(env, opt)
 			}
+			// A token the lake refuses will not start working in two
+			// seconds. Say so once, naming the file, and wait the cap.
+			if upload.Unauthorized(err) {
+				if !authLogged {
+					authLogged = true
+					fmt.Fprintf(env.stderr(), "terva-lampi: %s\n", tokenRefused(tokenPath, opt.Token, err, bo.max))
+				}
+				armRetry(bo.capped())
+				continue
+			}
+			authLogged = false
 			if err != nil {
 				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
 				// A refusal is the allowlist or the scan. It will not
 				// change until the process is restarted with a new config.
+				// The rest of the pass reached the lake.
 				if _, refused := err.(*upload.Rejected); refused {
+					bo.reset()
 					disarmRetry()
 					continue
 				}
-				armRetry()
+				armRetry(bo.next())
 				continue
 			}
+			bo.reset()
 			disarmRetry()
 		}
 	}
 }
 
-func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source, int, error) {
+// loadAgent resolves the options once at start. tokenPath is the file
+// the token came from, or would have, for the 401 log line.
+func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, tokenPath string, src []source, n int, err error) {
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
-		return upload.Options{}, nil, 0, err
+		return upload.Options{}, "", nil, 0, err
 	}
 	if serverFlag == "" {
 		serverFlag = env.getenv("LAMPI_SERVER")
@@ -301,25 +394,36 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 	if tokenFlag == "" {
 		tokenFlag = env.getenv("LAMPI_TOKEN_FILE")
 	}
+	tokenPath, err = tokenPathFor(env, tokenFlag, file)
+	if err != nil {
+		return upload.Options{}, "", nil, 0, err
+	}
 	token, err := resolveToken(env, tokenFlag, file)
 	if err != nil {
-		return upload.Options{}, nil, 0, err
+		return upload.Options{}, "", nil, 0, err
 	}
-	src, n, err := countSources(env.getenv, file.Harnesses)
+	server := config.ServerURL(file, serverFlag)
+	// A token that would cross the network in the clear stops the agent
+	// at start. It cannot change until the config does.
+	if err := upload.CheckToken(server, token); err != nil {
+		return upload.Options{}, "", nil, 0, err
+	}
+	src, n, err = countSources(env.getenv, file.Harnesses)
 	if err != nil {
-		return upload.Options{}, nil, 0, err
+		return upload.Options{}, "", nil, 0, err
 	}
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
-		return upload.Options{}, nil, 0, err
+		return upload.Options{}, "", nil, 0, err
 	}
 	m, err := config.EnsureMachine(env.getenv)
 	if err != nil {
-		return upload.Options{}, nil, 0, err
+		return upload.Options{}, "", nil, 0, err
 	}
 	return upload.Options{
-		ServerURL:     config.ServerURL(file, serverFlag),
+		ServerURL:     server,
 		Token:         token,
+		PieceBytes:    upload.DefaultPieceBytes,
 		TervaHome:     homeOf(src, protocol.HarnessTerva),
 		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
 		CodexHome:     homeOf(src, protocol.HarnessCodex),
@@ -330,7 +434,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (upload.Options, []source,
 		StateDir:      state,
 		Projects:      file.Projects,
 		UploadHits:    file.Redaction.UploadHits,
-	}, src, n, nil
+	}, tokenPath, src, n, nil
 }
 
 func countSources(getenv func(string) string, harnesses config.Harnesses) ([]source, int, error) {

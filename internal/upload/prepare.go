@@ -61,13 +61,7 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 	var reasons []string
 	var work []prepared
 	for _, m := range bundle.Manifests {
-		id := config.ProjectID{
-			CWD:       m.Project.CWD,
-			CWDHash:   m.Project.CWDHash,
-			GitRemote: m.Project.GitRemote,
-			NoRepo:    m.Project.GitRemote == "" && adapter.OutsideCheckout(m.Project.CWD),
-		}
-		if !opt.Projects.Permitted(id) {
+		if !opt.Projects.Permitted(projectID(m)) {
 			res.Refused++
 			reasons = append(reasons, allowlistRefusal(m))
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
@@ -439,4 +433,16 @@ func blobIdentity(machine, root, rel string) string {
 
 func manifestIdentity(machine, harness, native string) string {
 	return "manifest:" + machine + ":" + harness + ":" + native
+}
+
+// projectID is what the allowlist sees for m. NoRepo is set only when
+// the cwd is known to sit outside any checkout, so a git_remote deny
+// still refuses a session whose remote could not be read.
+func projectID(m protocol.Manifest) config.ProjectID {
+	return config.ProjectID{
+		CWD:       m.Project.CWD,
+		CWDHash:   m.Project.CWDHash,
+		GitRemote: m.Project.GitRemote,
+		NoRepo:    m.Project.GitRemote == "" && adapter.OutsideCheckout(m.Project.CWD),
+	}
 }
