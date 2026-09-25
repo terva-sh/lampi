@@ -45,10 +45,11 @@ func runLogin(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	path, err := tokenPathFor(env, tokenFlag, file)
+	setting, err := tokenPathFor(env, tokenFlag, file)
 	if err != nil {
 		return err
 	}
+	path := setting.Value
 	token, piped, err := stdinToken(env.stdin())
 	if err != nil {
 		return err
@@ -67,32 +68,27 @@ func runLogin(env Env, args []string) error {
 	return nil
 }
 
-// tokenPathFor picks the token file: the flag, else config.json, else the
-// default path under the config dir. It does not require the file to exist.
-func tokenPathFor(env Env, flagPath string, file config.File) (string, error) {
-	if flagPath != "" {
-		return flagPath, nil
-	}
-	if file.TokenFile != "" {
-		return file.TokenFile, nil
-	}
-	return config.TokenPath(env.getenv)
+// tokenPathFor picks the token file: the flag, then LAMPI_TOKEN_FILE,
+// then config.json, then the default path.
+func tokenPathFor(env Env, flagPath string, file config.File) (config.Setting, error) {
+	return config.ResolveTokenFile(file, env.getenv, flagPath)
 }
 
 // resolveToken reads the token when a file is configured or already
 // present. A missing default file means "no auth", which matches a
-// loopback lake started without --token-file.
+// loopback lake started without --token-file. A file named by a flag,
+// the environment, or config.json must exist.
 func resolveToken(env Env, flagPath string, file config.File) (string, error) {
 	path, err := tokenPathFor(env, flagPath, file)
 	if err != nil {
 		return "", err
 	}
-	if flagPath == "" && file.TokenFile == "" {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
+	if path.Source == config.SourceDefault {
+		if _, err := os.Stat(path.Value); os.IsNotExist(err) {
 			return "", nil
 		}
 	}
-	return auth.Read(path)
+	return auth.Read(path.Value)
 }
 
 func stdinToken(r io.Reader) (string, bool, error) {

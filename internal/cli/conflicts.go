@@ -35,7 +35,11 @@ list and is not created. --server asks that lake over GET /v1/conflicts
 and sends the device token, over https, or over http only to
 localhost, 127.0.0.0/8, or ::1. Pass --data or --server, not both.
 
-The token is read from --token-file. It is not an argument.
+The token file is --token-file, then LAMPI_TOKEN_FILE, then token_file
+in config.json, then the token file in the config directory, the same
+order sync and status use. The token is not an argument. The lake is
+only the --server flag: LAMPI_SERVER and config.json do not turn this
+command into a remote read.
 `
 
 func runConflicts(env Env, args []string) error {

@@ -23,9 +23,18 @@ const statusUsage = `terva-lampi status — agent state and lake health
 usage:
   terva-lampi status [--server URL] [--token-file PATH]
 
+--server is the flag, then LAMPI_SERVER, then server in config.json,
+then http://127.0.0.1:8787. --token-file is the flag, then
+LAMPI_TOKEN_FILE, then token_file in config.json, then the token file
+in the config directory. The agent and sync resolve both the same
+way. The server and token_file lines end in source=flag, env, config,
+or default, naming the layer that won.
+
 Prints the local machine id (creating it if needed), one line per
-known harness, outbox depth, a watermark summary, and the last
-finished sync. Those live under the state directory, next to the
+known harness, outbox depth, a watermark summary, the last finished
+sync, and the last attempt with the most recent error. last_attempt
+is the time of the last run and ok or failed. last_error is the time
+and text of the most recent failure, or none. Those live under the state directory, next to the
 files the agent and sync already use.
 
 Each harness line has this spelling, in order terva, claude, codex,
@@ -91,8 +100,8 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	server := config.ServerURL(file, serverFlag)
-	tokenPath, err := tokenPathFor(env, tokenFlag, file)
+	server := config.ResolveServer(file, env.getenv, serverFlag)
+	tokenFile, err := tokenPathFor(env, tokenFlag, file)
 	if err != nil {
 		return err
 	}
@@ -111,11 +120,17 @@ func runStatus(env Env, args []string) error {
 	if err := writeCaptureState(env.stdout(), state); err != nil {
 		return err
 	}
-	fmt.Fprintf(env.stdout(), "server: %s\n", server)
-	fmt.Fprintf(env.stdout(), "token_file: %s\n", tokenPath)
-	fmt.Fprintf(env.stdout(), "health: %s\n", probeHealth(server))
-	fmt.Fprint(env.stdout(), probeCatalog(server, token))
+	writeEndpoint(env.stdout(), server, tokenFile)
+	fmt.Fprintf(env.stdout(), "health: %s\n", probeHealth(server.Value))
+	fmt.Fprint(env.stdout(), probeCatalog(server.Value, token))
 	return nil
+}
+
+// writeEndpoint prints the server and token file with the layer that
+// won each, in the spelling the harness lines use.
+func writeEndpoint(w io.Writer, server, tokenFile config.Setting) {
+	fmt.Fprintf(w, "server: %s source=%s\n", server.Value, server.Source)
+	fmt.Fprintf(w, "token_file: %s source=%s\n", tokenFile.Value, tokenFile.Source)
 }
 
 // writeCaptureState prints outbox depth, the watermark summary, and the
@@ -133,7 +148,33 @@ func writeCaptureState(w io.Writer, stateDir string) error {
 	fmt.Fprintf(w, "outbox: %d\n", depth)
 	fmt.Fprintln(w, formatWatermarks(sum))
 	fmt.Fprintln(w, lastSyncLine(stateDir))
+	fmt.Fprint(w, lastAttemptLines(stateDir))
 	return nil
+}
+
+// lastAttemptLines is the last run, finished or not, and the most
+// recent error. A finished run after a failure still shows that error
+// with its time.
+func lastAttemptLines(stateDir string) string {
+	a, ok, err := upload.ReadAttempt(stateDir)
+	if err != nil {
+		return "last_attempt: unreadable\n"
+	}
+	if !ok {
+		return "last_attempt: never\nlast_error: none\n"
+	}
+	result := "ok"
+	if a.Error != "" {
+		result = "failed"
+	}
+	out := fmt.Sprintf("last_attempt: %s %s\n", a.At.UTC().Format(time.RFC3339), result)
+	if a.LastError == "" {
+		return out + "last_error: none\n"
+	}
+	// An error can span lines, such as a refusal list. status keeps
+	// one line per field.
+	msg := strings.Join(strings.Fields(a.LastError), " ")
+	return out + fmt.Sprintf("last_error: %s %s\n", a.LastErrorAt.UTC().Format(time.RFC3339), msg)
 }
 
 func outboxDepth(stateDir string) (int, error) {

@@ -96,8 +96,9 @@ that file is under [Off-box raw](#off-box-raw).
 A second `sync` of the same files uploads nothing. `status` prints the
 machine id, one line per known harness
 (`harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>`),
-outbox depth, watermark summary, last finished sync, whether
-`/healthz` answered, and catalog counts from `GET /v1/stats`.
+outbox depth, watermark summary, last finished sync, the last attempt
+(`ok` or `failed`) and the most recent error, whether `/healthz`
+answered, and catalog counts from `GET /v1/stats`.
 `source` is `config`, `env`, or `default`, naming which layer won.
 
 `agent` with no subcommand prints the same discovery, pushes the
@@ -106,7 +107,8 @@ A failed push is tried again without waiting for the file to grow. The
 first wait is 2s. Each further failure doubles the ceiling of a
 jittered wait, up to 5 minutes, and a success resets it. Growth during
 that wait does not start a push. A 401 or 403 is logged once, naming
-the token file, and waits the full 5 minutes. A file that cannot be
+the token file, and waits the full 5 minutes. A refusal or a skip is
+logged the first pass it appears, not on every pass. A file that cannot be
 read, or whose session id would sit on a line too long to read, is
 skipped and named on stderr; the other files upload. A harness home
 that does not exist yet, terva included, is polled until it appears.
@@ -161,10 +163,11 @@ after it was hashed is not sent in that sync; the next one sends it.
 | `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
-| `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, lake health and catalog counts. |
+| `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, last attempt and error, server and token file with their `source`, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
 | `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
+| `terva-lampi quarantine` | `list` the redaction hits held on this machine, or `allow` one digest to upload with an `override` stamp. |
 
 `terva-lampi export --format events` (the default) writes one
 normalized event per line. `--format sharegpt` and `--format
@@ -321,9 +324,14 @@ stamps `redaction.ruleset` as `v2` and `redaction.status` as `scanned`
 when there are no hits. v1 missed keys inside JSON escapes. Manifests
 it stamped stay on the lake as they are. A hit is appended to `quarantine.jsonl` in the
 state directory (mode 0600) and is not uploaded. The log names the rule.
-It does not contain the matched text. `redaction.upload_hits` is the
-only override that uploads a hit, and the manifest status is then
-`override` with the hit count. Leave it false.
+It does not contain the matched text. A record is added once per
+relpath, digest, and rule set, not on every sync. `terva-lampi
+quarantine list` prints the log. `terva-lampi quarantine allow
+<relpath|sha256>` acknowledges one digest: a file with exactly those
+bytes uploads, and the manifest status is `override` with the hit
+count. A file that changes is scanned and held again. A hit in the
+manifest cannot be allowed. `redaction.upload_hits` is the override
+for every file. Leave it false.
 
 `sync` and `agent` share this path: allowlist, scan, watermark plan,
 outbox, upload, manifest ACK, then watermark commit and outbox ACK. An
@@ -348,9 +356,10 @@ next start.
 `deploy/` holds examples. Nothing there is installed by `make build`.
 Phase 0 places the lake on a small VPS
 ([docs/policy.md](docs/policy.md)). Bring-up is
-[docs/vps-bringup.md](docs/vps-bringup.md). The units still default to
-`http://127.0.0.1:8787` and a token file under `~/.config/terva-lampi/`
-so a local lake works. Set `LAMPI_SERVER` to the VPS HTTPS URL on a
+[docs/vps-bringup.md](docs/vps-bringup.md). The units set no server URL
+or token file, so the agent falls back to `http://127.0.0.1:8787` and
+a token file under `~/.config/terva-lampi/` and a local lake works. Set
+`server` in `config.json`, or `LAMPI_SERVER`, to the VPS HTTPS URL on a
 machine that should upload there. Do not put that hostname in this tree.
 
 | Path | What it is |
@@ -361,9 +370,12 @@ machine that should upload there. Do not put that hostname in this tree.
 | [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
 | [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Supported optional `post_tool_use` acceleration. Sends SIGUSR1 to a running `terva-lampi`. Not installed by `make build`. The watch still uploads if the hook never runs |
 
-`terva-lampi agent` reads `LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the
-matching flags are unset. A flag wins, then the environment, then
-`config.json`. Harness `root` is a different order: flag, if any, then
+`terva-lampi agent`, `sync`, `status`, and `agent config` read
+`LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the matching flags are
+unset. A flag wins, then the environment, then `config.json`, then the
+default. `status` and `agent config` print `source=flag`, `env`,
+`config`, or `default` on the `server` and `token_file` lines. The
+`conflicts` token file follows the same order. Harness `root` is a different order: flag, if any, then
 the `harnesses` entry in `config.json`, then the harness environment
 variable, then the adapter default. That variable is a debug override.
 Restart the agent after editing the map.

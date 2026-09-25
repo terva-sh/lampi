@@ -91,7 +91,8 @@ usage:
                                  watch session JSONL and upload until signalled
   terva-lampi agent discover     list session JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
-  terva-lampi agent config       print paths and the effective server URL
+  terva-lampi agent config       print paths, the effective server URL and
+                                 token file, and which layer set each
   terva-lampi agent status       local identity, outbox, watermarks, and last sync
 
 terva sessions are read from TERVA_HOME, then ZOT_HOME, then the platform
@@ -157,7 +158,9 @@ does not grow. The first wait is 2s. Each further failure doubles the
 ceiling of a jittered wait, up to 5 minutes, and a success resets it.
 Growth during that wait does not start a push. A 401 or 403 is logged
 once, naming the token file, and waits the full 5 minutes. A project
-the allowlist or the scan refused is not retried. SIGTERM or interrupt
+the allowlist or the scan refused is not retried. A refusal or a
+skipped file is logged the first pass it appears and not again while
+it lasts. SIGTERM or interrupt
 drains the outbox best-effort and exits. On Unix, SIGUSR1 asks for a
 sync now. The filesystem watch is still the source of truth; the
 signal only skips the wait. While the
@@ -170,8 +173,11 @@ it.
 
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
-the token path in config.json. The token is read from a file, never
-from an argument. The agent does not start when a token would go to an
+the token path in config.json, then the token file in the config
+directory. sync, status, and agent config resolve both the same way,
+and status and agent config print source=flag, env, config, or
+default for each. The token is read from a file, never from an
+argument. The agent does not start when a token would go to an
 http:// URL whose host is not localhost, 127.0.0.0/8, or ::1. Use
 https for a remote lake. The server URL, token, allowlist, and
 harnesses map are read at start; restart the process to reload them.
@@ -230,7 +236,8 @@ func runAgentDaemon(env Env, args []string) error {
 // runAgentLoop is the long-running process. ctx ending is shutdown:
 // the watch stops, then the outbox is drained on a new context.
 // serverFlag and tokenFlag are the command-line overrides. Empty
-// falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json.
+// falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json,
+// the same order sync and status use.
 func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
 	opt, tokenPath, src, n, err := loadAgent(env, serverFlag, tokenFlag)
 	if err != nil {
@@ -329,6 +336,8 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	}
 	defer disarmRetry()
 	bo := agentBackoff()
+	// seen keeps refusal and skip lines to one print while they last.
+	seen := &changeLog{}
 	// authLogged holds the 401 line to one per run of refusals. A success
 	// or a different error lets it print again.
 	authLogged := false
@@ -339,14 +348,14 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			disarmRetry()
 			watchCancel()
 			_ = waitWatches(watchErr, len(watchers))
-			return drainAgent(env, opt)
+			return drainAgent(env, opt, seen)
 		case err := <-watchErr:
 			disarmRetry()
 			watchCancel()
 			if rest := waitWatches(watchErr, len(watchers)-1); err == nil {
 				err = rest
 			}
-			drainAgent(env, opt)
+			drainAgent(env, opt, seen)
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -356,13 +365,13 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			// shutdown has begun. The drain below is the last push.
 			var err error
 			if ctx.Err() == nil {
-				err = runAgentSync(ctx, env, opt, "")
+				err = runAgentSync(ctx, env, opt, "", seen)
 			}
 			if ctx.Err() != nil {
 				disarmRetry()
 				watchCancel()
 				_ = waitWatches(watchErr, len(watchers))
-				return drainAgent(env, opt)
+				return drainAgent(env, opt, seen)
 			}
 			// A token the lake refuses will not start working in two
 			// seconds. Say so once, naming the file, and wait the cap.
@@ -376,15 +385,16 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			}
 			authLogged = false
 			if err != nil {
-				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
 				// A refusal is the allowlist or the scan. It will not
 				// change until the process is restarted with a new config.
-				// The rest of the pass reached the lake.
+				// The rest of the pass reached the lake. runAgentSync
+				// printed the refusals that are new.
 				if _, refused := err.(*upload.Rejected); refused {
 					bo.reset()
 					disarmRetry()
 					continue
 				}
+				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
 				armRetry(bo.next())
 				continue
 			}
@@ -401,21 +411,16 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	if serverFlag == "" {
-		serverFlag = env.getenv("LAMPI_SERVER")
-	}
-	if tokenFlag == "" {
-		tokenFlag = env.getenv("LAMPI_TOKEN_FILE")
-	}
-	tokenPath, err = tokenPathFor(env, tokenFlag, file)
+	tokenFile, err := tokenPathFor(env, tokenFlag, file)
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
+	tokenPath = tokenFile.Value
 	token, err := resolveToken(env, tokenFlag, file)
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	server := config.ServerURL(file, serverFlag)
+	server := config.ResolveServer(file, env.getenv, serverFlag).Value
 	// A token that would cross the network in the clear stops the agent
 	// at start. It cannot change until the config does.
 	if err := upload.CheckToken(server, token); err != nil {
@@ -497,22 +502,66 @@ func waitWatches(watchErr <-chan error, n int) error {
 	return first
 }
 
-func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string) error {
+// runAgentSync is one pass. A refusal or a skip that the previous
+// finished pass already printed is not printed again; one that is new,
+// or that returns after a pass without it, is.
+func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string, seen *changeLog) error {
 	res, err := upload.Sync(ctx, opt)
+	var rejected *upload.Rejected
+	isRejected := errors.As(err, &rejected)
+	if err == nil || isRejected {
+		var reasons []string
+		if isRejected {
+			reasons = rejected.Reasons
+		}
+		res.Skipped = seen.fresh("skip", res.Skipped)
+		if fresh := seen.fresh("refuse", reasons); len(fresh) > 0 {
+			fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", &upload.Rejected{Reasons: fresh})
+		}
+	}
 	printSync(env.stdout(), env.stderr(), prefix, res)
 	return err
+}
+
+// changeLog remembers the lines the last finished pass printed, by
+// kind. A lake error does not reset it: the pass did not get far
+// enough to say whether the refusal still holds.
+type changeLog struct {
+	last map[string]map[string]bool
+}
+
+// fresh returns the lines not printed last time and makes lines the
+// new set for kind. A line missing from this pass is forgotten, so it
+// prints again if it comes back.
+func (c *changeLog) fresh(kind string, lines []string) []string {
+	if c.last == nil {
+		c.last = map[string]map[string]bool{}
+	}
+	prev := c.last[kind]
+	next := map[string]bool{}
+	var out []string
+	for _, l := range lines {
+		if !prev[l] && !next[l] {
+			out = append(out, l)
+		}
+		next[l] = true
+	}
+	c.last[kind] = next
+	return out
 }
 
 // drainAgent pushes whatever the outbox still holds. The context is new
 // on purpose: the one that stopped the watch is already cancelled, and
 // using it would abort the drain it exists to finish. An error is logged
 // and not returned. Shutdown still succeeds.
-func drainAgent(env Env, opt upload.Options) error {
+func drainAgent(env Env, opt upload.Options, seen *changeLog) error {
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	fmt.Fprintln(env.stderr(), "terva-lampi: draining outbox")
-	if err := runAgentSync(ctx, env, opt, "drain: "); err != nil {
-		fmt.Fprintf(env.stderr(), "terva-lampi: drain: %v\n", err)
+	if err := runAgentSync(ctx, env, opt, "drain: ", seen); err != nil {
+		if _, refused := err.(*upload.Rejected); !refused {
+			fmt.Fprintf(env.stderr(), "terva-lampi: drain: %v\n", err)
+		}
 	}
 	return nil
 }
@@ -559,12 +608,9 @@ func runAgentConfig(env Env) error {
 	if err != nil {
 		return err
 	}
-	tokenPath, err := config.TokenPath(env.getenv)
+	tokenFile, err := tokenPathFor(env, "", file)
 	if err != nil {
 		return err
-	}
-	if file.TokenFile != "" {
-		tokenPath = file.TokenFile
 	}
 	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
@@ -580,8 +626,7 @@ func runAgentConfig(env Env) error {
 	}
 	fmt.Fprintf(env.stdout(), "config_dir: %s\n", cfgDir)
 	fmt.Fprintf(env.stdout(), "state_dir: %s\n", state)
-	fmt.Fprintf(env.stdout(), "server: %s\n", config.ServerURL(file, ""))
-	fmt.Fprintf(env.stdout(), "token_file: %s\n", tokenPath)
+	writeEndpoint(env.stdout(), config.ResolveServer(file, env.getenv, ""), tokenFile)
 	for _, s := range src {
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}
