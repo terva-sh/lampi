@@ -84,6 +84,8 @@ actors:
     name: Cursor cloud agent
   - id: agent:cursor/d660
     name: Cursor cloud agent
+  - id: agent:claude-code/eh1m
+    name: Claude Code cloud agent
 labels:
   - area/agent
   - area/server
