@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T01:34:31Z
-updated_at: 2026-09-25T01:34:32Z
+updated_at: 2026-09-25T01:38:33Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -35,7 +35,7 @@ The Cursor IDE capture copies the global database once per workspace on every sy
 
 ### Findings
 
-- Cost. Read. Each workspace export copies the whole global `state.vscdb` trio to `$TMPDIR` (`internal/adapter/cursor/snapshot.go:101,126,298`), reads all of `cursorDiskKV` into memory before filtering, and exports the global database in full, although the allowlist always refuses it (`cursor.go:252`). `state.vscdb-wal` writes trigger syncs.
+- Cost. Read. Each workspace export copies the whole global `state.vscdb` trio to `$TMPDIR` (`mergeWorkspaceComposers` and `snapshotDisk`, `internal/adapter/cursor/snapshot.go:118-215`, `copyTrio` at `:298`), reads all of `cursorDiskKV` into memory before filtering (`snapshot.go:89,215`), and exports the global database in full, although the allowlist always refuses it (`internal/adapter/cursor/cursor.go:235-260`). `state.vscdb-wal` writes trigger syncs.
 - Torn snapshot. Read, not reproduced. `copyTrio` (`cursor/snapshot.go:298`, `cursorcli/snapshot.go:355`) copies the database, `-wal`, and `-shm` one after another with no lock. A checkpoint between copies can pair an old main file with a new WAL.
 
 ### Approach
