@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,7 +147,9 @@ func TestSessionUnderSecondRelpathProjectsOnce(t *testing.T) {
 	}
 }
 
-func TestOpenCodeDatabaseKindIsNotProjected(t *testing.T) {
+// The OpenCode database label is local to the adapter. The allowlist
+// keeps it on the machine, and the lake refuses it as an unknown kind.
+func TestOpenCodeDatabaseKindIsRefused(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +160,7 @@ func TestOpenCodeDatabaseKindIsNotProjected(t *testing.T) {
 
 	body := []byte("SQLite format 3\x00")
 	sum := putBlob(t, h, "", body)
-	ack := postManifest(t, h, protocol.Manifest{
+	rr := postManifestCode(t, h, protocol.Manifest{
 		CaptureProtocol: protocol.Version,
 		MachineID:       "machine-a",
 		Harness:         protocol.HarnessOpenCode,
@@ -170,11 +173,11 @@ func TestOpenCodeDatabaseKindIsNotProjected(t *testing.T) {
 			SHA256:  sum,
 		}},
 	})
-	if err := s.WaitNormalized(t.Context()); err != nil {
-		t.Fatal(err)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), opencode.KindDatabase) {
+		t.Fatalf("database kind: %d %s", rr.Code, rr.Body)
 	}
-	msg, ok, err := s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
-	if err != nil || !ok || !strings.Contains(msg, "no opencode_export_json artifact") {
-		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
+	n, err := s.Catalog.Counts(t.Context())
+	if err != nil || n.Sessions != 0 {
+		t.Fatalf("counts %+v err=%v", n, err)
 	}
 }

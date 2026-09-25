@@ -2,6 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -12,6 +17,10 @@ import (
 // and writes derived files. SQLite stays at one connection, so the
 // workers take turns on the catalog and overlap on the blobs.
 const normalizeWorkers = 2
+
+// workerLog receives a worker panic and its stack. serve's stderr is
+// the service journal.
+var workerLog = log.New(os.Stderr, "terva-lampi: ", log.LstdFlags)
 
 // normalizeQueue is the in-memory side of catalog.normalize_jobs.
 // The table is what survives a restart. This queue is what keeps the
@@ -147,7 +156,17 @@ func (s *Server) enqueueNormalize(ctx context.Context, sessionUID string) error 
 // still current. A newer ingest bumps gen and this publish is dropped.
 // The CAS is not opened for write. beforeProject, when set, runs first
 // so a test can show the ACK returning while projection waits.
+//
+// A panic does not stop the process. It is logged, recorded as the
+// session's normalize_error, and the job row is deleted, so a restart
+// does not load the same panic again.
 func (s *Server) runNormalize(job catalog.NormalizeJob) {
+	defer func() {
+		if r := recover(); r != nil {
+			workerLog.Printf("normalize %s: panic: %v\n%s", job.SessionUID, r, debug.Stack())
+			s.recordPanic(job, r)
+		}
+	}()
 	if s.beforeProject != nil {
 		s.beforeProject()
 	}
@@ -180,6 +199,26 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 		return
 	}
 	_ = s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen)
+}
+
+// recordPanic stores a worker panic as the session's failure when job
+// is still the current generation. A newer ingest has its own job and
+// its own outcome. The derived files are removed, as for any failure.
+func (s *Server) recordPanic(job catalog.NormalizeJob, r any) {
+	ctx := context.Background()
+	unlock := s.lockSession(job.SessionUID)
+	defer unlock()
+	gen, ok, err := s.Catalog.NormalizeGen(ctx, job.SessionUID)
+	if err != nil || !ok || gen != job.Gen {
+		return
+	}
+	_ = removeDerived(filepath.Join(s.Normalized, job.SessionUID+".jsonl"), s.Parquet, job.SessionUID)
+	if err := s.Catalog.SetNormalizeError(ctx, job.SessionUID, fmt.Sprintf("normalize: panic: %v", r)); err != nil {
+		workerLog.Printf("normalize %s: record panic: %v", job.SessionUID, err)
+	}
+	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
+		workerLog.Printf("normalize %s: delete job: %v", job.SessionUID, err)
+	}
 }
 
 func (s *Server) lockSession(sessionUID string) func() {

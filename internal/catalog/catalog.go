@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -86,31 +87,25 @@ type ProvenanceRow struct {
 	RelPath    string
 }
 
-// Open creates the catalog file and its tables. The file is owner-read
-// because session rows describe private transcripts.
+// Open creates the catalog file and brings its schema to the version
+// this binary knows. The file is owner-read because session rows
+// describe private transcripts. A file written by a newer binary is
+// refused, not read with a schema that may not match it.
 func Open(path string) (*Catalog, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	dsn, err := dataSource(path)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
 	// One writer. The lake process is the only client of this file.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("catalog: %w", err)
-	}
-	if _, err := db.Exec(`PRAGMA journal_mode = WAL`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("catalog: %w", err)
-	}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("catalog: %w", err)
-	}
-	if err := migrate(db); err != nil {
+	if err := upgrade(db, path); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -119,6 +114,68 @@ func Open(path string) (*Catalog, error) {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
 	return &Catalog{db: db}, nil
+}
+
+// dataSource is a file URI carrying the per-connection pragmas. The
+// driver runs them on every connection it opens, so a reopened
+// connection keeps busy_timeout. synchronous is FULL because the
+// manifest ACK follows the commit.
+func dataSource(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	q := url.Values{}
+	for _, p := range []string{
+		"busy_timeout(5000)",
+		"foreign_keys(1)",
+		"journal_mode(WAL)",
+		"synchronous(FULL)",
+	} {
+		q.Add("_pragma", p)
+	}
+	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(abs), RawQuery: q.Encode()}
+	return u.String(), nil
+}
+
+// migrations[i] moves PRAGMA user_version from i to i+1. Append only:
+// an entry that has shipped is never edited, because a file that
+// already ran it will not run it again. len(migrations) is the version
+// this binary writes.
+var migrations = []func(*sql.Tx) error{
+	migrate1,
+}
+
+// upgrade runs each migration above the file's user_version, one
+// transaction per step with the version bump inside it. A file above
+// len(migrations) is refused.
+func upgrade(db *sql.DB, path string) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	if v > len(migrations) {
+		return fmt.Errorf("catalog: %s has schema version %d; this binary knows up to %d, so upgrade terva-lampi", path, v, len(migrations))
+	}
+	for ; v < len(migrations); v++ {
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("catalog: %w", err)
+		}
+		if err := migrations[v](tx); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("catalog: migration %d: %w", v+1, err)
+		}
+		// PRAGMA does not take a bound parameter. v is an int.
+		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, v+1)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("catalog: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("catalog: %w", err)
+		}
+	}
+	return nil
 }
 
 const schema = `
@@ -168,22 +225,23 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 `
 
-// migrate adds columns a database created before aliases, relations,
-// and sessions.normalize_error would not have. CREATE TABLE IF NOT
-// EXISTS does not alter an old file.
-func migrate(db *sql.DB) error {
-	ok, err := columnExists(db, "provenance", "sha256")
+// migrate1 is the schema as it stood when versioning began. A file
+// from before then has user_version 0 and any older shape: before
+// aliases, relations, sessions.normalize_error, project_id, or the
+// normalize queue. CREATE TABLE IF NOT EXISTS does not alter an old
+// table, so the columns are added when missing. Every step is safe on
+// a file that already has them.
+func migrate1(tx *sql.Tx) error {
+	if _, err := tx.Exec(schema); err != nil {
+		return err
+	}
+	ok, err := columnExists(tx, "provenance", "sha256")
 	if err != nil {
 		return err
 	}
 	if !ok {
-		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("catalog: %w", err)
-		}
 		if _, err := tx.Exec(`ALTER TABLE provenance RENAME TO provenance_v1`); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("catalog: %w", err)
+			return err
 		}
 		if _, err := tx.Exec(`
 			CREATE TABLE provenance (
@@ -194,21 +252,15 @@ func migrate(db *sql.DB) error {
 				ingested_at TEXT NOT NULL,
 				PRIMARY KEY (session_uid, machine_id, sha256)
 			)`); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("catalog: %w", err)
+			return err
 		}
 		if _, err := tx.Exec(`
 			INSERT INTO provenance (session_uid, machine_id, sha256, relpath, ingested_at)
 			SELECT session_uid, machine_id, '', '', '' FROM provenance_v1`); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("catalog: %w", err)
+			return err
 		}
 		if _, err := tx.Exec(`DROP TABLE provenance_v1`); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("catalog: %w", err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("catalog: %w", err)
+			return err
 		}
 	}
 	for _, alt := range []struct{ col, stmt string }{
@@ -216,48 +268,44 @@ func migrate(db *sql.DB) error {
 		{"grown_from", `ALTER TABLE artifacts ADD COLUMN grown_from TEXT NOT NULL DEFAULT ''`},
 		{"current", `ALTER TABLE artifacts ADD COLUMN current INTEGER NOT NULL DEFAULT 0`},
 	} {
-		if err := addColumn(db, "artifacts", alt.col, alt.stmt); err != nil {
+		if err := addColumn(tx, "artifacts", alt.col, alt.stmt); err != nil {
 			return err
 		}
 	}
 	// A head written before the current flag existed is still the head.
-	if _, err := db.Exec(`
+	if _, err := tx.Exec(`
 		UPDATE artifacts SET current = 1
 		WHERE current = 0 AND sha256 IN (
 			SELECT head_sha256 FROM sessions s WHERE s.session_uid = artifacts.session_uid
 		)`); err != nil {
-		return fmt.Errorf("catalog: %w", err)
-	}
-	if err := addColumn(db, "sessions", "normalize_error", `ALTER TABLE sessions ADD COLUMN normalize_error TEXT`); err != nil {
 		return err
 	}
-	if err := addColumn(db, "sessions", "project_id", `ALTER TABLE sessions ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`); err != nil {
-		return err
+	for _, alt := range []struct{ col, stmt string }{
+		{"normalize_error", `ALTER TABLE sessions ADD COLUMN normalize_error TEXT`},
+		{"project_id", `ALTER TABLE sessions ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`},
+		{"normalize_gen", `ALTER TABLE sessions ADD COLUMN normalize_gen INTEGER NOT NULL DEFAULT 0`},
+	} {
+		if err := addColumn(tx, "sessions", alt.col, alt.stmt); err != nil {
+			return err
+		}
 	}
-	if err := addColumn(db, "sessions", "normalize_gen", `ALTER TABLE sessions ADD COLUMN normalize_gen INTEGER NOT NULL DEFAULT 0`); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS sessions_by_project ON sessions (project_id)`); err != nil {
-		return fmt.Errorf("catalog: %w", err)
-	}
-	return nil
+	_, err = tx.Exec(`CREATE INDEX IF NOT EXISTS sessions_by_project ON sessions (project_id)`)
+	return err
 }
 
-func addColumn(db *sql.DB, table, column, stmt string) error {
-	ok, err := columnExists(db, table, column)
+func addColumn(tx *sql.Tx, table, column, stmt string) error {
+	ok, err := columnExists(tx, table, column)
 	if err != nil || ok {
 		return err
 	}
-	if _, err := db.Exec(stmt); err != nil {
-		return fmt.Errorf("catalog: %w", err)
-	}
-	return nil
+	_, err = tx.Exec(stmt)
+	return err
 }
 
-func columnExists(db *sql.DB, table, column string) (bool, error) {
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+func columnExists(tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.Query("PRAGMA table_info(" + table + ")")
 	if err != nil {
-		return false, fmt.Errorf("catalog: %w", err)
+		return false, err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -266,7 +314,7 @@ func columnExists(db *sql.DB, table, column string) (bool, error) {
 		var notnull, pk int
 		var dflt sql.NullString
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			return false, fmt.Errorf("catalog: %w", err)
+			return false, err
 		}
 		if name == column {
 			return true, nil
