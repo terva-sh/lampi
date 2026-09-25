@@ -42,6 +42,12 @@ Each entry accepts `enabled` and `root` only. Allowlist rules and
 secrets are not fields of a harness entry. `projects` and `redaction`
 stay beside `harnesses`, as in the root README.
 
+`agent.debounce` is how long the watch must be quiet before the agent
+syncs, and `agent.debounce_max` is the longest a change waits for
+that. Both are Go durations. The example sets the defaults, `5s` and
+`30s`. `"0s"` syncs on every change. A value that does not parse stops
+the agent at start.
+
 `enabled` omitted means on. `enabled: false` skips discover, watch,
 and upload for that harness. Watermarks and objects already stored
 stay. `root` is an absolute path. A relative path, or an empty one,

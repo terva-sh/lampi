@@ -93,16 +93,25 @@ those adapters; each pins a reader version and keeps keys it does not
 interpret. `sync` pushes the files `config.json`
 allowlists. With no allow rule it refuses the project; the shape of
 that file is under [Off-box raw](#off-box-raw).
-A second `sync` of the same files uploads nothing. `status` prints the
+A second `sync` of the same files uploads nothing and posts no
+manifest. `status` prints the
 machine id, one line per known harness
 (`harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>`),
 outbox depth, watermark summary, last finished sync, the last attempt
-(`ok` or `failed`) and the most recent error, whether `/healthz`
+(`ok` or `failed`) and the most recent error, the files that attempt
+skipped (`last_skipped`, with up to five named), whether `/healthz`
 answered, and catalog counts from `GET /v1/stats`.
 `source` is `config`, `env`, or `default`, naming which layer won.
 
 `agent` with no subcommand prints the same discovery, pushes the
-allowlisted sessions once, then watches. Growth calls that same push.
+allowlisted sessions once, then watches. Growth calls that same push
+once the watch has been quiet for 5s, and never more than 30s after
+the first change. `agent.debounce` and `agent.debounce_max` in
+`config.json` change those two, as Go durations; `"0s"` pushes on
+every change. SIGUSR1 does not wait. The agent does not open a file
+whose size, mtime, and inode have not moved since its last pass. The
+pass at start, and one every 6 hours, reads and hashes every file, so
+a rewrite that kept the size and mtime waits at most that long.
 A failed push is tried again without waiting for the file to grow. The
 first wait is 2s. Each further failure doubles the ceiling of a
 jittered wait, up to 5 minutes, and a success resets it. Growth during
@@ -163,7 +172,7 @@ after it was hashed is not sent in that sync; the next one sends it.
 | `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
-| `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, last attempt and error, server and token file with their `source`, lake health and catalog counts. |
+| `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, last attempt, error, and skipped files, server and token file with their `source`, lake health and catalog counts. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
 | `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
@@ -314,9 +323,9 @@ Google, Stripe, npm, PyPI, Hugging Face, SendGrid, and DigitalOcean
 tokens with their fixed prefixes, and PEM or PGP private-key blocks
 from the BEGIN line through the END line. It does not flag JWTs or
 generic `password=` / `api_key=` lines. Those show up in ordinary
-transcripts, and a hit would quarantine the upload. The AWS
-documentation example keys and Slack's placeholder webhook are not
-hits. The scan reads JSON string escapes as the text they stand for,
+transcripts, and a hit would quarantine the upload. A key
+that is exactly one of the AWS documentation example keys, or Slack's
+placeholder webhook, is not a hit. A key that only contains one is. The scan reads JSON string escapes as the text they stand for,
 so a key after an escaped line break, or a private key whose line
 breaks are `\n` escapes, is still found. A Cursor value that the
 export holds as base64 is scanned before it is encoded. The manifest
@@ -334,9 +343,13 @@ manifest cannot be allowed. `redaction.upload_hits` is the override
 for every file. Leave it false.
 
 `sync` and `agent` share this path: allowlist, scan, watermark plan,
-outbox, upload, manifest ACK, then watermark commit and outbox ACK. An
-unchanged file uploads no new blob. An append uploads the new tail
-only; the lake assembles it onto the stored prefix. A file larger than
+outbox, upload, manifest ACK, then watermark commit and outbox ACK. A
+session whose files all match their watermarks is not read, scanned,
+or posted. An append uploads the new tail only; the lake assembles it
+onto the stored prefix. When the bytes before the tail scanned clean,
+only the tail and 64 KiB before it are scanned. That window reaches
+further back over a run a rule repeats, such as spaces before an AWS
+secret. A file larger than
 32 MiB is uploaded as chunks of at most that size. The lake keeps the
 chunks and does not assemble one object past the cap. The cursor does
 not move if the manifest POST fails. `agent` runs until SIGTERM, then
@@ -366,7 +379,7 @@ machine that should upload there. Do not put that hostname in this tree.
 |------|------------|
 | [deploy/systemd/](deploy/systemd/) | User service for `terva-lampi agent`, system service for `terva-lampi serve`, and an env file for each |
 | [deploy/launchd/](deploy/launchd/) | launchd agent with the same placeholders |
-| [deploy/config.json.example](deploy/config.json.example) | Optional client `harnesses` map: one harness off, one absolute `root`. Loopback server URL |
+| [deploy/config.json.example](deploy/config.json.example) | Optional client `harnesses` map: one harness off, one absolute `root`. The agent debounce at its defaults. Loopback server URL |
 | [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
 | [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Supported optional `post_tool_use` acceleration. Sends SIGUSR1 to a running `terva-lampi`. Not installed by `make build`. The watch still uploads if the hook never runs |
 

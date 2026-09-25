@@ -7,5 +7,9 @@
     "codex": {
       "root": "/home/you/.codex"
     }
+  },
+  "agent": {
+    "debounce": "5s",
+    "debounce_max": "30s"
   }
 }

@@ -66,11 +66,14 @@ redaction.upload_hits is set or terva-lampi quarantine allow
 acknowledged that file's exact digest. See terva-lampi quarantine
 --help.
 
-Unchanged files upload no new blobs. The watermark moves only after the
-lake ACKs the manifest. Pending digests sit in the outbox until that ACK.
-A grown file uploads only the new tail. byte_watermark_prev is the
-previous length and tail_sha256 is the hash of those bytes. The lake
-assembles the tail onto the stored prefix. A clock that disagrees with
+A session whose files all match their watermarks is not read,
+scanned, or posted, and the line ends in unchanged <n>. The watermark
+moves only after the lake ACKs the manifest. Pending digests sit in
+the outbox until that ACK. A grown file uploads only the new tail.
+byte_watermark_prev is the previous length and tail_sha256 is the
+hash of those bytes. The lake assembles the tail onto the stored
+prefix. When the bytes before the tail scanned clean, the scan covers
+the tail and 64 KiB before it. A clock that disagrees with
 hello's server_time by more than five minutes is warned about and the
 push still runs.
 
