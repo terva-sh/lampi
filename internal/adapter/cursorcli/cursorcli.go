@@ -12,10 +12,12 @@
 // follow it.
 //
 // The live database is never opened and never written. A read copies
-// store.db and, when they are present, store.db-wal and store.db-shm
-// into a temporary directory, then opens that snapshot read-only.
-// The copy is removed after the export is built. Sync uploads the
-// export, not the database.
+// store.db and, when it is present, store.db-wal into a temporary
+// directory with sqlitesnap.Take, which copies again when a checkpoint
+// tore the copy and runs quick_check, then opens that snapshot
+// read-only. The copy is removed after the export is built. Sync
+// uploads the export, not the database. With a Permit, as sync passes,
+// a chat the allowlist refuses is not snapshotted or exported.
 //
 // Version 1 requires blobs (id TEXT, data BLOB) and meta (key TEXT,
 // value TEXT). A database missing either table is an error. Other
@@ -233,21 +235,20 @@ func (Adapter) Manifests(root, machineID string) (adapter.Bundle, error) {
 	return Manifests(root, machineID)
 }
 
-type item struct {
-	ref     adapter.Ref
-	sum     string
-	session string
-	cwd     string
-	abs     string
-	hidden  redact.Result
-}
-
 // Manifests builds one manifest per store.db. The artifact bytes are
 // the filtered JSON export. harness_version is Version. The project
 // cwd comes from meta.json beside that database. An empty cwd is left
 // empty so the allowlist can refuse it.
 func Manifests(root, machineID string) (adapter.Bundle, error) {
-	refs, err := Adapter{}.Discover(context.Background(), root)
+	return ManifestsPermit(root, machineID, nil)
+}
+
+// ManifestsPermit is Manifests that asks permit about each session
+// before its export is built. A refused session is not snapshotted or
+// exported; its manifest is kept with no digest and no path.
+func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bundle, error) {
+	ctx := context.Background()
+	refs, err := Adapter{}.Discover(ctx, root)
 	if err != nil {
 		return adapter.Bundle{}, err
 	}
@@ -266,10 +267,27 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 		}
 	}()
 
-	items := make([]item, 0, len(refs))
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
 	for _, ref := range refs {
 		rel := exportRel(ref.RelPath)
-		body, hidden, err := exportScanned(context.Background(), ref.AbsPath, ref.RelPath)
+		m := protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       machineID,
+			Harness:         protocol.HarnessCursorCLI,
+			HarnessVersion:  Version,
+			NativeSessionID: sessionID(rel),
+			Project:         adapter.ProjectAt(projectCWD(root, rel)),
+			Artifacts: []protocol.Artifact{{
+				Kind:    protocol.KindCursorCLIStoreJSON,
+				RelPath: rel,
+				MTime:   ref.ModTime.UTC(),
+			}},
+		}
+		if permit != nil && !permit(m) {
+			b.Manifests = append(b.Manifests, m)
+			continue
+		}
+		body, hidden, err := exportScanned(ctx, ref.AbsPath, ref.RelPath)
 		if err != nil {
 			return adapter.Bundle{}, fmt.Errorf("cursor-cli: %s: %w", ref.RelPath, err)
 		}
@@ -288,43 +306,16 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 		if err != nil {
 			return adapter.Bundle{}, err
 		}
-		ref.Kind = protocol.KindCursorCLIStoreJSON
-		ref.AbsPath = out
-		ref.RelPath = rel
-		ref.Size = info.Size()
-		items = append(items, item{
-			ref:     ref,
-			sum:     sum,
-			session: sessionID(ref.RelPath),
-			cwd:     projectCWD(root, rel),
-			abs:     out,
-			hidden:  hidden,
-		})
-	}
-
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
-	for _, it := range items {
-		b.Paths[it.ref.RelPath] = it.abs
-		if it.hidden.Hits > 0 {
-			b.Hidden[it.sum] = it.hidden
+		a := &m.Artifacts[0]
+		a.Size = info.Size()
+		a.SHA256 = sum
+		a.ByteWatermarkPrev = 0
+		a.TailSHA256 = sum
+		b.Paths[rel] = out
+		if hidden.Hits > 0 {
+			b.Hidden[sum] = hidden
 		}
-		b.Manifests = append(b.Manifests, protocol.Manifest{
-			CaptureProtocol: protocol.Version,
-			MachineID:       machineID,
-			Harness:         protocol.HarnessCursorCLI,
-			HarnessVersion:  Version,
-			NativeSessionID: it.session,
-			Project:         adapter.ProjectAt(it.cwd),
-			Artifacts: []protocol.Artifact{{
-				Kind:              it.ref.Kind,
-				RelPath:           it.ref.RelPath,
-				Size:              it.ref.Size,
-				MTime:             it.ref.ModTime.UTC(),
-				SHA256:            it.sum,
-				ByteWatermarkPrev: 0,
-				TailSHA256:        it.sum,
-			}},
-		})
+		b.Manifests = append(b.Manifests, m)
 	}
 	ok = true
 	return b, nil

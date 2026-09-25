@@ -745,14 +745,18 @@ func bundlesFor(opt Options) ([]adapter.Bundle, error) {
 			return nil, err
 		}
 	}
+	// The Cursor readers build an export per session. The allowlist
+	// check prepare makes runs first, so a refused session is not
+	// snapshotted; its manifest still reaches prepare to be reported.
+	permit := func(m protocol.Manifest) bool { return opt.Projects.Permitted(projectID(m)) }
 	if opt.CursorHome != "" {
-		b, err := cursor.Manifests(opt.CursorHome, opt.MachineID)
+		b, err := cursor.ManifestsPermit(opt.CursorHome, opt.MachineID, permit)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}
 	}
 	if opt.CursorCLIHome != "" {
-		b, err := cursorcli.Manifests(opt.CursorCLIHome, opt.MachineID)
+		b, err := cursorcli.ManifestsPermit(opt.CursorCLIHome, opt.MachineID, permit)
 		if err := add(b, err); err != nil {
 			return nil, err
 		}
