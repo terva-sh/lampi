@@ -171,7 +171,7 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
       "chunk_sha256s": null,
       "byte_watermark_prev": 100000,
       "tail_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "redaction": {"status": "scanned", "ruleset": "v1", "hits": 0}
+      "redaction": {"status": "scanned", "ruleset": "v2", "hits": 0}
     }
   ],
   "lineage": {"parent_native_id": null, "fork_point": null}
@@ -326,8 +326,9 @@ the last artifact. A `divergent_copy` or a `stale` post does not change it.
 
 **Pull.** Push only. A stale client is not repaired from the lake.
 
-**Redaction.** `redaction.status` of `scanned` means ruleset v1 ran and
-found nothing. `ruleset` is `v1`. `override` means the same scan found
+**Redaction.** `redaction.status` of `scanned` means ruleset v2 ran and
+found nothing. `ruleset` is `v2`. A manifest stamped `v1` came from an
+older client and is still accepted. `override` means the same scan found
 hits and `redaction.upload_hits` was set; `hits` is the count, not the
 secrets. A hit without that override is quarantined locally and is not
 in a manifest. `unscanned` is what a client sends when it did not scan.

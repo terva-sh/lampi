@@ -17,6 +17,8 @@ import (
 	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
+
+	"terva.sh/lampi/internal/redact"
 )
 
 // document is the filtered export. It is internal to this package.
@@ -34,6 +36,24 @@ type document struct {
 type row struct {
 	Key   string          `json:"key"`
 	Value json.RawMessage `json:"value"`
+	// hidden is the ruleset's scan of a value exported as base64. It
+	// is not part of the export.
+	hidden redact.Result
+}
+
+// hidden adds up the base64 scans of every row the document keeps.
+// Rows dropped by the composer filter do not count.
+func (d document) hidden() redact.Result {
+	var out redact.Result
+	for _, r := range d.ItemTable {
+		out = out.Add(r.hidden)
+	}
+	if d.CursorDiskKV != nil {
+		for _, r := range *d.CursorDiskKV {
+			out = out.Add(r.hidden)
+		}
+	}
+	return out
 }
 
 // exportDatabase copies the WAL trio, opens the snapshot, and returns
@@ -42,31 +62,51 @@ type row struct {
 // which does not have a home-relative path; the base name is recorded
 // instead.
 func exportDatabase(ctx context.Context, src, sourceRel, scope string) ([]byte, error) {
+	body, _, err := exportScanned(ctx, src, sourceRel, scope)
+	return body, err
+}
+
+// exportScanned is exportDatabase plus the ruleset's scan of the raw
+// values the export holds as base64, which a scan of the JSON cannot
+// read.
+func exportScanned(ctx context.Context, src, sourceRel, scope string) ([]byte, redact.Result, error) {
+	doc, err := exportDocument(ctx, src, sourceRel, scope)
+	if err != nil {
+		return nil, redact.Result{}, err
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return nil, redact.Result{}, err
+	}
+	return body, doc.hidden(), nil
+}
+
+func exportDocument(ctx context.Context, src, sourceRel, scope string) (document, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return document{}, err
 	}
 	snap, err := copyTrio(src)
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	defer os.RemoveAll(snap)
 
 	db, err := openSnapshot(ctx, filepath.Join(snap, filepath.Base(src)))
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	defer db.Close()
 
 	ok, err := tableExists(ctx, db, "ItemTable")
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("cursor: reader %s: no ItemTable", Version)
+		return document{}, fmt.Errorf("cursor: reader %s: no ItemTable", Version)
 	}
 	items, err := readKV(ctx, db, `SELECT key, value FROM ItemTable ORDER BY key`)
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	doc := document{
 		HarnessVersion: Version,
@@ -83,12 +123,12 @@ func exportDatabase(ctx context.Context, src, sourceRel, scope string) ([]byte, 
 	}
 	disk, err := tableExists(ctx, db, "cursorDiskKV")
 	if err != nil {
-		return nil, err
+		return document{}, err
 	}
 	if disk {
 		kv, err := readKV(ctx, db, `SELECT key, value FROM cursorDiskKV ORDER BY key`)
 		if err != nil {
-			return nil, err
+			return document{}, err
 		}
 		doc.CursorDiskKV = &kv
 	}
@@ -96,12 +136,12 @@ func exportDatabase(ctx context.Context, src, sourceRel, scope string) ([]byte, 
 	// still mapped when the directory goes away. The global snapshot
 	// below opens its own copy.
 	if err := db.Close(); err != nil {
-		return nil, err
+		return document{}, err
 	}
 	if err := mergeWorkspaceComposers(ctx, src, &doc); err != nil {
-		return nil, err
+		return document{}, err
 	}
-	return json.Marshal(doc)
+	return doc, nil
 }
 
 // composerHeadersKey is the ItemTable registry that names the composers
@@ -419,7 +459,8 @@ func readKV(ctx context.Context, db *sql.DB, query string) ([]row, error) {
 		if excludedKey(key) {
 			continue
 		}
-		out = append(out, row{Key: key, Value: encodeValue(val)})
+		value, hidden := encodeValue(val)
+		out = append(out, row{Key: key, Value: value, hidden: hidden})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -441,29 +482,35 @@ func excludedKey(key string) bool {
 
 // encodeValue keeps a JSON value as JSON. Other UTF-8 bytes become a
 // JSON string. Anything else is base64. The key is not interpreted.
-func encodeValue(b []byte) json.RawMessage {
+// The Result is the ruleset's scan of b when b became base64, which a
+// scan of the export cannot read. It is zero otherwise.
+func encodeValue(b []byte) (json.RawMessage, redact.Result) {
 	if len(b) == 0 {
-		return json.RawMessage("null")
+		return json.RawMessage("null"), redact.Result{}
 	}
 	if json.Valid(b) {
 		var buf bytes.Buffer
 		if err := json.Compact(&buf, b); err == nil {
-			return buf.Bytes()
+			return buf.Bytes(), redact.Result{}
 		}
 	}
 	if utf8.Valid(b) {
 		raw, err := json.Marshal(string(b))
 		if err == nil {
-			return raw
+			return raw, redact.Result{}
 		}
+	}
+	hidden, err := (redact.Ruleset{}).Scan(b)
+	if err != nil {
+		return json.RawMessage("null"), redact.Result{}
 	}
 	raw, err := json.Marshal(struct {
 		Base64 string `json:"base64"`
 	}{Base64: base64.StdEncoding.EncodeToString(b)})
 	if err != nil {
-		return json.RawMessage("null")
+		return json.RawMessage("null"), redact.Result{}
 	}
-	return raw
+	return raw, hidden
 }
 
 // workspaceCWD reads the sibling workspace.json. folder is a directory

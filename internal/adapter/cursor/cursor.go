@@ -20,7 +20,7 @@
 // workspace list and is not the registry. A database with no ItemTable
 // is an error. Keys under cursorAuth/ are dropped and do not appear in
 // the export. Other keys are kept, including ones this version does not
-// interpret. The export is what ruleset v1 scans. The key filter runs
+// interpret. The export is what ruleset v2 scans. The key filter runs
 // first, so a cursorAuth value is not in those bytes.
 //
 // The user-data directory is the Electron path Cursor inherits from VS
@@ -59,6 +59,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/redact"
 )
 
 const (
@@ -229,6 +230,7 @@ type item struct {
 	session string
 	cwd     string
 	abs     string
+	hidden  redact.Result
 }
 
 // Manifests builds one manifest per state.vscdb. The artifact bytes are
@@ -258,7 +260,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 	items := make([]item, 0, len(refs))
 	for _, ref := range refs {
 		rel := exportRel(ref.RelPath)
-		body, err := exportDatabase(context.Background(), ref.AbsPath, ref.RelPath, scopeOf(ref.RelPath))
+		body, hidden, err := exportScanned(context.Background(), ref.AbsPath, ref.RelPath, scopeOf(ref.RelPath))
 		if err != nil {
 			return adapter.Bundle{}, fmt.Errorf("cursor: %s: %w", ref.RelPath, err)
 		}
@@ -287,12 +289,16 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 			session: sessionID(strings.TrimSuffix(rel, ".json")),
 			cwd:     projectCWD(root, rel),
 			abs:     out,
+			hidden:  hidden,
 		})
 	}
 
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Cleanup: cleanup}
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
 	for _, it := range items {
 		b.Paths[it.sum] = it.abs
+		if it.hidden.Hits > 0 {
+			b.Hidden[it.sum] = it.hidden
+		}
 		b.Manifests = append(b.Manifests, protocol.Manifest{
 			CaptureProtocol: protocol.Version,
 			MachineID:       machineID,

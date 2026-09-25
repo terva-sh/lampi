@@ -113,6 +113,36 @@ func TestHealthAndIngest(t *testing.T) {
 	}
 }
 
+// The lake records the ruleset stamp and does not check it. A client
+// from before ruleset v2 still uploads.
+func TestManifestAcceptsEitherRulesetStamp(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	s.Allow("sekret")
+	h := s.Handler()
+	for _, ruleset := range []string{"v1", "v2"} {
+		body := []byte("scanned by " + ruleset + "\n")
+		sum := putBlob(t, h, "", body)
+		postManifest(t, h, protocol.Manifest{
+			CaptureProtocol: protocol.Version,
+			MachineID:       "machine-a",
+			Harness:         protocol.HarnessTerva,
+			NativeSessionID: "sid-" + ruleset,
+			Artifacts: []protocol.Artifact{{
+				Kind:       protocol.KindTranscriptJSONL,
+				RelPath:    "sessions/x/sid-" + ruleset + ".jsonl",
+				Size:       int64(len(body)),
+				SHA256:     sum,
+				TailSHA256: sum,
+				Redaction:  protocol.Redaction{Status: protocol.RedactionScanned, Ruleset: ruleset},
+			}},
+		})
+	}
+}
+
 func TestManifestMissingBlob(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {

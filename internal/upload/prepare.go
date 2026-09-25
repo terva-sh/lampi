@@ -29,7 +29,7 @@ type prepared struct {
 	full     map[string][]byte
 }
 
-// prepare is the local half of the pipeline: allowlist, ruleset v1,
+// prepare is the local half of the pipeline: allowlist, ruleset v2,
 // watermark plan, outbox. It does not dial the lake.
 func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle) ([]prepared, Result, error) {
 	var res Result
@@ -111,8 +111,8 @@ func (h *quarantineHit) Error() string {
 	if h.hits == 1 {
 		word = "hit"
 	}
-	return fmt.Sprintf("%s: redaction ruleset v1 found %d %s (%s); quarantined and not uploaded",
-		h.rel, h.hits, word, strings.Join(h.rules, ", "))
+	return fmt.Sprintf("%s: redaction ruleset %s found %d %s (%s); quarantined and not uploaded",
+		h.rel, redact.RulesetV2, h.hits, word, strings.Join(h.rules, ", "))
 }
 
 func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adapter.Bundle, m protocol.Manifest) (protocol.Manifest, map[string][]byte, map[string][]byte, *quarantineHit, error) {
@@ -135,6 +135,7 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
 		}
+		scan = scan.Add(bundle.Hidden[a.SHA256])
 		if scan.Hits > 0 && !opt.UploadHits {
 			sum := sha256.Sum256(body)
 			if err := redact.AppendQuarantine(opt.StateDir, redact.Record{
@@ -220,7 +221,7 @@ func stamp(ctx context.Context, opt Options, wm *watermark.DB, root, harness str
 	a.SHA256 = digest
 	a.Redaction = protocol.Redaction{
 		Status:  status,
-		Ruleset: redact.RulesetV1,
+		Ruleset: redact.RulesetV2,
 		Hits:    scan.Hits,
 	}
 	// KindTail is a strict append of the stored prefix. The PUT body

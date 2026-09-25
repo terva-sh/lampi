@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-func TestRulesetV1Fixtures(t *testing.T) {
-	aws := "AKIAIOSFODNN7EXAMPLE"
+func TestRulesetV2Fixtures(t *testing.T) {
+	aws := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	github := "ghp_" + strings.Repeat("a", 36)
 	gitlab := "glpat-" + strings.Repeat("b", 20)
 	slack := "xoxb-1234567890-abcdefghij"
@@ -40,7 +40,7 @@ func TestRulesetV1Fixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Ruleset != RulesetV1 || got.Status != "scanned" || got.Hits < 1 {
+			if got.Ruleset != RulesetV2 || got.Status != "scanned" || got.Hits < 1 {
 				t.Fatalf("result: %+v", got)
 			}
 			if !contains(got.Rules, tc.rule) {
@@ -57,13 +57,13 @@ func TestRulesetV1Fixtures(t *testing.T) {
 	}
 }
 
-func TestRulesetV1CleanAndNearMiss(t *testing.T) {
+func TestRulesetV2CleanAndNearMiss(t *testing.T) {
 	clean := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/work/app\"}}\n{\"type\":\"message\",\"text\":\"hello\"}\n")
 	got, err := (Ruleset{}).Scan(clean)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Hits != 0 || got.Ruleset != RulesetV1 || len(got.Rules) != 0 {
+	if got.Hits != 0 || got.Ruleset != RulesetV2 || len(got.Rules) != 0 {
 		t.Fatalf("clean: %+v", got)
 	}
 	for _, miss := range []string{
@@ -75,7 +75,7 @@ func TestRulesetV1CleanAndNearMiss(t *testing.T) {
 		"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----",
 		"-----END RSA PRIVATE KEY-----",
 		"password",
-		// Left out of v1 on purpose: ordinary transcript text.
+		// Left out of the ruleset on purpose: ordinary transcript text.
 		"eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmN",
 		`api_key = "supersecretvalue"`,
 		`{"text":"set password=hunter2hunter2 in the docs"}`,
@@ -91,13 +91,13 @@ func TestRulesetV1CleanAndNearMiss(t *testing.T) {
 }
 
 func TestQuarantineOmitsSecret(t *testing.T) {
-	secret := "AKIAIOSFODNN7EXAMPLE"
+	secret := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	dir := t.TempDir()
 	if err := AppendQuarantine(dir, Record{
 		RelPath: "sessions/abcd/s.jsonl",
 		CWD:     "/work/app",
 		SHA256:  strings.Repeat("ab", 32),
-		Ruleset: RulesetV1,
+		Ruleset: RulesetV2,
 		Hits:    1,
 		Rules:   []string{"aws-access-key-id"},
 	}); err != nil {
@@ -118,13 +118,13 @@ func TestQuarantineOmitsSecret(t *testing.T) {
 	if strings.Contains(string(b), secret) {
 		t.Fatalf("quarantine log contains the secret:\n%s", b)
 	}
-	if !strings.Contains(string(b), "aws-access-key-id") || !strings.Contains(string(b), RulesetV1) {
+	if !strings.Contains(string(b), "aws-access-key-id") || !strings.Contains(string(b), RulesetV2) {
 		t.Fatalf("log: %s", b)
 	}
 }
 
 func TestStripReplacesMatchesAndKeepsRuleName(t *testing.T) {
-	aws := "AKIAIOSFODNN7EXAMPLE"
+	aws := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	github := "ghp_" + strings.Repeat("a", 36)
 	gitlab := "glpat-" + strings.Repeat("b", 20)
 	slack := "xoxb-1234567890-abcdefghij"
@@ -178,7 +178,7 @@ func TestStripLeavesCleanTextAndDoesNotRewriteScan(t *testing.T) {
 	if got := (Ruleset{}).Strip(""); got != "" {
 		t.Fatalf("empty: %q", got)
 	}
-	secret := "AKIAIOSFODNN7EXAMPLE"
+	secret := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	buf := []byte("prefix " + secret + " suffix")
 	before := string(buf)
 	scanned, err := (Ruleset{}).Scan(buf)
@@ -244,7 +244,7 @@ func TestPrivateKeyBlockScanAndStripSpans(t *testing.T) {
 		})
 	}
 
-	aws := "AKIAIOSFODNN7EXAMPLE"
+	aws := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	mixed := rsa + " " + aws
 	wantMixed := "[redacted:private-key] [redacted:aws-access-key-id]"
 	got := (Ruleset{}).Strip(mixed)
@@ -321,7 +321,7 @@ func assertPrivateKeySpan(t *testing.T, body, want string, hits int, rules []str
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scanned.Ruleset != RulesetV1 || scanned.Hits != hits {
+	if scanned.Ruleset != RulesetV2 || scanned.Hits != hits {
 		t.Fatalf("scan: %+v", scanned)
 	}
 	if len(scanned.Rules) != len(rules) {
@@ -342,27 +342,26 @@ func assertPrivateKeySpan(t *testing.T, body, want string, hits int, rules []str
 
 func ruleSpans(t *testing.T, name, body string) [][]int {
 	t.Helper()
-	for _, rule := range v1Rules {
-		if rule.name != name {
+	// Scan and Strip both call find on the view; these are the spans
+	// that one rule contributes before overlaps are resolved.
+	var out [][]int
+	known := false
+	for _, sp := range find(jsonView([]byte(body))) {
+		if rules[sp.rule].name != name {
 			continue
 		}
-		// Scan counts FindAllIndex on the bytes. Strip replaces
-		// FindAllStringIndex on the string. For this ruleset those
-		// spans are the same match.
-		str := rule.re.FindAllStringIndex(body, -1)
-		byt := rule.re.FindAllIndex([]byte(body), -1)
-		if len(str) != len(byt) {
-			t.Fatalf("string spans %v, byte spans %v", str, byt)
-		}
-		for i := range str {
-			if str[i][0] != byt[i][0] || str[i][1] != byt[i][1] {
-				t.Fatalf("span %d string %v byte %v", i, str[i], byt[i])
-			}
-		}
-		return str
+		known = true
+		out = append(out, []int{sp.start, sp.end})
 	}
-	t.Fatalf("no rule %s", name)
-	return nil
+	if !known {
+		for _, r := range rules {
+			known = known || r.name == name
+		}
+	}
+	if !known {
+		t.Fatalf("no rule %s", name)
+	}
+	return out
 }
 
 func applyRule(body string, spans [][]int, name string) string {
