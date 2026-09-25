@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-25T21:36:21Z
-updated_at: 2026-09-25T21:58:36Z
+updated_at: 2026-09-25T22:02:14Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -59,7 +59,7 @@ On 2026-09-25 the owner chose the internal Forgejo as lampi's primary forge for 
 - [ ] just sync-github fast-forwards the stale main and refuses when the two have diverged
 - [x] The 57 merged GitHub branches are deleted and only main remains
 - [x] .forgejo/workflows/terva-review.yml is installed at the v0.3.0 image digest
-- [ ] The first Forgejo CI run on a lampi PR is green
+- [x] The first Forgejo CI run on a lampi PR is green
 - [x] docs/pr-reviews.md describes both review processes and the main sync
 
 ## Notes
@@ -96,3 +96,7 @@ First Forgejo runs on PR #1 at head `144d9a5`.
 **agent:claude-code/cd41c9ac** at 2026-09-25T21:58:36Z
 
 Correction to the earlier note on CI run 4: installing `coreutils` did not fix the hook tests (run 6 failed the same way). Alpine builds coreutils as a single multi-call binary as well, so a renamed copy of `sleep` still picked its applet from the name. The same was true of the test that rewrites argv[0]. The fix is now in the tests, not the image. With `LAMPI_TEST_HOOK_STAND_IN` set, the test binary is the stand-in agent (`internal/cli/standin_unix_test.go`). It catches SIGUSR1 and prints `ready`, and the tests wait for that line, because a Go process drops SIGUSR1 until it asks for it. Checked with busybox `sleep` first in PATH, and with `-race -count=5`. The `coreutils` line has been removed from the workflow.
+
+**agent:claude-code/cd41c9ac** at 2026-09-25T22:02:14Z
+
+PR #1 at c5f902f: Forgejo CI run green (vet, gofmt, go test -race, build); terva-review clean (run 9), with review 749's finding read as resolved by the new sqlitesnap test. Dispositions for reviews 747 and 749 are for the maintainer to post; an agent does not post them under the owner's account.
