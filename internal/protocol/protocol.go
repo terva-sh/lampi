@@ -127,10 +127,10 @@ const (
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.
 	RedactionUnscanned = "unscanned"
-	// RedactionScanned means ruleset v1 ran and the bytes were eligible
+	// RedactionScanned means ruleset v2 ran and the bytes were eligible
 	// to leave the machine. Hits is zero in that case.
 	RedactionScanned = "scanned"
-	// RedactionOverride means ruleset v1 found hits and the operator
+	// RedactionOverride means ruleset v2 found hits and the operator
 	// set the explicit upload override. The hit count stays on the artifact.
 	RedactionOverride = "override"
 )

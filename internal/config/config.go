@@ -25,7 +25,7 @@ const DefaultServer = "http://127.0.0.1:8787"
 //
 // Projects is the gate for raw bytes leaving the machine. With no allow
 // rule, sync refuses every project. Redaction.UploadHits is the only
-// override that uploads a file ruleset v1 flagged.
+// override that uploads a file ruleset v2 flagged.
 //
 // Harnesses is optional. Omit the map, or omit one harness id, and that
 // harness keeps today's behavior. Unknown top-level keys are still

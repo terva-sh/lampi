@@ -89,7 +89,7 @@ needs an absolute `cwd` in the sibling `meta.json`. A missing file, a
 relative path, or a file URI is an empty cwd, and the allowlist
 refuses the export. Neither case adds a permit rule or a schema field.
 
-Ruleset v1 still runs after the allowlist and before any request. A
+Ruleset v2 still runs after the allowlist and before any request. A
 hit is quarantined unless `redaction.upload_hits` is set. Leave that
 false. Neither gate rewrites the raw file.
 

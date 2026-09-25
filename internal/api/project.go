@@ -188,7 +188,13 @@ func headArtifacts(harness string, v catalog.HeadView) []catalog.ArtifactRow {
 	dir := path.Dir(v.Current[head].RelPath)
 	out := make([]catalog.ArtifactRow, 0, len(v.Current))
 	for i, a := range v.Current {
-		if i == head || dir == "." || strings.HasPrefix(a.RelPath, dir+"/") {
+		// A head at the top level takes only its top-level peers, so a
+		// leftover current row under some other directory stays out.
+		peer := strings.HasPrefix(a.RelPath, dir+"/")
+		if dir == "." {
+			peer = path.Dir(a.RelPath) == "."
+		}
+		if i == head || peer {
 			out = append(out, a)
 		}
 	}

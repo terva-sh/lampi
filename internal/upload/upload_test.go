@@ -368,7 +368,7 @@ func jsonString(s string) string {
 }
 
 func TestSyncQuarantineAndOverride(t *testing.T) {
-	secret := "AKIAIOSFODNN7EXAMPLE"
+	secret := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	body := []byte("{\"type\":\"meta\",\"meta\":{\"id\":\"s\",\"cwd\":\"/work/app\"}}\n" + secret + "\n")
 	lake, data := openLake(t)
 	srv := httptest.NewServer(lake.Handler())
@@ -412,7 +412,7 @@ func TestSyncQuarantineAndOverride(t *testing.T) {
 		t.Fatalf("override: %+v manifests %d", res, len(cap.manifests))
 	}
 	red := cap.manifests[0].Artifacts[0].Redaction
-	if red.Status != protocol.RedactionOverride || red.Ruleset != "v1" || red.Hits < 1 {
+	if red.Status != protocol.RedactionOverride || red.Ruleset != "v2" || red.Hits < 1 {
 		t.Fatalf("override stamp: %+v", red)
 	}
 }
@@ -772,7 +772,7 @@ func assertRuleset(t *testing.T, manifests []protocol.Manifest) {
 		t.Fatal("no manifest")
 	}
 	red := manifests[0].Artifacts[0].Redaction
-	if red.Status != protocol.RedactionScanned || red.Ruleset != "v1" || red.Hits != 0 {
+	if red.Status != protocol.RedactionScanned || red.Ruleset != "v2" || red.Hits != 0 {
 		t.Fatalf("redaction: %+v", red)
 	}
 }
@@ -1640,6 +1640,102 @@ func TestSyncCursorCLIIsASeparateCorpus(t *testing.T) {
 	if !bytes.Contains(cliRaw, []byte("hello from cli again")) || bytes.Contains(cliRaw, []byte("sekret-token")) {
 		t.Fatalf("rewritten cli export: %s", cliRaw)
 	}
+}
+
+// A Cursor value that is not UTF-8 is exported as base64, which the
+// scan of the export cannot read. The adapter scans the raw value, and
+// a hit there quarantines the export like any other.
+func TestSyncQuarantinesKeyHiddenInCursorBase64(t *testing.T) {
+	pat := "ghp_" + strings.Repeat("Q", 36)
+	binary := append([]byte{0xff, 0xfe, 0x00, '\n'}, []byte(pat+"\x00\xff")...)
+	for _, tc := range []struct {
+		name string
+		seed func(home string) error
+		set  func(opt *Options, home string)
+	}{
+		{"ide", func(home string) error {
+			ws := filepath.Join(home, "User", "workspaceStorage", "ws1", "state.vscdb")
+			if err := writeCursorDB(ws, "hello"); err != nil {
+				return err
+			}
+			if err := insertRow(ws, `INSERT INTO ItemTable (key, value) VALUES ('workbench.binary', ?)`, binary); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(filepath.Dir(ws), "workspace.json"), []byte(`{"folder":"file:///work/app"}`), 0o644)
+		}, func(opt *Options, home string) { opt.CursorHome = home }},
+		{"cli", func(home string) error {
+			store := filepath.Join(home, "chats", "ab12", "sid-1", "store.db")
+			if err := writeCursorCLIStore(store, "hello"); err != nil {
+				return err
+			}
+			if err := insertRow(store, `INSERT INTO blobs (id, data) VALUES ('blob-bin', ?)`, binary); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(filepath.Dir(store), "meta.json"), []byte(`{"cwd":"/work/app"}`), 0o644)
+		}, func(opt *Options, home string) { opt.CursorCLIHome = home }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lake, data := openLake(t)
+			srv := httptest.NewServer(lake.Handler())
+			t.Cleanup(srv.Close)
+			cap := wrapClient(srv.Client())
+			home := t.TempDir()
+			if err := tc.seed(home); err != nil {
+				t.Fatal(err)
+			}
+			state := t.TempDir()
+			opt := allowAll(srv, t.TempDir(), state, "/work/app")
+			opt.Client = cap.client
+			tc.set(&opt, home)
+
+			res, err := Sync(context.Background(), opt)
+			if err == nil || !strings.Contains(err.Error(), "quarantined") || !strings.Contains(err.Error(), "github-pat") {
+				t.Fatalf("err %v", err)
+			}
+			if strings.Contains(err.Error(), pat) {
+				t.Fatalf("error contains the secret: %v", err)
+			}
+			if res.Quarantined != 1 || res.Uploaded != 0 || cap.puts != 0 || len(cap.manifests) != 0 {
+				t.Fatalf("res %+v puts %d manifests %d", res, cap.puts, len(cap.manifests))
+			}
+			if blobCount(t, filepath.Join(data, "cas")) != 0 {
+				t.Fatal("quarantined bytes were stored")
+			}
+			q, err := os.ReadFile(filepath.Join(state, "quarantine.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(q), pat) || !strings.Contains(string(q), "github-pat") {
+				t.Fatalf("quarantine log:\n%s", q)
+			}
+
+			opt.UploadHits = true
+			cap.reset()
+			if _, err := Sync(context.Background(), opt); err != nil {
+				t.Fatal(err)
+			}
+			if len(cap.manifests) != 1 {
+				t.Fatalf("override manifests %d", len(cap.manifests))
+			}
+			red := cap.manifests[0].Artifacts[0].Redaction
+			if red.Status != protocol.RedactionOverride || red.Ruleset != "v2" || red.Hits != 1 {
+				t.Fatalf("override stamp: %+v", red)
+			}
+		})
+	}
+}
+
+func insertRow(path, query string, value []byte) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err := db.Exec(query, value); err != nil {
+		return err
+	}
+	_, err = db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
 }
 
 func writeCursorDB(path, note string) error {

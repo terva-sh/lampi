@@ -9,6 +9,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/adapter/opencode"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -179,5 +180,22 @@ func TestOpenCodeDatabaseKindIsRefused(t *testing.T) {
 	n, err := s.Catalog.Counts(t.Context())
 	if err != nil || n.Sessions != 0 {
 		t.Fatalf("counts %+v err=%v", n, err)
+	}
+}
+
+// A head with no directory takes its top-level peers only. A current
+// row under another directory is not the same session's sidecar.
+func TestFlatHeadSkipsNestedRows(t *testing.T) {
+	v := catalog.HeadView{
+		HeadSHA256: "h",
+		Current: []catalog.ArtifactRow{
+			{RelPath: "sid.jsonl", SHA256: "h"},
+			{RelPath: "sid.errors.jsonl", SHA256: "e"},
+			{RelPath: "old/sid.jsonl", SHA256: "o"},
+		},
+	}
+	got := headArtifacts(protocol.HarnessTerva, v)
+	if len(got) != 2 || got[0].SHA256 != "h" || got[1].SHA256 != "e" {
+		t.Fatalf("flat head: %+v", got)
 	}
 }
