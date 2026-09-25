@@ -49,10 +49,21 @@ best-effort. The server URL, token, and allowlist are read at start.
 After a manifest is stored, the lake ACKs and enqueues normalize work.
 The HTTP handler does not project. Two workers read the catalog head
 and write the derived view. That view lags the ACK until the worker
-for that generation finishes. `terva-lampi serve` drains the queue on
-exit. A newer ingest bumps `sessions.normalize_gen` and a publish for
+for that generation finishes. On SIGTERM `terva-lampi serve` stops
+accepting, waits up to 20s for requests in flight, then drains the
+queue for up to 30s before it closes the catalog. A newer ingest bumps `sessions.normalize_gen` and a publish for
 an older generation is dropped. The job row stays until the matching
-generation is published, so a restart finishes it.
+generation is published, so a restart finishes it, including a job
+the drain did not reach.
+
+Each request has its own read and write deadline: a floor plus the
+body at 64 KiB/s. A blob PUT is sized from `Content-Length`, so a slow
+upload keeps its ACK. The server has no fixed `ReadTimeout` or
+`WriteTimeout`. Each request writes one `log/slog` line to stderr with
+method, path, status, response bytes, body bytes, duration, remote
+address, and `X-Forwarded-For` as the proxy sent it. A failed request
+adds the error. A normalize failure is logged too. A 200 `/healthz` is not logged, so a probe does not fill
+the journal. `Authorization` is not logged.
 
 JSONL stays one file per session at `normalized/<session_uid>.jsonl`.
 Parquet is hive-partitioned beside it. `github.com/parquet-go/parquet-go`
