@@ -11,10 +11,13 @@
 // not copied. It is an index of the WAL, and the first connection to
 // the copy rebuilds it. A checkpoint between the two copies can pair an
 // old main file with a WAL that no longer holds the pages it moved, so
-// Take re-stats the main file and re-reads the WAL header after the
-// copy. A main file whose size, mtime, or identity moved, or a WAL
+// Take hashes the main file as it copies it, and after the WAL copy
+// hashes the live main file again, re-stats it, and re-reads the WAL
+// header. A main file whose bytes, size, or identity moved, or a WAL
 // whose header changed or that disappeared, is a torn copy, and Take
-// copies again. Frames appended to the WAL during the copy are not a
+// copies again. mtime is checked too but is not enough on its own: the
+// kernel stamps it from a coarse clock, so a commit and a checkpoint
+// inside one tick leave it unchanged. Frames appended to the WAL during the copy are not a
 // change: SQLite stops at the last commit frame it can verify. The copy
 // is then opened read-only and PRAGMA quick_check must return ok, or
 // that attempt is retried too. Take gives up after Tries attempts.
@@ -23,6 +26,7 @@ package sqlitesnap
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -126,7 +130,8 @@ func copyOnce(src, prefix string) (string, bool, error) {
 		}
 	}()
 	base := filepath.Join(dir, filepath.Base(src))
-	if err := copyFile(src, base); err != nil {
+	copiedSum, err := copyFile(src, base)
+	if err != nil {
 		return "", false, err
 	}
 	if betweenCopies != nil {
@@ -134,7 +139,7 @@ func copyOnce(src, prefix string) (string, bool, error) {
 	}
 	stable := true
 	if walExists {
-		err := copyFile(src+"-wal", base+"-wal")
+		_, err := copyFile(src+"-wal", base+"-wal")
 		switch {
 		case errors.Is(err, os.ErrNotExist):
 			// The last connection checkpointed and removed the WAL.
@@ -148,6 +153,13 @@ func copyOnce(src, prefix string) (string, bool, error) {
 			}
 			stable = bytes.Equal(copied, walBefore)
 		}
+	}
+	liveSum, err := hashFile(src)
+	if err != nil {
+		return "", false, err
+	}
+	if !bytes.Equal(liveSum, copiedSum) {
+		stable = false
 	}
 	after, err := os.Stat(src)
 	if err != nil {
@@ -186,23 +198,42 @@ func walHeader(path string) (header []byte, exists bool, err error) {
 	return buf[:n], true, nil
 }
 
-// copyFile reads from and writes to. The source is opened read-only.
-func copyFile(from, to string) error {
+// copyFile reads from and writes to, and returns the SHA-256 of the
+// bytes it wrote. The source is opened read-only.
+func copyFile(from, to string) ([]byte, error) {
 	in, err := os.Open(from)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer in.Close()
 	out, err := os.OpenFile(to, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, copyErr := io.Copy(out, in)
+	h := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(out, h), in)
 	closeErr := out.Close()
 	if copyErr != nil {
-		return copyErr
+		return nil, copyErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	return h.Sum(nil), nil
+}
+
+// hashFile is the SHA-256 of path, read-only.
+func hashFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return nil, err
+	}
+	return h.Sum(nil), nil
 }
 
 // openChecked opens the copy read-only and runs quick_check on it.
