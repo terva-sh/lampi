@@ -239,7 +239,7 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 		if len(m.Artifacts) != 1 || m.Artifacts[0].Kind != protocol.KindCursorStateJSON {
 			t.Fatalf("artifact %+v", m.Artifacts)
 		}
-		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].SHA256])
+		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].RelPath])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -362,7 +362,7 @@ func TestWorkspaceMergesComposerHeaders(t *testing.T) {
 	if w.NativeSessionID == "global" || w.Project.CWD != "/work/app" {
 		t.Fatalf("workspace session %+v", w)
 	}
-	raw, err := os.ReadFile(b.Paths[w.Artifacts[0].SHA256])
+	raw, err := os.ReadFile(b.Paths[w.Artifacts[0].RelPath])
 	if err != nil {
 		t.Fatal(err)
 	}

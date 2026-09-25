@@ -175,7 +175,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 			if cwd == "" {
 				cwd = it.cwd
 			}
-			b.Paths[it.sum] = it.ref.AbsPath
+			b.Paths[it.ref.RelPath] = it.ref.AbsPath
 			arts = append(arts, protocol.Artifact{
 				Kind:              it.ref.Kind,
 				RelPath:           it.ref.RelPath,

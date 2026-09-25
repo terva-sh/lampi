@@ -56,10 +56,19 @@ implemented in `internal/config`. This policy confirms that surface.
 - A rule matches a cwd prefix on a path boundary, a git remote, or
   terva's cwd hash (`hex(sha256(cwd)[:8])`). Every field set on the
   rule has to match. A rule with no fields matches nothing.
+- A deny rule reads a doubt as a match. `cwd_prefix` ignores case
+  and is checked with and without symlinks resolved. `cwd_hash` also
+  matches the resolved cwd. `git_remote` also matches a session whose
+  remote cannot be read. A cwd outside any repository has no remote
+  and does not match it. Allow rules compare exactly.
 - Git remotes are folded before comparison, so the scp and https
   spellings of one remote are one key. Only the remote named origin
   is copied onto the manifest, and only when the session cwd still
-  has a `.git`.
+  has a `.git`. A URL remote loses its user part and password, except
+  that an ssh URL keeps a bare login name.
+- Project resolution reads files. `git` runs only for an admitted
+  session whose root commit the reader cannot find, with config
+  pinned so the checkout cannot make it run a program.
 - The allowlist hash is not the lake's project id. `project_id` is
   the normalized origin URL and the repository root commit. See
   [protocol.md](protocol.md).
@@ -91,7 +100,8 @@ refuses the export. Neither case adds a permit rule or a schema field.
 
 Ruleset v1 still runs after the allowlist and before any request. A
 hit is quarantined unless `redaction.upload_hits` is set. Leave that
-false. Neither gate rewrites the raw file.
+false. The manifest is scanned too, and a hit there is refused
+whatever `upload_hits` says. Neither gate rewrites the raw file.
 
 ## Machine inventory
 

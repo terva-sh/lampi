@@ -255,7 +255,7 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 		if len(m.Artifacts) != 1 || m.Artifacts[0].Kind != protocol.KindCursorCLIStoreJSON {
 			t.Fatalf("artifact %+v", m.Artifacts)
 		}
-		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].SHA256])
+		raw, err := os.ReadFile(b.Paths[m.Artifacts[0].RelPath])
 		if err != nil {
 			t.Fatal(err)
 		}
