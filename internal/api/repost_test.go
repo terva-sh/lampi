@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/protocol"
 )
@@ -105,5 +106,52 @@ func TestGrownChunkedFileIsRelatedByStream(t *testing.T) {
 	s.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"relation":"grown_from"`) {
 		t.Fatalf("grown post %d %s", rr.Code, rr.Body)
+	}
+}
+
+// Blob PUTs and manifest posts share a few slots. A request past them
+// waits for one, and gets 503 with Retry-After only when its own budget
+// runs out first.
+func TestBusyLakeQueuesPutsAndManifests(t *testing.T) {
+	s := openServer(t)
+	s.heavyN = 1
+	s.limits = &deadlines{json: 300 * time.Millisecond, blob: 300 * time.Millisecond, slack: time.Second}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	put := func(body string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPut, srv.URL+"/v1/blobs/"+shaOf(t, []byte(body)), strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer sekret")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+
+	slots := s.slots()
+	slots <- struct{}{}
+	start := time.Now()
+	resp := put("busy")
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" {
+		t.Fatalf("busy put %d %v", resp.StatusCode, resp.Header)
+	}
+	if waited := time.Since(start); waited < 250*time.Millisecond {
+		t.Fatalf("busy put failed after %s, before its budget", waited)
+	}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		<-slots
+	}()
+	if resp := put("queued"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("queued put %d", resp.StatusCode)
+	}
+	if len(slots) != 0 {
+		t.Fatalf("slot not released: %d held", len(slots))
 	}
 }

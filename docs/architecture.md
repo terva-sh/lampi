@@ -78,7 +78,10 @@ refused.
 
 Each request has its own read and write deadline: a floor plus the
 body at 64 KiB/s. A blob PUT is sized from `Content-Length`, so a slow
-upload keeps its ACK. The server has no fixed `ReadTimeout` or
+upload keeps its ACK. At most four blob PUTs and manifest posts run at
+once. One past that waits for a slot for as long as its own budget,
+and its deadlines start again when it gets one. One that gets no slot
+in that time is `503` with `Retry-After`. The server has no fixed `ReadTimeout` or
 `WriteTimeout`. Each request writes one `log/slog` line to stderr with
 method, path, status, response bytes, body bytes, duration, remote
 address, and `X-Forwarded-For` as the proxy sent it. A failed request

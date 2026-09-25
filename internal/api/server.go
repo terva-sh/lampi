@@ -63,6 +63,61 @@ type Server struct {
 	// beforeProject, when set, runs in the worker before Project.
 	// Tests use it to show that the manifest ACK does not wait.
 	beforeProject func()
+
+	// heavy holds one token per blob PUT or manifest post in a handler.
+	// heavyN, when set, replaces maxHeavy. Tests lower it.
+	heavyOnce sync.Once
+	heavy     chan struct{}
+	heavyN    int
+}
+
+// maxHeavy is how many blob PUTs and manifest posts run at once. A put
+// streams up to a blob into the store, and a manifest can hash and
+// assemble files that size; a burst past this waits for a slot rather
+// than taking a small host's memory.
+const maxHeavy = 4
+
+func (s *Server) slots() chan struct{} {
+	s.heavyOnce.Do(func() {
+		n := s.heavyN
+		if n <= 0 {
+			n = maxHeavy
+		}
+		s.heavy = make(chan struct{}, n)
+	})
+	return s.heavy
+}
+
+// admit waits for a slot for a blob PUT or a manifest post. The wait
+// is bounded by the request's own budget: one that gets no slot within
+// it is answered 503 with Retry-After, and the client's backoff sends
+// it again. A request that waited has its deadlines set again from
+// now, so the queue does not eat the time its body is allowed.
+func (s *Server) admit(w http.ResponseWriter, r *http.Request) (release func(), ok bool) {
+	slots := s.slots()
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, true
+	default:
+	}
+	d := s.deadlines()
+	wait := time.NewTimer(d.budget(r))
+	defer wait.Stop()
+	select {
+	case slots <- struct{}{}:
+	case <-wait.C:
+		w.Header().Set("Retry-After", "5")
+		s.fail(w, r, http.StatusServiceUnavailable, errors.New("lake is busy; try again"))
+		return nil, false
+	case <-r.Context().Done():
+		note(r, r.Context().Err())
+		return nil, false
+	}
+	read := time.Now().Add(d.budget(r))
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(read)
+	_ = rc.SetWriteDeadline(read.Add(d.slack))
+	return func() { <-slots }, true
 }
 
 // Allow enrolls a device token by its hash. The token string is not stored.
@@ -297,6 +352,11 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusBadRequest, errors.New("invalid digest"))
 		return
 	}
+	release, ok := s.admit(w, r)
+	if !ok {
+		return
+	}
+	defer release()
 	cr := r.Header.Get("Content-Range")
 	if cr != "" && isJSON(r.Header.Get("Content-Type")) {
 		s.fail(w, r, http.StatusBadRequest, errors.New("content-range and chunk digests are different puts"))
@@ -387,6 +447,11 @@ func (s *Server) finishPut(w http.ResponseWriter, r *http.Request, digest string
 }
 
 func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
+	release, ok := s.admit(w, r)
+	if !ok {
+		return
+	}
+	defer release()
 	var m protocol.Manifest
 	if !s.decodeJSON(w, r, &m, maxJSONBytes, "") {
 		return
