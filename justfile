@@ -40,12 +40,13 @@ vet:
 fmt:
     gofmt -w .
 
-# Fail if gofmt would change a file. CI runs this too.
+# Fail if gofmt would change a file. CI runs this too. just hands the
+# line to bash as written, so `$` is single here, unlike the Makefile.
 fmt-check:
-    @diff=$$(gofmt -l .); \
-    if [ -n "$$diff" ]; then \
+    @diff=$(gofmt -l .); \
+    if [ -n "$diff" ]; then \
         echo "gofmt issues in:"; \
-        echo "$$diff"; \
+        echo "$diff"; \
         exit 1; \
     fi
 
