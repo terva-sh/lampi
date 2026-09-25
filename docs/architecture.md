@@ -403,7 +403,7 @@ a local lake, writes one fixture terva JSONL, and pushes it with
 `upload.Sync`.
 
 1. Ingest records a `session_uid` and the blob sha256.
-2. A second sync uploads no blob.
+2. A second sync uploads no blob and posts no manifest.
 3. An appended line uploads the tail only, and the head sha256 updates.
 4. The same file synced from a second machine is a CAS hit. Provenance
    for that digest has one row per machine.

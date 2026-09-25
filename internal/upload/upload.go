@@ -13,6 +13,13 @@
 // file. Hello's server_time is compared to the local clock; a skew past
 // protocol.ClockSkewWarn is a warning on Result, and the push still runs.
 //
+// A session whose every artifact matches its watermark digest and size,
+// with nothing in the outbox, is not read, scanned, or posted. An append
+// to a file whose watermarked prefix scanned clean scans only the new
+// bytes and an overlap before them (redact.ScanAppended). With a Memo,
+// a file whose size, mtime, and inode have not moved is not opened at
+// all.
+//
 // A finished run rewrites last_sync.json in the state directory. That
 // includes a pass that refused or quarantined every session. A lake
 // error leaves the previous stamp, so status does not report the failed
@@ -100,6 +107,9 @@ type Options struct {
 	// the chunk digests. Zero sends one body. The manifest lists the
 	// chunks when the artifact is the whole file.
 	ChunkBytes int64
+	// Memo keeps what the readers took from each file across passes.
+	// The agent sets one. Nil hashes every file on every pass.
+	Memo *Memo
 
 	// allowed is the digests quarantine allow acknowledged, read from
 	// StateDir when the run starts. A file with exactly those bytes
@@ -117,7 +127,10 @@ type Result struct {
 	Manifests   int
 	Refused     int
 	Quarantined int
-	Sessions    []string
+	// Unchanged counts sessions left alone because every artifact
+	// matched its watermark.
+	Unchanged int
+	Sessions  []string
 	// Warning is set when hello's server_time disagrees with the client
 	// clock by more than protocol.ClockSkewWarn. The push still runs.
 	Warning string
@@ -173,7 +186,9 @@ func syncOnce(ctx context.Context, opt Options) (Result, error) {
 		}
 		opt.allowed = allowed
 	}
+	opt.Memo.begin(opt.now())
 	bundles, skipped := bundlesFor(opt)
+	opt.Memo.end()
 	defer cleanupBundles(bundles)
 	n := 0
 	for _, b := range bundles {
@@ -728,10 +743,10 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 		home      string
 		manifests func(root, machineID string) (adapter.Bundle, error)
 	}{
-		{protocol.HarnessTerva, opt.TervaHome, terva.Manifests},
-		{protocol.HarnessClaude, opt.ClaudeHome, claude.Manifests},
-		{protocol.HarnessCodex, opt.CodexHome, codex.Manifests},
-		{protocol.HarnessOpenCode, opt.OpenCodeHome, opencode.Manifests},
+		{protocol.HarnessTerva, opt.TervaHome, memoized(opt.Memo, protocol.HarnessTerva, terva.ManifestsMemo)},
+		{protocol.HarnessClaude, opt.ClaudeHome, memoized(opt.Memo, protocol.HarnessClaude, claude.ManifestsMemo)},
+		{protocol.HarnessCodex, opt.CodexHome, memoized(opt.Memo, protocol.HarnessCodex, codex.ManifestsMemo)},
+		{protocol.HarnessOpenCode, opt.OpenCodeHome, memoized(opt.Memo, protocol.HarnessOpenCode, opencode.ManifestsMemo)},
 		{protocol.HarnessCursor, opt.CursorHome, cursorManifests},
 		{protocol.HarnessCursorCLI, opt.CursorCLIHome, cursorCLIManifests},
 	}
@@ -753,6 +768,14 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 		out = append(out, b)
 	}
 	return out, skipped
+}
+
+// memoized binds a reader to its harness's view of m. The Cursor
+// readers build a fresh export on every pass and take no memo.
+func memoized(m *Memo, harness string, f func(root, machineID string, memo adapter.Memo) (adapter.Bundle, error)) func(root, machineID string) (adapter.Bundle, error) {
+	return func(root, machineID string) (adapter.Bundle, error) {
+		return f(root, machineID, m.forHarness(harness))
+	}
 }
 
 func cleanupBundles(bundles []adapter.Bundle) {
@@ -788,6 +811,8 @@ func commitAck(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB,
 			ModTime:   a.MTime,
 			SHA256:    sum,
 			Offset:    offset,
+			Ruleset:   a.Redaction.Ruleset,
+			Hits:      a.Redaction.Hits,
 		}
 		if err := wm.Commit(ctx, mark, ack); err != nil {
 			return err

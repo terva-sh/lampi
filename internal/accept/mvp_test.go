@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -170,8 +171,9 @@ func (g *gate) resync(t *testing.T) {
 	if blobs(t, g.data) != before {
 		t.Fatalf("re-sync stored a blob: %d to %d", before, blobs(t, g.data))
 	}
-	if len(res.Sessions) != 1 || res.Sessions[0] != g.uid {
-		t.Fatalf("re-sync session: %+v, want %s", res.Sessions, g.uid)
+	// The file matches its watermark, so no manifest goes either.
+	if len(res.Sessions) != 0 || res.Manifests != 0 || res.Unchanged != 1 || g.wire.manifests != 0 {
+		t.Fatalf("re-sync posted: %+v manifests=%d", res, g.wire.manifests)
 	}
 	uid, art, ok := g.head(t)
 	if !ok || uid != g.uid || art.SHA256 != g.orig {
@@ -443,6 +445,7 @@ type wireTap struct {
 	mu        sync.Mutex
 	puts      int
 	putBodies [][]byte
+	manifests int
 }
 
 func wrapClient(c *http.Client) *wireTap {
@@ -455,10 +458,16 @@ func (w *wireTap) reset() {
 	w.mu.Lock()
 	w.puts = 0
 	w.putBodies = nil
+	w.manifests = 0
 	w.mu.Unlock()
 }
 
 func (w *wireTap) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/v1/manifests") {
+		w.mu.Lock()
+		w.manifests++
+		w.mu.Unlock()
+	}
 	if req.Body != nil && req.Method == http.MethodPut {
 		b, err := io.ReadAll(req.Body)
 		if err != nil {

@@ -112,7 +112,7 @@ func TestDisabledHarnessLeavesWatermarkAndCAS(t *testing.T) {
 	}
 
 	out = runCaptured(t, args, env)
-	if !strings.Contains(out, "uploaded 0") || !strings.Contains(out, "checked 1") {
+	if !strings.Contains(out, "uploaded 0") || !strings.Contains(out, "unchanged 1") {
 		t.Fatalf("disabled sync: %s", out)
 	}
 	if got := readCursor(t, watermark.File(stateDir), machine, protocol.HarnessClaude, claudeHome, claudeRel); got != claudeMark {
