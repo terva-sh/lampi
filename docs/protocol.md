@@ -232,6 +232,8 @@ and the allowlist refuses the export. The CLI workspace hash is not
 a cwd.
 `git_remote` is
 origin's URL when the session cwd has a `.git`, and empty otherwise.
+A URL remote carries no user part or password, except that an ssh URL
+keeps a bare login name.
 `git_commit` is HEAD.
 `git_root` is the first
 parentless commit on that HEAD's first-parent chain. `project_id` is

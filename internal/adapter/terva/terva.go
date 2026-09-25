@@ -220,7 +220,7 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 					lineage.ForkPoint = it.meta.forkPoint
 				}
 			}
-			b.Paths[it.sum] = it.file.AbsPath
+			b.Paths[it.file.RelPath] = it.file.AbsPath
 			arts = append(arts, protocol.Artifact{
 				Kind:              it.file.Kind,
 				RelPath:           it.file.RelPath,

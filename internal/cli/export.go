@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -150,6 +151,7 @@ func writeShareGPT(env Env, lake *api.Server, out io.Writer) error {
 			CWD:       sess.Manifest.Project.CWD,
 			CWDHash:   sess.Manifest.Project.CWDHash,
 			GitRemote: sess.Manifest.Project.GitRemote,
+			NoRepo:    sess.Manifest.Project.GitRemote == "" && adapter.OutsideCheckout(sess.Manifest.Project.CWD),
 		}
 		if !file.Projects.Permitted(project) {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s not allowlisted\n", sess.UID)

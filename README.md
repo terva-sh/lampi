@@ -124,7 +124,10 @@ refuses any other `--addr`. `/healthz` stays open and returns no catalog
 data. Do not upload a project whose transcripts you would not copy onto
 that disk in the clear. Ruleset v2 scans for common tokens before the
 upload and quarantines a hit. It does not rewrite the file, and it is
-not a promise that every secret is caught.
+not a promise that every secret is caught. It also scans the manifest,
+which carries the cwd, the remote, and the relpaths. A hit there is
+refused even with `redaction.upload_hits` set. A file that changed
+after it was hashed is not sent in that sync; the next one sends it.
 
 ## Commands
 
@@ -165,13 +168,31 @@ cwd (a path prefix, on a boundary), its terva cwd hash, or its git
 remote. Every field set on a rule has to match. `projects.deny` wins
 over allow. An empty rule matches nothing.
 
+A deny rule reads a doubt as a match. Its `cwd_prefix` ignores case,
+and it is checked against the cwd and the prefix as written and with
+symlinks resolved. Its `cwd_hash` also matches the hash of the
+resolved cwd. Its `git_remote` also matches a session whose remote
+cannot be read: the cwd is gone, or the checkout has no readable
+origin. A cwd that exists outside any repository has no remote, and a
+`git_remote` deny does not match it. Add a `cwd_prefix` to a
+`git_remote` deny to limit it to one tree. An allow rule compares
+exactly, so a case or symlink variant of an allowed path is refused.
+
 The cwd is the one in the terva meta line, not the path of the JSONL
 file. Git remotes are folded before comparison, so
 `git@github.com:terva-sh/lampi.git` and
 `https://github.com/terva-sh/lampi` are the same remote. When the
 session cwd still has a `.git`, the manifest records the remote named
-origin. Any other remote is ignored, so `git_remote` stays empty and a
-remote allow rule does not match. Allow those projects by cwd or cwd hash.
+origin. A URL remote loses its user part and password, except that an
+ssh URL keeps a bare login name such as `git`. Any other remote is
+ignored, so `git_remote` stays empty and a remote allow rule does not
+match. Allow those projects by cwd or cwd hash.
+
+The agent reads the remote, HEAD, and the root commit from files. It
+runs `git` only for a session the allowlist admitted, and only when
+the root commit is somewhere its reader does not follow. That call
+pins config so the checkout's own settings cannot start a transport,
+a hook, or another program.
 
 The lake's `project_id` is not the cwd hash. It is that same folded
 origin URL joined with the repository's root commit, so two machines

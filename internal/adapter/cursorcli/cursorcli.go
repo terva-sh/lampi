@@ -304,7 +304,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 
 	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
 	for _, it := range items {
-		b.Paths[it.sum] = it.abs
+		b.Paths[it.ref.RelPath] = it.abs
 		if it.hidden.Hits > 0 {
 			b.Hidden[it.sum] = it.hidden
 		}

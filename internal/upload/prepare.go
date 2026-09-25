@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -64,6 +65,7 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			CWD:       m.Project.CWD,
 			CWDHash:   m.Project.CWDHash,
 			GitRemote: m.Project.GitRemote,
+			NoRepo:    m.Project.GitRemote == "" && adapter.OutsideCheckout(m.Project.CWD),
 		}
 		if !opt.Projects.Permitted(id) {
 			res.Refused++
@@ -73,12 +75,23 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			}
 			continue
 		}
+		// Only an admitted session may run git for its root commit.
+		m.Project = adapter.ResolveRoot(m.Project)
 		next, bodies, full, hit, err := scanSession(ctx, opt, wm, bundle, m)
+		if errors.Is(err, errFileChanged) {
+			// The next write event syncs it again with a fresh digest.
+			continue
+		}
 		if err != nil {
 			return nil, res, err
 		}
 		if len(next.Artifacts) == 0 && hit == nil {
 			continue
+		}
+		if hit == nil {
+			if hit, err = scanManifest(opt, next); err != nil {
+				return nil, res, err
+			}
 		}
 		if hit != nil {
 			res.Quarantined++
@@ -101,9 +114,10 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 }
 
 type quarantineHit struct {
-	rel   string
-	hits  int
-	rules []string
+	rel      string
+	hits     int
+	rules    []string
+	manifest bool
 }
 
 func (h *quarantineHit) Error() string {
@@ -111,26 +125,87 @@ func (h *quarantineHit) Error() string {
 	if h.hits == 1 {
 		word = "hit"
 	}
-	return fmt.Sprintf("%s: redaction ruleset %s found %d %s (%s); quarantined and not uploaded",
-		h.rel, redact.RulesetV2, h.hits, word, strings.Join(h.rules, ", "))
+	where := ""
+	if h.manifest {
+		where = " in the manifest"
+	}
+	return fmt.Sprintf("%s: redaction ruleset %s found %d %s%s (%s); quarantined and not uploaded",
+		h.rel, redact.RulesetV2, h.hits, word, where, strings.Join(h.rules, ", "))
+}
+
+// errFileChanged is a session whose file no longer hashes to the digest
+// its manifest was built with. It is skipped for this round.
+var errFileChanged = errors.New("upload: file changed since its digest was taken")
+
+// readArtifacts reads each artifact from the path its own relpath names
+// and checks the bytes against the artifact digest. A mismatch means
+// the file changed after hashing, and none of the session is read.
+func readArtifacts(bundle adapter.Bundle, m protocol.Manifest) ([][]byte, error) {
+	out := make([][]byte, 0, len(m.Artifacts))
+	for _, a := range m.Artifacts {
+		path := bundle.Paths[a.RelPath]
+		if path == "" {
+			return nil, fmt.Errorf("upload: %s: no local path", a.RelPath)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(body)
+		if hex.EncodeToString(sum[:]) != a.SHA256 {
+			return nil, errFileChanged
+		}
+		out = append(out, body)
+	}
+	return out, nil
+}
+
+// scanManifest runs the ruleset over the manifest JSON that would be
+// posted. The cwd, the remote, and the relpaths are on it. A hit is
+// refused whatever redaction.upload_hits says, since the manifest has
+// no redaction stamp to carry an override. The match can sit in any of
+// those fields, so the quarantine record and the refusal line carry
+// the relpath with matches stripped, the rules, and the manifest
+// digest, and not the cwd.
+func scanManifest(opt Options, m protocol.Manifest) (*quarantineHit, error) {
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	scan, err := (redact.Ruleset{}).Scan(raw)
+	if err != nil {
+		return nil, err
+	}
+	if scan.Hits == 0 {
+		return nil, nil
+	}
+	sum := sha256.Sum256(raw)
+	rel := (redact.Ruleset{}).Strip(sessionRel(m))
+	if err := redact.AppendQuarantine(opt.StateDir, redact.Record{
+		RelPath: rel,
+		SHA256:  hex.EncodeToString(sum[:]),
+		Ruleset: scan.Ruleset,
+		Hits:    scan.Hits,
+		Rules:   scan.Rules,
+	}); err != nil {
+		return nil, err
+	}
+	return &quarantineHit{rel: rel, hits: scan.Hits, rules: scan.Rules, manifest: true}, nil
 }
 
 func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adapter.Bundle, m protocol.Manifest) (protocol.Manifest, map[string][]byte, map[string][]byte, *quarantineHit, error) {
+	raws, err := readArtifacts(bundle, m)
+	if err != nil {
+		return protocol.Manifest{}, nil, nil, nil, err
+	}
 	next := m
 	next.Artifacts = make([]protocol.Artifact, 0, len(m.Artifacts))
 	bodies := make(map[string][]byte, len(m.Artifacts))
 	full := make(map[string][]byte, len(m.Artifacts))
 	var blocked *quarantineHit
 	seenRules := map[string]bool{}
-	for _, a := range m.Artifacts {
-		path := bundle.Paths[a.SHA256]
-		if path == "" {
-			return protocol.Manifest{}, nil, nil, nil, fmt.Errorf("upload: %s: no local path for %s", a.RelPath, a.SHA256)
-		}
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return protocol.Manifest{}, nil, nil, nil, err
-		}
+	for i, a := range m.Artifacts {
+		body := raws[i]
 		scan, err := (redact.Ruleset{}).Scan(body)
 		if err != nil {
 			return protocol.Manifest{}, nil, nil, nil, err
