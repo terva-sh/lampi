@@ -77,6 +77,15 @@ func walk(base string, dirs bool, fn func(path string, d fs.DirEntry) error) (sk
 	return skipped, err
 }
 
+// FileInfo is d's info, or its target's when d is a symlink, so the
+// size, mtime, and inode describe the bytes a reader opens.
+func FileInfo(path string, d fs.DirEntry) (fs.FileInfo, error) {
+	if d.Type()&fs.ModeSymlink != 0 {
+		return os.Stat(path)
+	}
+	return d.Info()
+}
+
 // Skippable reports an error that belongs to one file: it is gone, or
 // this user cannot read it. The caller leaves that file out and goes
 // on with the rest.

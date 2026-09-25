@@ -105,7 +105,7 @@ func SessionsSkipped(tervaHome string) ([]File, []error, error) {
 		if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".jsonl") {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := FileInfo(path, d)
 		if err != nil {
 			return err
 		}

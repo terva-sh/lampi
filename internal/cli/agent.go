@@ -160,9 +160,10 @@ those two ("0s" syncs on every change). A file whose size, mtime, and
 inode have not moved since the last pass is not opened, and a session
 whose files all match their watermarks is not posted. The pass at
 start, and one every 6 hours, reads and hashes every file, which
-catches a rewrite that kept the size and mtime. A failed push is logged and tried again, even when the file
-does not grow. The first wait is 2s. Each further failure doubles the
-ceiling of a jittered wait, up to 5 minutes, and a success resets it.
+catches a rewrite that kept the size and mtime. A failed push is
+logged and tried again, even when the file does not grow. The first
+wait is 2s. Each further failure doubles the ceiling of a jittered
+wait, up to 5 minutes, and a success resets it.
 Growth during that wait does not start a push. A 401 or 403 is logged
 once, naming the token file, and waits the full 5 minutes. A project
 the allowlist or the scan refused is not retried. A refusal or a
