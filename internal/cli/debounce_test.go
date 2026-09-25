@@ -103,7 +103,9 @@ func TestAgentDebouncesABurstOfAppends(t *testing.T) {
 			t.Fatal(err)
 		}
 		f.Close()
-		time.Sleep(100 * time.Millisecond)
+		// Longer than the watcher's own 100ms per-path quiet, so each
+		// append is its own event; shorter than the agent's window.
+		time.Sleep(250 * time.Millisecond)
 	}
 	waitOut(t, &buf, func(s string) bool {
 		return strings.Count(s, "\nchecked ") >= 2
@@ -113,8 +115,8 @@ func TestAgentDebouncesABurstOfAppends(t *testing.T) {
 	if n := strings.Count(text, "\nchecked "); n != 2 {
 		t.Fatalf("syncs %d, want the start pass and one for the burst:\n%s", n, text)
 	}
-	if strings.Count(text, "watch: append ") < 2 {
-		t.Fatalf("the burst was not watched as appends:\n%s", text)
+	if strings.Count(text, "watch: append ") < 3 {
+		t.Fatalf("the burst was not watched as separate appends:\n%s", text)
 	}
 	cancel()
 	select {
