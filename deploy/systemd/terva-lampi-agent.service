@@ -3,9 +3,11 @@
 #
 # Phase 0 places the lake on a small VPS. See docs/policy.md and
 # docs/vps-bringup.md.
-# This unit keeps the loopback URL so a local lake works. Put the VPS
-# HTTPS URL in ~/.config/terva-lampi/agent.env. Do not put a production
-# hostname in this file, and do not publish plain HTTP.
+# This unit sets no server URL or token file. The agent reads
+# --server, then LAMPI_SERVER, then server in config.json, then the
+# loopback default, and the token file the same way. Put the VPS HTTPS
+# URL in config.json or in ~/.config/terva-lampi/agent.env. Do not put
+# a production hostname in this file, and do not publish plain HTTP.
 #
 # Harness enable and root live in ~/.config/terva-lampi/config.json.
 # See deploy/config.json.example. Restart the user service
@@ -26,8 +28,6 @@ Documentation=https://github.com/terva-sh/lampi/blob/main/deploy/README.md
 
 [Service]
 Type=simple
-Environment=LAMPI_SERVER=http://127.0.0.1:8787
-Environment=LAMPI_TOKEN_FILE=%h/.config/terva-lampi/token
 EnvironmentFile=-%h/.config/terva-lampi/agent.env
 ExecStart=%h/.local/bin/terva-lampi agent
 Restart=on-failure

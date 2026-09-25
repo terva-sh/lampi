@@ -341,9 +341,10 @@ next start.
 `deploy/` holds examples. Nothing there is installed by `make build`.
 Phase 0 places the lake on a small VPS
 ([docs/policy.md](docs/policy.md)). Bring-up is
-[docs/vps-bringup.md](docs/vps-bringup.md). The units still default to
-`http://127.0.0.1:8787` and a token file under `~/.config/terva-lampi/`
-so a local lake works. Set `LAMPI_SERVER` to the VPS HTTPS URL on a
+[docs/vps-bringup.md](docs/vps-bringup.md). The units set no server URL
+or token file, so the agent falls back to `http://127.0.0.1:8787` and
+a token file under `~/.config/terva-lampi/` and a local lake works. Set
+`server` in `config.json`, or `LAMPI_SERVER`, to the VPS HTTPS URL on a
 machine that should upload there. Do not put that hostname in this tree.
 
 | Path | What it is |
@@ -354,9 +355,12 @@ machine that should upload there. Do not put that hostname in this tree.
 | [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
 | [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Supported optional `post_tool_use` acceleration. Sends SIGUSR1 to a running `terva-lampi`. Not installed by `make build`. The watch still uploads if the hook never runs |
 
-`terva-lampi agent` reads `LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the
-matching flags are unset. A flag wins, then the environment, then
-`config.json`. Harness `root` is a different order: flag, if any, then
+`terva-lampi agent`, `sync`, `status`, and `agent config` read
+`LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the matching flags are
+unset. A flag wins, then the environment, then `config.json`, then the
+default. `status` and `agent config` print `source=flag`, `env`,
+`config`, or `default` on the `server` and `token_file` lines. The
+`conflicts` token file follows the same order. Harness `root` is a different order: flag, if any, then
 the `harnesses` entry in `config.json`, then the harness environment
 variable, then the adapter default. That variable is a debug override.
 Restart the agent after editing the map.

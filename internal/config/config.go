@@ -229,15 +229,52 @@ func writeFileAtomic(path string, raw []byte) error {
 	return nil
 }
 
-// ServerURL resolves the lake address: flag, then config file, then the
-// loopback default. flagValue wins even when it equals the default, which
-// is what a flag package already filled in.
-func ServerURL(file File, flagValue string) string {
-	if flagValue != "" {
-		return flagValue
+// Setting is one resolved value and the layer that won it: flag, env,
+// config, or default. Every command that talks to a lake resolves the
+// server and the token file through the same two functions, so status
+// reports the address the agent uses.
+type Setting struct {
+	Value  string
+	Source string
+}
+
+// Setting sources, in the order they are tried.
+const (
+	SourceFlag    = "flag"
+	SourceEnv     = "env"
+	SourceConfig  = "config"
+	SourceDefault = "default"
+)
+
+// ResolveServer picks the lake URL: the flag, then LAMPI_SERVER, then
+// server in config.json, then DefaultServer.
+func ResolveServer(file File, getenv func(string) string, flagValue string) Setting {
+	return pick(flagValue, getenv("LAMPI_SERVER"), file.Server, DefaultServer)
+}
+
+// ResolveTokenFile picks the device token file: the flag, then
+// LAMPI_TOKEN_FILE, then token_file in config.json, then TokenPath.
+func ResolveTokenFile(file File, getenv func(string) string, flagValue string) (Setting, error) {
+	def := ""
+	if flagValue == "" && getenv("LAMPI_TOKEN_FILE") == "" && file.TokenFile == "" {
+		p, err := TokenPath(getenv)
+		if err != nil {
+			return Setting{}, err
+		}
+		def = p
 	}
-	if file.Server != "" {
-		return file.Server
+	return pick(flagValue, getenv("LAMPI_TOKEN_FILE"), file.TokenFile, def), nil
+}
+
+func pick(flagValue, envValue, fileValue, def string) Setting {
+	switch {
+	case flagValue != "":
+		return Setting{Value: flagValue, Source: SourceFlag}
+	case envValue != "":
+		return Setting{Value: envValue, Source: SourceEnv}
+	case fileValue != "":
+		return Setting{Value: fileValue, Source: SourceConfig}
+	default:
+		return Setting{Value: def, Source: SourceDefault}
 	}
-	return DefaultServer
 }

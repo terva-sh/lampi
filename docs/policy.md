@@ -19,7 +19,8 @@ is the TLS endpoint in front of that process.
 
 Device tokens are the ones already implemented. `terva-lampi login`
 writes a 256-bit token to a mode-0600 file and does not print it. The
-agent reads `--token-file` or `LAMPI_TOKEN_FILE`. `serve --token-file`
+agent reads `--token-file`, `LAMPI_TOKEN_FILE`, or `token_file` in
+`config.json`. `serve --token-file`
 hashes each token with SHA-256, rewrites that copy to `sha256:<hex>`,
 and requires `Authorization: Bearer` on `/v1`. Copy the client's file
 to the host before pointing `--token-file` at it. There is no
@@ -28,9 +29,10 @@ enrolment API. `/healthz` stays open and returns no catalog data.
 The tenant is Drew's machines. Do not point `serve` at a network you
 do not control.
 
-Example units under `deploy/` keep `http://127.0.0.1:8787` so a local
-lake works without a hostname in git. On a machine that should upload
-to the VPS, set `LAMPI_SERVER` to that host's HTTPS URL.
+Example units under `deploy/` set no URL, so the agent falls back to
+`http://127.0.0.1:8787` and a local lake works without a hostname in
+git. On a machine that should upload to the VPS, set `LAMPI_SERVER`, or
+`server` in `config.json`, to that host's HTTPS URL.
 [vps-bringup.md](vps-bringup.md) is the order: encrypted disk, the
 binary, the data directory, the device token, loopback `serve`, then
 TLS.

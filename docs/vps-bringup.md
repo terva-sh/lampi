@@ -7,7 +7,8 @@ them on the machine.
 
 The lake is `terva-lampi serve` on a small VPS with local disk. TLS
 sits in front of that process. The process binds `127.0.0.1:8787`.
-Agents set `LAMPI_SERVER` to the host's HTTPS URL. There is no TTL.
+Agents set `server` in `config.json`, or `LAMPI_SERVER`, to the host's
+HTTPS URL. There is no TTL.
 Encryption at rest is the provider's volume encryption and/or LUKS
 on the data disk. There is no application-level age wrapping.
 
@@ -129,8 +130,9 @@ file.
 sudo install -m 0600 -o terva-lampi -g terva-lampi ./token /var/lib/terva-lampi/tokens
 ```
 
-The agent reads `--token-file`, then `LAMPI_TOKEN_FILE`, then
-`config.json`, then `~/.config/terva-lampi/token`. `serve` reads only
+The agent, `sync`, and `status` read `--token-file`, then
+`LAMPI_TOKEN_FILE`, then `config.json`, then
+`~/.config/terva-lampi/token`. `serve` reads only
 `--token-file`. It does not read `LAMPI_TOKEN_FILE`.
 
 ## Serve on loopback
@@ -241,10 +243,12 @@ placeholder before you run it.
 curl -fsS https://lake.example/healthz
 ```
 
-On each uploading machine, set `LAMPI_SERVER` to that HTTPS URL.
-The agent unit reads `~/.config/terva-lampi/agent.env` (mode 0600).
-The copy of that file in git keeps the loopback URL. Put the real
-URL only in the file on the machine.
+On each uploading machine, set `LAMPI_SERVER` to that HTTPS URL, or
+set `server` in `config.json`. The agent unit reads
+`~/.config/terva-lampi/agent.env` (mode 0600) and sets neither value
+itself. The copy of that file in git keeps the loopback URL. Put the
+real URL only in the file on the machine. `terva-lampi status` prints
+the URL with `source=env` or `source=config`.
 
 ```text
 LAMPI_SERVER=https://lake.example

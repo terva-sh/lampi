@@ -76,8 +76,11 @@ hello runs before the files are read and scanned. A blob over 4 MiB goes as Cont
 pieces. No timeout covers a whole request; one that moves no bytes for
 60s is cancelled.
 
---server defaults to the URL in config.json, or http://127.0.0.1:8787.
-The token is read from a file, never from an argument. It is sent over
+--server defaults to LAMPI_SERVER, then the URL in config.json, or
+http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
+the token path in config.json, then the token file in the config
+directory. The agent and status use the same order. The token is read
+from a file, never from an argument. It is sent over
 https, or over http only to localhost, 127.0.0.0/8, or ::1. Anything
 else is refused before the scan.
 `
@@ -122,7 +125,7 @@ func runSync(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	res, err := upload.Sync(ctx, upload.Options{
-		ServerURL:     config.ServerURL(file, serverFlag),
+		ServerURL:     config.ResolveServer(file, env.getenv, serverFlag).Value,
 		Token:         token,
 		PieceBytes:    upload.DefaultPieceBytes,
 		TervaHome:     homeOf(src, protocol.HarnessTerva),

@@ -6,12 +6,16 @@
 
   Phase 0 places the lake on a small VPS. See docs/policy.md and
   docs/vps-bringup.md.
-  LAMPI_SERVER below is the loopback placeholder for a local lake.
-  Set it to the VPS HTTPS URL on a machine that should upload there.
-  Do not invent a production hostname in this plist.
+  This plist passes no server URL or token file. The agent reads
+  LAMPI_SERVER, then server in config.json, then the loopback default,
+  and LAMPI_TOKEN_FILE, then token_file in config.json, then
+  $HOME/.config/terva-lampi/token. Put the VPS HTTPS URL in config.json,
+  or add LAMPI_SERVER under EnvironmentVariables. Do not invent a
+  production hostname in this plist.
 
-  The binary is $HOME/.local/bin/terva-lampi. The token file defaults to
-  $HOME/.config/terva-lampi/token. Set LAMPI_TOKEN_FILE to override it.
+  The binary is $HOME/.local/bin/terva-lampi. The agent polls the
+  harness trees on macOS. Add LAMPI_WATCH=fsnotify under
+  EnvironmentVariables to use kqueue instead.
   SIGUSR1 asks the running agent to sync. The session directory watch
   is still the source of truth.
 
@@ -33,12 +37,10 @@
 	<array>
 		<string>/bin/sh</string>
 		<string>-c</string>
-		<string>exec "${HOME}/.local/bin/terva-lampi" agent --server "${LAMPI_SERVER:-http://127.0.0.1:8787}" --token-file "${LAMPI_TOKEN_FILE:-$HOME/.config/terva-lampi/token}"</string>
+		<string>exec "${HOME}/.local/bin/terva-lampi" agent</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
-		<key>LAMPI_SERVER</key>
-		<string>http://127.0.0.1:8787</string>
 	</dict>
 </dict>
 </plist>

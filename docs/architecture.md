@@ -163,9 +163,10 @@ Phase 0 places the lake on a small VPS.
 [policy.md](policy.md) is that decision: retention, encryption at
 rest, the allowlist, and which machines run the agent.
 [vps-bringup.md](vps-bringup.md) is the operator checklist. The
-examples keep a loopback placeholder. On a machine that should
-upload, set `LAMPI_SERVER` to the VPS HTTPS URL. Restart the agent
-to reload config.
+examples set no URL, so the agent falls back to loopback. On a
+machine that should upload, set `LAMPI_SERVER` or `server` in
+`config.json` to the VPS HTTPS URL. Restart the agent to reload
+config.
 
 `hooks/terva-post-tool-enqueue.sh` is a supported optional acceleration
 for terva `post_tool_use`. `make build` does not install it. On Unix

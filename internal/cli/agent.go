@@ -91,7 +91,8 @@ usage:
                                  watch session JSONL and upload until signalled
   terva-lampi agent discover     list session JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
-  terva-lampi agent config       print paths and the effective server URL
+  terva-lampi agent config       print paths, the effective server URL and
+                                 token file, and which layer set each
   terva-lampi agent status       local identity, outbox, watermarks, and last sync
 
 terva sessions are read from TERVA_HOME, then ZOT_HOME, then the platform
@@ -170,8 +171,11 @@ it.
 
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
-the token path in config.json. The token is read from a file, never
-from an argument. The agent does not start when a token would go to an
+the token path in config.json, then the token file in the config
+directory. sync, status, and agent config resolve both the same way,
+and status and agent config print source=flag, env, config, or
+default for each. The token is read from a file, never from an
+argument. The agent does not start when a token would go to an
 http:// URL whose host is not localhost, 127.0.0.0/8, or ::1. Use
 https for a remote lake. The server URL, token, allowlist, and
 harnesses map are read at start; restart the process to reload them.
@@ -230,7 +234,8 @@ func runAgentDaemon(env Env, args []string) error {
 // runAgentLoop is the long-running process. ctx ending is shutdown:
 // the watch stops, then the outbox is drained on a new context.
 // serverFlag and tokenFlag are the command-line overrides. Empty
-// falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json.
+// falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json,
+// the same order sync and status use.
 func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
 	opt, tokenPath, src, n, err := loadAgent(env, serverFlag, tokenFlag)
 	if err != nil {
@@ -401,21 +406,16 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	if serverFlag == "" {
-		serverFlag = env.getenv("LAMPI_SERVER")
-	}
-	if tokenFlag == "" {
-		tokenFlag = env.getenv("LAMPI_TOKEN_FILE")
-	}
-	tokenPath, err = tokenPathFor(env, tokenFlag, file)
+	tokenFile, err := tokenPathFor(env, tokenFlag, file)
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
+	tokenPath = tokenFile.Value
 	token, err := resolveToken(env, tokenFlag, file)
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	server := config.ServerURL(file, serverFlag)
+	server := config.ResolveServer(file, env.getenv, serverFlag).Value
 	// A token that would cross the network in the clear stops the agent
 	// at start. It cannot change until the config does.
 	if err := upload.CheckToken(server, token); err != nil {
@@ -559,12 +559,9 @@ func runAgentConfig(env Env) error {
 	if err != nil {
 		return err
 	}
-	tokenPath, err := config.TokenPath(env.getenv)
+	tokenFile, err := tokenPathFor(env, "", file)
 	if err != nil {
 		return err
-	}
-	if file.TokenFile != "" {
-		tokenPath = file.TokenFile
 	}
 	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
@@ -580,8 +577,7 @@ func runAgentConfig(env Env) error {
 	}
 	fmt.Fprintf(env.stdout(), "config_dir: %s\n", cfgDir)
 	fmt.Fprintf(env.stdout(), "state_dir: %s\n", state)
-	fmt.Fprintf(env.stdout(), "server: %s\n", config.ServerURL(file, ""))
-	fmt.Fprintf(env.stdout(), "token_file: %s\n", tokenPath)
+	writeEndpoint(env.stdout(), config.ResolveServer(file, env.getenv, ""), tokenFile)
 	for _, s := range src {
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}

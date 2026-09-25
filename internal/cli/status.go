@@ -23,6 +23,13 @@ const statusUsage = `terva-lampi status — agent state and lake health
 usage:
   terva-lampi status [--server URL] [--token-file PATH]
 
+--server is the flag, then LAMPI_SERVER, then server in config.json,
+then http://127.0.0.1:8787. --token-file is the flag, then
+LAMPI_TOKEN_FILE, then token_file in config.json, then the token file
+in the config directory. The agent and sync resolve both the same
+way. The server and token_file lines end in source=flag, env, config,
+or default, naming the layer that won.
+
 Prints the local machine id (creating it if needed), one line per
 known harness, outbox depth, a watermark summary, and the last
 finished sync. Those live under the state directory, next to the
@@ -91,8 +98,8 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	server := config.ServerURL(file, serverFlag)
-	tokenPath, err := tokenPathFor(env, tokenFlag, file)
+	server := config.ResolveServer(file, env.getenv, serverFlag)
+	tokenFile, err := tokenPathFor(env, tokenFlag, file)
 	if err != nil {
 		return err
 	}
@@ -111,11 +118,17 @@ func runStatus(env Env, args []string) error {
 	if err := writeCaptureState(env.stdout(), state); err != nil {
 		return err
 	}
-	fmt.Fprintf(env.stdout(), "server: %s\n", server)
-	fmt.Fprintf(env.stdout(), "token_file: %s\n", tokenPath)
-	fmt.Fprintf(env.stdout(), "health: %s\n", probeHealth(server))
-	fmt.Fprint(env.stdout(), probeCatalog(server, token))
+	writeEndpoint(env.stdout(), server, tokenFile)
+	fmt.Fprintf(env.stdout(), "health: %s\n", probeHealth(server.Value))
+	fmt.Fprint(env.stdout(), probeCatalog(server.Value, token))
 	return nil
+}
+
+// writeEndpoint prints the server and token file with the layer that
+// won each, in the spelling the harness lines use.
+func writeEndpoint(w io.Writer, server, tokenFile config.Setting) {
+	fmt.Fprintf(w, "server: %s source=%s\n", server.Value, server.Source)
+	fmt.Fprintf(w, "token_file: %s source=%s\n", tokenFile.Value, tokenFile.Source)
 }
 
 // writeCaptureState prints outbox depth, the watermark summary, and the

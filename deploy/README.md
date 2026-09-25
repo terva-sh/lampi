@@ -12,15 +12,19 @@ operator checklist is [docs/vps-bringup.md](../docs/vps-bringup.md).
 Every example still defaults to `http://127.0.0.1:8787` and a device
 token at `~/.config/terva-lampi/token`, so a local lake works without
 a hostname in this tree. On a machine that should upload to the VPS,
-set `LAMPI_SERVER` to that host's HTTPS URL in the env file or the
-launchd plist. Do not put the production hostname in git, and do not
-point the agent at plain HTTP on a public interface.
+set `server` in `config.json`, or `LAMPI_SERVER` in the env file or the
+launchd plist, to that host's HTTPS URL. Do not put the production
+hostname in git, and do not point the agent at plain HTTP on a public
+interface.
 
-The agent reads the URL from `--server`, then `LAMPI_SERVER`, then
-`config.json`, then the loopback default. The token file is `--token-file`,
-then `LAMPI_TOKEN_FILE`, then the path in `config.json`, then
-`~/.config/terva-lampi/token`. The token is not a command argument.
-Restart the agent to reload any of these, and to reload `harnesses`.
+The agent, `sync`, and `status` read the URL from `--server`, then
+`LAMPI_SERVER`, then `config.json`, then the loopback default. The
+token file is `--token-file`, then `LAMPI_TOKEN_FILE`, then the path in
+`config.json`, then `~/.config/terva-lampi/token`. The units set
+neither, so `config.json` wins when the env file is silent. `status`
+and `agent config` print `source=flag`, `env`, `config`, or `default`
+beside each. The token is not a command argument. Restart the agent to
+reload any of these, and to reload `harnesses`.
 
 ## Harnesses
 
@@ -146,11 +150,12 @@ systemctl enable --now terva-lampi-serve.service
 deploy/launchd/sh.terva.lampi.agent.plist
 ```
 
-Copy it to `~/Library/LaunchAgents/` and set `LAMPI_SERVER` to the VPS
-HTTPS URL from [docs/policy.md](../docs/policy.md). The program path is
+Copy it to `~/Library/LaunchAgents/`. Set `server` in `config.json`,
+or add `LAMPI_SERVER` under `EnvironmentVariables`, to the VPS HTTPS
+URL from [docs/policy.md](../docs/policy.md). The program path is
 `$HOME/.local/bin/terva-lampi`. The token file defaults to
-`$HOME/.config/terva-lampi/token`. The plist keeps the loopback URL
-until you edit it.
+`$HOME/.config/terva-lampi/token`. With neither set the agent uses the
+loopback URL.
 
 On macOS the agent polls the harness trees every 2s instead of using
 kqueue, which holds a descriptor per watched file. Set
