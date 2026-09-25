@@ -278,3 +278,39 @@ func TestSlowBodyDoesNotBlockOtherPut(t *testing.T) {
 		t.Fatalf("slow put has %v err %v", ok, err)
 	}
 }
+
+// A crash can leave an installed object with no bytes. Has reports it
+// missing so blobs/check asks the client for it again, and the put
+// repairs it. An empty object under the empty digest is still present.
+func TestHasReportsEmptyDamagedObjectMissing(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("hello transcript\n")
+	digest, _, err := Hash(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putAll(t, s, body, nil)
+	p, err := s.Path(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Has(digest); err != nil || ok {
+		t.Fatalf("Has(truncated) = %v, %v; want false", ok, err)
+	}
+	if ok, err := s.Has(emptyDigest); err != nil || !ok {
+		t.Fatalf("Has(empty digest) = %v, %v; want true", ok, err)
+	}
+	exists, err := s.Put(digest, bytes.NewReader(body), 0)
+	if err != nil || exists {
+		t.Fatalf("Put = %v, %v; want stored", exists, err)
+	}
+	if ok, err := s.Has(digest); err != nil || !ok {
+		t.Fatalf("Has(repaired) = %v, %v; want true", ok, err)
+	}
+}

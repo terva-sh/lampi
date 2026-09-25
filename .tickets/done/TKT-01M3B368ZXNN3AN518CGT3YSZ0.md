@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T01:34:30Z
-updated_at: 2026-09-25T01:46:53Z
+updated_at: 2026-09-25T01:52:59Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -85,6 +85,10 @@ The early checks in `Concat`, `PutRange` and `BindLogical` hash the stored objec
 ### Not in this ticket (internal/api)
 
 `Has` still checks existence only. `api/server.go` short-circuits a chunk-list PUT and `blobs/check` on `Has`, and `api/merge.go` checks chunks and tails with `Has`, so a damaged object is still reported present there. It is repaired when a PUT of its bytes reaches the store, which includes the tail assembly `Put` in `api/merge.go` and any `Concat`. A verified `blobs/check` would hash every present object on every check.
+
+**agent:claude-code/eh1m** at 2026-09-25T01:52:59Z
+
+Has now reports an empty object under any digest but the empty one as missing. A crash before the data reached disk leaves exactly that, so blobs/check asks the client again and the put repairs it. Damage of the right size still reads present until a put of those bytes or a later fsck.
 
 ## Summary
 

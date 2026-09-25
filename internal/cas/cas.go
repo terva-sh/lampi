@@ -55,20 +55,29 @@ func (s *Store) Path(digest string) (string, error) {
 	return filepath.Join(s.Root, "sha256", digest[:2], digest[2:]), nil
 }
 
+// emptyDigest is the sha256 of zero bytes, the only object that may be
+// stored empty.
+const emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 // Has reports whether digest is already stored. It does not read the
-// object: a damaged one is still reported, and the next put of that
-// digest replaces it.
+// object. An empty file under any other digest is reported missing: that
+// is what a crash before the data reached disk leaves, and a missing
+// answer makes the client put it again, which replaces it. Other damage
+// is still reported, and the next put of that digest replaces it.
 func (s *Store) Has(digest string) (bool, error) {
 	p, err := s.Path(digest)
 	if err != nil {
 		return false, err
 	}
-	_, err = os.Stat(p)
+	fi, err := os.Stat(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	if fi.Size() == 0 && digest != emptyDigest {
+		return false, nil
 	}
 	return true, nil
 }
