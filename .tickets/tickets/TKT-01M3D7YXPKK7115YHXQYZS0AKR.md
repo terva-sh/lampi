@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-25T21:36:21Z
-updated_at: 2026-09-25T21:47:24Z
+updated_at: 2026-09-25T21:48:30Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -57,10 +57,10 @@ On 2026-09-25 the owner chose the internal Forgejo as lampi's primary forge for 
 ## Acceptance criteria
 
 - [ ] just sync-github fast-forwards the stale main and refuses when the two have diverged
-- [ ] The 57 merged GitHub branches are deleted and only main remains
-- [ ] .forgejo/workflows/terva-review.yml is installed at the v0.3.0 image digest
+- [x] The 57 merged GitHub branches are deleted and only main remains
+- [x] .forgejo/workflows/terva-review.yml is installed at the v0.3.0 image digest
 - [ ] The first Forgejo CI run on a lampi PR is green
-- [ ] docs/pr-reviews.md describes both review processes and the main sync
+- [x] docs/pr-reviews.md describes both review processes and the main sync
 
 ## Notes
 
@@ -69,3 +69,15 @@ On 2026-09-25 the owner chose the internal Forgejo as lampi's primary forge for 
 Public tree, decided by the owner on 2026-09-26. GitHub `main` held no internal hostnames before this change. The two `.forgejo` workflows name `container.local.sothr.com` as their image registry, and they reach GitHub with the next sync. The owner accepted that, as git-ticket did in its TKT-01M1FAFS. The reference is working CI configuration, and the host is not reachable from outside. A filtered publish that kept `.forgejo/` off GitHub lost: `main` could then no longer be identical on both forges, and the fast-forward model depends on that.
 
 On the owner's instruction, the host name `brokkr` in TKT-01M3D57Q (sqlitesnap misses a checkpoint within one mtime tick) was reworded to "the owner's workstation". The original wording stays in the history of `ea6d047`, which a fast-forward sync publishes. Removing it would need a history rewrite and a force-push, and neither was done.
+
+**agent:claude-code/cd41c9ac** at 2026-09-25T21:48:30Z
+
+Deleted the 57 GitHub branches on 2026-09-26 with `gh api -X DELETE .../git/refs/heads/NAME`. Only `main` remains. Each deletion was checked first against `gh pr list --state merged`:
+
+- 55 branch heads equalled the head their pull request merged at.
+- `cursor/agent-daemon-loop-e44f` carried one commit past PR #5, `edc78c1`, "Do not start a backoff retry after the agent is cancelled".
+- `cursor/cursor-1d-composer-usage-d660` carried one commit past PR #57, `3a57d77`, "lock the QE usage and compaction fixture matrix".
+
+Both extra commits match a commit already on `github/main` by `git patch-id --stable`, so no work was lost.
+
+`just sync-github` was tested in a throwaway repository with two bare remotes. It reported equal heads as in sync. With GitHub ahead, it fast-forwarded Forgejo on `--yes`. With the two diverged, it stopped with exit 1 and named both heads. A dry run against the real remotes showed Forgejo two commits ahead (`ea6d047`, `e82a8f3`). Criterion 1 stays open until a real sync has run.
