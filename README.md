@@ -61,7 +61,8 @@ make build          # bin/terva-lampi; `just build` is the same binary
 ```
 
 `serve` listens on `127.0.0.1:8787` and prints the data directory
-(the XDG state dir `terva-lampi/`, override with `--data`). In another
+(the XDG state dir `terva-lampi/`, override with `--data`). It writes
+one stderr line per request, except a 200 `/healthz`. In another
 terminal:
 
 ```bash

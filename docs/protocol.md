@@ -97,7 +97,9 @@ Request body is a JSON array of lowercase sha256 hex digests, not an object.
 ```
 
 Digests the lake already has are omitted. Duplicates in the request are
-reported once.
+reported once. The body is at most 8 MiB and 100000 digests. More is
+`413`, and the message names the limit. A client with more digests
+sends them in batches.
 
 ## PUT /v1/blobs/{sha256}
 
@@ -112,6 +114,10 @@ that is already stored is a success and writes nothing:
 `exists` is false when this call stored the object. The filesystem key is
 `sha256/<ab>/<rest of the digest>`. `complete` is true for a finished
 object, including one that already existed.
+
+A stored object whose size or hash does not match its key is damaged.
+A PUT of the right bytes replaces it, and `exists` is false. Every
+install fsyncs the object and its directory before the response.
 
 A single body larger than `max_blob_bytes` is refused. Two resume forms
 are accepted. Both install the digest only when the pieces assemble, and
@@ -337,11 +343,15 @@ in a manifest. `unscanned` is what a client sends when it did not scan.
 ## Errors
 
 Failures are JSON: `{"error":"..."}`. A missing-blob conflict adds
-`"missing": ["<sha256>", ...]`.
+`"missing": ["<sha256>", ...]`. A 5xx body is a fixed message. The
+detail, which can name a lake path, is in the server log.
 
 | Status | When |
 |--------|------|
-| 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, unsupported protocol, tail combined with chunks, catalog rejection |
+| 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, unsupported protocol, tail combined with chunks, missing manifest fields, a request body that stopped short |
 | 401 | Bearer token missing or wrong |
+| 408 | The request body did not arrive before its deadline |
 | 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
+| 413 | A JSON body over its cap: 8 MiB or 100000 digests for `blobs/check`, 1 MiB for the others |
+| 500 | Storage or catalog failure on the lake |
 | 200 | Hello, check, put, manifest ACK, health, conflicts |
