@@ -830,9 +830,9 @@ func TestBundlesSkipEmptyTervaHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join("sessions", "abcd", "s.jsonl"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	bundles, err := bundlesFor(Options{MachineID: "m"})
-	if err != nil {
-		t.Fatal(err)
+	bundles, skipped := bundlesFor(Options{MachineID: "m"})
+	if len(skipped) != 0 {
+		t.Fatal(skipped)
 	}
 	if len(bundles) != 0 {
 		t.Fatalf("empty terva home produced %d bundles", len(bundles))

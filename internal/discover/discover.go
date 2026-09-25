@@ -9,7 +9,6 @@ package discover
 import (
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -88,27 +87,18 @@ func home(getenv func(string) string) (string, error) {
 }
 
 // Sessions walks $TERVA_HOME/sessions for *.jsonl. A missing sessions
-// directory is an empty list: this machine may not have run terva.
+// directory is an empty list: this machine may not have run terva. An
+// entry that cannot be read is left out; SessionsSkipped reports it.
 func Sessions(tervaHome string) ([]File, error) {
-	root := filepath.Join(tervaHome, "sessions")
-	st, err := os.Stat(root)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !st.IsDir() {
-		return nil, fmt.Errorf("discover: %s is not a directory", root)
-	}
+	files, _, err := SessionsSkipped(tervaHome)
+	return files, err
+}
+
+// SessionsSkipped is Sessions plus the entries it left out, each an
+// error that names the path.
+func SessionsSkipped(tervaHome string) ([]File, []error, error) {
 	var out []File
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
+	skipped, err := WalkFiles(filepath.Join(tervaHome, "sessions"), func(path string, d fs.DirEntry) error {
 		name := d.Name()
 		if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".jsonl") {
 			return nil
@@ -135,7 +125,7 @@ func Sessions(tervaHome string) ([]File, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
-	return out, nil
+	return out, skipped, nil
 }

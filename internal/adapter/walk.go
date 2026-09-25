@@ -9,34 +9,27 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"terva.sh/lampi/internal/discover"
 )
 
 // Walk lists files under root/dir. A missing directory is an empty list:
 // this machine may not have that harness installed. rel paths are slash
-// separated and relative to root. match receives that path.
+// separated and relative to root. match receives that path. An entry
+// that cannot be read is left out; WalkSkipped reports it.
 func Walk(root, dir string, match func(rel string) (kind string, ok bool)) ([]Ref, error) {
+	refs, _, err := WalkSkipped(root, dir, match)
+	return refs, err
+}
+
+// WalkSkipped is Walk plus the entries it left out, each an error that
+// names the path. A symlinked root or dir is followed.
+func WalkSkipped(root, dir string, match func(rel string) (kind string, ok bool)) ([]Ref, []error, error) {
 	if match == nil {
-		return nil, fmt.Errorf("adapter: match is nil")
-	}
-	base := filepath.Join(root, dir)
-	st, err := os.Stat(base)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !st.IsDir() {
-		return nil, fmt.Errorf("adapter: %s is not a directory", base)
+		return nil, nil, fmt.Errorf("adapter: match is nil")
 	}
 	var out []Ref
-	err = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
+	skipped, err := discover.WalkFiles(filepath.Join(root, dir), func(path string, d fs.DirEntry) error {
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
@@ -60,9 +53,9 @@ func Walk(root, dir string, match func(rel string) (kind string, ok bool)) ([]Re
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // OpenSlice opens absPath at offset. Offset 0 reads the whole file.

@@ -16,7 +16,6 @@
 package codex
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -112,22 +111,26 @@ type item struct {
 // session_meta id uses its relative path. history.jsonl is not in the
 // discover set, so it is not a manifest. harness_version is Version.
 func Manifests(root, machineID string) (adapter.Bundle, error) {
-	refs, err := Adapter{}.Discover(context.Background(), root)
+	refs, skipped, err := adapter.WalkSkipped(root, Adapter{}.WatchDir(), Adapter{}.Match)
 	if err != nil {
 		return adapter.Bundle{}, err
 	}
 	items := make([]item, 0, len(refs))
 	for _, ref := range refs {
+		// One file that cannot be read is left out. The rest of the
+		// harness still uploads.
 		session, cwd, err := readIdentity(ref.AbsPath)
 		if err != nil {
-			return adapter.Bundle{}, fmt.Errorf("codex: %s: %w", ref.RelPath, err)
+			skipped = append(skipped, fmt.Errorf("codex: %s: %w", ref.RelPath, err))
+			continue
 		}
 		if session == "" {
 			session = strings.TrimSuffix(ref.RelPath, ".jsonl")
 		}
 		sum, err := adapter.HashFile(ref.AbsPath)
 		if err != nil {
-			return adapter.Bundle{}, err
+			skipped = append(skipped, fmt.Errorf("codex: %s: %w", ref.RelPath, err))
+			continue
 		}
 		items = append(items, item{ref: ref, sum: sum, session: session, cwd: cwd})
 	}
@@ -141,7 +144,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 		groups[it.session] = append(groups[it.session], it)
 	}
 
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}}
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Skipped: skipped}
 	for _, id := range order {
 		group := groups[id]
 		var cwd string
@@ -174,18 +177,29 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 	return b, nil
 }
 
+// maxLine is the longest line readIdentity parses. A longer one is read
+// past, not held in memory.
+const maxLine = 8 << 20
+
+// readIdentity scans until it has seen a session id and a cwd, or the
+// file ends. A line that is not a JSON object, or is over maxLine, is
+// skipped. When the id or the cwd is still missing after a line over
+// maxLine, the file is a *adapter.LongLineError.
 func readIdentity(path string) (sessionID, cwd string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", "", err
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
-	for sc.Scan() {
-		rec, err := ParseLine(sc.Bytes())
+	long := false
+	err = adapter.ScanLines(f, maxLine, func(line []byte, over bool) bool {
+		if over {
+			long = true
+			return true
+		}
+		rec, err := ParseLine(line)
 		if err != nil {
-			continue
+			return true
 		}
 		if sessionID == "" {
 			sessionID = rec.SessionID()
@@ -193,12 +207,15 @@ func readIdentity(path string) (sessionID, cwd string, err error) {
 		if cwd == "" {
 			cwd = rec.CWD()
 		}
-		if sessionID != "" && cwd != "" {
-			break
-		}
-	}
-	if err := sc.Err(); err != nil {
+		return sessionID == "" || cwd == ""
+	})
+	if err != nil {
 		return "", "", err
+	}
+	// The id or the cwd may have been on the line that was too long.
+	// A relpath id would split this session from the rest of it.
+	if long && (sessionID == "" || cwd == "") {
+		return "", "", &adapter.LongLineError{Max: maxLine}
 	}
 	return sessionID, cwd, nil
 }
