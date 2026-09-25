@@ -44,13 +44,13 @@ synthetic-container:
 # recipes say why. ARGS carries the command: `make dev ARGS=status`.
 DEV_DIR := $(CURDIR)/.dev
 LAMPI_DEV_ADDR ?= 127.0.0.1:18787
-DEV_ENV := XDG_CONFIG_HOME=$(DEV_DIR)/config XDG_STATE_HOME=$(DEV_DIR)/state LAMPI_SERVER=http://$(LAMPI_DEV_ADDR) LAMPI_TOKEN_FILE=
+DEV_ENV := XDG_CONFIG_HOME="$(DEV_DIR)/config" XDG_STATE_HOME="$(DEV_DIR)/state" LAMPI_SERVER="http://$(LAMPI_DEV_ADDR)" LAMPI_TOKEN_FILE=
 
 dev-serve: build
-	env $(DEV_ENV) bin/terva-lampi serve --data $(DEV_DIR)/lake --addr $(LAMPI_DEV_ADDR) $(ARGS)
+	env $(DEV_ENV) bin/terva-lampi serve --data "$(DEV_DIR)/lake" --addr "$(LAMPI_DEV_ADDR)" $(ARGS)
 
 dev: build
 	env $(DEV_ENV) bin/terva-lampi $(ARGS)
 
 dev-clean:
-	rm -rf $(DEV_DIR)
+	rm -rf "$(DEV_DIR)"

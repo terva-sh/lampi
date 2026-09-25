@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-25T21:36:21Z
-updated_at: 2026-09-25T21:48:30Z
+updated_at: 2026-09-25T21:52:58Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -81,3 +81,14 @@ Deleted the 57 GitHub branches on 2026-09-26 with `gh api -X DELETE .../git/refs
 Both extra commits match a commit already on `github/main` by `git patch-id --stable`, so no work was lost.
 
 `just sync-github` was tested in a throwaway repository with two bare remotes. It reported equal heads as in sync. With GitHub ahead, it fast-forwarded Forgejo on `--yes`. With the two diverged, it stopped with exit 1 and named both heads. A dry run against the real remotes showed Forgejo two commits ahead (`ea6d047`, `e82a8f3`). Criterion 1 stays open until a real sync has run.
+
+**agent:claude-code/cd41c9ac** at 2026-09-25T21:52:58Z
+
+First Forgejo runs on PR #1 at head `144d9a5`.
+
+**CI (run 4) failed in `go test -race`.** Four hook tests in `internal/cli/packaging_test.go` failed with "agent pid N is not running". `startCopiedSleep` copies `sleep` under the name `terva-lampi`. On `golang:1.27-alpine`, `sleep` is busybox, which picks its applet from the program name, so the copy exits 127 at once and reads as a dead agent. A local run of a renamed busybox gave "applet not found". This is not a defect in the hook. The workflow now installs `coreutils`, so `sleep` is a standalone binary. GitHub CI on ubuntu never hit this.
+
+**terva-review (run 5, review 747) reported two findings.** Both were accepted and fixed.
+
+- High: `dev-clean` ran `rm -rf {{dev_dir}}` unquoted, so a checkout path with a space would split and could delete the wrong directory. The Makefile had the same problem. Every dev path is now quoted, with just's `quote()` and with double quotes in make. Tested in a scratch checkout at `.../my work/` with a decoy at `.../my/`: only `.dev` was removed, under both just and make.
+- Medium: `sync-github` put its flags into the script source, so `$(...)` would run before validation. The recipe is now `[positional-arguments]` and loops over `"$@"`. Tested with `'$(touch /tmp/...)'`: it was rejected as an unknown flag, and the file was not created.

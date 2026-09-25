@@ -72,12 +72,13 @@ synthetic-container:
 # so those two find nothing unless .dev/config sets their roots.
 dev_dir := justfile_directory() / ".dev"
 dev_addr := env("LAMPI_DEV_ADDR", "127.0.0.1:18787")
-dev_env := "XDG_CONFIG_HOME=" + dev_dir / "config" + " XDG_STATE_HOME=" + dev_dir / "state" + " LAMPI_SERVER=http://" + dev_addr + " LAMPI_TOKEN_FILE="
+# Every path is quoted: the checkout path may hold a space.
+dev_env := "XDG_CONFIG_HOME=" + quote(dev_dir / "config") + " XDG_STATE_HOME=" + quote(dev_dir / "state") + " LAMPI_SERVER=" + quote("http://" + dev_addr) + " LAMPI_TOKEN_FILE="
 
 # Run a lake from .dev/lake on the dev address. Extra flags go to serve.
 [positional-arguments]
 dev-serve *args: build
-    env {{dev_env}} bin/terva-lampi serve --data {{dev_dir}}/lake --addr {{dev_addr}} "$@"
+    env {{dev_env}} bin/terva-lampi serve --data {{quote(dev_dir / "lake")}} --addr {{quote(dev_addr)}} "$@"
 
 # `just dev sync`, `just dev status`, `just dev agent discover`.
 # Run any command with .dev config and state, against the dev lake.
@@ -87,7 +88,7 @@ dev *args: build
 
 # Remove .dev/: the dev lake, machine id, token, and agent state.
 dev-clean:
-    rm -rf {{dev_dir}}
+    rm -rf {{quote(dev_dir)}}
 
 # Internal work merges on Forgejo (origin) and external agents' pull
 # requests merge on GitHub (github), so each main can move ahead of the
@@ -96,11 +97,12 @@ dev-clean:
 # PR, and run this again after it lands. It never force-pushes, and it
 # prints the plan and pushes nothing without --yes. docs/pr-reviews.md.
 # Fast-forward the stale main between Forgejo and GitHub. Needs --yes.
+[positional-arguments]
 sync-github *flags:
     #!/usr/bin/env bash
     set -euo pipefail
     yes=false
-    for f in {{flags}}; do
+    for f in "$@"; do
         case "$f" in
             --yes) yes=true ;;
             *) echo "sync-github: unknown flag $f" >&2; exit 2 ;;
