@@ -140,6 +140,13 @@ substitutes `LAMPI_SERVE_ADDR`, `LAMPI_SERVE_DATA`, and
 `LAMPI_SERVE_TOKEN_FILE` into `--addr`, `--data`, and `--token-file`.
 The process does not read those names.
 
+`serve` writes one line per request to stderr, so
+`journalctl -u terva-lampi-serve` shows them. A 200 `/healthz` is not
+logged. `X-Forwarded-For` is logged as the proxy sent it.
+`Authorization` is not logged. `systemctl stop` waits up to 20s for
+requests in flight and 30s for the normalize queue, under systemd's
+90s default. Jobs the drain did not reach run at the next start.
+
 Nothing in `deploy/` is installed by `make build`.
 
 ## TLS in front

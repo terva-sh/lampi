@@ -264,6 +264,12 @@ func validateManifest(m *protocol.Manifest) error {
 	if m.CaptureProtocol != protocol.Version {
 		return fmt.Errorf("capture_protocol %d is not supported", m.CaptureProtocol)
 	}
+	if m.MachineID == "" || m.Harness == "" || m.NativeSessionID == "" {
+		return fmt.Errorf("machine_id, harness, and native_session_id are required")
+	}
+	if len(m.Artifacts) == 0 {
+		return fmt.Errorf("manifest has no artifacts")
+	}
 	for i, a := range m.Artifacts {
 		if len(a.ChunkSHA256s) > 0 {
 			if a.ByteWatermarkPrev != 0 {

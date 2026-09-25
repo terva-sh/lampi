@@ -3,7 +3,11 @@
 // The object key is sha256/<ab>/<cdef…>, the hex digest split after two
 // characters so one directory does not hold every object. A put of a
 // digest that is already present is a success and writes nothing: that
-// is the whole of dedup layer A.
+// is the whole of dedup layer A. A present object whose size or hash is
+// wrong is replaced by the verified new one.
+//
+// Every install fsyncs the file before the rename and the directory
+// after it, so an object that was acknowledged survives a crash.
 package cas
 
 import (
@@ -37,8 +41,8 @@ type Store struct {
 // Open creates the store root. The directory is owner-only: the blobs are
 // raw transcripts.
 func Open(root string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Join(root, "sha256"), 0o700); err != nil {
-		return nil, fmt.Errorf("cas: %w", err)
+	if err := mkdirSynced(filepath.Join(root, "sha256")); err != nil {
+		return nil, err
 	}
 	return &Store{Root: root}, nil
 }
@@ -51,41 +55,49 @@ func (s *Store) Path(digest string) (string, error) {
 	return filepath.Join(s.Root, "sha256", digest[:2], digest[2:]), nil
 }
 
-// Has reports whether digest is already stored.
+// emptyDigest is the sha256 of zero bytes, the only object that may be
+// stored empty.
+const emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+// Has reports whether digest is already stored. It does not read the
+// object. An empty file under any other digest is reported missing: that
+// is what a crash before the data reached disk leaves, and a missing
+// answer makes the client put it again, which replaces it. Other damage
+// is still reported, and the next put of that digest replaces it.
 func (s *Store) Has(digest string) (bool, error) {
 	p, err := s.Path(digest)
 	if err != nil {
 		return false, err
 	}
-	_, err = os.Stat(p)
+	fi, err := os.Stat(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	if fi.Size() == 0 && digest != emptyDigest {
+		return false, nil
+	}
 	return true, nil
 }
 
-// Put stores r under digest. The bytes are hashed while they are written.
-// If the hash does not equal digest, nothing is kept. If the object is
-// already present, the new file is discarded and exists is true.
+// Put stores r under digest. The bytes are hashed while they are written
+// to a temp file, with no lock held, so a slow body does not stall other
+// writers. If the hash does not equal digest, nothing is kept. If the
+// object is already present and intact, the new file is discarded and
+// exists is true. A present object whose size or hash is wrong is
+// replaced by the new file.
 //
 // limit is the maximum accepted size. A read one byte past limit fails
 // before the object is installed. limit <= 0 means no cap.
 func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.putLocked(digest, r, limit)
-}
-
-func (s *Store) putLocked(digest string, r io.Reader, limit int64) (exists bool, err error) {
 	final, err := s.Path(digest)
 	if err != nil {
 		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
+	if err := mkdirSynced(filepath.Dir(final)); err != nil {
+		return false, err
 	}
 
 	tmp, err := os.CreateTemp(filepath.Dir(final), ".put-*")
@@ -124,22 +136,51 @@ func (s *Store) putLocked(digest string, r io.Reader, limit int64) (exists bool,
 	if err := tmp.Chmod(0o600); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		return false, fmt.Errorf("cas: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
 
-	if _, err := os.Stat(final); err == nil {
-		return true, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	exists, err = s.commitFileLocked(digest, tmpName, n)
+	if err != nil {
 		return false, err
 	}
-	if err := os.Rename(tmpName, final); err != nil {
+	if !exists {
+		// Rename succeeded, so the deferred Remove must not delete the blob.
+		tmpName = ""
+	}
+	return exists, nil
+}
+
+// intactLocked reports whether the object for digest is present, is size
+// bytes, and hashes to digest. The size check comes first, so the hash
+// reads at most size bytes. size < 0 accepts the stored size: every
+// object was installed under the blob cap, and damage truncates or
+// zero-fills, so the hash is still bounded. The caller holds s.mu.
+func (s *Store) intactLocked(digest string, size int64) (bool, error) {
+	p, err := s.Path(digest)
+	if err != nil {
+		return false, err
+	}
+	st, err := os.Stat(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
-	// Rename succeeded, so the deferred Remove must not delete the blob.
-	tmpName = ""
-	_ = n
-	return false, nil
+	if !st.Mode().IsRegular() || (size >= 0 && st.Size() != size) {
+		return false, nil
+	}
+	sum, err := hashFile(p)
+	if err != nil {
+		return false, err
+	}
+	return sum == digest, nil
 }
 
 // Open opens digest for reading. A stored object is that file. A logical

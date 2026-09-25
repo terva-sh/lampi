@@ -40,7 +40,7 @@ Four agent defects can send bytes, or run code, that the allowlist should have s
 - `git` runs under the repository's own config. Proven on git 2.43. `ProjectAt` runs for every discovered session, before the allowlist. `rootGit` (`internal/adapter/git.go:363-395`) drops the global and system config, but a checkout's `.git/config` still applies. A hostile checkout can make that `git` invocation run a command as the agent user. It is enough to have run one agent session in that directory.
 - Remote credentials go to the lake. Proven. `originURL` (`git.go:126-148`) returns the URL raw, so `https://user:token@host/…` lands in `manifest.project.git_remote`, the catalog, and every refusal line. The manifest is never scanned.
 - One session can upload another's bytes. Proven. `Bundle.Paths` is keyed by content digest in every adapter (for example `adapter/terva/terva.go:223`) and read at `internal/upload/prepare.go:126-130`. Two files identical at hash time, such as empty `.errors.jsonl` sidecars, map to one path. If the other one changes before the read, the allowed session uploads the denied session's bytes.
-- Deny fails open. Proven. `internal/config/policy.go:269-305`. A `cwd_prefix` deny misses a case variant on APFS, a symlinked cwd bypasses it, and a `git_remote` deny misses a session whose remote reads empty.
+- Deny fails open. Proven. `internal/config/policy.go:44-95` (`Permitted`, `matches`, `cwdHasPrefix`). A `cwd_prefix` deny misses a case variant on APFS, a symlinked cwd bypasses it, and a `git_remote` deny misses a session whose remote reads empty.
 
 ### Approach
 
