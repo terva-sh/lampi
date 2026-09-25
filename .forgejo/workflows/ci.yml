@@ -1,0 +1,55 @@
+# Forgejo CI for terva-lampi, the primary gate. The internal Forgejo is
+# where lampi's pull requests land; GitHub is a mirror and keeps
+# .github/workflows/ci.yml as a second signal on what it receives.
+#
+# The gates match `just ci` / `make ci`: vet, gofmt, test, and a build
+# of the binary. The test step adds -race, which the suite passes and
+# the GitHub workflow does not run. The commands are inline because the
+# container does not install just. When a gate changes in the justfile,
+# change it here and in .github/workflows/ci.yml.
+#
+# Actions resolve against this Forgejo, not GitHub, so checkout comes
+# from the Actions-Mirrors org, and Go comes from the internal
+# registry's golang image rather than setup-go. Both follow the other
+# terva-sh repositories. The registry mirror is curated: 1.27-alpine is
+# proven there, and it is the same Go line as go.mod.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and Test
+    runs-on: docker
+    container:
+      image: container.local.sothr.com/library/golang:1.27-alpine
+    steps:
+      - name: Install dependencies
+        # git for the checkout. gcc and musl-dev are cgo, which -race
+        # needs on alpine; without them the race step fails to link.
+        run: apk add --no-cache git gcc musl-dev
+
+      - name: Checkout Code
+        uses: Actions-Mirrors/forgejo-actions-checkout@v6
+
+      - name: Download modules
+        run: go mod download
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+
+      # internal/accept.TestMVPAcceptance is the MVP gate.
+      - name: go test (race)
+        run: go test -race ./...
+
+      - name: go build
+        run: go build -o bin/terva-lampi ./cmd/terva-lampi

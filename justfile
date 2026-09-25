@@ -1,9 +1,10 @@
 # lampi dev tasks. `just` lists them.
 #
-# These are the same steps .github/workflows/ci.yml runs. The workflow
-# keeps the commands inline: the runner is setup-go on ubuntu and does
-# not install just. When you change a gate here, change it there, and
-# in the Makefile, which exists so `make test` works without just.
+# These are the same steps .forgejo/workflows/ci.yml, the primary gate,
+# and .github/workflows/ci.yml, on the GitHub mirror, run. Both keep the
+# commands inline because neither runner installs just. When you change
+# a gate here, change it in both, and in the Makefile, which exists so
+# `make test` works without just.
 
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
