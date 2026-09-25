@@ -103,3 +103,64 @@ func TestPurgeRemovesSessionAndUnsharedBlobs(t *testing.T) {
 		t.Fatalf("second plan ok=%v err=%v", ok, err)
 	}
 }
+
+// Another session names a logical file by its whole digest only, so
+// its chunks are kept through the index. When that index does not
+// parse, the plan stops rather than delete chunks the other session
+// still needs.
+func TestPurgeRefusesUnreadableSharedIndex(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	c1, c2 := []byte("error one\n"), []byte("error two\n")
+	dc1, dc2 := putBlob(t, h, "", c1), putBlob(t, h, "", c2)
+	errs := append(append([]byte{}, c1...), c2...)
+	de := shaOf(t, errs)
+	if _, err := s.CAS.BindLogical(de, []string{dc1, dc2}, []int64{int64(len(c1)), int64(len(c2))}); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"type":"meta","meta":{"id":"sid-a","cwd":"/tmp","started":"2026-09-22T16:10:00Z","version":"0.1.0"}}` + "\n")
+	d := putBlob(t, h, "", body)
+	withErrs := func(m protocol.Manifest, chunks bool) protocol.Manifest {
+		a := protocol.Artifact{
+			Kind:    protocol.KindErrorsJSONL,
+			RelPath: "sessions/x/" + m.NativeSessionID + ".errors.jsonl",
+			Size:    int64(len(errs)),
+			SHA256:  de,
+		}
+		if chunks {
+			a.ChunkSHA256s = []string{dc1, dc2}
+			a.ChunkLengths = []int64{int64(len(c1)), int64(len(c2))}
+		}
+		m.Artifacts = append(m.Artifacts, a)
+		return m
+	}
+	ackA := postManifest(t, h, withErrs(manifest("machine-a", "sid-a", body, d, 0, d), true))
+	postManifest(t, h, withErrs(manifest("machine-b", "sid-b", body, d, 0, d), false))
+	if err := s.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The shared index is intact: the chunks are kept.
+	plan, ok, err := s.PlanPurge(t.Context(), ackA.SessionUID)
+	if err != nil || !ok {
+		t.Fatalf("plan ok=%v err=%v", ok, err)
+	}
+	for _, o := range plan.Objects {
+		if o == dc1 || o == dc2 || o == de {
+			t.Fatalf("plan removes shared %s: %v", o, plan.Objects)
+		}
+	}
+
+	lp := filepath.Join(s.CAS.Root, "logical", de[:2], de[2:])
+	if err := os.WriteFile(lp, []byte("not an index"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.PlanPurge(t.Context(), ackA.SessionUID); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("plan over a damaged shared index: %v", err)
+	}
+	for _, c := range []string{dc1, dc2} {
+		if ok, _ := s.CAS.Has(c); !ok {
+			t.Fatalf("chunk %s removed", c)
+		}
+	}
+}

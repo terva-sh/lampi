@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
@@ -71,9 +72,14 @@ func (s *Server) PlanPurge(ctx context.Context, sessionUID string) (PurgePlan, b
 		}
 	}
 	for d := range keep {
-		_, _, chunks, err := s.CAS.Stored(d)
+		_, isLogical, chunks, err := s.CAS.Stored(d)
 		if err != nil {
 			return PurgePlan{}, false, err
+		}
+		// An index another session needs but that does not parse hides
+		// which chunks it keeps. Stop rather than guess.
+		if isLogical && len(chunks) == 0 {
+			return PurgePlan{}, false, fmt.Errorf("purge: logical index %s is unreadable; run serve fsck", d)
 		}
 		addNamed(keep, "", "", chunks...)
 	}
