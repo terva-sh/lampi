@@ -153,9 +153,17 @@ LAMPI_WATCH=fsnotify overrides that on any platform.
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
 terva-lampi sync: hello, allowlist, ruleset v2, watermark, outbox, then
-the upload. A failed push is logged and tried again, even when the file
-does not grow. The first wait is 2s. Each further failure doubles the
-ceiling of a jittered wait, up to 5 minutes, and a success resets it.
+the upload. Growth waits until the watch has been quiet for 5s, and
+never more than 30s after the first change, so a burst of writes is
+one sync. config.json agent.debounce and agent.debounce_max change
+those two ("0s" syncs on every change). A file whose size, mtime, and
+inode have not moved since the last pass is not opened, and a session
+whose files all match their watermarks is not posted. The pass at
+start, and one every 6 hours, reads and hashes every file, which
+catches a rewrite that kept the size and mtime. A failed push is
+logged and tried again, even when the file does not grow. The first
+wait is 2s. Each further failure doubles the ceiling of a jittered
+wait, up to 5 minutes, and a success resets it.
 Growth during that wait does not start a push. A 401 or 403 is logged
 once, naming the token file, and waits the full 5 minutes. A project
 the allowlist or the scan refused is not retried. A refusal or a
@@ -243,6 +251,13 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	if err != nil {
 		return err
 	}
+	window, longest, err := agentWindows(env)
+	if err != nil {
+		return err
+	}
+	// The memo lives as long as the process. Its first pass, the one
+	// at start, hashes every file.
+	opt.Memo = upload.NewMemo()
 	poll, err := watch.PollByDefault(env.getenv)
 	if err != nil {
 		return err
@@ -280,10 +295,18 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		waiting.Store(false)
 		wake()
 	})
+	// Growth waits for the watch to go quiet, so a burst of writes is
+	// one sync. The start pass and SIGUSR1 do not wait.
+	settle := newDebouncer(window, longest, func() {
+		if !waiting.Load() {
+			wake()
+		}
+	})
+	defer settle.stop()
 	watchers := startWatches(src, poll, func(c watch.Change) {
 		fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
 		if !waiting.Load() {
-			wake()
+			settle.touch()
 		}
 	}, func(err error) {
 		fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
@@ -402,6 +425,15 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 			disarmRetry()
 		}
 	}
+}
+
+// agentWindows is the debounce from config.json.
+func agentWindows(env Env) (window, longest time.Duration, err error) {
+	file, err := config.LoadFile(env.getenv)
+	if err != nil {
+		return 0, 0, err
+	}
+	return file.Agent.Windows()
 }
 
 // loadAgent resolves the options once at start. tokenPath is the file

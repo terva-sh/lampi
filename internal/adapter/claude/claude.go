@@ -92,6 +92,12 @@ func (Adapter) Manifests(root, machineID string) (adapter.Bundle, error) {
 	return Manifests(root, machineID)
 }
 
+// identity is what the memo keeps for one file.
+type identity struct {
+	Session string `json:"session,omitempty"`
+	CWD     string `json:"cwd,omitempty"`
+}
+
 type item struct {
 	ref     adapter.Ref
 	sum     string
@@ -104,6 +110,13 @@ type item struct {
 // unrelated transcripts are not merged. harness_version is Version.
 // Redaction is left empty. The upload path scans the file.
 func Manifests(root, machineID string) (adapter.Bundle, error) {
+	return ManifestsMemo(root, machineID, nil)
+}
+
+// ManifestsMemo is Manifests with a memo. A file the memo recalls at
+// the stat the walk saw is not opened: its digest and its session id
+// and cwd come from the memo.
+func ManifestsMemo(root, machineID string, memo adapter.Memo) (adapter.Bundle, error) {
 	refs, skipped, err := adapter.WalkSkipped(root, Adapter{}.WatchDir(), Adapter{}.Match)
 	if err != nil {
 		return adapter.Bundle{}, err
@@ -112,20 +125,19 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 	for _, ref := range refs {
 		// One file that cannot be read is left out. The rest of the
 		// harness still uploads.
-		session, cwd, err := readIdentity(ref.AbsPath)
+		sum, id, err := adapter.Identify(memo, ref, func() (identity, error) {
+			session, cwd, err := readIdentity(ref.AbsPath)
+			return identity{Session: session, CWD: cwd}, err
+		})
 		if err != nil {
 			skipped = append(skipped, fmt.Errorf("claude: %s: %w", ref.RelPath, err))
 			continue
 		}
+		session := id.Session
 		if session == "" {
 			session = strings.TrimSuffix(ref.RelPath, ".jsonl")
 		}
-		sum, err := adapter.HashFile(ref.AbsPath)
-		if err != nil {
-			skipped = append(skipped, fmt.Errorf("claude: %s: %w", ref.RelPath, err))
-			continue
-		}
-		items = append(items, item{ref: ref, sum: sum, session: session, cwd: cwd})
+		items = append(items, item{ref: ref, sum: sum, session: session, cwd: id.CWD})
 	}
 
 	order := make([]string, 0)

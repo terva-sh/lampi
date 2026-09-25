@@ -23,6 +23,13 @@ type Ref struct {
 	RelPath string
 	Size    int64
 	ModTime time.Time
+	// Inode is zero where the platform has none.
+	Inode uint64
+}
+
+// Stat is the size, mtime, and inode the walk saw.
+func (r Ref) Stat() FileStat {
+	return FileStat{Size: r.Size, ModTime: r.ModTime, Inode: r.Inode}
 }
 
 // Bundle is a set of manifests plus the local path for each artifact,

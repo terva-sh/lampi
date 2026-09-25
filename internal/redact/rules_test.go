@@ -149,6 +149,9 @@ func TestPublishedExamplesAreNotHits(t *testing.T) {
 		// Split so push protection does not read the placeholder as a
 		// webhook.
 		"https://hooks.slack.com/services/" + "T00000000/B00000000/" + strings.Repeat("X", 24),
+		// JSON escapes the slashes; the view doubles them.
+		`{"url":"https:\/\/hooks.slack.com\/services\/` + `T00000000\/B00000000\/` + strings.Repeat("X", 24) + `"}`,
+		`{"k":"aws_secret_access_key=wJalrXUtnFEMI\/K7MDENG\/bPxRfiCYEXAMPLEKEY"}`,
 	} {
 		got, err := (Ruleset{}).Scan([]byte(body))
 		if err != nil {
@@ -169,6 +172,25 @@ func TestPublishedExamplesAreNotHits(t *testing.T) {
 	}
 	if got.Hits != 1 {
 		t.Fatalf("scan: %+v", got)
+	}
+}
+
+// The example check compares the key material exactly. A real key
+// that merely contains a published example is still a hit.
+func TestKeyContainingAnExampleIsAHit(t *testing.T) {
+	for _, tc := range []struct{ body, rule string }{
+		{"aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" + "Zq9", "aws-secret-access-key"},
+		{"aws_secret_access_key = Zq9" + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws-secret-access-key"},
+		{"https://hooks.slack.com/services/" + "T00000000/B00000000/" + strings.Repeat("X", 24) + "Zq9", "slack-webhook"},
+		{"https://hooks.slack.com/services/" + "T00000000/B00000000/" + strings.Repeat("X", 23), "slack-webhook"},
+	} {
+		got, err := (Ruleset{}).Scan([]byte(tc.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Hits != 1 || got.Rules[0] != tc.rule {
+			t.Fatalf("%q: %+v", tc.body, got)
+		}
 	}
 }
 
@@ -194,18 +216,21 @@ func TestRuleNearMissesV2(t *testing.T) {
 	}
 }
 
-// The case-insensitive rule lowers the buffer one window at a time. A
-// key name across a window edge is still found, at every offset.
-func TestFoldAcrossWindows(t *testing.T) {
-	secret := "AWS_Secret_Access_Key=" + strings.Repeat("Q", 40)
-	for shift := 0; shift <= len("AWS_Secret_Access_Key"); shift++ {
-		body := strings.Repeat(".", foldWindow-shift) + secret + " " + strings.Repeat(".", foldWindow)
-		got, err := (Ruleset{}).Scan([]byte(body))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got.Hits != 1 || got.Rules[0] != "aws-secret-access-key" {
-			t.Fatalf("shift %d: %+v", shift, got)
+// The case-insensitive rule matches its key name in any case, at any
+// offset in a large buffer, including in every case of the two bytes
+// the literal search keys on.
+func TestFoldAtEveryOffset(t *testing.T) {
+	for _, name := range []string{"AWS_Secret_Access_Key", "aws_SECRET_access_key", "sEcReTaccesskey"} {
+		secret := name + "=" + strings.Repeat("Q", 40)
+		for shift := 0; shift <= len(name); shift++ {
+			body := strings.Repeat(".", 64<<10-shift) + secret + " " + strings.Repeat(".", 64<<10)
+			got, err := (Ruleset{}).Scan([]byte(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Hits != 1 || got.Rules[0] != "aws-secret-access-key" {
+				t.Fatalf("%s shift %d: %+v", name, shift, got)
+			}
 		}
 	}
 }
@@ -216,8 +241,11 @@ func TestRuleShapes(t *testing.T) {
 			t.Errorf("%s has no prefix", r.name)
 		}
 		for _, p := range r.prefixes {
-			if r.fold && (len(p) > foldPad || strings.ToLower(string(p)) != string(p)) {
-				t.Errorf("%s: fold prefix %q must be lowercase and at most %d bytes", r.name, p, foldPad)
+			if len(p) < 2 {
+				t.Errorf("%s: prefix %q is shorter than the two bytes the search keys on", r.name, p)
+			}
+			if r.fold && strings.ToLower(string(p)) != string(p) {
+				t.Errorf("%s: fold prefix %q must be lowercase", r.name, p)
 			}
 		}
 	}

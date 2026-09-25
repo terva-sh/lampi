@@ -285,6 +285,9 @@ func TestDeployConfigExample(t *testing.T) {
 	if !ok || !codex.Enabled || codex.Root == "" || !filepath.IsAbs(codex.Root) {
 		t.Fatalf("codex %+v present %v", codex, ok)
 	}
+	if w, l, err := f.Agent.Windows(); err != nil || w != DefaultDebounce || l != DefaultDebounceMax {
+		t.Fatalf("agent debounce %s %s %v", w, l, err)
+	}
 	for _, id := range []string{protocol.HarnessTerva, protocol.HarnessOpenCode, protocol.HarnessCursor, protocol.HarnessCursorCLI} {
 		if _, ok := f.Harnesses[id]; ok {
 			t.Fatalf("%s should be omitted", id)

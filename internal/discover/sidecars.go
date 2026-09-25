@@ -89,7 +89,7 @@ func walkSidecarDir(home, dir string) ([]File, []error, error) {
 		if !ok || kind == KindTranscript || kind == KindErrors {
 			return nil
 		}
-		info, err := d.Info()
+		info, err := FileInfo(p, d)
 		if err != nil {
 			return err
 		}
@@ -98,6 +98,7 @@ func walkSidecarDir(home, dir string) ([]File, []error, error) {
 			RelPath: rel,
 			Size:    info.Size(),
 			ModTime: info.ModTime().UTC(),
+			Inode:   Inode(info),
 			Kind:    kind,
 		})
 		return nil

@@ -346,7 +346,8 @@ func agentFixture(t *testing.T, server string) (home, cfg, state, session string
 	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	raw := fmt.Sprintf("{\"server\":%q,\"projects\":{\"allow\":[{\"cwd_prefix\":\"/work/app\"}]}}\n", server)
+	// A short debounce keeps these tests quick. The default is 5s.
+	raw := fmt.Sprintf("{\"server\":%q,\"projects\":{\"allow\":[{\"cwd_prefix\":\"/work/app\"}]},\"agent\":{\"debounce\":\"100ms\",\"debounce_max\":\"1s\"}}\n", server)
 	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}

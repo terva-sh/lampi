@@ -36,6 +36,7 @@ type File struct {
 	Projects  Projects        `json:"projects,omitempty"`
 	Redaction RedactionConfig `json:"redaction,omitempty"`
 	Harnesses Harnesses       `json:"harnesses,omitempty"`
+	Agent     AgentConfig     `json:"agent,omitempty"`
 }
 
 // Machine is the stable identity written once.

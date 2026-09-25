@@ -193,6 +193,27 @@ func (q *DB) Pending(ctx context.Context) ([]Item, error) {
 	return out, nil
 }
 
+// Identities is the identity of every pending row, without the bodies.
+func (q *DB) Identities(ctx context.Context) (map[string]bool, error) {
+	rows, err := q.db.QueryContext(ctx, `SELECT identity FROM items`)
+	if err != nil {
+		return nil, fmt.Errorf("outbox: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var ident string
+		if err := rows.Scan(&ident); err != nil {
+			return nil, fmt.Errorf("outbox: %w", err)
+		}
+		out[ident] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("outbox: %w", err)
+	}
+	return out, nil
+}
+
 // Ack drops item. Missing rows are success: the server ACK was already
 // applied, or a peer dequeued it. ID wins when set; otherwise the
 // identity (or the identity derived from the digest and manifest) is

@@ -34,7 +34,9 @@ Prints the local machine id (creating it if needed), one line per
 known harness, outbox depth, a watermark summary, the last finished
 sync, and the last attempt with the most recent error. last_attempt
 is the time of the last run and ok or failed. last_error is the time
-and text of the most recent failure, or none. Those live under the state directory, next to the
+and text of the most recent failure, or none. last_skipped is how
+many files or harnesses that run left out because they could not be
+read, followed by up to five of them, one per indented line. Those live under the state directory, next to the
 files the agent and sync already use.
 
 Each harness line has this spelling, in order terva, claude, codex,
@@ -169,12 +171,18 @@ func lastAttemptLines(stateDir string) string {
 	}
 	out := fmt.Sprintf("last_attempt: %s %s\n", a.At.UTC().Format(time.RFC3339), result)
 	if a.LastError == "" {
-		return out + "last_error: none\n"
+		out += "last_error: none\n"
+	} else {
+		// An error can span lines, such as a refusal list. status keeps
+		// one line per field.
+		msg := strings.Join(strings.Fields(a.LastError), " ")
+		out += fmt.Sprintf("last_error: %s %s\n", a.LastErrorAt.UTC().Format(time.RFC3339), msg)
 	}
-	// An error can span lines, such as a refusal list. status keeps
-	// one line per field.
-	msg := strings.Join(strings.Fields(a.LastError), " ")
-	return out + fmt.Sprintf("last_error: %s %s\n", a.LastErrorAt.UTC().Format(time.RFC3339), msg)
+	out += fmt.Sprintf("last_skipped: %d\n", a.Skipped)
+	for _, line := range a.SkippedLines {
+		out += "  " + line + "\n"
+	}
+	return out
 }
 
 func outboxDepth(stateDir string) (int, error) {

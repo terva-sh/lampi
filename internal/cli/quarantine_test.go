@@ -138,3 +138,31 @@ func TestStatusPrintsLastAttempt(t *testing.T) {
 		t.Fatalf("status:\n%s", text)
 	}
 }
+
+// A file a pass could not read is named in last_attempt.json, and
+// status prints it, so it is not only a line on the agent's stderr.
+func TestStatusPrintsLastSkipped(t *testing.T) {
+	cfg, home, state := t.TempDir(), t.TempDir(), t.TempDir()
+	// A first line past the reader's cap hides the session id, so the
+	// file is skipped.
+	session := filepath.Join(home, "sessions", "abcd", "s.jsonl")
+	if err := os.MkdirAll(filepath.Dir(session), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(session, []byte(`{"type":"meta","pad":"`+strings.Repeat("x", 2<<20)+"\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	env := Env{Stdout: &out, Stderr: ioDiscard(), Getenv: statusEnv(cfg, home, state)}
+	if err := Run([]string{"sync", "--server", "http://127.0.0.1:1"}, env); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"status", "--server", "http://127.0.0.1:1"}, env); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "last_skipped: 1\n  terva: sessions/abcd/s.jsonl: ") {
+		t.Fatalf("status:\n%s", text)
+	}
+}
