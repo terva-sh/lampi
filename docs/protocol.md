@@ -185,7 +185,7 @@ digest is already in the CAS. Otherwise it returns 409 and `missing`.
 ```
 
 `harness` is `terva`, `claude`, `codex`, `opencode`, `cursor`, or
-`cursor-cli`. For terva, `harness_version` is the producer version
+`cursor-cli`. Any other harness is `400`. For terva, `harness_version` is the producer version
 from the meta line when that line has one. For Claude Code, Codex,
 OpenCode, the Cursor IDE, and the Cursor CLI, `harness_version` is
 the adapter's pinned reader version. The on-disk object for those
@@ -252,7 +252,7 @@ next to a terva transcript, `raati_json` for a record under `raati/`,
 `tasks_json` for a task board under `tasks/` (the file includes
 archived generations), `cursor_state_json` for a filtered Cursor IDE
 snapshot, or `cursor_cli_store_json` for a filtered Cursor CLI
-snapshot. A raati or tasks file is an artifact of a session that is
+snapshot. Any other kind is `400`. A raati or tasks file is an artifact of a session that is
 already being captured. Normalize projects terva transcripts and error
 sidecars, Claude Code, Codex, and OpenCode `transcript_jsonl`, Cursor
 IDE `cursor_state_json`, and Cursor CLI `cursor_cli_store_json`. A
@@ -278,6 +278,9 @@ is one blob, named by `tail_sha256`, and assembling a tail also stays
 under `max_blob_bytes`. A file over the cap is sent whole, as chunks,
 with `byte_watermark_prev` 0.
 
+`size` is the length of the full file. A size that does not match
+the stored blob, the chunks, or the assembled tail is `400`.
+
 `byte_watermark_prev` of 0 means the PUT body is that file and
 `tail_sha256` equals `sha256`. A non-zero prev
 means the PUT body is only the bytes after that offset, `tail_sha256` is
@@ -294,9 +297,11 @@ The lake compares the full bytes to the stored head for that path:
 | Strict prefix of the head | The client is stale. The head stays. `relation` is `stale`. |
 | Neither is a prefix | New artifact, `relation` `divergent_copy`. The head stays. The copies are not merged. |
 
-A tail whose prev is not the stored head's length, or whose assembly
-hash is not `sha256`, is `409` `{"error":"prefix mismatch"}`. The client
-PUTs the whole file and posts the manifest again with prev 0.
+A tail whose `sha256` is already the stored head is a retry after a
+lost ACK and returns `unchanged`. Otherwise a tail whose prev is not
+the stored head's length, or whose assembly hash is not `sha256`, is
+`409` `{"error":"prefix mismatch"}`. The client PUTs the whole file
+and posts the manifest again with prev 0.
 
 A 200 body is the ACK. The client may advance a watermark only after it
 sees this. `internal/watermark` enforces that. `terva-lampi sync` commits
@@ -347,7 +352,7 @@ detail, which can name a lake path, is in the server log.
 
 | Status | When |
 |--------|------|
-| 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, unsupported protocol, tail combined with chunks, missing manifest fields, a request body that stopped short |
+| 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, size mismatch, unsupported protocol, harness, or kind, tail combined with chunks, missing manifest fields, a request body that stopped short |
 | 401 | Bearer token missing or wrong |
 | 408 | The request body did not arrive before its deadline |
 | 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
