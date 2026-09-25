@@ -297,8 +297,14 @@ func validateManifest(m *protocol.Manifest) error {
 	if m.CaptureProtocol != protocol.Version {
 		return fmt.Errorf("capture_protocol %d is not supported", m.CaptureProtocol)
 	}
+	if m.MachineID == "" || m.Harness == "" || m.NativeSessionID == "" {
+		return fmt.Errorf("machine_id, harness, and native_session_id are required")
+	}
 	if !knownHarnesses[m.Harness] {
 		return fmt.Errorf("harness %q is not supported", m.Harness)
+	}
+	if len(m.Artifacts) == 0 {
+		return fmt.Errorf("manifest has no artifacts")
 	}
 	for i, a := range m.Artifacts {
 		if !knownKinds[a.Kind] {

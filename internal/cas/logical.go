@@ -26,9 +26,11 @@ type logicalIndex struct {
 // in order. lengths[i] is the size of parts[i]. The hash of the
 // concatenation must be digest.
 //
-// A digest that is already installed as a single object is left
-// untouched and the parts are not read. exists is then true. A logical
-// file has no such object: Has stays false, and Read opens the chunks.
+// A digest that is already installed as a single intact object is left
+// untouched and the parts are not read. exists is then true. A damaged
+// object is removed once the parts verify, so Read opens the chunks. A
+// logical file has no such object: Has stays false, and Read opens the
+// chunks.
 func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exists bool, err error) {
 	if !protocol.ValidDigest(digest) {
 		return false, fmt.Errorf("cas: invalid digest %q: %w", digest, ErrRejected)
@@ -48,7 +50,7 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ok, err := s.Has(digest)
+	ok, err := s.intactLocked(digest, -1)
 	if err != nil {
 		return false, err
 	}
@@ -91,6 +93,10 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 		return false, fmt.Errorf("cas: assembled sha256 %s does not match %s: %w", sum, digest, ErrRejected)
 	}
 
+	if err := s.removeObjectLocked(digest); err != nil {
+		return false, err
+	}
+
 	idx := logicalIndex{
 		ChunkSHA256s: append([]string(nil), parts...),
 		ChunkLengths: append([]int64(nil), lengths...),
@@ -104,6 +110,22 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 		return false, err
 	}
 	return false, nil
+}
+
+// removeObjectLocked deletes the installed object for digest, if any. The
+// caller has found it damaged and holds s.mu.
+func (s *Store) removeObjectLocked(digest string) error {
+	p, err := s.Path(digest)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("cas: %w", err)
+	}
+	return syncDir(filepath.Dir(p))
 }
 
 func sameLogical(a, b logicalIndex) bool {
@@ -152,8 +174,8 @@ func (s *Store) writeLogical(digest string, idx logicalIndex) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return fmt.Errorf("cas: %w", err)
+	if err := mkdirSynced(filepath.Dir(p)); err != nil {
+		return err
 	}
 	b, err := json.Marshal(idx)
 	if err != nil {
@@ -177,6 +199,9 @@ func (s *Store) writeLogical(digest string, idx logicalIndex) error {
 	if _, err := tmp.Write(b); err != nil {
 		return fmt.Errorf("cas: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("cas: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("cas: %w", err)
 	}
@@ -184,7 +209,7 @@ func (s *Store) writeLogical(digest string, idx logicalIndex) error {
 		return fmt.Errorf("cas: %w", err)
 	}
 	tmpName = ""
-	return nil
+	return syncDir(filepath.Dir(p))
 }
 
 // logicalReader reads chunks in order, one open file at a time.
