@@ -33,10 +33,14 @@ type HeldError struct {
 }
 
 func (e *HeldError) Error() string {
+	msg := fmt.Sprintf("lake %s is in use by another process", e.Dir)
 	if e.PID > 0 {
-		return fmt.Sprintf("lake %s is in use by pid %d", e.Dir, e.PID)
+		msg = fmt.Sprintf("lake %s is in use by pid %d", e.Dir, e.PID)
 	}
-	return fmt.Sprintf("lake %s is in use by another process", e.Dir)
+	if staleCanOutlive {
+		msg += fmt.Sprintf("; if no terva-lampi is running, delete %s", filepath.Join(e.Dir, Name))
+	}
+	return msg
 }
 
 func (e *HeldError) Is(target error) bool { return target == ErrHeld }

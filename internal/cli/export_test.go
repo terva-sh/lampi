@@ -304,7 +304,7 @@ func TestShareGPTExportAllowlistLineageAndOpaque(t *testing.T) {
 }
 
 func TestShareGPTExportStripsTrainingTextOnly(t *testing.T) {
-	aws := "AKIAIOSFODNN7EXAMPLE"
+	aws := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	github := "ghp_" + strings.Repeat("a", 36)
 	slack := "xoxb-1234567890-abcdefghij"
 	opaque := "gAAAAAB" + aws + "=="

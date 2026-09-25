@@ -99,7 +99,7 @@ func TestShareGPTCopiesNonStringCiphertext(t *testing.T) {
 }
 
 func TestShareGPTStripsPlaintextAndLeavesCiphertext(t *testing.T) {
-	aws := "AKIAIOSFODNN7EXAMPLE"
+	aws := "AKIA" + "Z2X5QW7RT3LK9PMN"
 	pat := "ghp_" + strings.Repeat("a", 36)
 	slack := "xoxb-1234567890-abcdefghij"
 	text := "key " + aws + " end"

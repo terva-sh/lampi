@@ -124,6 +124,13 @@ Those are agent settings. systemd substitutes `LAMPI_SERVE_ADDR`,
 `LAMPI_SERVE_DATA`, and `LAMPI_SERVE_TOKEN_FILE` from the unit and,
 when the file exists, from `/etc/terva-lampi/serve.env`.
 
+The unit is sandboxed. The file system is read-only except
+`ReadWritePaths=/var/lib/terva-lampi`. `serve` writes the lake there,
+and it rewrites the token file in its own directory. If you move
+`LAMPI_SERVE_DATA` or `LAMPI_SERVE_TOKEN_FILE`, put the new directory
+under a `ReadWritePaths=` entry. The proxy settings for 32 MiB blobs
+and the backup steps are in the checklist below.
+
 The ordered checklist is [docs/vps-bringup.md](../docs/vps-bringup.md).
 Create the `terva-lampi` user and the data directory before enabling
 the unit. `make build` does not install it.

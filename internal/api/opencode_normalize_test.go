@@ -30,6 +30,8 @@ func TestOpenCodeWorkerProjectsExport(t *testing.T) {
 	good := []byte(`{"info":{"id":"from-info","directory":"/work/app","version":"1.2.3","title":"pond session","parentID":"parent-session","time":{"created":` + at + `},"future_field":{"keep":true}},"messages":[{"info":{"id":"msg_user","role":"user","time":{"created":` + at + `}},"parts":[{"type":"text","text":"opencode pond"}]},{"info":{"id":"msg_asst","role":"assistant","parentID":"msg_user","modelID":"claude-sonnet-4-6","providerID":"anthropic","time":{"created":` + strconv.FormatInt(userAt+1000, 10) + `}},"parts":[{"type":"reasoning","text":"look at the pond","metadata":{"encrypted_content":"gAAAAABopaque=="}},{"type":"text","text":"I'll read the file."},{"type":"tool","callID":"call_1","tool":"read","state":{"status":"completed","input":{"file_path":"main.go"},"output":"package main","title":"Read main.go"}}]}]}`)
 	goodSHA := putBlob(t, h, "", good)
 	parent := "parent-session"
+	// An agent older than opencode_export_json labelled the export
+	// transcript_jsonl. The worker still projects it.
 	ack := postManifest(t, h, protocol.Manifest{
 		CaptureProtocol: protocol.Version,
 		MachineID:       "machine-a",

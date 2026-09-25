@@ -7,6 +7,11 @@ import (
 	"os"
 )
 
+// staleCanOutlive is true here: a pid cannot always be shown to be
+// dead, so a file left by a crash can hold the lake until it is
+// deleted.
+const staleCanOutlive = true
+
 // acquire creates path with O_EXCL. A file left by a process that is
 // no longer running is removed and the create is tried once more.
 func acquire(path string) (*os.File, error) {

@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -43,7 +44,7 @@ included only when config.json allowlists its manifest project.
 Default deny. Deny wins. A session that is not permitted is named on
 stderr and omitted. Each row carries raw_sha256, the current
 transcript blob. encrypted_content is copied onto the turn as stored
-and is not written into the turn value. Ruleset v1 strips matches
+and is not written into the turn value. Ruleset v2 strips matches
 from the plaintext training fields (value, tool name, and call id).
 The CAS and the normalized events are not rewritten.
 
@@ -192,6 +193,7 @@ func (x exporter) writeShareGPT(out io.Writer) error {
 			CWD:       sess.Manifest.Project.CWD,
 			CWDHash:   sess.Manifest.Project.CWDHash,
 			GitRemote: sess.Manifest.Project.GitRemote,
+			NoRepo:    sess.Manifest.Project.GitRemote == "" && adapter.OutsideCheckout(sess.Manifest.Project.CWD),
 		}
 		if !file.Projects.Permitted(project) {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s not allowlisted\n", sess.UID)
@@ -208,13 +210,13 @@ func (x exporter) writeShareGPT(out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("session %s: %w", sess.UID, err)
 		}
-		_, arts, found, err := lake.Catalog.Current(ctx, sess.Harness, sess.NativeID)
+		view, found, err := lake.Catalog.Head(ctx, sess.Harness, sess.NativeID)
 		if err != nil {
 			return err
 		}
 		digest := ""
 		if found {
-			digest = transcriptDigest(arts)
+			digest = transcriptDigest(view)
 		}
 		if digest == "" {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s has no transcript digest\n", sess.UID)
@@ -232,31 +234,45 @@ func (x exporter) writeShareGPT(out io.Writer) error {
 	return nil
 }
 
-func transcriptDigest(arts []catalog.ArtifactRow) string {
+// transcriptDigest is the blob a training row points at. That is the
+// session head when the head is a transcript or an export, because the
+// projector reads the head. Otherwise it is the first such artifact.
+func transcriptDigest(v catalog.HeadView) string {
+	for _, a := range v.Current {
+		if a.SHA256 != "" && a.SHA256 == v.HeadSHA256 && sessionBlob(a) {
+			return a.SHA256
+		}
+	}
 	var transcript string
-	for _, a := range arts {
-		if a.SHA256 == "" {
+	for _, a := range v.Current {
+		if a.SHA256 == "" || !sessionBlob(a) {
 			continue
 		}
 		// The Cursor IDE projector reads cursor_state_json. The Cursor
-		// CLI projector reads cursor_cli_store_json. The training row
+		// CLI projector reads cursor_cli_store_json. The OpenCode
+		// projector reads opencode_export_json. The training row
 		// points at that export, which is the blob that was projected.
-		if a.Kind == protocol.KindCursorStateJSON || a.Kind == protocol.KindCursorCLIStoreJSON {
-			return a.SHA256
-		}
 		if a.Kind != protocol.KindTranscriptJSONL {
-			continue
-		}
-		// history.jsonl is Codex prompt history, not a rollout. The
-		// training row points at the transcript that was projected.
-		if path.Base(a.RelPath) == "history.jsonl" {
-			continue
+			return a.SHA256
 		}
 		if transcript == "" {
 			transcript = a.SHA256
 		}
 	}
 	return transcript
+}
+
+// sessionBlob is a transcript or an export a projector reads.
+// history.jsonl is Codex prompt history, not a rollout, and is not one.
+func sessionBlob(a catalog.ArtifactRow) bool {
+	switch a.Kind {
+	case protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON:
+		return true
+	case protocol.KindTranscriptJSONL:
+		return path.Base(a.RelPath) != "history.jsonl"
+	default:
+		return false
+	}
 }
 
 func decodeEvents(body []byte) ([]normalize.Event, error) {

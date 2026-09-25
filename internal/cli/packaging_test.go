@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"database/sql"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +12,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/normalize"
+	"terva.sh/lampi/internal/protocol"
 )
 
 func repoRoot(t *testing.T) string {
@@ -380,4 +387,224 @@ func runAlias(t *testing.T, script, bin, dest string, want int) string {
 		t.Fatalf("exit %d, want %d\n%s", code, want, out)
 	}
 	return string(out)
+}
+
+// TestServeUnitSandbox pins the sandbox in the example serve unit.
+// serve rewrites its token file beside itself, so the default data and
+// token paths must sit under ReadWritePaths.
+func TestServeUnitSandbox(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "systemd", "terva-lampi-serve.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string]bool{}
+	env := map[string]string{}
+	var rw []string
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines[line] = true
+		if v, ok := strings.CutPrefix(line, "Environment="); ok {
+			k, val, _ := strings.Cut(v, "=")
+			env[k] = val
+		}
+		if v, ok := strings.CutPrefix(line, "ReadWritePaths="); ok {
+			rw = append(rw, strings.Fields(v)...)
+		}
+	}
+	for _, want := range []string{
+		"NoNewPrivileges=yes",
+		"ProtectSystem=strict",
+		"ReadWritePaths=/var/lib/terva-lampi",
+		"ProtectHome=yes",
+		"PrivateTmp=yes",
+		"PrivateDevices=yes",
+		"ProtectKernelTunables=yes",
+		"ProtectKernelModules=yes",
+		"ProtectKernelLogs=yes",
+		"ProtectControlGroups=yes",
+		"ProtectClock=yes",
+		"ProtectHostname=yes",
+		"RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+		"RestrictNamespaces=yes",
+		"RestrictRealtime=yes",
+		"RestrictSUIDSGID=yes",
+		"LockPersonality=yes",
+		"MemoryDenyWriteExecute=yes",
+		"SystemCallArchitectures=native",
+		"CapabilityBoundingSet=",
+		"UMask=0077",
+		"TimeoutStopSec=120",
+	} {
+		if !lines[want] {
+			t.Errorf("serve unit is missing %q", want)
+		}
+	}
+	under := func(p string) bool {
+		for _, root := range rw {
+			if p == root || strings.HasPrefix(p, strings.TrimSuffix(root, "/")+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, key := range []string{"LAMPI_SERVE_DATA", "LAMPI_SERVE_TOKEN_FILE"} {
+		p, ok := env[key]
+		if !ok {
+			t.Fatalf("serve unit has no Environment=%s", key)
+		}
+		dir := p
+		if key == "LAMPI_SERVE_TOKEN_FILE" {
+			// The rewrite is a temp file in the same directory.
+			dir = filepath.Dir(p)
+		}
+		if !under(dir) {
+			t.Errorf("%s=%s: %s is not under ReadWritePaths %v", key, p, dir, rw)
+		}
+	}
+}
+
+// TestVPSBringupProxyAndBackup pins the nginx settings a 32 MiB blob
+// needs and the order of the backup steps.
+func TestVPSBringupProxyAndBackup(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "vps-bringup.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(body)
+	for _, want := range []string{
+		"proxy_request_buffering off;",
+		"proxy_http_version 1.1;",
+		"proxy_read_timeout 300s;",
+		"proxy_send_timeout 300s;",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("nginx snippet is missing %q", want)
+		}
+	}
+	_, after, ok := strings.Cut(doc, "client_max_body_size ")
+	if !ok {
+		t.Fatal("nginx snippet has no client_max_body_size")
+	}
+	size, _, _ := strings.Cut(after, "m;")
+	mib, err := strconv.ParseInt(size, 10, 64)
+	if err != nil {
+		t.Fatalf("client_max_body_size %q: %v", size, err)
+	}
+	if mib<<20 <= protocol.MaxBlobBytes {
+		t.Errorf("client_max_body_size %dm does not fit a %d-byte blob", mib, protocol.MaxBlobBytes)
+	}
+
+	_, backup, ok := strings.Cut(doc, "\n## Backup\n")
+	if !ok {
+		t.Fatal("vps-bringup.md has no Backup section")
+	}
+	backup, _, _ = strings.Cut(backup, "\n## ")
+	last := -1
+	for _, step := range []string{
+		`sqlite3 /var/lib/terva-lampi/catalog.db ".backup`,
+		"/var/lib/terva-lampi/cas/sha256 ",
+		"/var/lib/terva-lampi/cas/logical ",
+		"/var/lib/terva-lampi/tokens ",
+	} {
+		i := strings.Index(backup, step)
+		if i < 0 {
+			t.Fatalf("backup section is missing %q", step)
+		}
+		if i < last {
+			t.Errorf("backup step %q is out of order", step)
+		}
+		last = i
+	}
+}
+
+// TestBackupRestoresWithoutDerivedFiles follows the backup section: a
+// consistent catalog copy taken while the lake is open, then the CAS,
+// and no normalized/, parquet/, or cas/partial/. export on the restored
+// directory rebuilds the JSONL and the parquet, and the counts match.
+func TestBackupRestoresWithoutDerivedFiles(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Allow("sekret")
+	h := lake.Handler()
+	good := fixturePrompt()
+	sum, _, err := cas.Hash(bytes.NewReader(good))
+	if err != nil {
+		t.Fatal(err)
+	}
+	putBlob(t, h, sum, good)
+	ack := postManifest(t, h, manifest("sid-prompt", "sessions/x/sid-prompt.jsonl", sum, int64(len(good))))
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	want, err := lake.Catalog.Counts(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restore := filepath.Join(t.TempDir(), "lake")
+	if err := os.MkdirAll(restore, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// VACUUM INTO is an online copy like sqlite3 .backup, without
+	// needing the sqlite3 command in the test.
+	db, err := sql.Open("sqlite", filepath.Join(dir, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`VACUUM INTO ?`, filepath.Join(restore, "catalog.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, sub := range []string{"sha256", "logical"} {
+		src := filepath.Join(dir, "cas", sub)
+		if _, err := os.Stat(src); os.IsNotExist(err) {
+			continue
+		}
+		if err := os.CopyFS(filepath.Join(restore, "cas", sub), os.DirFS(src)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "events.jsonl")
+	var stderr bytes.Buffer
+	if err := Run([]string{"export", "--data", restore, "--out", out}, Env{Stdout: &bytes.Buffer{}, Stderr: &stderr}); err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	if queryContent(t, out, "%"+proofPrompt+"%") != proofPrompt {
+		t.Fatal("restored export missed the fixture prompt")
+	}
+	if _, err := os.Stat(filepath.Join(restore, "normalized", ack.SessionUID+".jsonl")); err != nil {
+		t.Fatalf("export did not rebuild the JSONL: %v", err)
+	}
+	files, err := normalize.SessionParquet(filepath.Join(restore, "parquet"), ack.SessionUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("export did not rebuild the parquet")
+	}
+
+	back, err := api.Open(restore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer back.Close()
+	got, err := back.Catalog.Counts(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("restored counts %+v, want %+v", got, want)
+	}
 }

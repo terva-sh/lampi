@@ -53,7 +53,7 @@ func TestManifestsGroupSidecar(t *testing.T) {
 			if a.ChunkSHA256s != nil || a.ByteWatermarkPrev != 0 || a.TailSHA256 != a.SHA256 {
 				t.Fatalf("artifact watermark: %+v", a)
 			}
-			if b.Paths[a.SHA256] == "" {
+			if b.Paths[a.RelPath] == "" {
 				t.Fatalf("missing path for %s", a.SHA256)
 			}
 		}

@@ -8,6 +8,10 @@ import (
 	"syscall"
 )
 
+// staleCanOutlive is false here: the kernel drops a flock when its
+// process dies, so a crash never leaves the lake held.
+const staleCanOutlive = false
+
 // acquire flocks path. The file stays after release: removing it would
 // let a second process lock a new inode while a third still holds the
 // old one.
