@@ -52,11 +52,18 @@ type Catalog struct {
 // relation of the current head bytes and the client blob. The HTTP
 // handler always passes the CAS. A GrownFrom that does not extend the
 // head read in that transaction is stored as a divergent copy.
+//
+// Base is the relpath of the session head this artifact was compared
+// with when that is not the artifact's own path. The same session from
+// a second machine or a moved home arrives under a new relpath. An
+// unchanged or stale artifact then names the head's row, and a head
+// move clears current on that row, so the session keeps one head.
 type Decision struct {
 	Relation  string
 	GrownFrom string
 	Record    bool
 	Head      bool
+	Base      string
 }
 
 // ArtifactRow is one stored object linked to a session.
@@ -405,7 +412,7 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 		head = ""
 	}
 	if blobs != nil {
-		revised, err := reviseDecisions(ctx, tx, blobs, uid, m)
+		revised, err := reviseDecisions(ctx, tx, blobs, uid, head, m)
 		if err != nil {
 			return protocol.ManifestAck{}, err
 		}
@@ -487,7 +494,14 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 	return ack, nil
 }
 
-func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid string, m protocol.Manifest) ([]Decision, error) {
+// reviseDecisions relates each artifact to the current row at its
+// relpath. The manifest's head artifact at a relpath the session has no
+// current row for is related to the session head instead, when that
+// head is a head-bearing artifact of the same kind at another path.
+// Other artifacts stay keyed by relpath: a Claude subagent transcript,
+// a terva error sidecar, and a raati or tasks file are separate files
+// of the same session.
+func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid, sessionHead string, m protocol.Manifest) ([]Decision, error) {
 	out := make([]Decision, len(m.Artifacts))
 	head := transcriptIndex(m.Artifacts)
 	for i, a := range m.Artifacts {
@@ -495,12 +509,22 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid stri
 		if err != nil {
 			return nil, err
 		}
+		var base string
+		if !ok && i == head && headBearing(a.Kind) {
+			row, found, err := headRow(ctx, tx, uid, sessionHead)
+			if err != nil {
+				return nil, err
+			}
+			if found && row.Kind == a.Kind && row.RelPath != a.RelPath {
+				cur, ok, base = row.SHA256, true, row.RelPath
+			}
+		}
 		if !ok {
 			out[i] = Decision{Relation: protocol.RelationHead, Record: true, Head: i == head}
 			continue
 		}
 		if cur == a.SHA256 {
-			out[i] = Decision{Relation: protocol.RelationUnchanged}
+			out[i] = Decision{Relation: protocol.RelationUnchanged, Base: base}
 			continue
 		}
 		stored, err := blobs.Read(cur)
@@ -517,25 +541,30 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid stri
 		}
 		switch protocol.RelationOf(stored, client) {
 		case protocol.RelationUnchanged:
-			out[i] = Decision{Relation: protocol.RelationUnchanged}
+			out[i] = Decision{Relation: protocol.RelationUnchanged, Base: base}
 		case protocol.RelationGrownFrom:
 			out[i] = Decision{
 				Relation:  protocol.RelationGrownFrom,
 				GrownFrom: cur,
 				Record:    true,
 				Head:      i == head,
+				Base:      base,
 			}
 		case protocol.RelationStale:
 			if d, ok := snapshotDecision(a.Kind); ok {
+				d.Base = base
 				out[i] = d
 				continue
 			}
-			out[i] = Decision{Relation: protocol.RelationStale}
+			out[i] = Decision{Relation: protocol.RelationStale, Base: base}
 		default:
 			if d, ok := snapshotDecision(a.Kind); ok {
+				d.Base = base
 				out[i] = d
 				continue
 			}
+			// The copy stays under its own path and is not current,
+			// so the row at base stays the only head.
 			out[i] = Decision{Relation: protocol.RelationDivergentCopy, Record: true}
 		}
 	}
@@ -544,13 +573,14 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid stri
 
 // snapshotArtifact is a whole-file snapshot. A raati record is written
 // once. A task board is replaced, and that file holds the archived
-// generations. A Cursor IDE state export and a Cursor CLI store export
-// are replaced the same way. A raati or tasks rewrite becomes the
-// current artifact for the path and does not move the session head.
-// A Cursor IDE or CLI export is the session, so a rewrite does.
+// generations. A Cursor IDE state export, a Cursor CLI store export,
+// and an OpenCode export are replaced the same way. A raati or tasks
+// rewrite becomes the current artifact for the path and does not move
+// the session head. A Cursor or OpenCode export is the session, so a
+// rewrite does.
 func snapshotArtifact(kind string) bool {
 	switch kind {
-	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON:
+	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON:
 		return true
 	default:
 		return false
@@ -564,8 +594,39 @@ func snapshotDecision(kind string) (Decision, bool) {
 	return Decision{
 		Relation: protocol.RelationHead,
 		Record:   true,
-		Head:     kind == protocol.KindCursorStateJSON || kind == protocol.KindCursorCLIStoreJSON,
+		Head:     headBearing(kind),
 	}, true
+}
+
+// headBearing is a kind that is the session itself: a transcript, or
+// a Cursor or OpenCode export. errors_jsonl, raati_json, and
+// tasks_json sit beside it and never stand in for it.
+func headBearing(kind string) bool {
+	switch kind {
+	case protocol.KindTranscriptJSONL, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON:
+		return true
+	default:
+		return false
+	}
+}
+
+// headRow is the current artifact holding the session head digest.
+func headRow(ctx context.Context, tx *sql.Tx, uid, head string) (ArtifactRow, bool, error) {
+	if head == "" {
+		return ArtifactRow{}, false, nil
+	}
+	a := ArtifactRow{SessionUID: uid, Current: true}
+	err := tx.QueryRowContext(ctx, `
+		SELECT artifact_id, kind, relpath, sha256 FROM artifacts
+		WHERE session_uid = ? AND sha256 = ? AND current = 1
+		ORDER BY relpath LIMIT 1`, uid, head).Scan(&a.ID, &a.Kind, &a.RelPath, &a.SHA256)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ArtifactRow{}, false, nil
+	}
+	if err != nil {
+		return ArtifactRow{}, false, fmt.Errorf("catalog: head: %w", err)
+	}
+	return a, true, nil
 }
 
 func currentDigest(ctx context.Context, tx *sql.Tx, uid, rel string) (string, bool, error) {
@@ -633,16 +694,22 @@ func insertAlias(ctx context.Context, tx *sql.Tx, m protocol.Manifest, uid strin
 
 func applyArtifact(ctx context.Context, tx *sql.Tx, now time.Time, uid string, a protocol.Artifact, d Decision) (string, error) {
 	if !d.Record {
+		// An artifact related to the head under another path names
+		// that head's row. No row is stored under its own path.
+		rel := a.RelPath
+		if d.Base != "" {
+			rel = d.Base
+		}
 		var got string
 		q := `
 			SELECT artifact_id FROM artifacts
 			WHERE session_uid = ? AND relpath = ? AND sha256 = ?`
-		args := []any{uid, a.RelPath, a.SHA256}
+		args := []any{uid, rel, a.SHA256}
 		if d.Relation == protocol.RelationStale {
 			q = `
 				SELECT artifact_id FROM artifacts
 				WHERE session_uid = ? AND relpath = ? AND current = 1`
-			args = []any{uid, a.RelPath}
+			args = []any{uid, rel}
 		}
 		err := tx.QueryRowContext(ctx, q, args...).Scan(&got)
 		if err != nil {
@@ -651,10 +718,15 @@ func applyArtifact(ctx context.Context, tx *sql.Tx, now time.Time, uid string, a
 		return got, nil
 	}
 	if d.Relation == protocol.RelationHead || d.Relation == protocol.RelationGrownFrom {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE artifacts SET current = 0
-			WHERE session_uid = ? AND relpath = ? AND current = 1`, uid, a.RelPath); err != nil {
-			return "", fmt.Errorf("catalog: artifact: %w", err)
+		for _, rel := range []string{a.RelPath, d.Base} {
+			if rel == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE artifacts SET current = 0
+				WHERE session_uid = ? AND relpath = ? AND current = 1`, uid, rel); err != nil {
+				return "", fmt.Errorf("catalog: artifact: %w", err)
+			}
 		}
 	}
 	current := 0
@@ -770,6 +842,47 @@ func (c *Catalog) Current(ctx context.Context, harness, nativeID string) (string
 	return uid, arts, true, nil
 }
 
+// HeadView is a session's head digest and its current artifacts, read
+// in one transaction so the head names one of those rows.
+type HeadView struct {
+	SessionUID string
+	HeadSHA256 string
+	Current    []ArtifactRow
+}
+
+// Head returns the session head and the current artifact for each
+// path, ordered by relpath. ok is false when the logical session has
+// not been ingested.
+func (c *Catalog) Head(ctx context.Context, harness, nativeID string) (HeadView, bool, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return HeadView{}, false, fmt.Errorf("catalog: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var v HeadView
+	err = tx.QueryRowContext(ctx, `
+		SELECT session_uid, head_sha256 FROM sessions
+		WHERE harness = ? AND native_session_id = ?`, harness, nativeID).Scan(&v.SessionUID, &v.HeadSHA256)
+	if errors.Is(err, sql.ErrNoRows) {
+		return HeadView{}, false, nil
+	}
+	if err != nil {
+		return HeadView{}, false, fmt.Errorf("catalog: session: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT artifact_id, session_uid, kind, relpath, sha256, size, relation, grown_from, current
+		FROM artifacts WHERE session_uid = ? AND current = 1 ORDER BY relpath`, v.SessionUID)
+	if err != nil {
+		return HeadView{}, false, fmt.Errorf("catalog: artifact: %w", err)
+	}
+	defer rows.Close()
+	v.Current, err = scanArtifacts(rows)
+	if err != nil {
+		return HeadView{}, false, err
+	}
+	return v, true, nil
+}
+
 func scanArtifacts(rows *sql.Rows) ([]ArtifactRow, error) {
 	var out []ArtifactRow
 	for rows.Next() {
@@ -878,7 +991,7 @@ func (c *Catalog) listSessions(ctx context.Context, query string, args ...any) (
 
 // DivergentCopy is one artifact stored with relation divergent_copy.
 // The session head did not move. Machines posted this digest.
-// HeadMachines posted the head digest for the same path.
+// HeadMachines posted the head digest, under any path.
 type DivergentCopy struct {
 	SessionUID   string
 	ArtifactID   string
@@ -936,7 +1049,9 @@ func (c *Catalog) DivergentCopies(ctx context.Context) ([]DivergentCopy, error) 
 			return nil, err
 		}
 		out[i].Machines = machines
-		head, err := c.digestMachines(ctx, out[i].SessionUID, out[i].RelPath, out[i].HeadSHA256)
+		// The head may sit under another relpath: the copy can come
+		// from a second machine whose path embeds a different cwd.
+		head, err := c.digestMachines(ctx, out[i].SessionUID, "", out[i].HeadSHA256)
 		if err != nil {
 			return nil, err
 		}
@@ -965,11 +1080,13 @@ func scanDivergentCopies(rows *sql.Rows) ([]DivergentCopy, error) {
 	return out, nil
 }
 
+// digestMachines lists the machines that posted sha for the session.
+// An empty rel matches any path.
 func (c *Catalog) digestMachines(ctx context.Context, uid, rel, sha string) ([]string, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT machine_id FROM provenance
-		WHERE session_uid = ? AND relpath = ? AND sha256 = ?
-		ORDER BY machine_id`, uid, rel, sha)
+		WHERE session_uid = ? AND (? = '' OR relpath = ?) AND sha256 = ?
+		ORDER BY machine_id`, uid, rel, rel, sha)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: provenance: %w", err)
 	}

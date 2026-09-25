@@ -290,6 +290,7 @@ var (
 		protocol.KindTasksJSON:          true,
 		protocol.KindCursorStateJSON:    true,
 		protocol.KindCursorCLIStoreJSON: true,
+		protocol.KindOpenCodeExportJSON: true,
 	}
 )
 

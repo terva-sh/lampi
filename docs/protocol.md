@@ -40,7 +40,8 @@ there are none. `terva-lampi conflicts` prints this list.
 
 `sha256` is the divergent artifact. `head_sha256` is the session head
 that stayed. `machines` posted the divergent digest. `head_machines`
-posted the head digest for the same path.
+posted the head digest, under any path. The copy and the head can sit
+under different relpaths when a second machine posts the session.
 
 ```json
 {
@@ -253,16 +254,25 @@ the manifest is sent.
 next to a terva transcript, `raati_json` for a record under `raati/`,
 `tasks_json` for a task board under `tasks/` (the file includes
 archived generations), `cursor_state_json` for a filtered Cursor IDE
-snapshot, or `cursor_cli_store_json` for a filtered Cursor CLI
-snapshot. Any other kind is `400`. A raati or tasks file is an artifact of a session that is
+snapshot, `cursor_cli_store_json` for a filtered Cursor CLI
+snapshot, or `opencode_export_json` for one `opencode export`
+document. Any other kind is `400`. A raati or tasks file is an artifact of a session that is
 already being captured. Normalize projects terva transcripts and error
-sidecars, Claude Code, Codex, and OpenCode `transcript_jsonl`, Cursor
-IDE `cursor_state_json`, and Cursor CLI `cursor_cli_store_json`. A
+sidecars, Claude Code and Codex `transcript_jsonl`, OpenCode
+`opencode_export_json`, Cursor IDE `cursor_state_json`, and Cursor
+CLI `cursor_cli_store_json`. An OpenCode export an older agent sent as
+`transcript_jsonl` is projected the same way, but a re-export from
+that agent is still a `divergent_copy`. The OpenCode database file is
+not an export. The agent labels it `opencode_db`, which is not a
+protocol kind. The allowlist keeps it on the machine, and the lake
+refuses it with `400`. A
 rewrite of `raati_json` or `tasks_json` replaces the
 current artifact for that path and does not move the session head. A
-rewrite of `cursor_state_json` or `cursor_cli_store_json` replaces the
-current artifact and moves the session head, because that export is
-the session.
+rewrite of `cursor_state_json`, `cursor_cli_store_json`, or
+`opencode_export_json` replaces the current artifact and moves the
+session head, because that export is the session. A re-export is a
+new JSON object, not an extension of the earlier bytes, so it is not
+a `divergent_copy`.
 
 `sha256` is always the full file. `chunk_sha256s` lists the CAS objects
 that concatenate to it, in order. Null means the file was one PUT.
@@ -290,7 +300,13 @@ the hash of those bytes, and `size` is the full file. `terva-lampi sync`
 sends the tail form when the local watermark is a strict prefix of the
 file. The example above is that form.
 
-The lake compares the full bytes to the stored head for that path:
+The lake compares the full bytes to the stored head for that path.
+The manifest's head artifact (see `head_sha256` below) under a path
+the session has no current artifact for is compared with the session
+head instead, when that head is the same kind. Relpaths embed the
+cwd, so this is the same session from a second machine or a moved
+home. A move then clears the old path, and the session keeps one
+head. Other artifacts are compared per path:
 
 | Client bytes | Result |
 |--------------|--------|
@@ -334,6 +350,11 @@ digest returns the same `artifact_id`.
 
 `head_sha256` is the transcript artifact when one is present, otherwise
 the last artifact. A `divergent_copy` or a `stale` post does not change it.
+Normalize reads the head artifact. For terva, Claude Code, and Codex it
+also reads the current artifacts at or under the head's directory:
+error sidecars and subagent transcripts. The Cursor readers and
+OpenCode read the head only. When several OpenCode exports share a
+session id, the agent lists the newest last.
 
 ## Not in this scaffold
 
