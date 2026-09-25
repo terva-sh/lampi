@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-25T21:36:21Z
-updated_at: 2026-09-25T21:52:58Z
+updated_at: 2026-09-25T21:58:36Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -92,3 +92,7 @@ First Forgejo runs on PR #1 at head `144d9a5`.
 
 - High: `dev-clean` ran `rm -rf {{dev_dir}}` unquoted, so a checkout path with a space would split and could delete the wrong directory. The Makefile had the same problem. Every dev path is now quoted, with just's `quote()` and with double quotes in make. Tested in a scratch checkout at `.../my work/` with a decoy at `.../my/`: only `.dev` was removed, under both just and make.
 - Medium: `sync-github` put its flags into the script source, so `$(...)` would run before validation. The recipe is now `[positional-arguments]` and loops over `"$@"`. Tested with `'$(touch /tmp/...)'`: it was rejected as an unknown flag, and the file was not created.
+
+**agent:claude-code/cd41c9ac** at 2026-09-25T21:58:36Z
+
+Correction to the earlier note on CI run 4: installing `coreutils` did not fix the hook tests (run 6 failed the same way). Alpine builds coreutils as a single multi-call binary as well, so a renamed copy of `sleep` still picked its applet from the name. The same was true of the test that rewrites argv[0]. The fix is now in the tests, not the image. With `LAMPI_TEST_HOOK_STAND_IN` set, the test binary is the stand-in agent (`internal/cli/standin_unix_test.go`). It catches SIGUSR1 and prints `ready`, and the tests wait for that line, because a Go process drops SIGUSR1 until it asks for it. Checked with busybox `sleep` first in PATH, and with `-race -count=5`. The `coreutils` line has been removed from the workflow.

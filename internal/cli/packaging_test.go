@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"database/sql"
 	"io"
@@ -177,7 +178,7 @@ func TestHookSignalsTervaLampi(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGUSR1 hook is Unix")
 	}
-	cmd, _ := startCopiedSleep(t, "terva-lampi")
+	cmd, _ := startCopiedStandIn(t, "terva-lampi")
 	exited := watchExit(t, cmd)
 	state := t.TempDir()
 	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
@@ -199,7 +200,7 @@ func TestHookSignalsReplacedTervaLampi(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("replaced binaries keep a (deleted) /proc exe link")
 	}
-	cmd, bin := startCopiedSleep(t, "terva-lampi")
+	cmd, bin := startCopiedStandIn(t, "terva-lampi")
 	exited := watchExit(t, cmd)
 	if err := os.Remove(bin); err != nil {
 		t.Fatal(err)
@@ -224,21 +225,14 @@ func TestHookSignalsLampiSymlinkOnLinux(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("/proc/pid/exe distinguishes the lampi symlink")
 	}
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	real := filepath.Join(dir, "terva-lampi")
-	copyExecutable(t, sleep, real)
+	copyExecutable(t, testBinary(t), real)
 	link := filepath.Join(dir, "lampi")
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(link, "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
+	cmd := startStandIn(t, link, "")
 	exited := watchExit(t, cmd)
 	state := t.TempDir()
 	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
@@ -260,15 +254,7 @@ func TestHookDoesNotSignalACommandThatOnlyMentionsTheName(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("pid signalling is Unix")
 	}
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(sleep, "30")
-	cmd.Args = []string{"editor bin/terva-lampi", "30"}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
+	cmd := startStandIn(t, testBinary(t), "editor bin/terva-lampi")
 	exited := watchExit(t, cmd)
 	state := t.TempDir()
 	writeHookPID(t, state, strconv.Itoa(cmd.Process.Pid)+"\n")
@@ -340,19 +326,55 @@ func copyExecutable(t *testing.T, src, dst string) {
 	}
 }
 
-func startCopiedSleep(t *testing.T, name string) (*exec.Cmd, string) {
+// standInEnv makes the test binary a stand-in agent; TestMain in
+// standin_unix_test.go reads it. The stand-in used to be a copy of
+// sleep, but busybox and Alpine's coreutils are one multi-call binary
+// that picks its applet from the program name, so a copy named
+// terva-lampi, or an argv[0] that only mentions it, exits at once and
+// reads as a dead agent.
+const standInEnv = "LAMPI_TEST_HOOK_STAND_IN"
+
+// startStandIn starts the stand-in from path and returns once it is
+// listening for SIGUSR1. A non-empty argv0 replaces the program name
+// the process sees.
+func startStandIn(t *testing.T, path, argv0 string) *exec.Cmd {
 	t.Helper()
-	sleep, err := exec.LookPath("sleep")
+	cmd := exec.Command(path)
+	if argv0 != "" {
+		cmd.Args[0] = argv0
+	}
+	cmd.Env = append(os.Environ(), standInEnv+"=1")
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := filepath.Join(t.TempDir(), name)
-	copyExecutable(t, sleep, bin)
-	cmd := exec.Command(bin, "30")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	return cmd, bin
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil || line != "ready\n" {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("stand-in did not start: %q %v", line, err)
+	}
+	return cmd
+}
+
+// testBinary is the running test executable, which is the stand-in.
+func testBinary(t *testing.T) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return self
+}
+
+func startCopiedStandIn(t *testing.T, name string) (*exec.Cmd, string) {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), name)
+	copyExecutable(t, testBinary(t), bin)
+	return startStandIn(t, bin, ""), bin
 }
 
 func watchExit(t *testing.T, cmd *exec.Cmd) <-chan struct{} {

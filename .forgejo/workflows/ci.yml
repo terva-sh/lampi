@@ -33,11 +33,7 @@ jobs:
       - name: Install dependencies
         # git for the checkout. gcc and musl-dev are cgo, which -race
         # needs on alpine; without them the race step fails to link.
-        # coreutils for a standalone sleep: the hook tests in
-        # internal/cli/packaging_test.go copy sleep under the name
-        # terva-lampi, and busybox's sleep picks its applet from that
-        # name, so the copy exits 127 and reads as a dead agent.
-        run: apk add --no-cache git gcc musl-dev coreutils
+        run: apk add --no-cache git gcc musl-dev
 
       - name: Checkout Code
         uses: Actions-Mirrors/forgejo-actions-checkout@v6
