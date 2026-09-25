@@ -22,14 +22,19 @@
 // one directory, so that is the path that can leave. If any export JSON
 // exists, the database file is not in the discover set.
 //
+// An export is opencode_export_json. It is a snapshot: a re-export is a
+// new JSON object, so the lake replaces the head instead of storing a
+// divergent copy. The database file is KindDatabase, a local label that
+// is not a protocol kind.
+//
 // The data directory is $XDG_DATA_HOME/opencode when XDG_DATA_HOME is
 // set, and ~/.local/share/opencode otherwise (on Windows,
 // %USERPROFILE%\.local\share\opencode). That is the xdg-basedir path
 // OpenCode uses. There is no OPENCODE_HOME.
 //
 // Version is the pinned reader. Keys it does not interpret stay on the
-// record. Sync uploads the file bytes. Normalize workers still implement
-// terva only, so a stored OpenCode manifest records normalize_error.
+// record. Sync uploads the file bytes. Normalize workers project an
+// export. A database blob is not an export and records normalize_error.
 package opencode
 
 import (
@@ -40,11 +45,17 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/protocol"
 )
+
+// KindDatabase labels a database file found by the fallback. It is not
+// a protocol kind and is not a transcript. The allowlist refuses that
+// blob before a manifest is sent; the lake does not project it.
+const KindDatabase = "opencode_db"
 
 // errNotObject is an export that is not a JSON object. A schedule can
 // be interrupted mid-write. Discovery still lists the file; the session
@@ -95,7 +106,7 @@ func (Adapter) Match(rel string) (string, bool) {
 	if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".json") {
 		return "", false
 	}
-	return protocol.KindTranscriptJSONL, true
+	return protocol.KindOpenCodeExportJSON, true
 }
 
 // Discover lists export JSON. When that list is empty, it lists database
@@ -135,7 +146,9 @@ type item struct {
 // Manifests builds one manifest per export session id. A file with no
 // info.id uses its relative path. A database fallback uses the file
 // name and an empty project: the allowlist then refuses it. When export
-// JSON exists, the database is not a manifest. harness_version is Version.
+// JSON exists, the database is not a manifest. Exports that share a
+// session id are ordered oldest mtime first, so the newest one is the
+// last artifact and the lake makes it the head. harness_version is Version.
 func Manifests(root, machineID string) (adapter.Bundle, error) {
 	refs, err := Adapter{}.Discover(context.Background(), root)
 	if err != nil {
@@ -169,6 +182,9 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 	b := adapter.Bundle{Root: root, Paths: map[string]string{}}
 	for _, id := range order {
 		group := groups[id]
+		sort.SliceStable(group, func(i, j int) bool {
+			return group[i].ref.ModTime.Before(group[j].ref.ModTime)
+		})
 		var cwd string
 		arts := make([]protocol.Artifact, 0, len(group))
 		for _, it := range group {
@@ -242,7 +258,7 @@ func discoverDB(root string) ([]adapter.Ref, error) {
 			return nil, err
 		}
 		out = append(out, adapter.Ref{
-			Kind:    protocol.KindTranscriptJSONL,
+			Kind:    KindDatabase,
 			AbsPath: filepath.Join(root, e.Name()),
 			RelPath: e.Name(),
 			Size:    info.Size(),

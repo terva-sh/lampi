@@ -16,7 +16,8 @@ import (
 )
 
 // OpenCode projects one OpenCode export document stored as
-// transcript_jsonl. The bytes are the file the adapter uploaded. The
+// opencode_export_json, or as transcript_jsonl by an older agent. The
+// bytes are the file the adapter uploaded. The
 // struct does not open a file. A SQLite database blob is not an export
 // and is not projected.
 //

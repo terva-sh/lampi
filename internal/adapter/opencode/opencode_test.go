@@ -79,7 +79,7 @@ func TestDiscoverPrefersExport(t *testing.T) {
 	got := map[string]bool{}
 	for _, r := range refs {
 		got[r.RelPath] = true
-		if r.Kind != protocol.KindTranscriptJSONL {
+		if r.Kind != protocol.KindOpenCodeExportJSON {
 			t.Fatalf("kind %s", r.Kind)
 		}
 	}
@@ -120,6 +120,9 @@ func TestDiscoverDatabaseWhenNoExport(t *testing.T) {
 	got := map[string]bool{}
 	for _, r := range refs {
 		got[r.RelPath] = true
+		if r.Kind != KindDatabase {
+			t.Fatalf("%s kind %s", r.RelPath, r.Kind)
+		}
 	}
 	if !got["opencode.db"] || !got["opencode-stable.db"] {
 		t.Fatalf("database files: %v", got)
@@ -227,6 +230,40 @@ func TestManifestPinsAdapterVersion(t *testing.T) {
 	}
 }
 
+func TestManifestNewestExportLast(t *testing.T) {
+	root := t.TempDir()
+	older := filepath.Join(root, "export", "b", "ses_1.json")
+	newer := filepath.Join(root, "export", "a", "ses_1.json")
+	mustWrite(t, older, `{"info":{"id":"ses_1","directory":"/work/app"},"messages":[]}`+"\n")
+	mustWrite(t, newer, `{"info":{"id":"ses_1","directory":"/work/app"},"messages":[{"info":{"id":"msg_1"}}]}`+"\n")
+	now := time.Now()
+	if err := os.Chtimes(older, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newer, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := Manifests(root, "machine-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Manifests) != 1 || len(b.Manifests[0].Artifacts) != 2 {
+		t.Fatalf("manifests %+v", b.Manifests)
+	}
+	arts := b.Manifests[0].Artifacts
+	// The walk lists export/a first. The lake makes the last artifact
+	// the head, so the newest export has to be last.
+	if arts[0].RelPath != "export/b/ses_1.json" || arts[1].RelPath != "export/a/ses_1.json" {
+		t.Fatalf("order %s, %s", arts[0].RelPath, arts[1].RelPath)
+	}
+	for _, a := range arts {
+		if a.Kind != protocol.KindOpenCodeExportJSON {
+			t.Fatalf("kind %s", a.Kind)
+		}
+	}
+}
+
 func TestManifestDatabaseFallback(t *testing.T) {
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "opencode.db"), "sqlite-bytes")
@@ -243,7 +280,7 @@ func TestManifestDatabaseFallback(t *testing.T) {
 	if m.Harness != protocol.HarnessOpenCode || m.NativeSessionID != "opencode.db" {
 		t.Fatalf("header %+v", m)
 	}
-	if len(m.Artifacts) != 1 || m.Artifacts[0].RelPath != "opencode.db" {
+	if len(m.Artifacts) != 1 || m.Artifacts[0].RelPath != "opencode.db" || m.Artifacts[0].Kind != KindDatabase {
 		t.Fatalf("artifacts %+v", m.Artifacts)
 	}
 	if m.Project.CWD != "" || m.Project.CWDHash != "" {

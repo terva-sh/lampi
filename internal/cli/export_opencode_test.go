@@ -211,7 +211,7 @@ func putOpenCodeManifest(t *testing.T, h http.Handler, native, cwd string, body 
 		NativeSessionID: native,
 		Project:         protocol.Project{CWD: cwd},
 		Artifacts: []protocol.Artifact{{
-			Kind:    protocol.KindTranscriptJSONL,
+			Kind:    protocol.KindOpenCodeExportJSON,
 			RelPath: "export/" + native + ".json",
 			Size:    int64(len(body)),
 			SHA256:  sum,

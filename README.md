@@ -87,7 +87,8 @@ at `$XDG_DATA_HOME/opencode/export/**/*.json`, and when `XDG_DATA_HOME`
 is unset the directory is `~/.local/share/opencode` (on Windows,
 `%USERPROFILE%\.local\share\opencode`). When `export/` has no JSON, the
 database file at that root is listed instead. `opencode.db-wal` is not
-read. The record shape for Claude, Codex, and OpenCode is internal to
+read. An export uploads as `opencode_export_json`, and a re-export
+replaces the session head. The record shape for Claude, Codex, and OpenCode is internal to
 those adapters; each pins a reader version and keeps keys it does not
 interpret. `sync` pushes the files `config.json`
 allowlists. With no allow rule it refuses the project; the shape of

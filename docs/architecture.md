@@ -161,7 +161,15 @@ Layer B is the logical session. `session_uid` is assigned once per
 `(harness, native_id, machine_id)` to that uid. The same digest from a
 second machine adds a provenance row and no blob. A strict prefix
 extension moves the head (`grown_from`). Anything else is
-`divergent_copy` and is not merged.
+`divergent_copy` and is not merged. A Cursor export or an OpenCode
+export (`opencode_export_json`) is a snapshot, so a rewrite replaces
+the head instead. A session has one head. Relpaths embed the cwd, so
+the same session from a second machine or a moved home arrives under
+a new relpath. The manifest's head artifact is then compared with the
+session head, and a move clears the old path's current flag. Other
+artifacts stay keyed by relpath. Normalize reads the head, plus the
+current rows under the head's directory for terva, Claude, and Codex:
+error sidecars and subagent transcripts sit there.
 
 A git-ticket claim does not resolve to that uid. The decision is to
 leave the claim unwired. A claim stays an opaque string in the ticket
@@ -250,6 +258,8 @@ watermark commit and outbox ACK          terva-lampi serve
 Other harnesses are adapters behind the same manifest. terva, Claude
 Code, Codex CLI, OpenCode, and the Cursor IDE are wired for discovery,
 watch, and upload. OpenCode watches `export/`, not the live database.
+An export is `opencode_export_json`. The database fallback is labelled
+`opencode_db` on the machine, and the allowlist refuses it.
 Cursor copies `state.vscdb` and its WAL sidecars, then uploads a JSON
 export. Keys under `cursorAuth/` are not in that export. The raw
 database stays on the machine. The global database has an empty cwd

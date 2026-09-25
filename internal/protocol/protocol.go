@@ -85,6 +85,12 @@ const (
 	// head. It is not a cursor_state_json artifact. The raw database
 	// is not this kind.
 	KindCursorCLIStoreJSON = "cursor_cli_store_json"
+	// KindOpenCodeExportJSON is one `opencode export` document. It is
+	// a snapshot, not an append-only transcript: a later export is a
+	// new JSON object, not an extension of the earlier bytes. It
+	// replaces the current artifact and moves the session head. The
+	// OpenCode database file is not this kind.
+	KindOpenCodeExportJSON = "opencode_export_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
 	// meta line. Normalize workers project it.
@@ -101,9 +107,9 @@ const (
 	// HarnessOpenCode is OpenCode. The ingest path is a scheduled
 	// `opencode export` document, or the database file when that
 	// directory is empty. The WAL sidecar is not a session. Workers
-	// project an export document stored as transcript_jsonl onto
-	// schema_version 1. A database blob is not an export and keeps
-	// normalize_error.
+	// project opencode_export_json onto schema_version 1. An export
+	// an older agent stored as transcript_jsonl is read the same way.
+	// A database blob is not an export and keeps normalize_error.
 	HarnessOpenCode = "opencode"
 	// HarnessCursor is the Cursor IDE. The ingest path is a filtered
 	// JSON export of a state.vscdb snapshot. The live database is not
@@ -242,7 +248,7 @@ type StatsResponse struct {
 
 // DivergentCopy is one catalog artifact stored as divergent_copy.
 // HeadSHA256 is the session head that stayed. Machines posted this
-// digest. HeadMachines posted the head digest for the same path.
+// digest. HeadMachines posted the head digest, under any path.
 type DivergentCopy struct {
 	SessionUID      string   `json:"session_uid"`
 	ArtifactID      string   `json:"artifact_id"`
