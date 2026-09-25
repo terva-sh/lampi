@@ -72,8 +72,14 @@ assembles the tail onto the stored prefix. A clock that disagrees with
 hello's server_time by more than five minutes is warned about and the
 push still runs.
 
+hello runs before the scan. A blob over 4 MiB goes as Content-Range
+pieces. No timeout covers a whole request; one that moves no bytes for
+60s is cancelled.
+
 --server defaults to the URL in config.json, or http://127.0.0.1:8787.
-The token is read from a file, never from an argument.
+The token is read from a file, never from an argument. It is sent over
+https, or over http only to localhost, 127.0.0.0/8, or ::1. Anything
+else is refused before the scan.
 `
 
 func runSync(env Env, args []string) error {
@@ -118,6 +124,7 @@ func runSync(env Env, args []string) error {
 	res, err := upload.Sync(ctx, upload.Options{
 		ServerURL:     config.ServerURL(file, serverFlag),
 		Token:         token,
+		PieceBytes:    upload.DefaultPieceBytes,
 		TervaHome:     homeOf(src, protocol.HarnessTerva),
 		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
 		CodexHome:     homeOf(src, protocol.HarnessCodex),

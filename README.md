@@ -101,8 +101,11 @@ outbox depth, watermark summary, last finished sync, whether
 
 `agent` with no subcommand prints the same discovery, pushes the
 allowlisted sessions once, then watches. Growth calls that same push.
-A failed push is tried again after a short wait, without waiting for
-the file to grow. SIGTERM drains the outbox and exits. The server URL,
+A failed push is tried again without waiting for the file to grow. The
+first wait is 2s. Each further failure doubles the ceiling of a
+jittered wait, up to 5 minutes, and a success resets it. Growth during
+that wait does not start a push. A 401 or 403 is logged once, naming
+the token file, and waits the full 5 minutes. SIGTERM drains the outbox and exits. The server URL,
 the device token, the allowlist, and the harnesses map are read when
 the process starts; restart it to reload them. The one-shot command
 is still `sync`.
@@ -120,7 +123,10 @@ stores a SHA-256 of each device token and rewrites that copy; keep the
 original as the client's secret. A directory of token files is one
 device each. The token is not a command argument. Without a token file,
 `serve` accepts unauthenticated requests only on a loopback address and
-refuses any other `--addr`. `/healthz` stays open and returns no catalog
+refuses any other `--addr`. With one, a non-loopback `--addr` is a
+stderr warning: `serve` speaks plain HTTP, so TLS belongs in front.
+Clients refuse to send a token to an `http://` URL unless the host is
+`localhost`, 127.0.0.0/8, or `::1`. `/healthz` stays open and returns no catalog
 data. Do not upload a project whose transcripts you would not copy onto
 that disk in the clear. Ruleset v1 scans for common tokens before the
 upload and quarantines a hit. It does not rewrite the file, and it is

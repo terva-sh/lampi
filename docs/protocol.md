@@ -99,7 +99,8 @@ Request body is a JSON array of lowercase sha256 hex digests, not an object.
 Digests the lake already has are omitted. Duplicates in the request are
 reported once. The body is at most 8 MiB and 100000 digests. More is
 `413`, and the message names the limit. A client with more digests
-sends them in batches.
+sends them in batches. terva-lampi sends at most 1000 per request and
+halves a batch that answers `413`.
 
 ## PUT /v1/blobs/{sha256}
 
@@ -129,7 +130,11 @@ incomplete (`complete` false) under `partial/` and does not install the
 object. When the ranges cover `[0, total)`, the bytes are hashed, and
 the object is installed only if the hash is the path. A mismatch deletes
 the partial, so the client can send the bytes again. A later PUT of a
-digest that is already stored does not write the range.
+digest that is already stored does not write the range. terva-lampi
+sends a body over 4 MiB as 4 MiB ranges. A retry in the same process
+starts after the last range the lake answered. If its last range then
+leaves the upload incomplete, the lake lost the earlier ones, and the
+client sends every range again from byte 0.
 
 A JSON body is the other form:
 

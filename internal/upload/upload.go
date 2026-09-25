@@ -1,8 +1,9 @@
 // Package upload is the one-shot push shared by terva-lampi sync and the
 // long-running agent.
 //
-// The order is fixed. Allowlist, then ruleset v1, then watermark.Plan,
-// then the outbox, then the network. A manifest ACK is what commits the
+// The order is fixed. Hello, then allowlist, ruleset v1, watermark.Plan,
+// and the outbox, then the blobs and manifests. Hello comes first so a
+// lake that is down costs no scan. A manifest ACK is what commits the
 // watermark and acks the outbox. A file whose bytes match the stored
 // watermark is checked and not PUT again. Plan KindTail PUTs only the
 // suffix: byte_watermark_prev is the stored offset, tail_sha256 is the
@@ -16,9 +17,14 @@
 // error leaves the previous stamp, so status does not report the failed
 // attempt as the last sync.
 //
+// A bearer token goes over https, or over http only to a loopback host.
+// No timeout covers a whole request. A request that moves no bytes for
+// StallTimeout is cancelled. blobs/check carries at most 1000 digests.
+//
 // PieceBytes and ChunkBytes opt a put into a resumable form. Zero keeps
-// the single body. The server installs the digest when the pieces assemble
-// and the result fits under the blob cap. A body already over that cap is
+// the single body. A piece the lake acknowledged is not sent again by a
+// later attempt in the same process. The server installs the digest
+// when the pieces assemble and the result fits under the blob cap. A body already over that cap is
 // split into chunks of at most the cap (or ChunkBytes, when that is
 // smaller). Those chunks are stored. The concatenation is not.
 package upload
@@ -36,6 +42,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -80,8 +87,12 @@ type Options struct {
 	UploadHits    bool
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
+	// StallTimeout cancels a request that moves no bytes for this long.
+	// Zero is DefaultStallTimeout. No limit covers a whole request.
+	StallTimeout time.Duration
 	// PieceBytes sends the body as Content-Range slices of this size.
 	// Zero sends one body. A slice larger than the body is one body.
+	// sync and the agent use DefaultPieceBytes.
 	PieceBytes int64
 	// ChunkBytes splits the body into CAS objects of this size and PUTs
 	// the chunk digests. Zero sends one body. The manifest lists the
@@ -132,6 +143,9 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	if opt.MachineID == "" {
 		return Result{}, fmt.Errorf("upload: machine_id is empty")
 	}
+	if err := CheckToken(opt.ServerURL, opt.Token); err != nil {
+		return Result{}, err
+	}
 	bundles, err := bundlesFor(opt)
 	if err != nil {
 		return Result{}, err
@@ -159,7 +173,29 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	}
 	defer wm.Close()
 
+	// Hello runs before the scan. A lake that is down or refuses the
+	// token fails the pass before every file is read and scanned again.
+	// A pass the allowlist refuses whole never needs the lake, and it
+	// still reports the refusal when the lake is down.
+	client := opt.Client
+	if client == nil {
+		client = defaultClient
+	}
+	var hello protocol.HelloResponse
+	warning := ""
+	if anyPermitted(opt, bundles) {
+		hello, err = postHello(ctx, client, opt)
+		if err != nil {
+			return Result{}, err
+		}
+		warning = clockWarning(opt.now(), hello.ServerTime)
+		if !slices.Contains(hello.ProtocolVersions, protocol.Version) {
+			return Result{Warning: warning}, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
+		}
+	}
+
 	work, res, err := prepare(ctx, opt, wm, q, bundles)
+	res.Warning = warning
 	var rejected error
 	if r, ok := err.(*Rejected); ok {
 		rejected = r
@@ -170,25 +206,6 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	}
 	if len(work) == 0 {
 		return finish(opt, res, rejected)
-	}
-
-	client := opt.Client
-	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
-	}
-	hello, err := postHello(ctx, client, opt)
-	if err != nil {
-		return res, err
-	}
-	res.Warning = clockWarning(opt.now(), hello.ServerTime)
-	supported := false
-	for _, v := range hello.ProtocolVersions {
-		if v == protocol.Version {
-			supported = true
-		}
-	}
-	if !supported {
-		return res, fmt.Errorf("upload: server does not speak capture protocol %d", protocol.Version)
 	}
 
 	// A file past the lake's cap cannot travel as a tail. The tail form
@@ -239,6 +256,23 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 		}
 	}
 	return finish(opt, res, rejected)
+}
+
+// anyPermitted reports whether the allowlist lets any session through.
+// prepare applies the same rule to each one.
+func anyPermitted(opt Options, bundles []adapter.Bundle) bool {
+	for _, b := range bundles {
+		for _, m := range b.Manifests {
+			if opt.Projects.Permitted(config.ProjectID{
+				CWD:       m.Project.CWD,
+				CWDHash:   m.Project.CWDHash,
+				GitRemote: m.Project.GitRemote,
+			}) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // LastSync is the stamp Sync rewrites when a run finishes.
@@ -359,6 +393,13 @@ func (opt Options) now() time.Time {
 	return time.Now()
 }
 
+func (opt Options) stallTimeout() time.Duration {
+	if opt.StallTimeout > 0 {
+		return opt.StallTimeout
+	}
+	return DefaultStallTimeout
+}
+
 func clockWarning(client, server time.Time) string {
 	if server.IsZero() {
 		return ""
@@ -469,7 +510,7 @@ func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int6
 	}
 	res.Missing += len(missing)
 	for _, d := range missing {
-		put, err := putBlob(ctx, client, opt, d, chunkBody[d])
+		put, err := putBody(ctx, client, opt, d, chunkBody[d])
 		if err != nil {
 			return fmt.Errorf("upload: %s: %w", rel, err)
 		}
@@ -523,36 +564,94 @@ func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest
 	if opt.ChunkBytes > 0 && int64(len(body)) > opt.ChunkBytes {
 		return putChunked(ctx, client, opt, digest, body, lists)
 	}
+	return putBody(ctx, client, opt, digest, body)
+}
+
+// putBody is one object: Content-Range pieces when the body is over
+// PieceBytes, otherwise a single PUT.
+func putBody(ctx context.Context, client *http.Client, opt Options, digest string, body []byte) (protocol.PutResponse, error) {
 	if opt.PieceBytes > 0 && int64(len(body)) > opt.PieceBytes {
 		return putRanged(ctx, client, opt, digest, body)
 	}
 	return putBlob(ctx, client, opt, digest, body)
 }
 
+// rangeResume is, per lake and digest, the offset after the last piece
+// the lake acknowledged. The lake keeps those spans under partial/ and
+// has no call that lists them, so the next attempt in this process
+// starts here instead of at byte 0.
+var rangeResume = struct {
+	mu   sync.Mutex
+	next map[string]int64
+}{next: map[string]int64{}}
+
+func resumeKey(opt Options, digest string) string {
+	return opt.ServerURL + " " + digest
+}
+
+func resumeAt(key string) int64 {
+	rangeResume.mu.Lock()
+	defer rangeResume.mu.Unlock()
+	return rangeResume.next[key]
+}
+
+func setResume(key string, next int64) {
+	rangeResume.mu.Lock()
+	defer rangeResume.mu.Unlock()
+	if next <= 0 {
+		delete(rangeResume.next, key)
+		return
+	}
+	rangeResume.next[key] = next
+}
+
+// putRanged sends body as Content-Range pieces, starting after the last
+// piece an earlier attempt landed. When every piece has gone and the
+// lake still says incomplete, it no longer holds the earlier spans, and
+// the body is sent once more from byte 0.
 func putRanged(ctx context.Context, client *http.Client, opt Options, digest string, body []byte) (protocol.PutResponse, error) {
 	var last protocol.PutResponse
 	size := int64(len(body))
-	for start := int64(0); start < size; {
-		end := start + opt.PieceBytes - 1
-		if end >= size {
-			end = size - 1
-		}
-		header := fmt.Sprintf("bytes %d-%d/%d", start, end, size)
-		err := doRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body[start:end+1], "application/octet-stream", map[string]string{
-			"Content-Range": header,
-		}, &last)
-		if err != nil {
-			return last, err
-		}
-		if last.Complete {
-			return last, nil
-		}
-		start = end + 1
+	key := resumeKey(opt, digest)
+	start := resumeAt(key)
+	if start >= size {
+		start = 0
 	}
-	if !last.Complete {
-		return last, fmt.Errorf("upload: %s: range put did not assemble", digest)
+	fromZero := start == 0
+	for {
+		for start < size {
+			end := start + opt.PieceBytes - 1
+			if end >= size {
+				end = size - 1
+			}
+			header := fmt.Sprintf("bytes %d-%d/%d", start, end, size)
+			last = protocol.PutResponse{}
+			err := doRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body[start:end+1], "application/octet-stream", map[string]string{
+				"Content-Range": header,
+			}, &last)
+			if err != nil {
+				// A 400 is a bad range or an assembled hash the lake
+				// refused and deleted. Nothing it holds is worth resuming.
+				var se *StatusError
+				if errors.As(err, &se) && se.Code == http.StatusBadRequest {
+					setResume(key, 0)
+				}
+				return last, err
+			}
+			if last.Complete {
+				setResume(key, 0)
+				return last, nil
+			}
+			start = end + 1
+			setResume(key, start)
+		}
+		setResume(key, 0)
+		if fromZero {
+			return last, fmt.Errorf("upload: %s: range put did not assemble", digest)
+		}
+		fromZero = true
+		start = 0
 	}
-	return last, nil
 }
 
 func putChunked(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string]chunkPlan) (protocol.PutResponse, error) {
@@ -569,7 +668,7 @@ func putChunked(ctx context.Context, client *http.Client, opt Options, digest st
 		return protocol.PutResponse{}, err
 	}
 	for _, d := range missing {
-		if _, err := putBlob(ctx, client, opt, d, chunkBody[d]); err != nil {
+		if _, err := putBody(ctx, client, opt, d, chunkBody[d]); err != nil {
 			return protocol.PutResponse{}, err
 		}
 	}
@@ -730,7 +829,29 @@ func postHello(ctx context.Context, client *http.Client, opt Options) (protocol.
 	return out, err
 }
 
+// postCheck asks in batches of at most checkBatch digests. A 413 halves
+// the batch and asks again, down to one digest.
 func postCheck(ctx context.Context, client *http.Client, opt Options, digests []string) ([]string, error) {
+	missing := []string{}
+	batch := checkBatch
+	for len(digests) > 0 {
+		n := min(batch, len(digests))
+		part, err := postCheckBatch(ctx, client, opt, digests[:n])
+		var se *StatusError
+		if n > 1 && errors.As(err, &se) && se.Code == http.StatusRequestEntityTooLarge {
+			batch = n / 2
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		missing = append(missing, part...)
+		digests = digests[n:]
+	}
+	return missing, nil
+}
+
+func postCheckBatch(ctx context.Context, client *http.Client, opt Options, digests []string) ([]string, error) {
 	raw, err := json.Marshal(digests)
 	if err != nil {
 		return nil, err
@@ -770,9 +891,24 @@ func doRequest(ctx context.Context, client *http.Client, opt Options, method, p 
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(body))
+	// The watchdog cancels only this request, with its own cause, so a
+	// stall is not reported as the caller's shutdown.
+	rctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stall := opt.stallTimeout()
+	watch := newStallWatch(stall, cancel)
+	defer watch.pause()
+	req, err := http.NewRequestWithContext(rctx, method, u, bytes.NewReader(body))
 	if err != nil {
 		return err
+	}
+	if len(body) > 0 {
+		req.Body = &progressBody{r: bytes.NewReader(body), w: watch}
+		req.GetBody = func() (io.ReadCloser, error) {
+			return &progressBody{r: bytes.NewReader(body), w: watch}, nil
+		}
+	} else {
+		watch.pause()
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -788,17 +924,25 @@ func doRequest(ctx context.Context, client *http.Client, opt Options, method, p 
 		req.Header.Set("Authorization", "Bearer "+opt.Token)
 	}
 	req.Header.Set("User-Agent", "terva-lampi")
-	resp, err := client.Do(req)
-	if err != nil {
+	wrap := func(err error) error {
+		if errors.Is(context.Cause(rctx), errStalled) {
+			return fmt.Errorf("upload: %s %s: no bytes moved for %s", method, p, stall)
+		}
 		return fmt.Errorf("upload: %s %s: %w", method, p, err)
 	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return wrap(err)
 	}
+	defer resp.Body.Close()
+	watch.touch()
+	respBody, err := io.ReadAll(io.LimitReader(progressReader{r: resp.Body, w: watch}, 1<<20))
+	if err != nil {
+		return wrap(err)
+	}
+	watch.pause()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("upload: %s %s: %s: %s", method, p, resp.Status, strings.TrimSpace(string(respBody)))
+		return &StatusError{Method: method, Path: p, Code: resp.StatusCode, Status: resp.Status, Body: strings.TrimSpace(string(respBody))}
 	}
 	if dest == nil || len(respBody) == 0 {
 		return nil

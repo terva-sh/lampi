@@ -43,8 +43,14 @@ file uploads nothing. A strict append uploads only the new tail;
 hash of those bytes. The lake assembles the tail onto the stored prefix
 and moves the head. Bytes that are not a prefix either way are stored
 as `divergent_copy` and the previous head stays. `terva-lampi conflicts` lists those rows, and `GET /v1/conflicts` returns the same list. A failed push is tried
-again after a short wait. SIGTERM stops the watch and drains the outbox
-best-effort. The server URL, token, and allowlist are read at start.
+again after a jittered wait that starts at 2s and backs off to 5 minutes;
+a 401 or 403 waits the 5 minutes and is logged once. `hello` runs
+before the scan, so a lake that is down costs no scan. The client has
+connect, TLS, and response-header timeouts and a 60s stall timeout, and
+no limit on a whole request. A blob over 4 MiB goes as `Content-Range`
+pieces, and a retry in the same process resumes after the last piece
+the lake acknowledged. `blobs/check` carries at most 1000 digests.
+SIGTERM stops the watch and drains the outbox best-effort. The server URL, token, and allowlist are read at start.
 
 After a manifest is stored, the lake ACKs and enqueues normalize work.
 The HTTP handler does not project. Two workers read the catalog head

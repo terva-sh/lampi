@@ -15,6 +15,7 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/upload"
 )
 
 const conflictsUsage = `terva-lampi conflicts — list divergent_copy artifacts
@@ -31,7 +32,8 @@ does not move.
 With no --server, the command reads catalog.db in the lake directory.
 That is the directory serve uses. A missing catalog file is an empty
 list and is not created. --server asks that lake over GET /v1/conflicts
-and sends the device token. Pass --data or --server, not both.
+and sends the device token, over https, or over http only to
+localhost, 127.0.0.0/8, or ::1. Pass --data or --server, not both.
 
 The token is read from --token-file. It is not an argument.
 `
@@ -107,6 +109,9 @@ func writeRemoteConflicts(env Env, server, tokenFlag string) error {
 }
 
 func fetchConflicts(server, token string) (protocol.ConflictsResponse, error) {
+	if err := upload.CheckToken(server, token); err != nil {
+		return protocol.ConflictsResponse{}, err
+	}
 	client := http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(server, "/")+"/v1/conflicts", nil)
 	if err != nil {
