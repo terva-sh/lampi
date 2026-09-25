@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3B369F5YPCAMS27XSRDJRED
 title: "Agent resilience: per-file errors, watcher fallback, one config"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/eh1m
-  branch: claude/elegant-feynman-eh1mdd-resilience
-  worktree: /home/user/lampi/.claude/worktrees/agent-a74fa3c5712698894
-  commit: ae4e6dcaa2db3559ec4d24c9ff889888dd444fca
-  session: null
-  claimed_at: 2026-09-25T14:40:33Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-25T01:34:31Z
-updated_at: 2026-09-25T14:56:54Z
+updated_at: 2026-09-25T15:06:48Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -56,8 +49,8 @@ Isolate failures per file and session, treat an overlong line as no identity, an
 
 - [x] One unreadable or oversized file is logged and skipped and the rest upload
 - [x] The agent runs with no terva home and falls back to polling on watcher errors
-- [ ] sync, status, and agent resolve the server and token the same way, and status prints the source
-- [ ] Refusals and quarantine records are logged on change only, and quarantine can be listed and acknowledged
+- [x] sync, status, and agent resolve the server and token the same way, and status prints the source
+- [x] Refusals and quarantine records are logged on change only, and quarantine can be listed and acknowledged
 
 ## Implementation plan
 
@@ -104,3 +97,34 @@ flock on Unix (with a same-inode check after the lock), O_EXCL plus a process ch
 
 ### Not covered by a failing-first test
 machine.json by rename has no test that fails before the change; atomicity is not observable from a unit test. The EACCES walk test skips as root; it was run and passed as uid 65534 with setpriv. The removed-mid-walk and fn-permission tests cover the same code path for any user.
+
+**agent:claude-code/eh1m** at 2026-09-25T15:06:47Z
+
+Branch claude/elegant-feynman-eh1mdd-resilience-2 carries items 3 and 4 on top of the first branch. Decisions a reviewer should know:
+
+### Resolver
+config.ResolveServer and config.ResolveTokenFile return the value and the layer (flag, env, config, default). config.ServerURL is gone. login also follows LAMPI_TOKEN_FILE now. conflicts takes its token file from the resolver, but its lake is still only --server: LAMPI_SERVER or config.json turning a local catalog read into a remote one would change what the command does. A token file named by env or config.json must exist, as one named by the flag always had to.
+
+### Log on change
+Refusal and skip lines on stderr are keyed on the line text, which carries the relpath and the reason (cwd, cwd_hash, remote, or the rules). The digest is left out of that key on purpose: a refused session that is still being written changes digest on every append, and keying on it would print the same refusal on every sync, which is the noise the finding is about. The quarantine record key does include the digest (relpath, sha256, ruleset, rules, manifest), since the record is the evidence of what was scanned. A lake error does not reset the printed set.
+
+### quarantine allow
+The acknowledged digests live in quarantine_allow.json in the state directory, written by rename. A relpath argument allows its newest record's digest only. A manifest record (new manifest field on the record) cannot be allowed, because the manifest has no redaction stamp to carry an override. Records written before this change have no manifest field.
+
+### last_attempt
+last_attempt.json holds the last run's time and error, plus the most recent error and its time, which survives a later success. A run cut short by its context (shutdown) is not recorded. A refusal counts as a finished run, matching last_sync.json.
+
+## Summary
+
+Landed on two stacked branches. claude/elegant-feynman-eh1mdd-resilience (items 1, 2, 5) is based on main; claude/elegant-feynman-eh1mdd-resilience-2 (items 3, 4) is based on it.
+
+### First branch
+- One file that is gone, unreadable, or has its session id past an overlong line is skipped and named on stderr; the rest upload. A harness that fails as a whole is one skip line. Overlong lines are read past with bufio.Reader, not held.
+- A missing harness home, terva included, is polled until it appears. An Add failure (ENOSPC) or a fsnotify error moves that watcher to polling and names the path. darwin polls by default; LAMPI_WATCH overrides.
+- Symlinked trees are followed. agent.pid is a lock, so a second agent exits naming the first. machine.json is written by rename. The outbox is documented as a durable count, not replayed.
+
+### Second branch
+- One resolver for server and token file (flag, env, config.json, default) in agent, sync, status, agent config, login, and the conflicts token. status and agent config print source=. The systemd unit and launchd plist no longer pin either value.
+- The agent logs refusals and skips on change only. quarantine.jsonl gains one record per relpath, digest, and rule set. terva-lampi quarantine list and quarantine allow <relpath|sha256> added; an allowed digest uploads with an override stamp. status prints last_attempt and last_error.
+
+The Cursor adapters' per-file loops were left to the Cursor ticket; harness-level isolation covers them.
