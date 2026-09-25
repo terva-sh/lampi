@@ -39,10 +39,15 @@ process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.
 
 --token-file is a file of device tokens, one per line, or a directory
-with one file per device. Each plaintext token is hashed and the file
-is rewritten to sha256 lines. Copy the device's token file first; do
-not point this flag at the device's only copy. The token is not an
-argument.
+with one <name>.token file per device. Other files in the directory
+are not loaded. A token is 64 lowercase hex characters, as
+terva-lampi login writes. A line starting with # is a comment. Any
+other line is an error. Each plaintext token is hashed and the file is
+rewritten to sha256 lines, comments kept. Copy the device's token
+file first; do not point this flag at the device's only copy. The
+token is not an argument. SIGHUP reads the token file again. Requests
+in flight keep going. A file that does not load leaves the old tokens
+in place.
 
 The lake directory holds cas/ (sha256 blobs), catalog.db (SQLite),
 normalized/ (one JSONL file per session), and parquet/ (date and
@@ -107,6 +112,7 @@ func runServe(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
+		warnIgnored(env, tokenFile, devices)
 	}
 	if err := refuseExposedWithoutToken(addr, devices); err != nil {
 		return err
@@ -141,7 +147,48 @@ func runServe(env Env, args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if devices != nil {
+		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices) })
+	}
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
+}
+
+// reloadDevices reads the token file again and swaps the set in place.
+// A handler that has passed the check is not affected. A file that no
+// longer loads, or holds no token, keeps the old set: an empty set
+// would open a lake that serve refused to expose without one.
+func reloadDevices(env Env, path string, devices *auth.Devices) {
+	next, err := auth.LoadDevices(path)
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: %v\n", devices.Len(), err)
+		return
+	}
+	warnIgnored(env, path, next)
+	devices.Replace(next)
+	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
+}
+
+func warnIgnored(env Env, path string, d *auth.Devices) {
+	for _, name := range d.Ignored {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: %s: not loading %s; a device file ends in %s\n", path, name, auth.TokenSuffix)
+	}
+}
+
+// reloadOnHangup calls reload on each SIGHUP until ctx ends.
+func reloadOnHangup(ctx context.Context, reload func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGHUP)
+	go func() {
+		defer signal.Stop(ch)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ch:
+				reload()
+			}
+		}
+	}()
 }
 
 // sweepAge is how long an upload temp file or a partial upload sits

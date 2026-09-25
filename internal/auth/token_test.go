@@ -143,10 +143,10 @@ func TestDevicesHashedAtRest(t *testing.T) {
 	if err := os.MkdirAll(perDevice, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(perDevice, "laptop"), []byte(a+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(perDevice, "laptop.token"), []byte(a+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(perDevice, "desktop"), []byte(b+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(perDevice, "desktop.token"), []byte(b+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	many, err := LoadDevices(perDevice)
@@ -156,7 +156,7 @@ func TestDevicesHashedAtRest(t *testing.T) {
 	if many.Len() != 2 || !many.Match("Bearer "+a) || !many.Match("Bearer "+b) {
 		t.Fatalf("directory devices %d", many.Len())
 	}
-	laptop, err := os.ReadFile(filepath.Join(perDevice, "laptop"))
+	laptop, err := os.ReadFile(filepath.Join(perDevice, "laptop.token"))
 	if err != nil {
 		t.Fatal(err)
 	}

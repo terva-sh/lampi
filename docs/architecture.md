@@ -422,8 +422,10 @@ Single tenant, many devices, one token per device. `terva-lampi login`
 writes a fresh 256-bit token and does not print it. The client reads
 that file with `--token-file` and will not take the token as an argument.
 Copy the file to the lake host. `terva-lampi serve --token-file` hashes
-each line (or each file, when the path is a directory) and rewrites the
-copy to `sha256:<hex>`. The client's file stays the secret. There is no
+each line (or each `<name>.token` file, when the path is a directory)
+and rewrites the copy to `sha256:<hex>`. A token is 64 lowercase hex
+characters, and a `#` line is a comment kept through the rewrite.
+SIGHUP reloads the set in place. The client's file stays the secret. There is no
 enrolment API.
 
 Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without

@@ -101,8 +101,19 @@ stays the secret.
 
 `serve --token-file` hashes each token with SHA-256 and rewrites the
 host copy to lines of `sha256:<hex>`, mode 0600. One file holds one
-token per line, or a directory holds one file per device. There is
-no enrolment API and no TTL.
+token per line, or a directory holds one `<name>.token` file per
+device. A directory file with another name is not loaded; `serve`
+names it on stderr. Before this rule every file there was loaded, so
+rename device files to `.token` when you upgrade. A token is 64
+lowercase hex characters, as `login` writes. A line starting with `#`
+is a comment, such as the device's name, and stays through the
+rewrite. Any other line stops `serve` with the file and line number.
+There is no enrolment API and no TTL.
+
+To add or revoke a device, edit the file and send `serve` SIGHUP
+(`sudo systemctl kill -s HUP terva-lampi-serve`). Requests in flight
+keep going. A file that does not load leaves the old tokens in place
+and says why on stderr.
 
 `serve` replaces the file in that directory, so the service user has
 to be able to write there. The example path is on the encrypted
