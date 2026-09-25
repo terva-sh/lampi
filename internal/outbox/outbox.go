@@ -10,6 +10,14 @@
 // Identity groups versions of one piece of work. A higher Version
 // replaces the pending digest and manifest. An equal or lower Version
 // leaves the pending row alone.
+//
+// The upload does not replay rows. A row holds digests, not bytes, and
+// the file on disk may have moved on since it was written. Every pass,
+// the agent's drain included, rebuilds the work from the files and the
+// watermarks. A row is acked when the lake ACKs that work, or when the
+// allowlist or the scan refuses it. The queue is the
+// durable count of work the lake has not ACKed; status reports Depth.
+// Pending lists the rows for inspection.
 package outbox
 
 import (

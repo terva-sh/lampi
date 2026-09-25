@@ -1,9 +1,7 @@
 package discover
 
 import (
-	"fmt"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -42,20 +40,28 @@ func Classify(rel string) (string, bool) {
 // Sidecars walks the optional raati and tasks trees. A missing directory
 // is an empty list. Sessions are not included; call Sessions for those.
 func Sidecars(tervaHome string) ([]File, error) {
+	files, _, err := SidecarsSkipped(tervaHome)
+	return files, err
+}
+
+// SidecarsSkipped is Sidecars plus the entries it left out.
+func SidecarsSkipped(tervaHome string) ([]File, []error, error) {
 	dirs := []string{
 		filepath.Join(tervaHome, "raati"),
 		filepath.Join(tervaHome, "tasks"),
 		filepath.Join(tervaHome, "ext-data", "tasks"),
 	}
 	var out []File
+	var skipped []error
 	for _, dir := range dirs {
-		files, err := walkSidecarDir(tervaHome, dir)
+		files, skip, err := walkSidecarDir(tervaHome, dir)
+		skipped = append(skipped, skip...)
 		if err != nil {
-			return nil, err
+			return nil, skipped, err
 		}
 		out = append(out, files...)
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 // TasksSessionID returns the session id embedded in a tasks archive name.
@@ -71,25 +77,9 @@ func TasksSessionID(rel string) (string, bool) {
 	return id, true
 }
 
-func walkSidecarDir(home, dir string) ([]File, error) {
-	st, err := os.Stat(dir)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !st.IsDir() {
-		return nil, fmt.Errorf("discover: %s is not a directory", dir)
-	}
+func walkSidecarDir(home, dir string) ([]File, []error, error) {
 	var out []File
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
+	skipped, err := WalkFiles(dir, func(p string, d fs.DirEntry) error {
 		rel, err := filepath.Rel(home, p)
 		if err != nil {
 			return err
@@ -113,9 +103,9 @@ func walkSidecarDir(home, dir string) ([]File, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 func raatiFile(rel string) bool {

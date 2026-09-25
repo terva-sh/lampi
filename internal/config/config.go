@@ -189,10 +189,44 @@ func EnsureMachine(getenv func(string) string) (Machine, error) {
 		return Machine{}, err
 	}
 	raw = append(raw, '\n')
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
+	if err := writeFileAtomic(path, raw); err != nil {
 		return Machine{}, err
 	}
 	return m, nil
+}
+
+// writeFileAtomic writes a complete owner-only file beside path and
+// renames it over path. A crash leaves the old file or none, never a
+// torn one that LoadMachine would reject.
+func writeFileAtomic(path string, raw []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if name != "" {
+			os.Remove(name)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	name = ""
+	return nil
 }
 
 // ServerURL resolves the lake address: flag, then config file, then the

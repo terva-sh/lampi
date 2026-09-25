@@ -116,14 +116,21 @@ func (a Adapter) Discover(ctx context.Context, root string) ([]adapter.Ref, erro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	exports, err := adapter.Walk(root, a.WatchDir(), a.Match)
+	refs, _, err := discoverSkipped(root)
+	return refs, err
+}
+
+// discoverSkipped is Discover plus the entries the walk left out.
+func discoverSkipped(root string) ([]adapter.Ref, []error, error) {
+	exports, skipped, err := adapter.WalkSkipped(root, Adapter{}.WatchDir(), Adapter{}.Match)
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
 	if len(exports) > 0 {
-		return exports, nil
+		return exports, skipped, nil
 	}
-	return discoverDB(root)
+	refs, err := discoverDB(root)
+	return refs, skipped, err
 }
 
 // ReadSlice opens absPath at offset. Offset 0 reads the whole file.
@@ -150,22 +157,26 @@ type item struct {
 // session id are ordered oldest mtime first, so the newest one is the
 // last artifact and the lake makes it the head. harness_version is Version.
 func Manifests(root, machineID string) (adapter.Bundle, error) {
-	refs, err := Adapter{}.Discover(context.Background(), root)
+	refs, skipped, err := discoverSkipped(root)
 	if err != nil {
 		return adapter.Bundle{}, err
 	}
 	items := make([]item, 0, len(refs))
 	for _, ref := range refs {
+		// One file that cannot be read is left out. The rest of the
+		// harness still uploads.
 		session, cwd, err := readIdentity(ref)
 		if err != nil {
-			return adapter.Bundle{}, fmt.Errorf("opencode: %s: %w", ref.RelPath, err)
+			skipped = append(skipped, fmt.Errorf("opencode: %s: %w", ref.RelPath, err))
+			continue
 		}
 		if session == "" {
 			session = strings.TrimSuffix(ref.RelPath, path.Ext(ref.RelPath))
 		}
 		sum, err := adapter.HashFile(ref.AbsPath)
 		if err != nil {
-			return adapter.Bundle{}, err
+			skipped = append(skipped, fmt.Errorf("opencode: %s: %w", ref.RelPath, err))
+			continue
 		}
 		items = append(items, item{ref: ref, sum: sum, session: session, cwd: cwd})
 	}
@@ -179,7 +190,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 		groups[it.session] = append(groups[it.session], it)
 	}
 
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}}
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Skipped: skipped}
 	for _, id := range order {
 		group := groups[id]
 		sort.SliceStable(group, func(i, j int) bool {

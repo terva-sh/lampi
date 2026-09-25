@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,18 +14,21 @@ import (
 
 // attachSidecars adds raati records and tasks archives to the session
 // they belong to. A file with no session is left out of every manifest,
-// so the allowlist never sees it on its own.
-func attachSidecars(home string, order []string, groups map[string][]item, sidecars []item) error {
+// so the allowlist never sees it on its own. A sidecar that cannot be
+// read is left out too, and returned as a skip that names it.
+func attachSidecars(home string, order []string, groups map[string][]item, sidecars []item) []error {
+	var skipped []error
 	for _, it := range sidecars {
 		keys, err := sidecarKeys(home, it, order, groups)
 		if err != nil {
-			return err
+			skipped = append(skipped, fmt.Errorf("terva: %s: %w", it.file.RelPath, err))
+			continue
 		}
 		for _, key := range keys {
 			groups[key] = append(groups[key], it)
 		}
 	}
-	return nil
+	return skipped
 }
 
 func sidecarKeys(home string, it item, order []string, groups map[string][]item) ([]string, error) {

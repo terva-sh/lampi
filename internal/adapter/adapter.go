@@ -43,6 +43,10 @@ type Bundle struct {
 	// bytes, so the upload adds this to it. A digest with no entry had
 	// nothing hidden.
 	Hidden map[string]redact.Result
+	// Skipped is each file this harness left out of the bundle, as an
+	// error that names it: gone, unreadable, or with a line too long
+	// to find its session. The other files still upload.
+	Skipped []error
 	// Cleanup removes temporary files this bundle created. Nil does
 	// nothing. Call it after Paths have been read. A second call is safe.
 	Cleanup func()

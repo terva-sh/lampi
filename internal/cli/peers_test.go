@@ -198,8 +198,8 @@ func TestStartWatchesSkipsDisabledHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	all := startWatches(on, nil)
-	kept := startWatches(off, nil)
+	all := startWatches(on, false, nil, nil)
+	kept := startWatches(off, false, nil, nil)
 	if watchersAt(all, f.claude) == 0 {
 		t.Fatal("enabled claude produced no watcher")
 	}
@@ -226,7 +226,7 @@ func TestDisabledTervaIsOmitted(t *testing.T) {
 	if _, ok := sourceNames(src)[protocol.HarnessTerva]; ok {
 		t.Fatal("disabled terva was included")
 	}
-	if len(startWatches(src, nil)) != 0 {
+	if len(startWatches(src, false, nil, nil)) != 0 {
 		t.Fatal("disabled terva started a watcher")
 	}
 }

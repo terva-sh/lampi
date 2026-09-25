@@ -13,7 +13,6 @@
 package terva
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -69,7 +68,7 @@ func (Adapter) Discover(ctx context.Context, root string) ([]adapter.Ref, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	files, err := listFiles(root)
+	files, _, err := listFiles(root)
 	if err != nil {
 		return nil, err
 	}
@@ -130,20 +129,21 @@ func Manifests(tervaHome, machineID string) (adapter.Bundle, error) {
 	return buildManifests(tervaHome, machineID)
 }
 
-func listFiles(tervaHome string) ([]discover.File, error) {
-	files, err := discover.Sessions(tervaHome)
+func listFiles(tervaHome string) ([]discover.File, []error, error) {
+	files, skipped, err := discover.SessionsSkipped(tervaHome)
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
-	extra, err := discover.Sidecars(tervaHome)
+	extra, skip, err := discover.SidecarsSkipped(tervaHome)
+	skipped = append(skipped, skip...)
 	if err != nil {
-		return nil, err
+		return nil, skipped, err
 	}
-	return append(files, extra...), nil
+	return append(files, extra...), skipped, nil
 }
 
 func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
-	files, err := listFiles(tervaHome)
+	files, skipped, err := listFiles(tervaHome)
 	if err != nil {
 		return adapter.Bundle{}, err
 	}
@@ -152,15 +152,19 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 	for _, f := range files {
 		it := item{file: f, stem: stemOf(f.AbsPath)}
 		if f.Kind == discover.KindTranscript {
+			// One file that cannot be read is left out. The rest of
+			// the home still uploads.
 			m, err := readMeta(f.AbsPath)
 			if err != nil {
-				return adapter.Bundle{}, fmt.Errorf("terva: %s: %w", f.RelPath, err)
+				skipped = append(skipped, fmt.Errorf("terva: %s: %w", f.RelPath, err))
+				continue
 			}
 			it.meta = m
 		}
 		sum, err := hashFile(f.AbsPath)
 		if err != nil {
-			return adapter.Bundle{}, err
+			skipped = append(skipped, fmt.Errorf("terva: %s: %w", f.RelPath, err))
+			continue
 		}
 		it.sum = sum
 		if f.Kind == discover.KindRaati || f.Kind == discover.KindTasks {
@@ -198,11 +202,9 @@ func buildManifests(tervaHome, machineID string) (adapter.Bundle, error) {
 		}
 		groups[key] = append(groups[key], it)
 	}
-	if err := attachSidecars(tervaHome, order, groups, sidecars); err != nil {
-		return adapter.Bundle{}, err
-	}
+	skipped = append(skipped, attachSidecars(tervaHome, order, groups, sidecars)...)
 
-	b := adapter.Bundle{Root: tervaHome, Paths: map[string]string{}}
+	b := adapter.Bundle{Root: tervaHome, Paths: map[string]string{}, Skipped: skipped}
 	for _, key := range order {
 		group := groups[key]
 		native := nativeID(group)
@@ -274,18 +276,31 @@ func stemOf(path string) string {
 	return name
 }
 
+// maxMetaLine is the longest first line readMeta parses.
+const maxMetaLine = 1 << 20
+
+// readMeta parses the first line. A first line over maxMetaLine is a
+// *adapter.LongLineError: the meta that names the session would be on
+// it, and a stem id would split that session.
 func readMeta(path string) (meta, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return meta{}, err
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	if !sc.Scan() {
-		if err := sc.Err(); err != nil {
-			return meta{}, err
-		}
+	var first []byte
+	long := false
+	err = adapter.ScanLines(f, maxMetaLine, func(line []byte, over bool) bool {
+		first, long = line, over
+		return false
+	})
+	if err != nil {
+		return meta{}, err
+	}
+	if long {
+		return meta{}, &adapter.LongLineError{Max: maxMetaLine}
+	}
+	if first == nil {
 		return meta{}, nil
 	}
 	var env struct {
@@ -297,7 +312,7 @@ func readMeta(path string) (meta, error) {
 			ForkPoint json.RawMessage `json:"fork_point"`
 		} `json:"meta"`
 	}
-	if err := json.Unmarshal(sc.Bytes(), &env); err != nil {
+	if err := json.Unmarshal(first, &env); err != nil {
 		// A transcript whose first line is not JSON is still a blob.
 		// Leave meta unset rather than failing the walk.
 		return meta{}, nil

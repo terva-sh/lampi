@@ -152,6 +152,10 @@ HTTPS URL from [docs/policy.md](../docs/policy.md). The program path is
 `$HOME/.config/terva-lampi/token`. The plist keeps the loopback URL
 until you edit it.
 
+On macOS the agent polls the harness trees every 2s instead of using
+kqueue, which holds a descriptor per watched file. Set
+`LAMPI_WATCH=fsnotify` in the plist environment to use kqueue anyway.
+
 ```bash
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/sh.terva.lampi.agent.plist
 ```

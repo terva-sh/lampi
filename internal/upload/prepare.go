@@ -41,6 +41,7 @@ func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, b
 		res.Checked += resPart.Checked
 		res.Refused += resPart.Refused
 		res.Quarantined += resPart.Quarantined
+		res.Skipped = append(res.Skipped, resPart.Skipped...)
 		work = append(work, part...)
 		if err != nil {
 			if r, ok := err.(*Rejected); ok {
@@ -74,6 +75,13 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 		next, bodies, full, hit, err := scanSession(ctx, opt, wm, bundle, m)
 		if errors.Is(err, errFileChanged) {
 			// The next write event syncs it again with a fresh digest.
+			continue
+		}
+		var unread *unreadableError
+		if errors.As(err, &unread) {
+			// Gone or unreadable since the digest was taken. The other
+			// sessions still upload, and the next pass tries this one.
+			res.Skipped = append(res.Skipped, unread.Error())
 			continue
 		}
 		if err != nil {
@@ -131,9 +139,24 @@ func (h *quarantineHit) Error() string {
 // its manifest was built with. It is skipped for this round.
 var errFileChanged = errors.New("upload: file changed since its digest was taken")
 
+// unreadableError is an artifact that could not be read after its
+// digest was taken: removed, or no longer readable. Its session is left
+// out of this pass.
+type unreadableError struct {
+	rel string
+	err error
+}
+
+func (e *unreadableError) Error() string {
+	return fmt.Sprintf("%s: %v", e.rel, e.err)
+}
+
+func (e *unreadableError) Unwrap() error { return e.err }
+
 // readArtifacts reads each artifact from the path its own relpath names
 // and checks the bytes against the artifact digest. A mismatch means
-// the file changed after hashing, and none of the session is read.
+// the file changed after hashing, and none of the session is read. A
+// read that fails is an *unreadableError.
 func readArtifacts(bundle adapter.Bundle, m protocol.Manifest) ([][]byte, error) {
 	out := make([][]byte, 0, len(m.Artifacts))
 	for _, a := range m.Artifacts {
@@ -143,7 +166,7 @@ func readArtifacts(bundle adapter.Bundle, m protocol.Manifest) ([][]byte, error)
 		}
 		body, err := os.ReadFile(path)
 		if err != nil {
-			return nil, err
+			return nil, &unreadableError{rel: a.RelPath, err: err}
 		}
 		sum := sha256.Sum256(body)
 		if hex.EncodeToString(sum[:]) != a.SHA256 {

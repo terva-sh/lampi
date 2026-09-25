@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3B369F5YPCAMS27XSRDJRED
 title: "Agent resilience: per-file errors, watcher fallback, one config"
 type: bug
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/eh1m
+  branch: claude/elegant-feynman-eh1mdd-resilience
+  worktree: /home/user/lampi/.claude/worktrees/agent-a74fa3c5712698894
+  commit: ae4e6dcaa2db3559ec4d24c9ff889888dd444fca
+  session: null
+  claimed_at: 2026-09-25T14:40:33Z
+  expires_at: null
 archive: null
 created_at: 2026-09-25T01:34:31Z
-updated_at: 2026-09-25T01:38:33Z
+updated_at: 2026-09-25T14:56:54Z
 created_by:
   id: agent:claude-code/eh1m
   name: Claude Code cloud agent
@@ -47,7 +54,53 @@ Isolate failures per file and session, treat an overlong line as no identity, an
 
 ## Acceptance criteria
 
-- [ ] One unreadable or oversized file is logged and skipped and the rest upload
-- [ ] The agent runs with no terva home and falls back to polling on watcher errors
+- [x] One unreadable or oversized file is logged and skipped and the rest upload
+- [x] The agent runs with no terva home and falls back to polling on watcher errors
 - [ ] sync, status, and agent resolve the server and token the same way, and status prints the source
 - [ ] Refusals and quarantine records are logged on change only, and quarantine can be listed and acknowledged
+
+## Implementation plan
+
+Two stacked branches, as the operator ticket did: claude/elegant-feynman-eh1mdd-resilience carries items 1, 2 and 5; claude/elegant-feynman-eh1mdd-resilience-2 carries items 3 and 4 on top of it.
+
+### Branch 1: isolation, watcher, small fixes
+
+- adapter.Bundle gains Skipped, a list of errors that each name one file. The adapter and discover walks skip an entry that vanished (ENOENT) or cannot be read (EACCES) below the base and report it; Walk keeps its signature for Discover.
+- A shared adapter.ScanLines reads with bufio.Reader and discards a line past the cap instead of failing. Claude and Codex keep looking for identity past it. When identity is still incomplete after an overlong line, the file is skipped with a reason, because its id may have been on that line and a relpath id would split the session. A terva first line past 1 MiB is the same skip.
+- Claude, Codex, OpenCode and terva skip a file whose identity read or hash fails and keep the rest. upload.bundlesFor isolates each harness: a failed Manifests is one skip line and the other harnesses still upload. readArtifacts treats a file gone or unreadable since the digest like errFileChanged, with a skip line. Result.Skipped is printed on stderr by sync and the agent.
+- watch: a missing root polls until it exists, then tries fsnotify. An Add failure (ENOSPC included) or a fsnotify error drops that watcher to polling and reports the path through OnFallback instead of returning. darwin polls by default; LAMPI_WATCH=fsnotify or poll overrides it. The terva home is no longer required to exist.
+- Harness roots resolve through EvalSymlinks before the walk. agent.pid is created with O_EXCL; a stale file whose pid is not alive is replaced, a live one stops the second agent with a message naming the pid. machine.json is written to a temp file and renamed. The outbox gets its decision in a note.
+
+### Branch 2: one config, quiet logs, quarantine
+
+- One resolver (flag, env, config.json, default) returns value and source for server and token file. agent, sync, status, agent config, login and the conflicts token use it. status and agent config print server_source and token_file_source. The systemd unit drops its Environment= pins and the plist drops --server.
+- The agent logs a refusal line only when it was not in the previous pass. AppendQuarantine skips a record whose relpath, digest and rules match one already in the log.
+- quarantine list prints the records. quarantine allow <relpath|sha256> writes the digest to an allow file in the state directory; scanSession stamps override for that exact digest only. A manifest hit cannot be allowed.
+- Sync records the last attempt and its error in the state directory; status prints last_attempt and last_error.
+
+## Notes
+
+**agent:claude-code/eh1m** at 2026-09-25T14:56:54Z
+
+Branch claude/elegant-feynman-eh1mdd-resilience carries items 1, 2 and 5. Decisions a reviewer should know:
+
+### Overlong lines
+The reader does not raise the cap. adapter.ScanLines reads with bufio.Reader and reads past a line over the cap without holding it. Claude and Codex keep looking for identity after it, so a big tool result on line 3 no longer costs the file. A file whose id or cwd is still missing after an overlong line is skipped with a LongLineError, because the id may have been on that line and a relpath id would split the session. A terva first line over 1 MiB is the same skip.
+
+### Isolation boundaries
+The terva, Claude, Codex and OpenCode loops skip one file. The Cursor IDE and Cursor CLI loops are the Cursor ticket's files, so they were left alone; upload.bundlesFor isolates each harness, so a Cursor failure is one skip line and every other harness still uploads. The shared walk (discover.WalkFiles) covers Cursor discovery too.
+
+### Missing homes
+Every enabled home is now watched, not only terva's. One that does not exist is polled until it appears, then fsnotify is tried. Before, a Claude or Codex install after the agent started needed a restart.
+
+### darwin
+No override existed, so LAMPI_WATCH=poll|fsnotify was added. Unset polls on darwin and prefers fsnotify elsewhere.
+
+### Outbox
+Documented rather than replayed. A row holds digests, not bytes, and the file may have changed since, so reading Pending on drain could not upload anything the regular pass would not. The drain is already a full pass. The package doc and docs/architecture.md now say the outbox is the durable count status reports. Pending stays for inspection and tests.
+
+### agent.pid
+flock on Unix (with a same-inode check after the lock), O_EXCL plus a process check elsewhere. The file keeps the pid, so the hook is unchanged.
+
+### Not covered by a failing-first test
+machine.json by rename has no test that fails before the change; atomicity is not observable from a unit test. The EACCES walk test skips as root; it was run and passed as uid 65534 with setpriv. The removed-mid-walk and fn-permission tests cover the same code path for any user.

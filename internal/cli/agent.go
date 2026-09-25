@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -140,9 +139,15 @@ that id. The watermark and any object already stored stay. root is
 an absolute path and wins over the environment variable and the
 default above. There is no per-harness root flag. Omit harnesses,
 or omit one id, and that harness stays on and keeps the resolution
-above. A missing Claude, Codex, OpenCode, or Cursor
-directory is skipped. The watcher prefers fsnotify and falls back
-to polling.
+above. A home that does not exist yet, terva included, is polled
+until it appears. A file that cannot be read, or whose session id
+would sit on a line past the reader's cap, is skipped and named on
+stderr; the other files upload. The watcher prefers fsnotify. It
+polls instead when fsnotify cannot add a directory, such as at the
+inotify watch limit, or reports an error such as a queue overflow,
+and it names the path on stderr. On macOS it polls by default,
+since kqueue holds a descriptor per file. LAMPI_WATCH=poll or
+LAMPI_WATCH=fsnotify overrides that on any platform.
 
 The machine id is the one in the config directory. Growth, and one pass
 at startup for files already on disk, call the same path as
@@ -156,7 +161,9 @@ the allowlist or the scan refused is not retried. SIGTERM or interrupt
 drains the outbox best-effort and exits. On Unix, SIGUSR1 asks for a
 sync now. The filesystem watch is still the source of truth; the
 signal only skips the wait. While the
-daemon runs it writes agent.pid in the state directory.
+daemon runs it writes agent.pid in the state directory and holds a
+lock on it. A second agent on that directory exits and names the
+first one's pid.
 hooks/terva-post-tool-enqueue.sh can send that signal from a terva
 post_tool_use hook. It is optional, and make build does not install
 it.
@@ -229,6 +236,10 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	if err != nil {
 		return err
 	}
+	poll, err := watch.PollByDefault(env.getenv)
+	if err != nil {
+		return err
+	}
 	removePID, err := writeAgentPID(opt.StateDir)
 	if err != nil {
 		return err
@@ -245,7 +256,7 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
-	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
+	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Backend(poll))
 
 	kick := make(chan struct{}, 1)
 	wake := func() {
@@ -262,11 +273,13 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		waiting.Store(false)
 		wake()
 	})
-	watchers := startWatches(src, func(c watch.Change) {
+	watchers := startWatches(src, poll, func(c watch.Change) {
 		fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
 		if !waiting.Load() {
 			wake()
 		}
+	}, func(err error) {
+		fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
 	})
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	defer watchCancel()
@@ -449,19 +462,23 @@ func countSources(getenv func(string) string, harnesses config.Harnesses) ([]sou
 	return src, len(files), nil
 }
 
-func startWatches(src []source, on func(watch.Change)) []*watch.Watcher {
+// startWatches builds one watcher per harness tree. A home that does
+// not exist yet is still watched: the watcher polls until it appears,
+// so a harness installed after the agent started is picked up. poll
+// forces the poll backend. onFallback hears a watcher that moved from
+// fsnotify to polling.
+func startWatches(src []source, poll bool, on func(watch.Change), onFallback func(error)) []*watch.Watcher {
 	var out []*watch.Watcher
 	for _, s := range src {
-		if !s.watch() {
-			continue
-		}
 		for _, dir := range s.watchDirs() {
 			layout := s.layout()
 			layout.Dir = dir
 			out = append(out, &watch.Watcher{
-				Root:     s.home,
-				Layout:   layout,
-				OnChange: on,
+				Root:       s.home,
+				Layout:     layout,
+				OnChange:   on,
+				ForcePoll:  poll,
+				OnFallback: onFallback,
 			})
 		}
 	}
@@ -601,20 +618,31 @@ func runAgentStatus(env Env) error {
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
-	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Probe())
+	poll, err := watch.PollByDefault(env.getenv)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Backend(poll))
 	return writeCaptureState(env.stdout(), state)
 }
 
 // writeAgentPID records this process in the state directory so a hook
-// can ask for a sync. The file is removed when the daemon returns.
+// can ask for a sync. It also keeps a second agent on the same state
+// directory from starting. The file is removed when the daemon returns.
 func writeAgentPID(stateDir string) (func(), error) {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return nil, fmt.Errorf("agent: pid file: %w", err)
 	}
-	path := filepath.Join(stateDir, "agent.pid")
-	body := []byte(strconv.Itoa(os.Getpid()) + "\n")
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		return nil, fmt.Errorf("agent: pid file: %w", err)
+	return lockAgentPID(filepath.Join(stateDir, "agent.pid"))
+}
+
+// errAgentRunning is the refusal a second agent prints. The pid is
+// read from the file for the message only.
+func errAgentRunning(path string) error {
+	raw, _ := os.ReadFile(path)
+	pid := strings.TrimSpace(string(raw))
+	if pid == "" {
+		pid = "unknown"
 	}
-	return func() { _ = os.Remove(path) }, nil
+	return fmt.Errorf("agent: another terva-lampi agent is running (pid %s, %s); stop it first", pid, path)
 }

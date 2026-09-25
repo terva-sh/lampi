@@ -115,6 +115,9 @@ type Result struct {
 	// Warning is set when hello's server_time disagrees with the client
 	// clock by more than protocol.ClockSkewWarn. The push still runs.
 	Warning string
+	// Skipped names each file or harness left out of this run because
+	// it could not be read. The rest of the run went ahead.
+	Skipped []string
 }
 
 // Rejected is one or more sessions that stayed on the machine.
@@ -147,17 +150,14 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 	if err := CheckToken(opt.ServerURL, opt.Token); err != nil {
 		return Result{}, err
 	}
-	bundles, err := bundlesFor(opt)
-	if err != nil {
-		return Result{}, err
-	}
+	bundles, skipped := bundlesFor(opt)
 	defer cleanupBundles(bundles)
 	n := 0
 	for _, b := range bundles {
 		n += len(b.Manifests)
 	}
 	if n == 0 {
-		return finish(opt, Result{}, nil)
+		return finish(opt, Result{Skipped: skipped}, nil)
 	}
 	if opt.StateDir == "" {
 		return Result{}, fmt.Errorf("upload: state dir is empty")
@@ -197,6 +197,7 @@ func Sync(ctx context.Context, opt Options) (Result, error) {
 
 	work, res, err := prepare(ctx, opt, wm, q, bundles)
 	res.Warning = warning
+	res.Skipped = append(skipped, res.Skipped...)
 	var rejected error
 	if r, ok := err.(*Rejected); ok {
 		rejected = r
@@ -708,60 +709,51 @@ func requireScanned(m protocol.Manifest) error {
 	return nil
 }
 
-func bundlesFor(opt Options) ([]adapter.Bundle, error) {
-	var out []adapter.Bundle
-	add := func(b adapter.Bundle, err error) error {
-		if err != nil {
-			cleanupBundles(out)
-			if b.Cleanup != nil {
-				b.Cleanup()
-			}
-			return err
-		}
-		out = append(out, b)
-		return nil
-	}
-	if opt.TervaHome != "" {
-		b, err := terva.Manifests(opt.TervaHome, opt.MachineID)
-		if err := add(b, err); err != nil {
-			return nil, err
-		}
-	}
-	if opt.ClaudeHome != "" {
-		b, err := claude.Manifests(opt.ClaudeHome, opt.MachineID)
-		if err := add(b, err); err != nil {
-			return nil, err
-		}
-	}
-	if opt.CodexHome != "" {
-		b, err := codex.Manifests(opt.CodexHome, opt.MachineID)
-		if err := add(b, err); err != nil {
-			return nil, err
-		}
-	}
-	if opt.OpenCodeHome != "" {
-		b, err := opencode.Manifests(opt.OpenCodeHome, opt.MachineID)
-		if err := add(b, err); err != nil {
-			return nil, err
-		}
-	}
+// bundlesFor builds each harness's bundle. A harness that fails as a
+// whole, such as a home that cannot be read, is one skip line and the
+// other harnesses still upload. skipped also carries each file a
+// harness left out.
+func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 	// The Cursor readers build an export per session. The allowlist
 	// check prepare makes runs first, so a refused session is not
 	// snapshotted; its manifest still reaches prepare to be reported.
 	permit := func(m protocol.Manifest) bool { return opt.Projects.Permitted(projectID(m)) }
-	if opt.CursorHome != "" {
-		b, err := cursor.ManifestsPermit(opt.CursorHome, opt.MachineID, permit)
-		if err := add(b, err); err != nil {
-			return nil, err
-		}
+	cursorManifests := func(root, machineID string) (adapter.Bundle, error) {
+		return cursor.ManifestsPermit(root, machineID, permit)
 	}
-	if opt.CursorCLIHome != "" {
-		b, err := cursorcli.ManifestsPermit(opt.CursorCLIHome, opt.MachineID, permit)
-		if err := add(b, err); err != nil {
-			return nil, err
-		}
+	cursorCLIManifests := func(root, machineID string) (adapter.Bundle, error) {
+		return cursorcli.ManifestsPermit(root, machineID, permit)
 	}
-	return out, nil
+	homes := []struct {
+		name      string
+		home      string
+		manifests func(root, machineID string) (adapter.Bundle, error)
+	}{
+		{protocol.HarnessTerva, opt.TervaHome, terva.Manifests},
+		{protocol.HarnessClaude, opt.ClaudeHome, claude.Manifests},
+		{protocol.HarnessCodex, opt.CodexHome, codex.Manifests},
+		{protocol.HarnessOpenCode, opt.OpenCodeHome, opencode.Manifests},
+		{protocol.HarnessCursor, opt.CursorHome, cursorManifests},
+		{protocol.HarnessCursorCLI, opt.CursorCLIHome, cursorCLIManifests},
+	}
+	for _, h := range homes {
+		if h.home == "" {
+			continue
+		}
+		b, err := h.manifests(h.home, opt.MachineID)
+		if err != nil {
+			if b.Cleanup != nil {
+				b.Cleanup()
+			}
+			skipped = append(skipped, fmt.Sprintf("%s: %v", h.name, err))
+			continue
+		}
+		for _, e := range b.Skipped {
+			skipped = append(skipped, e.Error())
+		}
+		out = append(out, b)
+	}
+	return out, skipped
 }
 
 func cleanupBundles(bundles []adapter.Bundle) {
