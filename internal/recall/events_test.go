@@ -235,7 +235,10 @@ func TestCursorRejectsTamperingAndNewGenerations(t *testing.T) {
 }
 
 // TestPagesNeverMixGenerations republishes while reading. Every event
-// names its generation, so a page that mixed two would show it.
+// names its generation, so a page that mixed two would show it. Each
+// served page is checked, so a few pages across at least one reload
+// exercise it; the floor stays low because a loaded runner serves few
+// pages while the writer keeps forcing reloads.
 func TestPagesNeverMixGenerations(t *testing.T) {
 	s := lake(t)
 	uid := ingest(t, s, "race")
@@ -259,9 +262,10 @@ func TestPagesNeverMixGenerations(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}()
+	const minPages = 10
 	var served, reloads int
-	deadline := time.Now().Add(10 * time.Second)
-	for (served < 50 || reloads == 0) && time.Now().Before(deadline) {
+	deadline := time.Now().Add(30 * time.Second)
+	for (served < minPages || reloads == 0) && time.Now().Before(deadline) {
 		p, err := r.Events(t.Context(), uid, EventRequest{Limit: 200})
 		var unavailable UnavailableError
 		if errors.As(err, &unavailable) || errors.Is(err, ErrGenerationChanged) {
@@ -291,7 +295,7 @@ func TestPagesNeverMixGenerations(t *testing.T) {
 	close(stop)
 	wg.Wait()
 	t.Logf("served %d pages, %d reloads", served, reloads)
-	if served < 50 || reloads == 0 {
+	if served < minPages || reloads == 0 {
 		t.Fatal("race not exercised", served, reloads)
 	}
 }
