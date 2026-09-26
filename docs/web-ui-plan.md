@@ -1,6 +1,6 @@
 # Web dashboard and retrieval plan
 
-Status: release A implemented and under final validation; releases B/C remain draft. The owner approved a
+Status: release A implemented and validated; releases B/C remain draft. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -283,12 +283,12 @@ dashboard completion is not proof that those checks passed.
 
 ## Ticket map
 
-Ticket links refer to the draft files as filed; use `git ticket show ID` after
-status changes move a file. All acceptance criteria start unchecked.
+Ticket links track the current files; use `git ticket show ID` after future
+status changes move a file. Release A and its eight children are done.
 
 ### Release A
 
-Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only lake visibility](../.tickets/tickets/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md).
+Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only lake visibility](../.tickets/done/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md).
 
 | Ticket | Work |
 |---|---|
