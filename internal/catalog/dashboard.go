@@ -127,39 +127,58 @@ func migrateDashboard(tx *sql.Tx) error {
 	if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN web_updated_ns INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return err
 	}
-	rows, err := tx.Query(`SELECT session_uid,ingested_at FROM sessions`)
-	if err != nil {
-		return err
-	}
+	// Close each bounded read before updating, then seek by the immutable
+	// primary key so memory stays bounded and later batches avoid OFFSET scans.
+	const batchSize = 512
 	type stamp struct {
 		uid string
 		ns  int64
 	}
-	var stamps []stamp
-	for rows.Next() {
-		var uid, raw string
-		if err := rows.Scan(&uid, &raw); err != nil {
-			rows.Close()
-			return err
-		}
-		t, err := time.Parse(time.RFC3339Nano, raw)
+	stamps := make([]stamp, 0, batchSize)
+	query := `SELECT session_uid,ingested_at FROM sessions ORDER BY session_uid LIMIT ?`
+	args := []any{batchSize}
+	for {
+		rows, err := tx.Query(query, args...)
 		if err != nil {
-			rows.Close()
-			return errors.New("catalog: invalid existing ingest timestamp")
-		}
-		stamps = append(stamps, stamp{uid, t.UnixNano()})
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, s := range stamps {
-		if _, err := tx.Exec(`UPDATE sessions SET web_updated_ns=? WHERE session_uid=?`, s.ns, s.uid); err != nil {
 			return err
 		}
+		stamps = stamps[:0]
+		for rows.Next() {
+			var uid, raw string
+			if err := rows.Scan(&uid, &raw); err != nil {
+				rows.Close()
+				return err
+			}
+			when, err := time.Parse(time.RFC3339Nano, raw)
+			if err != nil {
+				rows.Close()
+				return errors.New("catalog: invalid existing ingest timestamp")
+			}
+			stamps = append(stamps, stamp{uid, when.UnixNano()})
+		}
+		err = rows.Err()
+		closeErr := rows.Close()
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if len(stamps) == 0 {
+			break
+		}
+		for _, s := range stamps {
+			if _, err := tx.Exec(`UPDATE sessions SET web_updated_ns=? WHERE session_uid=?`, s.ns, s.uid); err != nil {
+				return err
+			}
+		}
+		if len(stamps) < batchSize {
+			break
+		}
+		query = `SELECT session_uid,ingested_at FROM sessions WHERE session_uid>? ORDER BY session_uid LIMIT ?`
+		args = []any{stamps[len(stamps)-1].uid, batchSize}
 	}
-	_, err = tx.Exec(`CREATE INDEX web_sessions_time ON sessions(web_updated_ns DESC,session_uid DESC);
+	_, err := tx.Exec(`CREATE INDEX web_sessions_time ON sessions(web_updated_ns DESC,session_uid DESC);
  CREATE INDEX web_sessions_harness ON sessions(harness,web_updated_ns DESC,session_uid DESC);
  CREATE INDEX web_sessions_project ON sessions(project_id,web_updated_ns DESC,session_uid DESC);
  CREATE INDEX web_sessions_project_harness ON sessions(project_id,harness,web_updated_ns DESC,session_uid DESC);
