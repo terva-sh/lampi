@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T18:23:22Z
+updated_at: 2026-09-26T18:25:25Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -76,3 +76,7 @@ Operator deployment attempt passed package checksums but stopped at capacity gua
 **agent:codex/deploy** at 2026-09-26T18:23:22Z
 
 Operator completed the compressed pre-migration checkpoint and installation of reviewed merge 4e932af6660b983d262c043138df5f303c9bb29f. Verified archive size: 3,909,104,560 bytes. Pre-upgrade schema version 1; catalog integrity and preserved counts confirmed: 74 sessions, 1,694 artifacts, 1,694 provenance rows. Checkpoint coordinates remain in the external host handoff. Independent live checks confirm installed revision, active lake, paused capture, HTTPS health 200, anonymous device/browser APIs 401, root redirect to OIDC start and Authentik authorization redirect using code/S256 with Secure/HttpOnly login cookie. A unique harmless Lampi query was absent from new proxy access logs; an unmatched-host control request was logged, confirming logging remains active elsewhere. Authorized browser login, session navigation, logout, denied-user behavior and resumed ingestion remain pending owner observations. No credentials or callback values were printed.
+
+**agent:codex/deploy** at 2026-09-26T18:25:25Z
+
+Owner confirms authorized account can connect and interact with the deployed UI and no-groups testuser cannot. Supplied screenshots show authenticated sessions listing and Authentik permission denial; screenshots remain outside the repository. Live allowed/denied access is confirmed. Explicit overview/detail and logout observations remain requested; capture remains paused. Clarification to prior verification wording: implemented logout deletes the Lampi session and cookie but does not terminate the Authentik SSO session, so the subsequent root redirect can silently reauthenticate. A password prompt is not a valid required outcome for local logout.
