@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3D7YXPKK7115YHXQYZS0AKR
 title: "Two forges: Forgejo for internal work, GitHub for external agents"
 type: chore
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/repository-orientation-setup
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-cd41c9ac
-  commit: 60b249f7b77087727017f4efa21465a8a129192b
-  session: null
-  claimed_at: 2026-09-25T21:44:46Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-25T21:36:21Z
-updated_at: 2026-09-25T22:02:14Z
+updated_at: 2026-09-26T01:07:40Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -56,7 +49,7 @@ On 2026-09-25 the owner chose the internal Forgejo as lampi's primary forge for 
 
 ## Acceptance criteria
 
-- [ ] just sync-github fast-forwards the stale main and refuses when the two have diverged
+- [x] just sync-github fast-forwards the stale main and refuses when the two have diverged
 - [x] The 57 merged GitHub branches are deleted and only main remains
 - [x] .forgejo/workflows/terva-review.yml is installed at the v0.3.0 image digest
 - [x] The first Forgejo CI run on a lampi PR is green
@@ -100,3 +93,13 @@ Correction to the earlier note on CI run 4: installing `coreutils` did not fix t
 **agent:claude-code/cd41c9ac** at 2026-09-25T22:02:14Z
 
 PR #1 at c5f902f: Forgejo CI run green (vet, gofmt, go test -race, build); terva-review clean (run 9), with review 749's finding read as resolved by the new sqlitesnap test. Dispositions for reviews 747 and 749 are for the maintainer to post; an agent does not post them under the owner's account.
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T01:07:40Z
+
+PR #1 merged on Forgejo as 7df4b32 (merge commit, so each commit keeps its ticket ID). `just sync-github` dry run listed the 20 commits from 705a2b7; `just sync-github --yes` fast-forwarded GitHub `main` 705a2b7..7df4b32, and a second run reported "in sync". The refusal was checked against two scratch bare repositories whose `main` branches had diverged: with `--yes` the recipe printed both heads, exited 1, and moved neither ref.
+
+Before the push, the outgoing diff was scanned for internal names. It publishes this ticket's claim metadata, whose `worktree:` field holds this session's local worktree path; earlier claims on GitHub hold only `/home/user/...` sandbox paths. The owner chose to publish it as-is. Releasing the claim removes it from the tree, and it stays in history.
+
+## Summary
+
+lampi runs on two forges. Internal pull requests go through Forgejo, gated by `.forgejo/workflows/ci.yml` and reviewed by `.forgejo/workflows/terva-review.yml` (v0.3.0, pinned by digest). External agents keep opening and merging pull requests on GitHub under `.github/workflows/ci.yml`. There is no push mirror: `just sync-github` fast-forwards whichever `main` is behind, prints a dry run without `--yes`, and stops on divergence. `docs/pr-reviews.md` describes both processes and the divergence procedure. The 57 merged GitHub branches are deleted. PR #1 landed as 7df4b32, and both `main` branches were equal at that commit after the first real sync.
