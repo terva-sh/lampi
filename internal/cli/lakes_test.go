@@ -275,3 +275,34 @@ func TestSyncMigratesSingleLakeStateAndSendsNothingTwice(t *testing.T) {
 		t.Fatalf("default lake sessions %d", n.Sessions)
 	}
 }
+
+// A crash between the rename and the cleanup leaves lakes/default and
+// the legacy files both. The cleanup still waits for agent.pid, so an
+// agent from before this release that started since keeps its files.
+func TestMigrationCleanupWaitsForAnOldAgent(t *testing.T) {
+	state := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(state, "lakes", "default"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(state, "last_sync.json")
+	if err := os.WriteFile(legacy, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release, err := writeAgentPID(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateDefault(Env{Stderr: ioDiscard()}, state, false); err == nil || !strings.Contains(err.Error(), "stop that agent") {
+		t.Fatalf("cleanup beside an old agent: %v", err)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatal("cleanup removed a file an agent holds")
+	}
+	release()
+	if err := migrateDefault(Env{Stderr: ioDiscard()}, state, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("leftover legacy file kept")
+	}
+}

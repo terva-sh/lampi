@@ -47,15 +47,16 @@ func prepareLake(env Env, state string, lake config.Lake, agentLocked bool) (str
 }
 
 func migrateDefault(env Env, state string, agentLocked bool) error {
-	if _, err := os.Stat(lakestate.Dir(state, config.DefaultLake)); err == nil {
-		// Already moved. Migrate removes legacy files a crash left behind.
-		_, err := lakestate.Migrate(state, config.DefaultLake)
-		return err
-	}
+	// Nothing at the top of the state directory: moved already, or a
+	// fresh machine.
 	has, err := lakestate.Legacy(state)
 	if err != nil || !has {
 		return err
 	}
+	// Legacy files are about to be moved, or, when lakes/default exists
+	// because a crash came between the rename and the cleanup, removed.
+	// Either way an agent from before this release may be writing them,
+	// so the lock is taken first.
 	if !agentLocked {
 		release, err := writeAgentPID(state)
 		if err != nil {
