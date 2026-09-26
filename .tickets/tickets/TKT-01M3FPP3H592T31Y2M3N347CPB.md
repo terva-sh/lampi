@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-09-26T20:35:15Z
+updated_at: 2026-09-26T21:14:01Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -75,11 +75,38 @@ This epic is filed without children. Likely splits:
 
 - [ ] Web and MCP adapters call the same query functions and return the same result shapes, cursors and limits.
 - [ ] Structured filters (event_type, actor, tool name, raw_type) compose with literal text, session filters and time range in both adapters.
-- [ ] Hits and events carry a generation-pinned deep link that opens the event in the viewer and reports a superseded generation.
+- [x] Hits and events carry a generation-pinned deep link that opens the event in the viewer and reports a superseded generation.
 - [ ] A selected event span can be copied out from the viewer and from MCP in a paste-ready form, under a recorded authorization decision.
 - [ ] An MCP client authenticates as an OIDC-backed user identity with revocable credentials; device tokens do not authorize it.
 - [ ] Documentation states that this replaces terva-ext-session-search and how an agent is configured to use it.
 
 ## Definition of done
 
-- [ ] Children filed and linked, decisions reflected in docs/web-ui-plan.md, evidence recorded in the ticket.
+- [x] Children filed and linked, decisions reflected in docs/web-ui-plan.md, evidence recorded in the ticket.
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T21:14:01Z
+
+### Progress on 2026-09-26
+The web side of recall is implemented on branch t3code/explore-store-ui-search. internal/recall is the shared layer:
+- Reader.Events: generation-pinned event pages.
+- Index.Search: literal and structured search.
+- EventLink: deep links.
+- Reader.Excerpt: copy-out.
+
+Web adapters: /api/web/v1/sessions/{uid}/events, /search, /sessions/{uid}/excerpt, and the transcript, search and plain-text pages. Children TKT-01M3FPWC9E, TKT-01M3FPWCBK and TKT-01M3FPWCDF are done, as are the release B tickets TKT-01M3F2PGD, TKT-01M3F2PGH and TKT-01M3F2PGM they build on. The decisions are now in docs/web-ui-plan.md under "Recall surface".
+
+### Criteria status
+- Ticked: AC3 (deep links) and the definition of done.
+- Open: AC1, AC2 and AC4 each need the MCP adapter (TKT-01M3FPWCFS, MCP: serve recall tools over the shared query layer) to exist. AC5 needs the auth decision in TKT-01M3FPWCH4 (MCP: authenticate clients as OIDC users). AC6 is the MCP configuration doc.
+
+Both MCP tickets are draft. Promote TKT-01M3FPWCH4 after choosing between OIDC for MCP clients and user-generated bearer tokens.
+
+### Interfaces the MCP adapter will reuse
+- recall.Reader.Events / EventRequest
+- recall.Index.Search / SearchRequest (with EventTypes and Actors)
+- recall.Reader.Excerpt / ExcerptRequest (set Origin to the lake base URL)
+- recall.EventLink
+
+cli.startWeb shows how the index is started and stopped (OnPublished, BeforeClose). An MCP server needs the same wiring whether or not web is enabled.

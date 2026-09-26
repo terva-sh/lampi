@@ -1,6 +1,8 @@
 # Web dashboard and retrieval plan
 
-Status: release A implemented and validated; releases B/C remain draft. The owner approved a
+Status: release A implemented and validated. Release B's viewer, search and
+search screen are implemented on a branch, with the recall additions below;
+export and release C remain draft. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -22,6 +24,36 @@ filed tickets remain draft until promoted by the owner. Promotion of a release
 authorizes its implementation, not deployment or identity-provider changes.
 An agent can implement and validate against isolated synthetic data and a fake
 HTTPS identity provider without production credentials or a live host.
+
+## Recall surface
+
+The owner settled these on 2026-09-26 in the recall epic
+[TKT-01M3FPP3H592T31Y2M3N347CPB](../.tickets/tickets/TKT-01M3FPP3H592T31Y2M3N347CPB.md).
+They bind release B and the MCP server.
+
+1. **One query layer for two adapters.** `internal/recall` owns event pages,
+   search, deep links and excerpts. The browser API and the planned MCP server
+   parse their own inputs and call it, so parameters, cursors, limits and
+   result shapes are the same. A capability is added to `recall` first.
+2. **MCP is for agents on the owner's machines** recalling past work across
+   every machine that uploaded. It replaces `terva-ext-session-search`, which
+   covers one project on one machine.
+3. **MCP authenticates as an OIDC user.** The mechanism is either OIDC for the
+   MCP client or user-generated bearer tokens. It is open in
+   [TKT-01M3FPWCH4GFYYX4GKT9XFN53G](../.tickets/draft/TKT-01M3FPWCH4GFYYX4GKT9XFN53G.md).
+   Device tokens never authorize it.
+4. **Prompt injection is out of scope for the first pass.** The lake is
+   owner-controlled. Revisit before any shared deployment.
+5. **Structured search is a first-class query**: event type, actor, tool name,
+   tool error and raw type, with or without text.
+6. **Every event has a generation-pinned deep link.** A link never shows
+   different content at the same position.
+7. **Copy-out is a viewer action.** It returns text the viewer can already
+   read. Bulk export keeps its own role and project policy.
+
+A future direction, not planned: agents that keep no local transcript and
+stream into the lake. Recall must not assume a session also exists on a local
+disk.
 
 ## Existing foundation
 
@@ -304,15 +336,27 @@ Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only 
 
 ### Release B
 
-Epic: [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ — Web retrieval: browse, search and export stored sessions](../.tickets/draft/TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ.md). Depends on release A.
+Epic: [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ — Web retrieval: browse, search and export stored sessions](../.tickets/tickets/TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ.md). Depends on release A.
 
 | Ticket | Work |
 |---|---|
-| [TKT-01M3F2PGDY06D7XE12NWQ9EZF4](../.tickets/draft/TKT-01M3F2PGDY06D7XE12NWQ9EZF4.md) | Web: browse normalized transcripts with generation-safe paging |
-| [TKT-01M3F2PGHM6VHQBNE5XKDXS407](../.tickets/draft/TKT-01M3F2PGHM6VHQBNE5XKDXS407.md) | Search: index current normalized content with durable FTS5 work |
-| [TKT-01M3F2PGMZKTFXSX521T07A4HA](../.tickets/draft/TKT-01M3F2PGMZKTFXSX521T07A4HA.md) | Web: add filtered transcript search and result navigation |
+| [TKT-01M3F2PGDY06D7XE12NWQ9EZF4](../.tickets/done/TKT-01M3F2PGDY06D7XE12NWQ9EZF4.md) | Web: browse normalized transcripts with generation-safe paging |
+| [TKT-01M3F2PGHM6VHQBNE5XKDXS407](../.tickets/done/TKT-01M3F2PGHM6VHQBNE5XKDXS407.md) | Search: index current normalized content with durable FTS5 work |
+| [TKT-01M3F2PGMZKTFXSX521T07A4HA](../.tickets/done/TKT-01M3F2PGMZKTFXSX521T07A4HA.md) | Web: add filtered transcript search and result navigation |
 | [TKT-01M3F2PGRMS5NJZK90JCTAF0SP](../.tickets/draft/TKT-01M3F2PGRMS5NJZK90JCTAF0SP.md) | Export: add bounded authorized web downloads and shared projection |
 | [TKT-01M3F2PGWAJRETEYE51GTX17DP](../.tickets/draft/TKT-01M3F2PGWAJRETEYE51GTX17DP.md) | Web retrieval: integrate downloads and validate the release |
+
+### Recall additions
+
+Epic: [TKT-01M3FPP3H592T31Y2M3N347CPB — Session recall: one query surface for the web UI and an MCP server](../.tickets/tickets/TKT-01M3FPP3H592T31Y2M3N347CPB.md). Depends on the release B viewer and index.
+
+| Ticket | Work |
+|---|---|
+| [TKT-01M3FPWC9E15XG1GFS7886Z415](../.tickets/done/TKT-01M3FPWC9E15XG1GFS7886Z415.md) | Recall: structured event filters shared by web search and MCP |
+| [TKT-01M3FPWCBK7WQSRF723RJFXKXE](../.tickets/done/TKT-01M3FPWCBK7WQSRF723RJFXKXE.md) | Recall: generation-pinned deep links to events |
+| [TKT-01M3FPWCDFXXCHD8F5PA0GGMWP](../.tickets/done/TKT-01M3FPWCDFXXCHD8F5PA0GGMWP.md) | Recall: copy a selected event span out in paste-ready form |
+| [TKT-01M3FPWCFSFK9572R9MCFPCK60](../.tickets/draft/TKT-01M3FPWCFSFK9572R9MCFPCK60.md) | MCP: serve recall tools over the shared query layer |
+| [TKT-01M3FPWCH4GFYYX4GKT9XFN53G](../.tickets/draft/TKT-01M3FPWCH4GFYYX4GKT9XFN53G.md) | MCP: authenticate clients as OIDC users |
 
 ### Release C
 
