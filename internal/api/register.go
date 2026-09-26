@@ -29,6 +29,11 @@ var errRefused = errors.New("registration refused: the code is not valid; ask th
 // rate-limited with the other open routes. The secret is never logged:
 // the access log has no body, errors do not quote it, and the audit log
 // names the registration by id.
+//
+// Every attempt the limiter lets through and the lake refuses gets a
+// registration.refused line with the reason. One the limiter refuses does
+// not: each audit line is a synced write, and the limiter is what bounds
+// how many an open route can cause.
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if !s.openLimit().allow(s.now()) {
 		w.Header().Set("Retry-After", "1")
@@ -36,6 +41,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Identity == nil {
+		s.auditRefusal("", "", "lake has no identity")
 		s.fail(w, r, http.StatusNotFound, errors.New("this lake has no identity"))
 		return
 	}
@@ -43,20 +49,24 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	// token to open, and its first registered device would close it to
 	// every client already using it.
 	if s.Devices == nil || s.Devices.Empty() {
+		s.auditRefusal("", "", "lake accepts requests without a token")
 		s.fail(w, r, http.StatusConflict, errors.New("this lake accepts requests without a token; start serve with --token-file before registering devices"))
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRegisterBytes+1))
 	if err != nil {
+		s.auditRefusal("", "", "body could not be read")
 		note(r, err)
 		return
 	}
 	if len(raw) > maxRegisterBytes {
+		s.auditRefusal("", "", "body too large")
 		s.fail(w, r, http.StatusRequestEntityTooLarge, fmt.Errorf("request body exceeds %d bytes", maxRegisterBytes))
 		return
 	}
 	var req protocol.RegisterRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
+		s.auditRefusal("", "", "body is not a register request")
 		s.fail(w, r, http.StatusBadRequest, errors.New("body is not a register request"))
 		return
 	}
@@ -65,9 +75,11 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.refuseRegistration(w, r, "", "malformed secret")
 		return
 	case !tokenHashPattern.MatchString(req.TokenSHA256):
+		s.auditRefusal("", "", "malformed token_sha256")
 		s.fail(w, r, http.StatusBadRequest, errors.New("token_sha256 is 64 lowercase hex characters"))
 		return
 	case req.MachineID == "" || len(req.MachineID) > 128:
+		s.auditRefusal("", "", "malformed machine_id")
 		s.fail(w, r, http.StatusBadRequest, errors.New("machine_id is required, at most 128 characters"))
 		return
 	}
@@ -90,7 +102,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.refuseRegistration(w, r, reg.ID, "token already belongs to a device")
 		return
 	case errors.Is(err, catalog.ErrMachineTaken):
-		s.audit(audit.Event{Kind: audit.RegistrationRefused, MachineID: req.MachineID, Detail: "registration=" + reg.ID + " reason=machine_id bound to another device"})
+		s.auditRefusal(reg.ID, req.MachineID, "machine_id bound to another device")
 		s.fail(w, r, http.StatusConflict, fmt.Errorf("machine_id %s is bound to another device; run serve devices unbind on the lake, or register from a new machine id", req.MachineID))
 		return
 	case err != nil:
@@ -120,10 +132,16 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) refuseRegistration(w http.ResponseWriter, r *http.Request, regID, reason string) {
+	s.auditRefusal(regID, "", reason)
+	s.fail(w, r, http.StatusForbidden, errRefused)
+}
+
+// auditRefusal records a refused attempt. reason is the lake's own
+// wording, never text from the request, so the secret cannot reach it.
+func (s *Server) auditRefusal(regID, machineID, reason string) {
 	detail := "reason=" + reason
 	if regID != "" {
 		detail = "registration=" + regID + " " + detail
 	}
-	s.audit(audit.Event{Kind: audit.RegistrationRefused, Detail: detail})
-	s.fail(w, r, http.StatusForbidden, errRefused)
+	s.audit(audit.Event{Kind: audit.RegistrationRefused, MachineID: machineID, Detail: detail})
 }
