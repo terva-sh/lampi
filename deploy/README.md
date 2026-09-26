@@ -28,6 +28,19 @@ reload any of these, and to reload `harnesses`.
 
 ## Registering instead of copying
 
+A machine joins a lake with `terva-lampi register` and a one-time code
+from `terva-lampi serve register` on the lake host. That is the usual
+way, and the token copy described above is the fallback. See
+[Registering a machine](../README.md#registering-a-machine) and
+[docs/vps-bringup.md](../docs/vps-bringup.md#devices). On Windows,
+restart the agent after registering to add the lake.
+
+`profiles.json.example` is the base configuration a lake gives the
+agents it registers. Copy it to `profiles.json` in the lake's data
+directory, or pass `serve --profiles`. It holds no hostname and no
+secret.
+
+
 `terva-lampi register --install-service` writes a unit like the ones
 here, pointing at the binary that ran it, and enables it. It leaves an
 existing unit file alone. The unit it writes has `ExecReload`, so
