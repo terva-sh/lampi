@@ -122,6 +122,9 @@ func Load(dir string) (*Identity, error) {
 	if err := dec.Decode(&f); err != nil {
 		return nil, fmt.Errorf("identity: %s: %w", Path(dir), err)
 	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, fmt.Errorf("identity: %s: data after the identity", Path(dir))
+	}
 	if f.Version != fileVersion {
 		return nil, fmt.Errorf("identity: %s: version %d; this binary reads %d", Path(dir), f.Version, fileVersion)
 	}

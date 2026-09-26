@@ -220,3 +220,20 @@ func TestFingerprintShape(t *testing.T) {
 		t.Fatal("path")
 	}
 }
+
+func TestLoadRejectsTrailingData(t *testing.T) {
+	for _, tail := range []string{"{}", "x", "\n{\"version\":1}"} {
+		dir := t.TempDir()
+		id, _ := New(rand.Reader, t0)
+		if err := create(dir, id); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(Path(dir))
+		if err := os.WriteFile(Path(dir), append(raw, tail...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(dir); err == nil {
+			t.Fatalf("trailing %q accepted", tail)
+		}
+	}
+}

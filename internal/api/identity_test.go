@@ -151,10 +151,15 @@ func TestHelloSignsTheNonceAndStillTakesAnEmptyBody(t *testing.T) {
 	}
 	// What a client before this release sends, and bodies it was free to
 	// send while hello ignored its body.
-	for _, body := range []string{`{}`, ``, `not json`, `[1,2]`, `{"nonce":7}`, strings.Repeat("x", maxHelloBytes*2)} {
+	for _, body := range []string{`{}`, ``, `not json`, `[1,2]`, `{"nonce":7}`, strings.Repeat("x", maxHelloBytes)} {
 		if rr := post(body); rr.Code != http.StatusOK {
 			t.Fatalf("old hello %q: %d %s", body[:min(len(body), 20)], rr.Code, rr.Body)
 		}
+	}
+	// A nonce past the cap is not dropped: the request is refused.
+	padded := `{"pad":"` + strings.Repeat("x", maxHelloBytes) + `","nonce":"abc"}`
+	if rr := post(padded); rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized hello %d %s", rr.Code, rr.Body)
 	}
 	if rr := post(`{"nonce":"a b"}`); rr.Code != http.StatusBadRequest {
 		t.Fatalf("bad nonce %d", rr.Code)

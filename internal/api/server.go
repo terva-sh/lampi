@@ -332,17 +332,26 @@ func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 // handler does not see it.
 const wellKnownPrefix = "/.well-known/terva-lampi/"
 
-// maxHelloBytes is how much of the hello body is read. It is at most a
-// nonce; the rest is ignored.
+// maxHelloBytes bounds the hello body, which is at most a nonce.
 const maxHelloBytes = 4 << 10
 
 func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
-	// Before the nonce, hello ignored its body, and a protocol 1 client
-	// may still send anything. A body that is not a HelloRequest is read
-	// as one with no nonce, as before. A nonce that decodes but is not
-	// valid is refused: only a client that knows the field sends it.
+	// Before the nonce, hello ignored its body. A body under the cap that
+	// is not a HelloRequest is read as one with no nonce, as before. A
+	// nonce that decodes but is not valid is refused: only a client that
+	// knows the field sends it.
+	// A body over the cap is 413, not a request with no nonce: a nonce
+	// past the cut would be dropped and the proof would not carry it.
 	var req protocol.HelloRequest
-	raw, _ := io.ReadAll(io.LimitReader(r.Body, maxHelloBytes))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxHelloBytes+1))
+	if err != nil {
+		note(r, err)
+		return
+	}
+	if len(raw) > maxHelloBytes {
+		s.fail(w, r, http.StatusRequestEntityTooLarge, fmt.Errorf("request body exceeds %d bytes", maxHelloBytes))
+		return
+	}
 	if json.Unmarshal(raw, &req) != nil {
 		req = protocol.HelloRequest{}
 	}

@@ -142,9 +142,10 @@ start rather than make a new identity that no agent has pinned.
 ## POST /v1/hello
 
 The client calls this first. The body is `{}`, or an object with an
-optional `nonce` in the same form as above. A body that is not such an
-object is read as one with no nonce, because earlier releases ignored
-the body. A nonce that is not valid is 400.
+optional `nonce` in the same form as above. A body over 4 KiB is 413.
+A smaller body that is not such an object is read as one with no nonce,
+because earlier releases ignored the body. A nonce that is not valid is
+400.
 
 ```json
 {
