@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T18:14:44Z
+updated_at: 2026-09-26T18:23:22Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -44,7 +44,7 @@ Land the dashboard release after successful CI and model review, then upgrade th
 ## Acceptance criteria
 
 - [x] All release code receives a published model review; findings are resolved or dispositioned while PRs remain open; CI passes and reviewed changes merge.
-- [ ] A protected pre-migration backup, rollback binary/config and service-account configuration checks are completed before installation.
+- [x] A protected pre-migration backup, rollback binary/config and service-account configuration checks are completed before installation.
 - [ ] The reviewed binary and OIDC/proxy configuration are installed; health, allowed/denied login, logout and device ingestion are verified.
 
 ## Implementation plan
@@ -72,3 +72,7 @@ PR #4 merged as 4e932af6660b983d262c043138df5f303c9bb29f after successful CI and
 **agent:codex/deploy** at 2026-09-26T18:14:44Z
 
 Operator deployment attempt passed package checksums but stopped at capacity guard before any service change. Current available space had fallen to 4,558,245,888 bytes versus required 8,678,091,606 bytes. Read-only inspection found 119 GiB in the configured Go build cache. Cleared only rebuildable compiler cache using mise exec -- go clean -cache; command succeeded. Available space is now 132,014,252,032 bytes. Both lake and capture services remain active. No lake data, repositories, module source cache, or deployment artifacts were removed. The unchanged checksummed operator script can now be retried, with the original 4 GiB backup reserve intact. Backup, installation and live browser verification remain pending.
+
+**agent:codex/deploy** at 2026-09-26T18:23:22Z
+
+Operator completed the compressed pre-migration checkpoint and installation of reviewed merge 4e932af6660b983d262c043138df5f303c9bb29f. Verified archive size: 3,909,104,560 bytes. Pre-upgrade schema version 1; catalog integrity and preserved counts confirmed: 74 sessions, 1,694 artifacts, 1,694 provenance rows. Checkpoint coordinates remain in the external host handoff. Independent live checks confirm installed revision, active lake, paused capture, HTTPS health 200, anonymous device/browser APIs 401, root redirect to OIDC start and Authentik authorization redirect using code/S256 with Secure/HttpOnly login cookie. A unique harmless Lampi query was absent from new proxy access logs; an unmatched-host control request was logged, confirming logging remains active elsewhere. Authorized browser login, session navigation, logout, denied-user behavior and resumed ingestion remain pending owner observations. No credentials or callback values were printed.
