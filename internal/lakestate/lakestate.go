@@ -20,6 +20,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"syscall"
 
 	_ "modernc.org/sqlite"
 )
@@ -67,6 +69,13 @@ func Legacy(stateDir string) (bool, error) {
 func Migrate(stateDir, name string) (bool, error) {
 	dst := Dir(stateDir, name)
 	if _, err := os.Stat(dst); err == nil {
+		// An earlier call may have stopped on a failed sync after the
+		// rename, so make the target durable again before cleanup.
+		for _, d := range []string{Root(stateDir), stateDir} {
+			if err := syncDir(d); err != nil {
+				return false, err
+			}
+		}
 		return false, removeLegacy(stateDir)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("lakestate: %w", err)
@@ -78,6 +87,11 @@ func Migrate(stateDir, name string) (bool, error) {
 	root := Root(stateDir)
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return false, fmt.Errorf("lakestate: %w", err)
+	}
+	// The lakes/ entry must be durable before any legacy file goes, or a
+	// crash during cleanup can keep the deletions and lose the copy.
+	if err := syncDir(stateDir); err != nil {
+		return false, err
 	}
 	tmp := filepath.Join(root, "."+name+".migrating")
 	if err := os.RemoveAll(tmp); err != nil {
@@ -190,13 +204,22 @@ func syncFile(path string) error {
 	return f.Close()
 }
 
+// syncDir makes dir's entries durable. Windows cannot fsync a directory,
+// and some filesystems answer EINVAL or ENOTSUP; those are not failures,
+// since there is nothing more the caller could do. Any other error is
+// returned, so the migration stops before it removes the originals.
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("lakestate: %w", err)
 	}
 	defer d.Close()
-	// Some platforms cannot fsync a directory. The rename still happened.
-	_ = d.Sync()
+	if err := d.Sync(); err != nil && !syncUnsupported(err) {
+		return fmt.Errorf("lakestate: sync %s: %w", dir, err)
+	}
 	return nil
+}
+
+func syncUnsupported(err error) bool {
+	return runtime.GOOS == "windows" || errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP)
 }

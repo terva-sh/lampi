@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -180,5 +182,19 @@ func TestMigrateWithNothingToMove(t *testing.T) {
 	}
 	if _, err := os.Stat(Root(dir)); !os.IsNotExist(err) {
 		t.Fatal("empty migration made a directory")
+	}
+}
+
+func TestSyncFailuresThatMeanNotSupportedAreNotErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("every directory sync error is ignored on windows")
+	}
+	for _, err := range []error{syscall.EINVAL, syscall.ENOTSUP, &os.PathError{Op: "sync", Err: syscall.EINVAL}} {
+		if !syncUnsupported(err) {
+			t.Errorf("syncUnsupported(%v) = false, want true", err)
+		}
+	}
+	if syncUnsupported(&os.PathError{Op: "sync", Err: syscall.EIO}) {
+		t.Error("an I/O error from sync was treated as unsupported")
 	}
 }
