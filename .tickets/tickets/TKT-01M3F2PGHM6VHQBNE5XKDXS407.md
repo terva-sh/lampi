@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2PGHM6VHQBNE5XKDXS407
 title: "Search: index current normalized content with durable FTS5 work"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -23,13 +23,13 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:42:52Z
-updated_at: 2026-09-26T14:42:52Z
+updated_at: 2026-09-26T20:35:15Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
 updated_by:
-  id: agent:codex/web-ui-planning
-  name: ""
+  id: agent:claude-code/cd41c9ac
+  name: Claude Code local agent
 extensions: {}
 ---
 

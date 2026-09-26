@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPP3H592T31Y2M3N347CPB
 title: "Session recall: one query surface for the web UI and an MCP server"
 type: epic
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-09-26T20:32:10Z
+updated_at: 2026-09-26T20:35:15Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
