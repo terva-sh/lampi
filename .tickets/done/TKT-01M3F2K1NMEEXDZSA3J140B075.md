@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2K1NMEEXDZSA3J140B075
 title: "OIDC: add browser sessions, login routes and request guards"
 type: task
-status: ready
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -23,7 +23,7 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:40:58Z
-updated_at: 2026-09-26T14:51:22Z
+updated_at: 2026-09-26T15:00:59Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -45,16 +45,20 @@ Follow docs/web-ui-plan.md, including pinned sibling sources and release A defau
 
 ## Acceptance criteria
 
-- [ ] Login, callback and logout implement the documented cookies, attempt binding, local return paths and role checks.
-- [ ] Replay, state mismatch, browser swap, expired attempts and cross-origin logout fail; GET logout cannot revoke.
-- [ ] Idle and hard expiry, restart and logout invalidate sessions, including continued polling past hard expiry.
-- [ ] Browser cookies never grant device API access and device bearer tokens never grant browser API access.
-- [ ] Responses/logs contain no tokens, cookies, client secrets, codes, state or provider response bodies.
+- [x] Login, callback and logout implement the documented cookies, attempt binding, local return paths and role checks.
+- [x] Replay, state mismatch, browser swap, expired attempts and cross-origin logout fail; GET logout cannot revoke.
+- [x] Idle and hard expiry, restart and logout invalidate sessions, including continued polling past hard expiry.
+- [x] Browser cookies never grant device API access and device bearer tokens never grant browser API access.
+- [x] Responses/logs contain no tokens, cookies, client secrets, codes, state or provider response bodies.
 
 ## Definition of done
 
-- [ ] Focused tests pass and behavior/contracts are documented; record validation and rationale in the ticket.
+- [x] Focused tests pass and behavior/contracts are documented; record validation and rationale in the ticket.
 
 ## Implementation plan
 
 Implement bounded session/attempt stores with injectable clocks and sweeping. Validate local return paths including encoded redirects. Set Secure/HttpOnly/SameSite=Lax cookies according to configured public origin. Protect logout against cross-origin requests and revoke the server record. Guard page requests with login redirect and JSON API requests with 401; mapped-role failures are 403. Test through mux composition, including swapped-browser callbacks, replay, expired attempts, invalid cookies, session caps, restart invalidation and hard expiry under repeated polling.
+
+## Summary
+
+Implemented browser-bound single-use ten-minute attempts, bounded in-memory stores (1024 attempts and sessions), secure opaque cookies, one-hour idle/twelve-hour hard expiry, local return paths, viewer guards and CSRF-protected POST logout. Expiry remains absolute under repeated polling and restart invalidates state. Production __Host- cookies are distinct from loopback development cookies. Full-mux tests prove browser cookies cannot authorize /v1 and device tokens cannot authorize browser APIs. Tests cover replay, swapped/missing attempts, state/expiry, unmapped roles, caps, logout, redirects and headers. mise exec -- go test -race ./internal/webauth passes.
