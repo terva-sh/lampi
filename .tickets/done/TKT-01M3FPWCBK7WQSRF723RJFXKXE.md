@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWCBK7WQSRF723RJFXKXE
 title: "Recall: generation-pinned deep links to events"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,14 +17,7 @@ dependencies:
   - TKT-01M3F2PGDY06D7XE12NWQ9EZF4
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/explore-store-ui-search
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
-  commit: 03fc57ddefb7ce0590ba118544238b9d5b8b4a95
-  session: null
-  claimed_at: 2026-09-26T21:03:30Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:35:35Z
 updated_at: 2026-09-26T21:03:58Z
@@ -56,3 +49,7 @@ The event address is session UID + generation + position, rendered by recall.Eve
 **agent:claude-code/cd41c9ac** at 2026-09-26T21:03:58Z
 
 Evidence: web TestDeepLinksReportEveryUnavailableState (out of range, in range, pending, failed, purged) and TestTranscriptPageRendersLiterallyAndHandlesStaleLinks (superseded, malformed) pass. The browser smoke covers focus and highlight from a transcript permalink and from a search hit. Decision: a position past the end returns 200 with a message, not 404, because the session and generation exist and the link can still offer the start of the transcript.
+
+## Summary
+
+Landed in ccb2063 on t3code/explore-store-ui-search. Links built by recall.EventLink open the viewer at the event, focused and marked. Every state a stale link can meet is reported with a way back. Not yet merged or deployed.
