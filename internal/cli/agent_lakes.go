@@ -69,10 +69,13 @@ func (s *lakeSet) start(l agentLake) error {
 		defer cancel()
 		r.run(ctx)
 	}()
-	// A pinned lake's profile is fetched while the lake runs. Its loop
+	// A pinned lake's profile is fetched while the lake runs, and the
+	// lake does not push until the first fetch has answered. Its loop
 	// is not part of done: a profile that changes asks for a reload,
 	// and that reload may stop this very lake.
-	if lakeprofile.Pinned(l.cfg) {
+	if !lakeprofile.Pinned(l.cfg) {
+		close(r.ready)
+	} else {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
@@ -236,14 +239,17 @@ const profileEvery = time.Hour
 // watchProfile fetches the lake's profile now and every interval until
 // ctx ends. A copy that verifies against the pin and has a new version
 // replaces the cached one, and changed asks for a reload so the lake's
-// project rules take effect. A failed fetch or a copy that does not
-// verify is said once per run of failures, and the cached copy stays.
+// project rules take effect. A copy that names another profile with the
+// same content replaces the cached one without a reload. A failed fetch
+// or a copy that does not verify is said once per run of failures, and
+// the cached copy stays. The runner is let push once the first fetch
+// has answered and any reload it asked for is done.
 func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Duration, changed func()) {
 	l := r.lake
 	dir := l.opt.LakeStateDir
-	have := ""
+	have, haveName := "", ""
 	if d, ok, err := lakeprofile.Load(dir, l.cfg); err == nil && ok {
-		have = d.Payload.Version
+		have, haveName = d.Payload.Version, d.Payload.Profile
 	}
 	failing := false
 	fetch := func() {
@@ -269,18 +275,22 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 			return
 		}
 		failing = false
-		if d.Payload.Version == have {
+		if d.Payload.Version == have && d.Payload.Profile == haveName {
 			return
 		}
 		if err := lakeprofile.Save(dir, d); err != nil {
 			r.errf("profile: %v", err)
 			return
 		}
-		have = d.Payload.Version
-		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), d.Payload.Profile, have)
-		changed()
+		newVersion := d.Payload.Version != have
+		have, haveName = d.Payload.Version, d.Payload.Profile
+		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), haveName, have)
+		if newVersion {
+			changed()
+		}
 	}
 	fetch()
+	close(r.ready)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
