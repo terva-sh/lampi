@@ -28,9 +28,10 @@ with serve devices revoke. Removing the last lake leaves the agent
 running with no lake.
 
 The lake's sync state in lakes/NAME/ in the state directory is kept, so
-registering it again sends nothing twice. --purge-state deletes it,
-while no agent is running. The default lake set by the top-level server
-in config.json is not in the lakes map; edit config.json for that one.
+registering it again sends nothing twice. --purge-state deletes it
+too; while an agent is running it refuses and changes nothing. The
+default lake set by the top-level server in config.json is not in the
+lakes map; edit config.json for that one.
 `
 
 func runLakes(env Env, args []string) error {
@@ -101,7 +102,18 @@ func removeLake(env Env, name string, purge bool) error {
 		if _, err := os.Stat(stateDir); !purge || err != nil {
 			return fmt.Errorf("no lake named %s in config.json; terva-lampi lakes lists them", name)
 		}
-	} else {
+	}
+	// The running agent may still be draining this lake. Purge only
+	// while no agent holds agent.pid, and take it before changing
+	// anything, so a refusal leaves the lake as it was.
+	if purge {
+		release, err := writeAgentPID(state)
+		if err != nil {
+			return fmt.Errorf("an agent is running, so nothing was removed; stop the agent and run terva-lampi lakes remove %s --purge-state again, or drop --purge-state to keep the sync state in %s", name, stateDir)
+		}
+		defer release()
+	}
+	if inMap {
 		if err := config.RemoveLake(env.getenv, name); err != nil {
 			return err
 		}
@@ -119,7 +131,13 @@ func removeLake(env Env, name string, purge bool) error {
 		} else {
 			fmt.Fprintf(env.stdout(), "kept %s, which config.json named\n", lc.TokenFile)
 		}
-		fmt.Fprintln(env.stdout(), reloadAgent(state))
+		if purge {
+			// This process holds agent.pid; reloadAgent would find it
+			// and signal this process.
+			fmt.Fprintln(env.stdout(), "no agent is running; the next one to start reads the lakes")
+		} else {
+			fmt.Fprintln(env.stdout(), reloadAgent(state))
+		}
 		if lc.LakeID != "" {
 			fmt.Fprintf(env.stdout(), "the lake still lists this machine's device; its operator removes it with serve devices revoke\n")
 		}
@@ -128,13 +146,6 @@ func removeLake(env Env, name string, purge bool) error {
 		fmt.Fprintf(env.stdout(), "kept sync state in %s\n", stateDir)
 		return nil
 	}
-	// The running agent may still be draining this lake. Purge only
-	// while no agent holds agent.pid.
-	release, err := writeAgentPID(state)
-	if err != nil {
-		return fmt.Errorf("an agent is running, so the sync state in %s is kept; stop the agent and run terva-lampi lakes remove %s --purge-state again", stateDir, name)
-	}
-	defer release()
 	if err := os.RemoveAll(stateDir); err != nil {
 		return err
 	}
