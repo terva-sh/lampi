@@ -90,9 +90,9 @@ an envelope:
 Each active key signs. A signature covers the bytes
 `terva-lampi/<context>`, one zero byte, then `payload` exactly as it
 appears in the body. Verify those bytes before you decode them. Do not
-encode the payload again. The context is `keys/v1` for the key list and
-`hello/v1` for the hello proof, so a signature made for one does not
-verify as the other. `key_id` is the first 8 bytes of the public key's
+encode the payload again. The context is `keys/v1` for the key list,
+`hello/v1` for the hello proof and `agent-config/v1` for the base
+configuration, so a signature made for one does not verify as another. `key_id` is the first 8 bytes of the public key's
 SHA-256, in hex. `sig` is unpadded base64url.
 
 ## GET /.well-known/terva-lampi/keys
@@ -170,6 +170,42 @@ is in `protocol_versions`. A PUT body, a Content-Range total, and one
 chunk each stay under `max_blob_bytes`. A file that is already over that
 cap is split into chunks of at most that size. The manifest names the
 chunks. The lake does not install one object for that concatenation.
+
+## GET /v1/agent/config
+
+Needs the device token. Returns the calling device's base configuration
+as a signed document with the `agent-config/v1` context.
+
+```json
+{
+  "payload": {
+    "lake_id": "lake_…",
+    "device_id": "dev_…",
+    "profile": "default",
+    "version": "sha256:1c0f…",
+    "issued_at": "2026-09-27T12:00:00Z",
+    "config": {
+      "harnesses": {"codex": {"enabled": false}},
+      "agent": {"debounce": "5s"},
+      "projects": {"allow": [{"git_remote": "git@git.example:work/app.git"}]}
+    }
+  },
+  "signatures": [{"key_id": "3f9a…", "alg": "ed25519", "sig": "…"}]
+}
+```
+
+`config` holds only `harnesses` (with `enabled`, never `root`),
+`agent.debounce`, `agent.debounce_max`, `projects.allow` and
+`projects.deny`. A client decodes it strictly and refuses any other
+field, a harness `root`, and `redaction.upload_hits`. `version` changes
+when and only when `config` does. `profile` is the one `serve devices
+set-profile` chose, or `default`. A lake with no identity answers 404,
+and so does a lake whose profiles file no longer holds the device's
+profile. The answer is `Cache-Control: no-store`.
+
+A client accepts the document only from a lake whose key it pinned at
+registration, and only when `lake_id` matches the pin. It keeps the last
+copy that verified and uses it when a fetch fails.
 
 ## POST /v1/blobs/check
 

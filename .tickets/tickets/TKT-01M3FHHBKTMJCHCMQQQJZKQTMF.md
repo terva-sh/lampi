@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBKTMJCHCMQQQJZKQTMF
 title: "Lake base config: signed agent profile, fetch, cache and merge"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -19,10 +19,17 @@ dependencies:
   - TKT-01M3FHHBFAYKEK0NAXVR91969G
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: onboarding/lake-profile
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: f5324d8d68ba724718013022c08a8752d6ddd48a
+  session: null
+  claimed_at: 2026-09-26T21:29:17Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:20:46Z
+updated_at: 2026-09-26T21:29:17Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""

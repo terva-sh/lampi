@@ -30,6 +30,7 @@ import (
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/protocol"
 )
@@ -53,6 +54,9 @@ type Server struct {
 	// Identity signs the published key list and hello. Nil leaves the
 	// key route answering 404 and hello unsigned.
 	Identity *identity.Identity
+	// profiles are the base configurations agents fetch. SetProfiles
+	// replaces them; nil serves one empty default profile.
+	profiles atomic.Pointer[config.Profiles]
 	Now      func() time.Time
 	// dataDir is the lake directory, where the audit log lives. Open
 	// sets it.
@@ -284,6 +288,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/stats", s.authed(s.stats))
 	mux.HandleFunc("GET /v1/conflicts", s.authed(s.conflicts))
 	mux.HandleFunc("POST /v1/hello", s.authed(s.hello))
+	mux.HandleFunc("GET "+protocol.AgentConfigPath, s.authed(s.agentConfig))
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
 	mux.HandleFunc("POST /v1/manifests", s.authed(s.manifest))

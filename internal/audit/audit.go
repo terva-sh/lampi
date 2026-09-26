@@ -28,6 +28,7 @@ const (
 	DeviceRevoked  = "device.revoked"
 	DeviceRefused  = "device.refused"
 	DeviceDetached = "device.detached"
+	DeviceProfile  = "device.profile"
 )
 
 // Event is one line. Device is the device name. Actor is where the
