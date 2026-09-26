@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBFAYKEK0NAXVR91969G
 title: "Lake identity: ed25519 key list, published keys, signed hello"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T19:41:23Z
+updated_at: 2026-09-26T20:20:46Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""

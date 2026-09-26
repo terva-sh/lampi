@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FKS3XHYM1QXR4Q56SGWY6Y
 title: "Lake key rotation: chained keys, overlap, retire and compromise"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,12 +19,13 @@ dependencies:
   - TKT-01M3FHHBFAYKEK0NAXVR91969G
   - TKT-01M3FHHBKTMJCHCMQQQJZKQTMF
   - TKT-01M3FHHBN7G90MR0BJ89DGPRQQ
+  - TKT-01M3FP1107KXYARCAYVYT2Y409
 blocks_on: none
 references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:41:23Z
-updated_at: 2026-09-26T19:41:23Z
+updated_at: 2026-09-26T20:20:46Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""

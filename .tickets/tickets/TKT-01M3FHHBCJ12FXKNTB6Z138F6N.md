@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBCJ12FXKNTB6Z138F6N
 title: "Agent onboarding: registration codes, lake config, many lakes"
 type: epic
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -17,12 +17,12 @@ milestone: null
 parent: null
 origin: null
 dependencies: []
-blocks_on: none
+blocks_on: children
 references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T19:41:23Z
+updated_at: 2026-09-26T20:20:46Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -53,7 +53,7 @@ Today the client assumes one lake everywhere: one `server`, one token file, one 
 
 ### Design decisions, with the alternatives
 
-These are recommendations made while filing. Each child restates the one it depends on. The owner should confirm or change them before the first child is promoted.
+The owner confirmed every decision below on 2026-09-27, along with the legacy token binding rule in the named-devices child and the Windows scope below. Each child restates the ones it depends on.
 
 - **The code carries a one-time registration secret, not a device token.** A code is pasted into terminals and chat, so it will leak more often than a 0600 file. A single-use secret with a short expiry (default 24h) limits a leak to one registration within the window. The agent generates its device token locally and sends only its SHA-256, which is what the lake already stores, so the device token never crosses the wire and never appears in the code. Rejected: embedding a ready device token, because a leaked code would then be a permanent credential until someone noticed and revoked it.
 - **The signature is the lake's ed25519 key, and the lake publishes its keys.** The code carries the key id and public key that signed it. The lake serves its key list without a token at `GET /.well-known/terva-lampi/keys?nonce=N`: lake id, and each key with its id, status (active or retired) and validity window. The response is signed by every active key over the list and the caller's nonce, because an agent that is not yet registered has no token for `hello`. Before it redeems a code, the agent checks three things. The code's signature verifies against the key it carries. That key is listed as active at the code's URL, fetched over TLS. The response to the agent's own fresh nonce carries a valid signature by that key. The agent then pins the lake id and key, verifies base configuration and later `hello` responses against it, and refuses a lake that answers at the same URL with a key it cannot chain to the pin.
@@ -66,6 +66,22 @@ These are recommendations made while filing. Each child restates the one it depe
 - **The lake's base configuration can narrow and suggest, and local config wins.** Allowed fields: `harnesses`, `agent` debounce values, `redaction`, `projects.deny`, and `projects.allow` rules scoped to that lake only. A local `deny` always wins over a lake-supplied `allow`, and a local file can override every field. Rejected: letting a lake widen the allowlist of another lake or the global deny set, because that would let one lake's operator pull sessions meant for another.
 - **Each lake gets its own machine id.** A shared id would let whoever reads two lakes join them by machine. The existing `machine.json` becomes the id of the lake migrated from the legacy config, so data already on the hosted lake keeps its provenance. This is the decision most worth the owner's second look, since the tenant today is one person's machines.
 - **Per-lake state lives under `StateDir/lakes/<lake-id>/`.** A legacy single-lake state directory migrates into it once, on first start of the new binary, and the old files are left in place until the migration has committed.
+
+### Upgrade order and compatibility
+
+The lake upgrades before any agent. New routes and `hello` fields are additive, so `capture_protocol` stays 1 and an old agent keeps working against a new lake. A new agent that meets a lake without `/.well-known/terva-lampi/keys` can still sync to it as a legacy lake from `server` and `token_file`, but `register` refuses and says the lake must be upgraded first. If a child finds an incompatible change is unavoidable, it bumps the protocol version and records why in its ticket.
+
+### Windows
+
+Windows has no SIGHUP. On Windows, adding or removing a lake takes effect when the agent restarts, and `register` and `lakes remove` say so. Everything else in this epic, including registration, is in scope on Windows.
+
+### Execution contract
+
+- Each child is one Forgejo PR in dependency order. It merges after green CI, a `terva-review` model review, and a disposition posted for every finding while the PR is open. Then `just sync-github --yes`. The owner authorized this on 2026-09-27.
+- Tests use isolated XDG directories, real `serve` subprocesses where a child crosses the wire, and `just dev` for manual runs. Never the live lake on 127.0.0.1:8787, the live agent's state, or its token. No production hostname, credential or `sha256:` line in the tree.
+- The catalog schema version is bumped, with a migration, whenever a child adds tables. `serve backup`, restore, `fsck` and `purge` cover any new lake data.
+- Deploying to the hosted lake is the rollout child, and it needs its own authorization.
+- Follow-up work found along the way is filed as a draft and linked here, not folded in.
 
 ### Out of scope
 
@@ -89,3 +105,7 @@ A web page for minting codes or revoking devices, the lake dialing the agent, ob
 **agent:claude-code/e4a47e8c** at 2026-09-26T19:41:23Z
 
 2026-09-27, owner asked for a published key endpoint. Added /.well-known/terva-lampi/keys with a nonce signature to TKT-01M3FHHBF, the four-step check to TKT-01M3FHHBR, and rotation as TKT-01M3FKS3XHYM1QXR4Q56SGWY6Y. It is a nonce on the key endpoint rather than a hello challenge because an unregistered agent has no token for hello. Supersedes the signature bullet as first filed: the endpoint moves the key binding onto the TLS certificate of the code's URL, but a forged code for an attacker's own URL is still caught only by the fingerprint confirmation.
+
+**human:sothr** at 2026-09-26T20:20:39Z
+
+Owner decisions, 2026-09-27: confirmed all design decisions in the description; legacy tokens bind to the first machine_id after upgrade with serve devices unbind to reset; Windows is out of scope for live lake reload and needs a restart; priority stays normal and no milestone. Authorized merging each child after green CI, a terva-review and posted dispositions, followed by just sync-github --yes. Deploying to the hosted lake is not authorized and is the separate rollout child TKT-01M3FP11A71HW786Z00YZQDWA1. Grooming split TKT-01M3FHHBN into config (TKT-01M3FP1107KXYARCAYVYT2Y409 holds state) and TKT-01M3FHHBP into fan-out (TKT-01M3FP115FH6DV3V5WGN3XHPJK holds standalone mode and reload), because each mixed two PRs' worth of risk.

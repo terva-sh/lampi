@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBSXHGBJJCA157AA5R16
 title: "Onboarding: end-to-end validation of both paths and operator docs"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:12Z
-updated_at: 2026-09-26T19:41:23Z
+updated_at: 2026-09-26T20:20:46Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -47,7 +47,7 @@ Use real `serve` subprocesses, as `goLiveServe` in `internal/cli/golive_test.go`
 
 ### Docs
 
-Rewrite `docs/vps-bringup.md` "Device token" and "Check, then point the agents", the README quickstart, and `deploy/README.md` around `serve register` and `terva-lampi register`. Keep the manual token-file path documented as the fallback.
+Rewrite `docs/vps-bringup.md` "Device token" and "Check, then point the agents", the README quickstart, and `deploy/README.md` around `serve register` and `terva-lampi register`. Keep the manual token-file path documented as the fallback. Cover `serve identity set-url`, an example profile file under `deploy/`, and rate limits at the proxy for `/v1/register` and the key endpoint in the Caddy example. State that Windows needs an agent restart to add a lake.
 
 ## Acceptance criteria
 

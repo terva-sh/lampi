@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBDS7VCKK5AJ7T3H6DYX
 title: "Policy: allow registration codes, named devices and many lakes"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T19:41:23Z
+updated_at: 2026-09-26T20:20:46Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -39,7 +39,9 @@ Part of the agent onboarding epic. Amend the Phase 0 policy so that the recorded
 
 Write the threat model in `docs/policy.md`: what a leaked code allows (one registration within its expiry), what a stolen device token allows (uploads as that device until it is revoked), what the key pin protects against (a different lake answering at the same URL), and and what it does not protect against. The published key list and nonce signature defeat a code with the right URL and a wrong key, a retired key, and a replayed key list. They do not defeat a forged code that points at an attacker's own URL, which only the fingerprint confirmation catches. Record that `/.well-known/terva-lampi/keys` and `/v1/register` join `/healthz` as routes that need no token, and what each one exposes.
 
-This child is docs only. The owner signs off on the policy text, because the original decision is recorded as theirs.
+Also record the upgrade order (lake first, protocol stays 1 while changes are additive), that Windows needs an agent restart to add or remove a lake, and that registrations, revocations, key changes and refused redemptions go to an append-only audit log on the lake.
+
+This child is docs only. The original decision is recorded as the owner's. They confirmed the replacement decisions on 2026-09-27, and they review the policy text in this child's PR.
 
 ## Acceptance criteria
 
