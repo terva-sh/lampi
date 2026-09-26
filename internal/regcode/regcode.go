@@ -75,14 +75,14 @@ func HashSecret(s string) string {
 // Encode signs c with id's first active key, filling in its lake id and
 // key, and returns the code.
 func Encode(id *identity.Identity, c Code, now time.Time) (string, error) {
-	keys := id.ActiveKeys(now)
-	if len(keys) == 0 {
+	cur, ok := id.Current(now)
+	if !ok {
 		return "", errors.New("regcode: the lake has no active key")
 	}
 	pub := id.Public()
 	c.Version = Version
 	c.LakeID = id.LakeID
-	c.KeyID = keys[0].ID
+	c.KeyID = cur.ID
 	for _, k := range pub {
 		if k.ID == c.KeyID {
 			c.PublicKey = k.PublicKey

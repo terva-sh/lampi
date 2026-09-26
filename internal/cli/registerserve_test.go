@@ -89,7 +89,7 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.URL != url || c.LakeID != lake.Identity.LakeID || !strings.Contains(stderr, c.Fingerprint()) {
+	if c.URL != url || c.LakeID != lake.Identity().LakeID || !strings.Contains(stderr, c.Fingerprint()) {
 		t.Fatalf("code %+v stderr %s", c, stderr)
 	}
 	if strings.Contains(stderr, c.Secret) {

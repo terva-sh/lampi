@@ -28,7 +28,7 @@ func getAgentConfig(t *testing.T, s *Server, token string) (*httptest.ResponseRe
 	if err := json.Unmarshal(rr.Body.Bytes(), &signed); err != nil {
 		t.Fatal(err)
 	}
-	pub, err := identity.ParsePublic(s.Identity.Public()[0])
+	pub, err := identity.ParsePublic(s.Identity().Public()[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestAgentConfigIsTheDevicesProfileSigned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.LakeID != s.Identity.LakeID || p.Profile != config.DefaultProfile || got.Agent.Debounce != "3s" || p.Version != got.Version() || p.DeviceID == "" {
+	if p.LakeID != s.Identity().LakeID || p.Profile != config.DefaultProfile || got.Agent.Debounce != "3s" || p.Version != got.Version() || p.DeviceID == "" {
 		t.Fatalf("laptop payload %+v", p)
 	}
 

@@ -35,7 +35,7 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	}
 	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {Agent: config.AgentConfig{Debounce: "1s"}}})
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", now, now.Add(24*time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", now, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	token := strings.Repeat("e7", 32)
@@ -49,10 +49,10 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Name != "newbox" || resp.LakeID != s.Identity.LakeID || !strings.HasPrefix(resp.DeviceID, "dev_") || resp.Config == nil {
+	if resp.Name != "newbox" || resp.LakeID != s.Identity().LakeID || !strings.HasPrefix(resp.DeviceID, "dev_") || resp.Config == nil {
 		t.Fatalf("%+v", resp)
 	}
-	pub, _ := identity.ParsePublic(s.Identity.Public()[0])
+	pub, _ := identity.ParsePublic(s.Identity().Public()[0])
 	if err := identity.Verify(identity.ContextAgentConfig, resp.Config, pub); err != nil {
 		t.Fatal(err)
 	}
@@ -118,10 +118,10 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	}
 	expired, _ := regcode.NewSecret()
 	revoked, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "old", regcode.HashSecret(expired), "", now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "old", regcode.HashSecret(expired), "", "", now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", now); err != nil {

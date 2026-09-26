@@ -24,8 +24,8 @@ func TestServeIdentityPrintsTheLakeAndFingerprints(t *testing.T) {
 	if err := Run([]string{"serve", "identity", "--data", dir}, Env{Stdout: &stdout, Stderr: ioDiscard()}); err != nil {
 		t.Fatal(err)
 	}
-	k := lake.Identity.Keys[0]
-	want := "lake_id " + lake.Identity.LakeID + "\nkey " + k.ID + " active " + identity.Fingerprint(k.Pub) + " created "
+	k := lake.Identity().Keys[0]
+	want := "lake_id " + lake.Identity().LakeID + "\nkey " + k.ID + " active " + identity.Fingerprint(k.Pub) + " created "
 	if !strings.HasPrefix(stdout.String(), want) {
 		t.Fatalf("identity output:\n%s\nwant prefix:\n%s", stdout.String(), want)
 	}
@@ -59,7 +59,7 @@ func TestBackupCopiesTheIdentityAndARestoreKeepsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restored.Close()
-	if created, err := restored.EnsureIdentity(out); err != nil || created || restored.Identity.LakeID != lake.Identity.LakeID {
+	if created, err := restored.EnsureIdentity(out); err != nil || created || restored.Identity().LakeID != lake.Identity().LakeID {
 		t.Fatalf("restore created=%v err=%v", created, err)
 	}
 
@@ -88,7 +88,7 @@ func TestFsckChecksTheIdentity(t *testing.T) {
 	if err := Run([]string{"serve", "fsck", "--data", dir}, Env{Stdout: &stdout, Stderr: ioDiscard()}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout.String(), "identity: "+lake.Identity.LakeID+", 1 keys") {
+	if !strings.Contains(stdout.String(), "identity: "+lake.Identity().LakeID+", 1 keys") {
 		t.Fatalf("fsck with identity:\n%s", stdout.String())
 	}
 	if err := os.WriteFile(identity.Path(dir), []byte("{"), 0o600); err != nil {
@@ -114,7 +114,7 @@ func TestBackupFailsWhenTheRecordedIdentityIsMissing(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	err := Run([]string{"serve", "backup", "--data", dir, "--out", t.TempDir() + "/b"}, Env{Stdout: &stdout, Stderr: ioDiscard()})
-	if err == nil || !strings.Contains(err.Error(), lake.Identity.LakeID) {
+	if err == nil || !strings.Contains(err.Error(), lake.Identity().LakeID) {
 		t.Fatalf("backup without the recorded identity: %v\n%s", err, stdout.String())
 	}
 }
@@ -140,7 +140,7 @@ func TestFsckFailsWhenTheRecordedIdentityIsMissing(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	err := Run([]string{"serve", "fsck", "--data", dir}, Env{Stdout: &stdout, Stderr: ioDiscard()})
-	if err == nil || !strings.Contains(stdout.String(), "bad identity: missing; the catalog is lake "+lake.Identity.LakeID) {
+	if err == nil || !strings.Contains(stdout.String(), "bad identity: missing; the catalog is lake "+lake.Identity().LakeID) {
 		t.Fatalf("fsck without the recorded identity: %v\n%s", err, stdout.String())
 	}
 }

@@ -49,7 +49,7 @@ func TestKeysRouteIsOpenSignedAndNamesNoCatalogData(t *testing.T) {
 	if err := json.Unmarshal(signed.Payload, &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.LakeID != s.Identity.LakeID || p.Nonce != "n0nce-1" || len(p.Keys) != 1 || p.Keys[0].Status != identity.StatusActive {
+	if p.LakeID != s.Identity().LakeID || p.Nonce != "n0nce-1" || len(p.Keys) != 1 || p.Keys[0].Status != identity.StatusActive {
 		t.Fatalf("payload %+v", p)
 	}
 	pub, err := identity.ParsePublic(p.Keys[0])
@@ -139,10 +139,10 @@ func TestHelloSignsTheNonceAndStillTakesAnEmptyBody(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &hr); err != nil {
 		t.Fatal(err)
 	}
-	if hr.LakeID != s.Identity.LakeID || hr.Proof == nil {
+	if hr.LakeID != s.Identity().LakeID || hr.Proof == nil {
 		t.Fatalf("hello %+v", hr)
 	}
-	if err := identity.Verify(identity.ContextHello, hr.Proof, s.Identity.Keys[0].Pub); err != nil {
+	if err := identity.Verify(identity.ContextHello, hr.Proof, s.Identity().Keys[0].Pub); err != nil {
 		t.Fatal(err)
 	}
 	var proof protocol.HelloProof
@@ -180,15 +180,15 @@ func TestKeysRouteBypassesTheWebHandler(t *testing.T) {
 
 func TestReopenedLakeKeepsItsIdentityAndRefusesALostOne(t *testing.T) {
 	s, dir := identityLake(t)
-	want := s.Identity.LakeID
+	want := s.Identity().LakeID
 	s.Close()
 	s2, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	if created, err := s2.EnsureIdentity(dir); err != nil || created || s2.Identity.LakeID != want {
-		t.Fatalf("reopen created=%v err=%v id=%v", created, err, s2.Identity)
+	if created, err := s2.EnsureIdentity(dir); err != nil || created || s2.Identity().LakeID != want {
+		t.Fatalf("reopen created=%v err=%v id=%v", created, err, s2.Identity())
 	}
 	if err := os.Remove(identity.Path(dir)); err != nil {
 		t.Fatal(err)

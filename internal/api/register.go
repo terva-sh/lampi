@@ -35,7 +35,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusTooManyRequests, errors.New("too many requests; try again"))
 		return
 	}
-	if s.Identity == nil {
+	id := s.Identity()
+	if id == nil {
 		s.fail(w, r, http.StatusNotFound, errors.New("this lake has no identity"))
 		return
 	}
@@ -71,7 +72,16 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusBadRequest, errors.New("machine_id is required, at most 128 characters"))
 		return
 	}
-	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, s.now())
+	now := s.now()
+	keyActive := func(keyID string) bool {
+		for _, k := range id.ActiveKeys(now) {
+			if k.ID == keyID {
+				return true
+			}
+		}
+		return false
+	}
+	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now)
 	switch {
 	case errors.Is(err, catalog.ErrRegistrationUnknown):
 		s.refuseRegistration(w, r, "", "unknown")
@@ -84,6 +94,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, catalog.ErrRegistrationRevoked):
 		s.refuseRegistration(w, r, reg.ID, "revoked")
+		return
+	case errors.Is(err, catalog.ErrRegistrationKey):
+		s.refuseRegistration(w, r, reg.ID, "signing key retired")
 		return
 	case errors.Is(err, catalog.ErrTokenTaken):
 		// The agent makes a fresh token; a clash is a replay or a bug.
@@ -107,7 +120,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if info := infoOf(r); info != nil {
 		info.device, info.deviceID = d.Name, d.ID
 	}
-	resp := protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, LakeID: s.Identity.LakeID}
+	resp := protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, LakeID: id.LakeID}
 	// The device exists now. A profile that cannot be signed is logged,
 	// and the agent fetches it later.
 	if signed, err := s.signedProfile(d); err == nil {

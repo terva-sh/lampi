@@ -64,6 +64,7 @@ import (
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/redact"
@@ -116,6 +117,9 @@ type Options struct {
 	// Memo keeps what the readers took from each file across passes.
 	// The agent sets one. Nil hashes every file on every pass.
 	Memo *Memo
+	// Pin, when set, is checked on every hello. A registered lake has
+	// one; a lake set by hand does not.
+	Pin *Pin
 
 	// allowed is the digests quarantine allow acknowledged, read from
 	// StateDir when the run starts. A file with exactly those bytes
@@ -856,8 +860,69 @@ func nextVersion() int64 {
 
 func postHello(ctx context.Context, client *http.Client, opt Options) (protocol.HelloResponse, error) {
 	var out protocol.HelloResponse
-	err := doJSON(ctx, client, opt, http.MethodPost, "/v1/hello", []byte("{}"), &out)
-	return out, err
+	body := []byte("{}")
+	nonce := ""
+	if opt.Pin != nil {
+		var err error
+		if nonce, err = identity.NewNonce(); err != nil {
+			return out, err
+		}
+		body, _ = json.Marshal(protocol.HelloRequest{Nonce: nonce})
+	}
+	if err := doJSON(ctx, client, opt, http.MethodPost, "/v1/hello", body, &out); err != nil {
+		return out, err
+	}
+	if opt.Pin != nil {
+		if err := opt.Pin.check(out, nonce); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
+// Pin is the lake identity a registered client checks on every hello:
+// the lake id and the key it pinned. Nothing is pushed to a lake that
+// does not prove that key over a fresh nonce.
+type Pin struct {
+	LakeID string
+	Key    protocol.LakeKey
+}
+
+// PinError is a hello that did not prove the pinned key. It is not a
+// transport error: the lake at the URL answered, and it is not the
+// lake that was registered, or it no longer signs with that key.
+type PinError struct {
+	KeyID  string
+	Reason string
+}
+
+func (e *PinError) Error() string {
+	return fmt.Sprintf("upload: the lake did not prove pinned key %s: %s", e.KeyID, e.Reason)
+}
+
+func (p *Pin) check(h protocol.HelloResponse, nonce string) error {
+	fail := func(reason string) error { return &PinError{KeyID: p.Key.ID, Reason: reason} }
+	if h.LakeID != p.LakeID {
+		return fail(fmt.Sprintf("it answers as lake %q, not %s", h.LakeID, p.LakeID))
+	}
+	if h.Proof == nil {
+		return fail("hello carries no proof")
+	}
+	pub, err := identity.ParsePublic(p.Key)
+	if err != nil {
+		return fail(err.Error())
+	}
+	if err := identity.Verify(identity.ContextHello, h.Proof, pub); err != nil {
+		return fail(err.Error() + "; the key may be retired, see terva-lampi lakes")
+	}
+	var proof protocol.HelloProof
+	if err := json.Unmarshal(h.Proof.Payload, &proof); err != nil {
+		return fail("proof does not decode")
+	}
+	if proof.LakeID != p.LakeID || proof.Nonce != nonce {
+		return fail("proof is for another lake or nonce")
+	}
+	return nil
 }
 
 // postCheck asks in batches of at most checkBatch digests. A 413 halves

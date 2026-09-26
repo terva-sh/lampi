@@ -18,23 +18,23 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	secret := strings.Repeat("a", 64)
 	token := strings.Repeat("b", 64)
-	r, err := c.CreateRegistration(ctx, "laptop", secret, "ci", now, now.Add(24*time.Hour))
+	r, err := c.CreateRegistration(ctx, "laptop", secret, "ci", "k1", now, now.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.State(now) != "pending" || !strings.HasPrefix(r.ID, "reg_") {
 		t.Fatalf("%+v", r)
 	}
-	if _, err := c.CreateRegistration(ctx, "laptop", strings.Repeat("c", 64), "", now, now.Add(time.Hour)); !errors.Is(err, ErrNameTaken) {
+	if _, err := c.CreateRegistration(ctx, "laptop", strings.Repeat("c", 64), "", "k1", now, now.Add(time.Hour)); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("second pending code for one name: %v", err)
 	}
-	if _, err := c.CreateRegistration(ctx, "Bad Name", strings.Repeat("c", 64), "", now, now.Add(time.Hour)); err == nil {
+	if _, err := c.CreateRegistration(ctx, "Bad Name", strings.Repeat("c", 64), "", "k1", now, now.Add(time.Hour)); err == nil {
 		t.Fatal("bad name accepted")
 	}
-	if _, _, err := c.Redeem(ctx, strings.Repeat("f", 64), token, "m1", now); !errors.Is(err, ErrRegistrationUnknown) {
+	if _, _, err := c.Redeem(ctx, strings.Repeat("f", 64), token, "m1", nil, now); !errors.Is(err, ErrRegistrationUnknown) {
 		t.Fatalf("unknown secret: %v", err)
 	}
-	d, r, err := c.Redeem(ctx, secret, token, "m1", now.Add(time.Minute))
+	d, r, err := c.Redeem(ctx, secret, token, "m1", nil, now.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,47 +45,47 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	if err != nil || !found || got.ID != d.ID {
 		t.Fatalf("device by token hash: %+v %v %v", got, found, err)
 	}
-	if _, r2, err := c.Redeem(ctx, secret, strings.Repeat("d", 64), "m2", now.Add(2*time.Minute)); !errors.Is(err, ErrRegistrationUsed) || r2.ID != r.ID {
+	if _, r2, err := c.Redeem(ctx, secret, strings.Repeat("d", 64), "m2", nil, now.Add(2*time.Minute)); !errors.Is(err, ErrRegistrationUsed) || r2.ID != r.ID {
 		t.Fatalf("second redeem: %v", err)
 	}
 	if _, err := c.RevokeRegistration(ctx, r.ID, now); !errors.Is(err, ErrRegistrationUsed) {
 		t.Fatalf("revoke a used code: %v", err)
 	}
-	if _, err := c.CreateRegistration(ctx, "laptop", strings.Repeat("c", 64), "", now, now.Add(time.Hour)); !errors.Is(err, ErrNameTaken) {
+	if _, err := c.CreateRegistration(ctx, "laptop", strings.Repeat("c", 64), "", "k1", now, now.Add(time.Hour)); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("code for an existing device name: %v", err)
 	}
 
 	// Expired and revoked codes are refused.
 	exp := strings.Repeat("1", 64)
-	if _, err := c.CreateRegistration(ctx, "old", exp, "", now, now.Add(time.Hour)); err != nil {
+	if _, err := c.CreateRegistration(ctx, "old", exp, "", "k1", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := c.Redeem(ctx, exp, strings.Repeat("2", 64), "m3", now.Add(time.Hour)); !errors.Is(err, ErrRegistrationExpired) {
+	if _, _, err := c.Redeem(ctx, exp, strings.Repeat("2", 64), "m3", nil, now.Add(time.Hour)); !errors.Is(err, ErrRegistrationExpired) {
 		t.Fatalf("expired: %v", err)
 	}
 	rev := strings.Repeat("3", 64)
-	if _, err := c.CreateRegistration(ctx, "desk", rev, "", now, now.Add(time.Hour)); err != nil {
+	if _, err := c.CreateRegistration(ctx, "desk", rev, "", "k1", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.RevokeRegistration(ctx, "desk", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := c.Redeem(ctx, rev, strings.Repeat("4", 64), "m4", now); !errors.Is(err, ErrRegistrationRevoked) {
+	if _, _, err := c.Redeem(ctx, rev, strings.Repeat("4", 64), "m4", nil, now); !errors.Is(err, ErrRegistrationRevoked) {
 		t.Fatalf("revoked: %v", err)
 	}
 	// A token or a machine another device holds is refused, and the code
 	// stays pending.
 	again := strings.Repeat("5", 64)
-	if _, err := c.CreateRegistration(ctx, "tab", again, "", now, now.Add(time.Hour)); err != nil {
+	if _, err := c.CreateRegistration(ctx, "tab", again, "", "k1", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := c.Redeem(ctx, again, token, "m9", now); !errors.Is(err, ErrTokenTaken) {
+	if _, _, err := c.Redeem(ctx, again, token, "m9", nil, now); !errors.Is(err, ErrTokenTaken) {
 		t.Fatalf("taken token: %v", err)
 	}
-	if _, _, err := c.Redeem(ctx, again, strings.Repeat("6", 64), "m1", now); !errors.Is(err, ErrMachineTaken) {
+	if _, _, err := c.Redeem(ctx, again, strings.Repeat("6", 64), "m1", nil, now); !errors.Is(err, ErrMachineTaken) {
 		t.Fatalf("taken machine: %v", err)
 	}
-	if _, _, err := c.Redeem(ctx, again, strings.Repeat("6", 64), "m9", now); err != nil {
+	if _, _, err := c.Redeem(ctx, again, strings.Repeat("6", 64), "m9", nil, now); err != nil {
 		t.Fatalf("code spent by a refused attempt: %v", err)
 	}
 	// A machine whose device was revoked registers again under its id.
@@ -93,10 +93,10 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	back := strings.Repeat("7", 64)
-	if _, err := c.CreateRegistration(ctx, "tab-new", back, "", now, now.Add(time.Hour)); err != nil {
+	if _, err := c.CreateRegistration(ctx, "tab-new", back, "", "k1", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	d2, _, err := c.Redeem(ctx, back, strings.Repeat("8", 64), "m9", now)
+	d2, _, err := c.Redeem(ctx, back, strings.Repeat("8", 64), "m9", nil, now)
 	if err != nil || d2.MachineID != "m9" {
 		t.Fatalf("re-register after revoke: %+v %v", d2, err)
 	}

@@ -182,7 +182,8 @@ func runServeRegister(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	reg, err := cat.CreateRegistration(ctx, name, regcode.HashSecret(secret), profile, now, now.Add(expires))
+	cur, _ := id.Current(now)
+	reg, err := cat.CreateRegistration(ctx, name, regcode.HashSecret(secret), profile, cur.ID, now, now.Add(expires))
 	if err != nil {
 		return err
 	}
@@ -192,7 +193,7 @@ func runServeRegister(env Env, args []string) error {
 	}
 	fmt.Fprintln(env.stdout(), code)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve register: code %s for %s expires %s; lake %s key fingerprint %s\n",
-		reg.ID, reg.Name, reg.Expires.Format(time.RFC3339), id.LakeID, identity.Fingerprint(id.ActiveKeys(now)[0].Pub))
+		reg.ID, reg.Name, reg.Expires.Format(time.RFC3339), id.LakeID, currentFingerprint(id, now))
 	prof := profile
 	if prof == "" {
 		prof = config.DefaultProfile
@@ -207,13 +208,13 @@ func runServeRegister(env Env, args []string) error {
 // checkPublicURL fetches the key list through public and checks that it
 // is this lake's, signed over a fresh nonce.
 func checkPublicURL(ctx context.Context, public string, id *identity.Identity, now time.Time) error {
-	keys := id.ActiveKeys(now)
-	if len(keys) == 0 {
+	cur, ok := id.Current(now)
+	if !ok {
 		return errors.New("this lake has no active key")
 	}
 	pub := id.Public()
 	for _, k := range pub {
-		if k.ID == keys[0].ID {
+		if k.ID == cur.ID {
 			return verifyKeyList(ctx, public, id.LakeID, k)
 		}
 	}
@@ -239,6 +240,23 @@ func verifyKeyList(ctx context.Context, server, lakeID string, key protocol.Lake
 	if err != nil {
 		return err
 	}
+	// The key's place in the list first, for a precise reason. A list
+	// that lies about it can only make this refuse.
+	listed := false
+	for _, k := range p.Keys {
+		if k.ID == key.ID && k.PublicKey == key.PublicKey {
+			listed = true
+			if k.Compromised {
+				return fmt.Errorf("key %s is marked compromised there", key.ID)
+			}
+			if k.Status != identity.StatusActive {
+				return fmt.Errorf("key %s is %s there, not active", key.ID, k.Status)
+			}
+		}
+	}
+	if !listed {
+		return fmt.Errorf("key %s is not in the key list there", key.ID)
+	}
 	if err := identity.Verify(identity.ContextKeys, signed, pub); err != nil {
 		return fmt.Errorf("the key list there is not signed by key %s: %w", key.ID, err)
 	}
@@ -248,15 +266,7 @@ func verifyKeyList(ctx context.Context, server, lakeID string, key protocol.Lake
 	if p.LakeID != lakeID {
 		return fmt.Errorf("the key list there is for lake %s, not %s", p.LakeID, lakeID)
 	}
-	for _, k := range p.Keys {
-		if k.ID == key.ID && k.PublicKey == key.PublicKey {
-			if k.Status != identity.StatusActive {
-				return fmt.Errorf("key %s is %s there, not active", key.ID, k.Status)
-			}
-			return nil
-		}
-	}
-	return fmt.Errorf("key %s is not in the key list there", key.ID)
+	return nil
 }
 
 // runServeIdentitySetURL records the lake's public URL.
@@ -304,4 +314,12 @@ func runServeIdentitySetURL(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stdout(), "public_url %s\n", raw)
 	return nil
+}
+
+func currentFingerprint(id *identity.Identity, now time.Time) string {
+	k, ok := id.Current(now)
+	if !ok {
+		return "(no active key)"
+	}
+	return identity.Fingerprint(k.Pub)
 }

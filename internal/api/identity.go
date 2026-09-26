@@ -22,16 +22,23 @@ func (r catalogRecorder) RecordLakeID(id string) error {
 }
 
 // EnsureIdentity loads the lake's identity from dataDir, or makes one
-// when the catalog has never recorded a lake id, and sets s.Identity.
+// when the catalog has never recorded a lake id, and sets it on s.
 // created is true when this call made it.
 func (s *Server) EnsureIdentity(dataDir string) (created bool, err error) {
 	id, created, err := identity.Ensure(dataDir, catalogRecorder{s.Catalog}, rand.Reader, s.now())
 	if err != nil {
 		return false, err
 	}
-	s.Identity = id
+	s.SetIdentity(id)
 	return created, nil
 }
+
+// Identity is the lake's identity now, or nil.
+func (s *Server) Identity() *identity.Identity { return s.ident.Load() }
+
+// SetIdentity replaces the identity. A request in flight keeps the one
+// it read.
+func (s *Server) SetIdentity(id *identity.Identity) { s.ident.Store(id) }
 
 // keys answers GET protocol.KeysPath without a token. It returns the
 // lake id and public keys, signed over the caller's nonce, and no
@@ -42,7 +49,8 @@ func (s *Server) keys(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusTooManyRequests, errors.New("too many requests; try again"))
 		return
 	}
-	if s.Identity == nil {
+	id := s.Identity()
+	if id == nil {
 		s.fail(w, r, http.StatusNotFound, errors.New("this lake has no identity"))
 		return
 	}
@@ -52,11 +60,11 @@ func (s *Server) keys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now().UTC()
-	signed, err := s.Identity.Sign(identity.ContextKeys, protocol.KeysPayload{
-		LakeID:   s.Identity.LakeID,
+	signed, err := id.Sign(identity.ContextKeys, protocol.KeysPayload{
+		LakeID:   id.LakeID,
 		Nonce:    nonce,
 		IssuedAt: now,
-		Keys:     s.Identity.Public(),
+		Keys:     id.Public(),
 	}, now)
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
@@ -68,18 +76,19 @@ func (s *Server) keys(w http.ResponseWriter, r *http.Request) {
 
 // helloProof signs the hello nonce when the lake has an identity.
 func (s *Server) helloProof(nonce string, now time.Time) (string, *protocol.Signed, error) {
-	if s.Identity == nil {
+	id := s.Identity()
+	if id == nil {
 		return "", nil, nil
 	}
-	signed, err := s.Identity.Sign(identity.ContextHello, protocol.HelloProof{
-		LakeID:     s.Identity.LakeID,
+	signed, err := id.Sign(identity.ContextHello, protocol.HelloProof{
+		LakeID:     id.LakeID,
 		Nonce:      nonce,
 		ServerTime: now,
 	}, now)
 	if err != nil {
 		return "", nil, err
 	}
-	return s.Identity.LakeID, signed, nil
+	return id.LakeID, signed, nil
 }
 
 // Open routes, the ones that need no token, share one rate limit. Behind

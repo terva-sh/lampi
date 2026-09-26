@@ -51,7 +51,7 @@ func (f *regFixture) mint(name string) string {
 }
 
 func (f *regFixture) fingerprint() string {
-	return identity.Fingerprint(f.lake.Identity.Keys[0].Pub)
+	return identity.Fingerprint(f.lake.Identity().Keys[0].Pub)
 }
 
 func (f *regFixture) env(stdin string) Env {
@@ -90,7 +90,7 @@ func TestRegisterOnAFreshMachineThenSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := file.Lakes["default"]
-	if lc.Server != f.url || lc.LakeID != f.lake.Identity.LakeID || lc.KeyID == "" || lc.PublicKey == "" || lc.TokenFile != tokenPath {
+	if lc.Server != f.url || lc.LakeID != f.lake.Identity().LakeID || lc.KeyID == "" || lc.PublicKey == "" || lc.TokenFile != tokenPath {
 		t.Fatalf("lake entry %+v", lc)
 	}
 	if _, err := os.Stat(filepath.Join(f.state, "terva-lampi", "lakes", "default", "profile.json")); err != nil {
@@ -156,8 +156,8 @@ func TestRegisterRefusesEachCheck(t *testing.T) {
 		want       string
 	}{
 		{"tampered", tampered, nil, "check 1"},
-		{"expired", encode(f.lake.Identity, regcode.Code{URL: f.url, Secret: c.Secret, Expires: now.Add(-time.Hour)}), nil, "check 1, the code: it expired"},
-		{"plain http", encode(f.lake.Identity, regcode.Code{URL: "http://lake.example", Secret: c.Secret, Expires: now.Add(time.Hour)}), nil, "check 2"},
+		{"expired", encode(f.lake.Identity(), regcode.Code{URL: f.url, Secret: c.Secret, Expires: now.Add(-time.Hour)}), nil, "check 1, the code: it expired"},
+		{"plain http", encode(f.lake.Identity(), regcode.Code{URL: "http://lake.example", Secret: c.Secret, Expires: now.Add(time.Hour)}), nil, "check 2"},
 		{"another key", encode(other, regcode.Code{URL: f.url, Secret: c.Secret, Expires: now.Add(time.Hour)}), nil, "check 3"},
 		{"wrong fingerprint", good, []string{"--fingerprint", identity.Fingerprint(other.Keys[0].Pub)}, "check 4, the fingerprint"},
 		{"no terminal", good, []string{}, "check 4, confirmation: stdin is not a terminal"},
@@ -211,7 +211,7 @@ func TestRegisterRefusesALakeWithNoKeyEndpoint(t *testing.T) {
 	f := newRegFixture(t)
 	code := f.mint("box")
 	fp := f.fingerprint()
-	f.lake.Identity = nil
+	f.lake.SetIdentity(nil)
 	if err := f.register(code+"\n", "--fingerprint", fp); err == nil || !strings.Contains(err.Error(), "upgrade the lake") {
 		t.Fatalf("%v", err)
 	}

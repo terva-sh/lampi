@@ -19,6 +19,7 @@ func migrateRegistrations(tx *sql.Tx) error {
 		name TEXT NOT NULL,
 		secret_sha256 TEXT NOT NULL UNIQUE,
 		profile TEXT NOT NULL DEFAULT '',
+		key_id TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL,
 		expires_at TEXT NOT NULL,
 		used_at TEXT,
@@ -30,9 +31,12 @@ func migrateRegistrations(tx *sql.Tx) error {
 
 // Registration is one minted code.
 type Registration struct {
-	ID       string
-	Name     string
-	Profile  string
+	ID      string
+	Name    string
+	Profile string
+	// KeyID is the lake key that signed the code. A code whose key has
+	// been retired is refused.
+	KeyID    string
 	Created  time.Time
 	Expires  time.Time
 	Used     time.Time
@@ -62,17 +66,18 @@ var (
 	ErrRegistrationUsed    = errors.New("catalog: registration was already used")
 	ErrRegistrationExpired = errors.New("catalog: registration expired")
 	ErrRegistrationRevoked = errors.New("catalog: registration was revoked")
+	ErrRegistrationKey     = errors.New("catalog: the key that signed the code is retired")
 	ErrNoRegistration      = errors.New("catalog: no such registration")
 	ErrTokenTaken          = errors.New("catalog: this token already belongs to a device")
 	ErrNameTaken           = errors.New("catalog: name is taken")
 )
 
-const registrationCols = `id, name, profile, created_at, expires_at, COALESCE(used_at, ''), COALESCE(device_id, ''), COALESCE(revoked_at, '')`
+const registrationCols = `id, name, profile, key_id, created_at, expires_at, COALESCE(used_at, ''), COALESCE(device_id, ''), COALESCE(revoked_at, '')`
 
 func scanRegistration(row interface{ Scan(...any) error }) (Registration, error) {
 	var r Registration
 	var created, expires, used, revoked string
-	if err := row.Scan(&r.ID, &r.Name, &r.Profile, &created, &expires, &used, &r.DeviceID, &revoked); err != nil {
+	if err := row.Scan(&r.ID, &r.Name, &r.Profile, &r.KeyID, &created, &expires, &used, &r.DeviceID, &revoked); err != nil {
 		return Registration{}, err
 	}
 	r.Created, r.Expires, r.Used, r.Revoked = parseStamp(created), parseStamp(expires), parseStamp(used), parseStamp(revoked)
@@ -81,7 +86,7 @@ func scanRegistration(row interface{ Scan(...any) error }) (Registration, error)
 
 // CreateRegistration records a pending code for a device called name.
 // A name held by a device, or by another pending code, is ErrNameTaken.
-func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, profile string, now, expires time.Time) (Registration, error) {
+func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, profile, keyID string, now, expires time.Time) (Registration, error) {
 	if DeviceName(name) != name || name == "" {
 		return Registration{}, fmt.Errorf("catalog: %q is not a device name: lowercase letters, digits, '.', '-' and '_'", name)
 	}
@@ -109,9 +114,9 @@ func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, pr
 	if err != nil {
 		return Registration{}, err
 	}
-	r := Registration{ID: "reg_" + strings.TrimPrefix(id, "dev_"), Name: name, Profile: profile, Created: now.UTC(), Expires: expires.UTC()}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO registrations(id, name, secret_sha256, profile, created_at, expires_at) VALUES(?,?,?,?,?,?)`,
-		r.ID, r.Name, secretSHA256, r.Profile, stamp(r.Created), stamp(r.Expires)); err != nil {
+	r := Registration{ID: "reg_" + strings.TrimPrefix(id, "dev_"), Name: name, Profile: profile, KeyID: keyID, Created: now.UTC(), Expires: expires.UTC()}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registrations(id, name, secret_sha256, profile, key_id, created_at, expires_at) VALUES(?,?,?,?,?,?,?)`,
+		r.ID, r.Name, secretSHA256, r.Profile, r.KeyID, stamp(r.Created), stamp(r.Expires)); err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -167,8 +172,9 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.T
 // its device in one transaction: the device takes the code's name and
 // profile, holds tokenSHA256, and is bound to machineID. The registration
 // is returned with every refusal it can be named for, so the audit line
-// can name it.
-func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, now time.Time) (Device, Registration, error) {
+// can name it. keyActive says whether the key that signed the code may
+// still sign; nil accepts every key.
+func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, keyActive func(string) bool, now time.Time) (Device, Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Device{}, Registration{}, fmt.Errorf("catalog: %w", err)
@@ -188,6 +194,9 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 		return Device{}, r, ErrRegistrationRevoked
 	case "expired":
 		return Device{}, r, ErrRegistrationExpired
+	}
+	if keyActive != nil && r.KeyID != "" && !keyActive(r.KeyID) {
+		return Device{}, r, ErrRegistrationKey
 	}
 	var other string
 	err = tx.QueryRowContext(ctx, `SELECT name FROM devices WHERE token_sha256=?`, tokenSHA256).Scan(&other)
