@@ -83,11 +83,17 @@ try {
   await page.screenshot({path: join(artifacts, 'overview-mobile.png'), fullPage: true});
   await page.keyboard.press('Tab');
   assert.ok(await page.evaluate(() => document.activeElement.tagName !== 'BODY'), 'keyboard focus absent');
-  // Follow POST logout only as far as its redirect; the fake IdP automatically
-  // signs in, so following the next navigation would create a new session.
-  const token = await page.locator('input[name=csrf]').inputValue();
-  const logout = await context.request.post(live.url + '/auth/oidc/logout', {form: {csrf: token}, headers: {Origin: live.url}, maxRedirects: 0});
+  // Submit the real form so browser-generated Origin/referrer behavior is tested.
+  // Stop the redirected GET from silently signing back in through the fake IdP.
+  const stopRedirect = route => route.fulfill({status: 204});
+  await page.route(live.url + '/', stopRedirect);
+  const logoutResponse = page.waitForResponse(r => r.url() === live.url + '/auth/oidc/logout' && r.request().method() === 'POST');
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  const logout = await logoutResponse;
   assert.equal(logout.status(), 303);
+  assert.equal((await logout.request().allHeaders()).origin, live.url);
+  assert.equal((await logout.request().allHeaders()).referer, live.url + '/');
+  await page.unroute(live.url + '/', stopRedirect);
   assert.equal((await context.request.get(live.url + '/api/web/v1/overview')).status(), 401);
   await page.getByRole('button', {name: 'Refresh now'}).click();
   await page.waitForFunction(() => document.querySelector('#refresh-status').textContent.includes('session has ended'));

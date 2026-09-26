@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T18:25:25Z
+updated_at: 2026-09-26T18:27:40Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -80,3 +80,7 @@ Operator completed the compressed pre-migration checkpoint and installation of r
 **agent:codex/deploy** at 2026-09-26T18:25:25Z
 
 Owner confirms authorized account can connect and interact with the deployed UI and no-groups testuser cannot. Supplied screenshots show authenticated sessions listing and Authentik permission denial; screenshots remain outside the repository. Live allowed/denied access is confirmed. Explicit overview/detail and logout observations remain requested; capture remains paused. Clarification to prior verification wording: implemented logout deletes the Lampi session and cookie but does not terminate the Authentik SSO session, so the subsequent root redirect can silently reauthenticate. A password prompt is not a valid required outcome for local logout.
+
+**agent:codex/deploy** at 2026-09-26T18:27:40Z
+
+Live logout failed with sign-out verification error. Reproduced browser behavior independently: Referrer-Policy no-referrer causes Chromium form POST Origin null even when Sec-Fetch-Site is same-origin, so strict origin validation rejects logout. Prior E2E bypassed browser form submission with a manually supplied Origin. Fix in progress under this rollout: strict-origin referrer policy preserves path/query confidentiality while permitting browser-generated Origin; replace logout API shortcut with real button submission and redirect interception to verify session invalidation. Do not weaken CSRF validation or accept arbitrary null origins. Capture stays paused; acceptance remains incomplete.
