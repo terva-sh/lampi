@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2PGHM6VHQBNE5XKDXS407
 title: "Search: index current normalized content with durable FTS5 work"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/explore-store-ui-search
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
-  commit: d8747dbefa36426ccbd11f9833e708c9db1e8595
-  session: null
-  claimed_at: 2026-09-26T20:55:06Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:42:52Z
-updated_at: 2026-09-26T20:59:14Z
+updated_at: 2026-09-26T20:59:21Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -108,3 +101,7 @@ serve builds the index only with web config (cli.startWeb). BeforeClose stops th
 - TestSearchShowsOnlyCurrentGenerations, TestIndexRecoversFromPartialWritesAndBadFiles, TestSearchFiltersAndPaging, TestSearchIsLiteralAndCaseInsensitive and TestIndexRebuildsUnknownVersions pass.
 - cli TestStartWebIndexesPublishedSessions (upload → normalize → hook → index) and the extended purge test pass.
 - `just ci` passes; race runs of recall, web, api and cli pass.
+
+## Summary
+
+Landed on branch t3code/explore-store-ui-search in commit 97eb9c3. recall.Index keeps search.db, a trigram FTS5 index, in step with the catalog's published generations. recall.Index.Search runs literal filtered queries with signed cursors and coverage. serve wires it only with web config. Operator docs: docs/web-dashboard.md#search-index. The browser search screen is TKT-01M3F2PGM. Not yet merged or deployed.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2PGMZKTFXSX521T07A4HA
 title: "Web: add filtered transcript search and result navigation"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -20,10 +20,17 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim: null
+claim:
+  actor: agent:claude-code/cd41c9ac
+  branch: t3code/explore-store-ui-search
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
+  commit: 97eb9c385b6c0ca0757b8f6863a6d083eb4c3409
+  session: null
+  claimed_at: 2026-09-26T20:59:21Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T14:42:52Z
-updated_at: 2026-09-26T20:35:15Z
+updated_at: 2026-09-26T20:59:21Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
