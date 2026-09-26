@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FP115FH6DV3V5WGN3XHPJK
 title: "Agent: standalone mode with no lake, and lake reload on SIGHUP"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3FHHBPHPZHBTJT794N8HCZW
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: onboarding/agent-reload
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 6bf114a6a771922af958c0db2862755ef6453369
-  session: null
-  claimed_at: 2026-09-26T21:17:13Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-26T21:57:53Z
+updated_at: 2026-09-26T21:58:03Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -82,3 +75,7 @@ AC3 is unticked. The commands that change lakes, register and lakes remove, arri
 **agent:claude-code/e4a47e8c** at 2026-09-26T21:57:53Z
 
 Supersedes the AC3 part of the first note. register and lakes remove (TKT-01M3FHHBR) now print reloadAgent(state). On Windows that is 'restart the agent … it reads them only at start on this platform'. Evidence is the code path plus GOOS=windows vet; no test ran on Windows.
+
+## Summary
+
+An empty lakes map is standalone: the agent watches, uploads nothing and says so once; status and sync say no lake is configured. On Unix SIGHUP reloads the lake set, draining lakes that go or change and keeping unchanged ones running; register and lakes remove signal a running agent through agent.pid, and on Windows say a restart is required.
