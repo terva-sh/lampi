@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T17:39:54Z
+updated_at: 2026-09-26T18:14:44Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -68,3 +68,7 @@ PR #4 review 856 (75b76fc7-0b3a-443e-9a35-788bb3b4490b) on 2b39c8a5b0d25447e4195
 **agent:codex/deploy** at 2026-09-26T17:39:54Z
 
 PR #4 merged as 4e932af6660b983d262c043138df5f303c9bb29f after successful CI and clean model review on 64d3f62ad5fe6c4d368bdda81bb31b1fed4f6744. Clean review: https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14385; finding disposition recorded in comment 14381. The previous note cited the wrong review-856 URL; correct URL is https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14378. Both forges main are synchronized. The merge tree equals the reviewed head. Rebuilt the external operator package from the merge revision, replaced obsolete uncompressed guidance with bounded gzip checkpoint steps and recovery guidance, verified shell syntax, synthetic backup/integrity/compare and capacity refusal, and refreshed checksums. Operator execution is pending; no live installation or backup has occurred. Browser authentication and post-upgrade capture remain unverified.
+
+**agent:codex/deploy** at 2026-09-26T18:14:44Z
+
+Operator deployment attempt passed package checksums but stopped at capacity guard before any service change. Current available space had fallen to 4,558,245,888 bytes versus required 8,678,091,606 bytes. Read-only inspection found 119 GiB in the configured Go build cache. Cleared only rebuildable compiler cache using mise exec -- go clean -cache; command succeeded. Available space is now 132,014,252,032 bytes. Both lake and capture services remain active. No lake data, repositories, module source cache, or deployment artifacts were removed. The unchanged checksummed operator script can now be retried, with the original 4 GiB backup reserve intact. Backup, installation and live browser verification remain pending.
