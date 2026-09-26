@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -197,5 +198,101 @@ func TestOneLakesProfileNeverAppliesToAnotherLake(t *testing.T) {
 	}
 	if byName["home"].Projects.Permitted(app) || len(byName["home"].Projects.Allow) != 0 {
 		t.Fatalf("work's profile reached home: %+v", byName["home"].Projects)
+	}
+}
+
+func TestAgentCachesAProfileRenamedWithTheSameContent(t *testing.T) {
+	lake, url := profileLake(t)
+	home, cfg, state, _ := agentFixture(t, url)
+	getenv := agentGetenv(home, cfg, state)
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
+	// The cache holds profile ci with the content the lake now serves
+	// as default, as after serve devices set-profile moved the device.
+	p := lake.Profiles()[config.DefaultProfile]
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := lake.Identity().Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
+		LakeID: lake.Identity().LakeID, Profile: "ci", Version: p.Version(), Config: raw,
+	}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc, err := loadClientConfig(Env{Getenv: getenv}, io.Discard, config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := lakeprofile.Verify(signed, cc.lakes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lakeprofile.Save(filepath.Join(state, "terva-lampi", "lakes", "work"), d); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runAgentLoop(ctx, Env{Stdout: &buf, Stderr: &buf, Getenv: getenv}, "", "") }()
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "profile default version "+p.Version()) && strings.Contains(s, "uploaded 1")
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// The content did not change, so the lake is not restarted.
+	if strings.Contains(buf.String(), "reload:") {
+		t.Fatalf("a renamed profile with the same content reloaded the lake:\n%s", buf.String())
+	}
+	var out memBuf
+	if err := runAgentConfig(Env{Stdout: &out, Stderr: &out, Getenv: getenv}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "lake work profile=default version="+p.Version()) {
+		t.Fatalf("cached profile keeps the old name:\n%s", out.String())
+	}
+}
+
+func TestAgentHoldsUploadsUntilTheFirstProfileFetchAnswers(t *testing.T) {
+	lake, _ := profileLake(t)
+	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
+	}})
+	// The profile answers late, so an agent that pushes before it has
+	// the lake's deny rule uploads first.
+	h := lake.Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/agent/config" {
+			time.Sleep(time.Second)
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	home, cfg, state, _ := agentFixture(t, srv.URL)
+	k := lake.Identity().Public()[0]
+	// config.json allows the session's project for work; only the
+	// lake's profile denies it.
+	writeAgentConfig(t, cfg, fmt.Sprintf(`{"lakes":{"work":{"server":%q,"lake_id":%q,"key_id":%q,"public_key":%q,
+		"projects":{"allow":[{"cwd_prefix":"/work/app"}]}}},"agent":{"debounce":"100ms"}}`,
+		srv.URL, lake.Identity().LakeID, k.ID, k.PublicKey))
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}, "", "")
+	}()
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "profile default version") && strings.Contains(s, "refused")
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := lake.Catalog.Counts(t.Context()); n.Sessions != 0 {
+		t.Fatalf("uploaded %d sessions before the profile's deny rule arrived:\n%s", n.Sessions, buf.String())
 	}
 }

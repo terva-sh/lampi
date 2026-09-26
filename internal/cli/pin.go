@@ -79,9 +79,11 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	moved.KeyID, moved.PublicKey = next.ID, next.PublicKey
 	// The cached profile was verified under the old pin and may carry
 	// only its signature. Replace it under the new pin before the pin
-	// moves, so the lake's rules do not drop out between the two.
+	// moves, so the lake's rules do not drop out between the two. If it
+	// cannot be, the pin stays: the old key signs through the overlap,
+	// and the next refresh tries again.
 	if err := refetchProfile(fctx, env, moved); err != nil {
-		fmt.Fprintf(env.stderr(), "terva-lampi: lake %s: profile under the new key: %v; the agent fetches it again\n", l.Name, err)
+		return l, false, fmt.Errorf("the profile under key %s: %w; the pin stays on key %s until it can be fetched", next.ID, err, pinned.ID)
 	}
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {

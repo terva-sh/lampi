@@ -2,8 +2,10 @@ package catalog
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -119,5 +121,47 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	}
 	if u, _ := c.PublicURL(ctx); u != "https://b.example" {
 		t.Fatalf("url %q", u)
+	}
+}
+
+// serve redeems while the operator revokes, from two processes. One of
+// them wins; a revoke never reports success for a code that made a
+// device.
+func TestRevokeNeverSucceedsOnACodeThatWasRedeemed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	serve, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serve.Close()
+	operator, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operator.Close()
+	ctx := t.Context()
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	for i := range 200 {
+		secret := fmt.Sprintf("%064x", i)
+		r, err := serve.CreateRegistration(ctx, fmt.Sprintf("box-%d", i), secret, "", "", now, now.Add(time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var redeemErr, revokeErr error
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			_, _, redeemErr = serve.Redeem(ctx, secret, fmt.Sprintf("%064x", 1000+i), fmt.Sprintf("m%d", i), nil, now)
+		})
+		wg.Go(func() { _, revokeErr = operator.RevokeRegistration(ctx, r.ID, now) })
+		wg.Wait()
+		if redeemErr == nil && revokeErr == nil {
+			t.Fatalf("round %d: the code was redeemed and revoked", i)
+		}
+		if redeemErr != nil && !errors.Is(redeemErr, ErrRegistrationRevoked) {
+			t.Fatalf("round %d: redeem: %v", i, redeemErr)
+		}
+		if revokeErr != nil && !errors.Is(revokeErr, ErrRegistrationUsed) {
+			t.Fatalf("round %d: revoke: %v", i, revokeErr)
+		}
 	}
 }

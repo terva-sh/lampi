@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBPHPZHBTJT794N8HCZW
 title: "Agent: fan out to many lakes with per-lake outbox, backoff, status"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3FP1107KXYARCAYVYT2Y409
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: onboarding/agent-fanout
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 4208a2797d1783c62bf9826fa7478025256b8a1a
-  session: null
-  claimed_at: 2026-09-26T21:14:15Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T21:14:15Z
+updated_at: 2026-09-26T23:08:14Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -61,3 +54,9 @@ loadAgentLakes resolves every lake into options (own token, allowlist, state dir
 **agent:claude-code/e4a47e8c** at 2026-09-26T21:14:15Z
 
 Rejected: one loop that pushes to each lake in sequence on each kick, because a lake timing out would delay every other lake by its stall timeout. Rejected: one shared memo, because a file the memo marks as seen after pushing to one lake would be skipped for the next. Cost: each lake hashes the files it admits, so CPU scales with lake count. Evidence: TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther (work receives while default answers 401), TestSyncPushesToEveryLakeAndKeepsGoingPastAFailure, status block test; go test -race ./... and the golive drills green.
+
+## Summary
+
+Lands in PR #14. One agent runs a lakeRunner goroutine per lake behind a single watch and debouncer. Each runner has its own kick channel, retry timer, backoff, auth-logged flag and refusal log, so a lake that is down or answering 401 waits out its own backoff while the others keep receiving. sync pushes to every lake in turn (or only --lake), keeps going past a failing lake, and exits non-zero naming the lakes that failed. status prints one block per lake. When there are several lakes, output lines are prefixed with the lake name.
+
+Evidence: TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther, TestSyncPushesToEveryLakeAndKeepsGoingPastAFailure, and the status block test. go test -race ./... and the golive drills are green.

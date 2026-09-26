@@ -53,7 +53,8 @@ restarted.
 --lake names the lake in config.json. The default is default when no
 default lake is configured, else the first label of the URL's host. A
 lake with the code's lake id is already configured: register refuses
-and names it, unless --replace, which re-registers that entry.
+and names it, unless --replace, which re-registers that entry under
+its name. --replace never takes over an entry for another lake.
 
 --install-service writes and enables the agent's systemd user unit or
 launchd agent, running this binary. On Linux it suggests loginctl
@@ -166,6 +167,10 @@ func runRegister(env Env, args []string) error {
 		return fmt.Errorf("lake %s in config.json is already this lake (%s); pass --replace to register again", existing.Name, c.LakeID)
 	case existing != nil && lakeName == "":
 		lakeName = existing.Name
+	case existing != nil && lakeName != existing.Name:
+		// A second name would leave two entries for one lake, the old
+		// one still holding its old token.
+		return fmt.Errorf("lake %s in config.json is already this lake (%s); --replace registers it again under that name, so drop --lake, or run terva-lampi lakes remove %s first", existing.Name, c.LakeID, existing.Name)
 	case lakeName == "":
 		lakeName = chooseLakeName(file, lakes, c.URL)
 	}
@@ -174,8 +179,14 @@ func runRegister(env Env, args []string) error {
 	}
 	entry := config.LakeConfig{}
 	if prev, ok := file.Lakes[lakeName]; ok {
-		if (existing == nil || existing.Name != lakeName) && !replace {
-			return fmt.Errorf("a lake named %s is configured for another server; pass --lake with another name", lakeName)
+		// --replace takes over the entry that is this lake, or one for
+		// the same server that no lake id pins yet. It never takes over
+		// another lake's entry, or the token that entry names.
+		switch {
+		case prev.LakeID != c.LakeID && (prev.LakeID != "" || prev.Server != c.URL):
+			return fmt.Errorf("a lake named %s is configured for another lake; pass --lake with another name", lakeName)
+		case !replace:
+			return fmt.Errorf("a lake named %s is configured for %s with no pinned lake id; pass --replace to register it, or --lake for another name", lakeName, c.URL)
 		}
 		entry = prev
 	}
@@ -305,9 +316,11 @@ func chooseLakeName(file config.File, lakes []config.Lake, raw string) string {
 			base = s
 		}
 	}
+	// The suffix is kept inside the 32 characters a lake name may have.
 	name := base
 	for n := 2; taken[name]; n++ {
-		name = fmt.Sprintf("%s-%d", base, n)
+		suffix := fmt.Sprintf("-%d", n)
+		name = base[:min(len(base), 32-len(suffix))] + suffix
 	}
 	return name
 }

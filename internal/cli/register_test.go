@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -324,5 +325,120 @@ func TestRegisterInstallsTheUserService(t *testing.T) {
 	}
 	if !strings.Contains(f.stdout.String(), "loginctl enable-linger drew") {
 		t.Fatalf("no linger hint:\n%s", f.stdout.String())
+	}
+}
+
+func TestLakesRemovePurgeBesideAnAgentChangesNothing(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	tokenPath := filepath.Join(f.cfg, "terva-lampi", "tokens", "work.token")
+	release, err := writeAgentPID(filepath.Join(f.state, "terva-lampi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"lakes", "remove", "work", "--purge-state"}, f.env("")); err == nil || !strings.Contains(err.Error(), "nothing was removed") {
+		t.Fatalf("purge beside an agent: %v", err)
+	}
+	file, err := config.LoadFile(agentGetenv(f.home, f.cfg, f.state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := file.Lakes["work"]; !ok {
+		t.Fatal("a refused purge removed the lake from config.json")
+	}
+	if _, err := os.Stat(tokenPath); err != nil {
+		t.Fatalf("a refused purge removed the token: %v", err)
+	}
+	release()
+	f.stdout.Reset()
+	if err := Run([]string{"lakes", "remove", "work", "--purge-state"}, f.env("")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
+		t.Fatal("token file kept")
+	}
+	if !strings.Contains(f.stdout.String(), "no agent is running") || !strings.Contains(f.stdout.String(), "removed sync state") {
+		t.Fatalf("remove output:\n%s", f.stdout.String())
+	}
+}
+
+func TestRegisterReplaceNeverTakesOverAnotherLakesEntry(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	before, err := config.LoadFile(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenPath := filepath.Join(f.cfg, "terva-lampi", "tokens", "work.token")
+	token, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A second lake's code, pointed at the first lake's entry.
+	dir, other, url := registerLake(t)
+	if err := Run([]string{"serve", "identity", "set-url", url, "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Run([]string{"serve", "register", "--name", "box", "--data", dir}, Env{Stdout: &out, Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	fp := identity.Fingerprint(other.Identity().Keys[0].Pub)
+	if err := f.register(strings.TrimSpace(out.String())+"\n", "--fingerprint", fp, "--lake", "work", "--replace"); err == nil || !strings.Contains(err.Error(), "configured for another lake") {
+		t.Fatalf("replace over another lake: %v", err)
+	}
+	after, err := config.LoadFile(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after.Lakes, before.Lakes) {
+		t.Fatalf("lakes changed: %+v", after.Lakes)
+	}
+	if now, _ := os.ReadFile(tokenPath); string(now) != string(token) {
+		t.Fatal("the first lake's token was overwritten")
+	}
+	regs, _ := other.Catalog.Registrations(t.Context())
+	for _, r := range regs {
+		if r.State(time.Now()) == "used" {
+			t.Fatal("the refused code was redeemed")
+		}
+	}
+}
+
+func TestRegisterReplaceKeepsTheExistingName(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.register(f.mint("box-2")+"\n", "--fingerprint", f.fingerprint(), "--lake", "home", "--replace"); err == nil || !strings.Contains(err.Error(), "lake work in config.json is already this lake") {
+		t.Fatalf("replace under a second name: %v", err)
+	}
+	file, err := config.LoadFile(agentGetenv(f.home, f.cfg, f.state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := file.Lakes["home"]; ok || len(file.Lakes) != 1 {
+		t.Fatalf("lakes %v", file.Lakes)
+	}
+}
+
+func TestChosenLakeNamesStayValidWithASuffix(t *testing.T) {
+	long := strings.Repeat("a", 32)
+	file := config.File{Server: "https://x.example", Lakes: map[string]config.LakeConfig{long: {}}}
+	for range 10 {
+		name := chooseLakeName(file, []config.Lake{{Name: config.DefaultLake}}, "https://"+long+".example")
+		if !config.ValidLakeName(name) {
+			t.Fatalf("chose %q, not a lake name", name)
+		}
+		if _, ok := file.Lakes[name]; ok {
+			t.Fatalf("chose %q, which is taken", name)
+		}
+		file.Lakes[name] = config.LakeConfig{}
 	}
 }
