@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/regcode"
@@ -363,12 +365,14 @@ func TestGoLiveOnboardLegacyUpgrade(t *testing.T) {
 	if out, errs, err := f.run("sync"); err != nil || !strings.Contains(out, "uploaded 2") {
 		t.Fatalf("first sync: %v %s %s", err, out, errs)
 	}
-	// Put the client state back in the single-lake layout of the
-	// release before per-lake state, and restart the lake.
-	state := filepath.Join(f.root, "state", "terva-lampi")
-	legacyLayout(t, state, "default")
+	// Put the lake's catalog back to schema 4, the release before
+	// devices, and the client state back in the single-lake layout of
+	// the release before per-lake state. Then restart the lake.
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
+	legacyCatalog(t, data)
+	state := filepath.Join(f.root, "state", "terva-lampi")
+	legacyLayout(t, state, "default")
 	url2, _ := goLiveServeArgs(t, data, "--token-file", tokens)
 	cfg["server"] = url2
 	b, _ = json.Marshal(cfg)
@@ -379,9 +383,58 @@ func TestGoLiveOnboardLegacyUpgrade(t *testing.T) {
 	if err != nil || !strings.Contains(errs, "moved sync state") || !strings.Contains(out, "manifests 0") || !strings.Contains(out, "uploaded 0") {
 		t.Fatalf("upgrade sync: %v\n%s%s", err, out, errs)
 	}
+	if v := catalogVersion(t, data); v <= 4 {
+		t.Fatalf("catalog schema %d after the upgrade, want above 4", v)
+	}
+	// The legacy catalog had no devices, so the token-file device is new
+	// and unbound until its first manifest.
 	devs, _, _ := f.run("serve", "devices", "--data", data)
-	if !strings.Contains(devs, "laptop active token-file profile=default machine=") || strings.Contains(devs, "machine=- ") {
+	if !strings.Contains(devs, "laptop active token-file profile=default machine=-") {
+		t.Fatalf("legacy token device not named from the token file:\n%s", devs)
+	}
+	plantAt(t, f, allowed, "legacy-3")
+	if out, errs, err := f.run("sync"); err != nil || !strings.Contains(out, "uploaded 1") {
+		t.Fatalf("sync after the upgrade: %v %s %s", err, out, errs)
+	}
+	devs, _, _ = f.run("serve", "devices", "--data", data)
+	if !strings.Contains(devs, "laptop active token-file profile=default machine=") || strings.Contains(devs, "machine=-") {
 		t.Fatalf("legacy token device not bound:\n%s", devs)
 	}
-	t.Log("upgrade: single-lake client state moved in place, legacy token-file device named and bound, the sync after the upgrade posted nothing")
+	t.Log("upgrade: schema 4 catalog migrated, single-lake client state moved in place, the sync after the upgrade posted nothing, legacy token-file device named and bound on the next manifest")
+}
+
+// legacyCatalog turns data's catalog into the one the release before
+// devices wrote. Migrations 5 and 6 only add the devices and
+// registrations tables, so dropping them and setting user_version 4
+// leaves that file. That release had no audit log either.
+func legacyCatalog(t *testing.T, data string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(data, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE registrations; DROP TABLE devices; PRAGMA user_version = 4`); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(data, audit.FileName)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if v := catalogVersion(t, data); v != 4 {
+		t.Fatalf("legacy catalog schema %d", v)
+	}
+}
+
+func catalogVersion(t *testing.T, data string) int {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(data, "catalog.db")+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
