@@ -479,7 +479,8 @@ detail, which can name a lake path, is in the server log.
 | Status | When |
 |--------|------|
 | 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, size mismatch, unsupported protocol, harness, or kind, tail combined with chunks, missing manifest fields, a request body that stopped short |
-| 401 | Bearer token missing or wrong |
+| 401 | Bearer token missing or wrong, or its device revoked |
+| 403 | A manifest's `machine_id` is not the one its device is bound to, or belongs to another device |
 | 404 | The key list, on a lake with no identity |
 | 408 | The request body did not arrive before its deadline |
 | 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |

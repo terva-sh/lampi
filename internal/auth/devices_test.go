@@ -117,3 +117,42 @@ func TestReplaceSwapsUnderConcurrentMatch(t *testing.T) {
 		t.Fatal("replace did not swap the set")
 	}
 }
+
+func TestDeviceNamesComeFromTheTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	a, b := strings.Repeat("a1", 32), strings.Repeat("b2", 32)
+	if err := os.WriteFile(filepath.Join(dir, "laptop.token"), []byte(a+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := LoadDevices(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := d.Entries(); len(e) != 1 || e[0].Name != "laptop" || e[0].Hash != HashToken(a) {
+		t.Fatalf("dir entries %+v", e)
+	}
+	file := filepath.Join(t.TempDir(), "tokens")
+	body := "# desktop\n" + a + "\n\n" + b + "\n"
+	if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err = LoadDevices(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := d.Entries()
+	if len(e) != 2 || e[0].Name != "desktop" || e[1].Name != "" {
+		t.Fatalf("file entries %+v", e)
+	}
+	// The rewritten file keeps the name.
+	d, err = LoadDevices(file)
+	if err != nil || d.Entries()[0].Name != "desktop" {
+		t.Fatalf("after rewrite %+v %v", d.Entries(), err)
+	}
+	if hash, ok := d.Lookup("Bearer " + b); !ok || hash != HashToken(b) {
+		t.Fatalf("lookup %q %v", hash, ok)
+	}
+	if _, ok := d.Lookup("Bearer nope"); ok {
+		t.Fatal("unknown token matched")
+	}
+}

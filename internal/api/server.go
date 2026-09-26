@@ -54,6 +54,9 @@ type Server struct {
 	// key route answering 404 and hello unsigned.
 	Identity *identity.Identity
 	Now      func() time.Time
+	// dataDir is the lake directory, where the audit log lives. Open
+	// sets it.
+	dataDir string
 	// Log gets one line per request and normalize failures. Nil discards.
 	Log *slog.Logger
 	// BeforeClose, when set, runs in Shutdown after the normalize
@@ -142,11 +145,29 @@ func (s *Server) admit(w http.ResponseWriter, r *http.Request) (release func(), 
 }
 
 // Allow enrolls a device token by its hash. The token string is not stored.
+//
+// It also records the token as an allow device, because a token with no
+// device record is refused. serve does not call it: its tokens come
+// from the token file and are bound to one machine each. An allow
+// device is not bound, so a test or fixture can post as several
+// machines with one token.
 func (s *Server) Allow(token string) {
-	if s.Devices == nil {
-		s.Devices = &auth.Devices{}
+	next := &auth.Devices{}
+	if s.Devices != nil {
+		next.Replace(s.Devices)
 	}
-	s.Devices.Allow(token)
+	next.Allow(token)
+	if s.Catalog != nil {
+		entry := catalog.TokenEntry{Hash: auth.HashToken(strings.TrimSpace(token)), Name: "allow"}
+		if _, err := s.Catalog.AllowTokens(context.Background(), []catalog.TokenEntry{entry}, s.now()); err != nil {
+			panic(fmt.Sprintf("api: Allow: %v", err))
+		}
+	}
+	if s.Devices == nil {
+		s.Devices = next
+		return
+	}
+	s.Devices.Replace(next)
 }
 
 // Open loads a filesystem CAS and a SQLite catalog under dataDir, loads
@@ -194,6 +215,7 @@ func OpenIdle(dataDir string) (*Server, error) {
 		Normalized: norm,
 		Parquet:    parquetDir,
 		Now:        time.Now,
+		dataDir:    dataDir,
 	}
 	return s, nil
 }
@@ -285,10 +307,30 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		if !s.Devices.Match(r.Header.Get("Authorization")) {
+		hash, ok := s.Devices.Lookup(r.Header.Get("Authorization"))
+		if !ok {
 			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
 		}
+		// A token is published only after its device row is recorded, so
+		// a token with no row is a lake in a bad state. Fail closed.
+		d, found, err := s.Catalog.DeviceByHash(r.Context(), hash)
+		if err != nil {
+			s.fail(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		if !found {
+			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this token has no device record"))
+			return
+		}
+		if !d.Revoked.IsZero() {
+			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this device is revoked"))
+			return
+		}
+		if info := infoOf(r); info != nil {
+			info.device, info.deviceID = d.Name, d.ID
+		}
+		r = r.WithContext(context.WithValue(r.Context(), deviceKey{}, d))
 		next(w, r)
 	}
 }
@@ -532,6 +574,9 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateManifest(&m); err != nil {
 		s.fail(w, r, http.StatusBadRequest, err)
+		return
+	}
+	if !s.bindDevice(w, r, m.MachineID) {
 		return
 	}
 	decisions, err := s.resolve(r.Context(), &m)
