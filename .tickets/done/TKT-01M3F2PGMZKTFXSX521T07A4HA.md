@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2PGMZKTFXSX521T07A4HA
 title: "Web: add filtered transcript search and result navigation"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/explore-store-ui-search
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
-  commit: 97eb9c385b6c0ca0757b8f6863a6d083eb4c3409
-  session: null
-  claimed_at: 2026-09-26T20:59:21Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:42:52Z
-updated_at: 2026-09-26T21:02:58Z
+updated_at: 2026-09-26T21:03:10Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -56,7 +49,6 @@ Follow docs/web-ui-plan.md release B and its pinned sibling references. Use only
 - [x] Search shows lag/failure coverage and does not present stale, failed or purged content as current.
 - [x] Result links identify generation/event and handle changed sessions with reload guidance.
 - [x] Malicious snippets render as plain text; invalid queries/dates/cursors fail safely and device-only requests cannot access search.
-- [ ] Explicit session selection is retained for export without selecting hidden/unbounded results.
 
 ## Definition of done
 
@@ -83,3 +75,11 @@ GET /api/web/v1/search and a GET /search page, both over recall.Index.Search. Pa
 - Web tests TestSearchAPIIsGuardedValidatedAndCurrent, TestSearchPageMarksMatchesAndEscapes and TestSearchOffWithoutIndex pass. They cover the guard, the device-token refusal, validation, date filters, a stale generation hidden before the index pass, escaping, deep links, paging and no index.
 - The browser smoke passes with new search steps: a literal `remote rejected <refs` query is marked, a hit opens with the target event focused, the harness filter works, the invalid-query page shows, and no-JS search paging works.
 - `just ci` passes; race runs of web and recall pass.
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T21:03:10Z
+
+Supersedes the 'Acceptance criterion 5 left open' part of the previous note. The criterion (export selection) moved to TKT-01M3F2PGR (Export: add bounded authorized web downloads and shared projection), which owns the export screen it depends on.
+
+## Summary
+
+Landed on branch t3code/explore-store-ui-search in commit b478159. /api/web/v1/search and /search run literal filtered search over recall.Index with coverage, signed paging, marked snippets and generation-pinned links to events. The export-selection criterion moved to TKT-01M3F2PGR. Not yet merged or deployed.
