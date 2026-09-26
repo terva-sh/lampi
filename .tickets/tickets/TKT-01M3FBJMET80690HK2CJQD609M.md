@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T17:34:18Z
+updated_at: 2026-09-26T18:27:40Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -43,8 +43,8 @@ Land the dashboard release after successful CI and model review, then upgrade th
 
 ## Acceptance criteria
 
-- [ ] All release code receives a published model review; findings are resolved or dispositioned while PRs remain open; CI passes and reviewed changes merge.
-- [ ] A protected pre-migration backup, rollback binary/config and service-account configuration checks are completed before installation.
+- [x] All release code receives a published model review; findings are resolved or dispositioned while PRs remain open; CI passes and reviewed changes merge.
+- [x] A protected pre-migration backup, rollback binary/config and service-account configuration checks are completed before installation.
 - [ ] The reviewed binary and OIDC/proxy configuration are installed; health, allowed/denied login, logout and device ingestion are verified.
 
 ## Implementation plan
@@ -64,3 +64,23 @@ Foundation PR #5 merged as f4b799f618c372af5bc26d2f60d0ac17a3ce61c8 after CI suc
 **agent:codex/deploy** at 2026-09-26T17:34:18Z
 
 PR #4 review 856 (75b76fc7-0b3a-443e-9a35-788bb3b4490b) on 2b39c8a5b0d25447e41954f60d84ed9c216f28e5 found that explicitly empty limit/current/unlinked values bypassed the documented query validation. parsePage now distinguishes absent keys from present empty values. HTTP regressions cover empty and bare values returning 400 and explicit valid limit/true/false remaining accepted. Focused web package race tests passed. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14380
+
+**agent:codex/deploy** at 2026-09-26T17:39:54Z
+
+PR #4 merged as 4e932af6660b983d262c043138df5f303c9bb29f after successful CI and clean model review on 64d3f62ad5fe6c4d368bdda81bb31b1fed4f6744. Clean review: https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14385; finding disposition recorded in comment 14381. The previous note cited the wrong review-856 URL; correct URL is https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14378. Both forges main are synchronized. The merge tree equals the reviewed head. Rebuilt the external operator package from the merge revision, replaced obsolete uncompressed guidance with bounded gzip checkpoint steps and recovery guidance, verified shell syntax, synthetic backup/integrity/compare and capacity refusal, and refreshed checksums. Operator execution is pending; no live installation or backup has occurred. Browser authentication and post-upgrade capture remain unverified.
+
+**agent:codex/deploy** at 2026-09-26T18:14:44Z
+
+Operator deployment attempt passed package checksums but stopped at capacity guard before any service change. Current available space had fallen to 4,558,245,888 bytes versus required 8,678,091,606 bytes. Read-only inspection found 119 GiB in the configured Go build cache. Cleared only rebuildable compiler cache using mise exec -- go clean -cache; command succeeded. Available space is now 132,014,252,032 bytes. Both lake and capture services remain active. No lake data, repositories, module source cache, or deployment artifacts were removed. The unchanged checksummed operator script can now be retried, with the original 4 GiB backup reserve intact. Backup, installation and live browser verification remain pending.
+
+**agent:codex/deploy** at 2026-09-26T18:23:22Z
+
+Operator completed the compressed pre-migration checkpoint and installation of reviewed merge 4e932af6660b983d262c043138df5f303c9bb29f. Verified archive size: 3,909,104,560 bytes. Pre-upgrade schema version 1; catalog integrity and preserved counts confirmed: 74 sessions, 1,694 artifacts, 1,694 provenance rows. Checkpoint coordinates remain in the external host handoff. Independent live checks confirm installed revision, active lake, paused capture, HTTPS health 200, anonymous device/browser APIs 401, root redirect to OIDC start and Authentik authorization redirect using code/S256 with Secure/HttpOnly login cookie. A unique harmless Lampi query was absent from new proxy access logs; an unmatched-host control request was logged, confirming logging remains active elsewhere. Authorized browser login, session navigation, logout, denied-user behavior and resumed ingestion remain pending owner observations. No credentials or callback values were printed.
+
+**agent:codex/deploy** at 2026-09-26T18:25:25Z
+
+Owner confirms authorized account can connect and interact with the deployed UI and no-groups testuser cannot. Supplied screenshots show authenticated sessions listing and Authentik permission denial; screenshots remain outside the repository. Live allowed/denied access is confirmed. Explicit overview/detail and logout observations remain requested; capture remains paused. Clarification to prior verification wording: implemented logout deletes the Lampi session and cookie but does not terminate the Authentik SSO session, so the subsequent root redirect can silently reauthenticate. A password prompt is not a valid required outcome for local logout.
+
+**agent:codex/deploy** at 2026-09-26T18:27:40Z
+
+Live logout failed with sign-out verification error. Reproduced browser behavior independently: Referrer-Policy no-referrer causes Chromium form POST Origin null even when Sec-Fetch-Site is same-origin, so strict origin validation rejects logout. Prior E2E bypassed browser form submission with a manually supplied Origin. Fix in progress under this rollout: strict-origin referrer policy preserves path/query confidentiality while permitting browser-generated Origin; replace logout API shortcut with real button submission and redirect interception to verify session invalidation. Do not weaken CSRF validation or accept arbitrary null origins. Capture stays paused; acceptance remains incomplete.

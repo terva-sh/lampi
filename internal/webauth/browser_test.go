@@ -81,14 +81,14 @@ func TestBrowserFlowGuardsAndLogout(t *testing.T) {
 		t.Fatal("page guard")
 	}
 	csrf := request(h, "GET", "https://lake.example/", cookie).Body.String()
-	for _, origin := range []string{"https://evil.example", "https://lake.example"} {
+	for _, origin := range []string{"https://evil.example", "null", "https://lake.example"} {
 		r := httptest.NewRequest("POST", "https://lake.example"+LogoutPath, strings.NewReader(url.Values{"csrf": {csrf}}.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		r.Header.Set("Origin", origin)
 		r.AddCookie(cookie)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
-		if origin == "https://evil.example" && w.Code != 403 {
+		if origin != "https://lake.example" && w.Code != 403 {
 			t.Fatal("cross-origin logout")
 		}
 		if origin == "https://lake.example" && w.Code != 303 {
