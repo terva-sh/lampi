@@ -21,7 +21,7 @@ import (
 const statusUsage = `terva-lampi status — agent state and lake health
 
 usage:
-  terva-lampi status [--server URL] [--token-file PATH]
+  terva-lampi status [--lake NAME] [--server URL] [--token-file PATH]
 
 --server is the flag, then LAMPI_SERVER, then server in config.json,
 then http://127.0.0.1:8787. --token-file is the flag, then
@@ -59,6 +59,12 @@ Cursor CLI chat needs an absolute cwd in the sibling meta.json, or
 sync refuses that export. Those refusals are named on sync stderr.
 The projects allow and deny rules are unchanged.
 
+status shows one lake: the one --lake names, or the default lake, or
+the first lake by name when there is no default. The lake line names
+it, and other_lakes counts the rest. The capture state lines (outbox,
+watermarks, last sync) are this machine's, shared by every lake until
+each lake has its own state.
+
 GET /healthz reports whether the lake process is up. It carries no
 catalog data and does not need the token. GET /v1/stats reports how
 many sessions, artifacts, and machines the catalog holds, and uses the
@@ -74,8 +80,9 @@ func runStatus(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), statusUsage)
 		return nil
 	}
-	var serverFlag, tokenFlag string
+	var serverFlag, tokenFlag, lakeFlag string
 	rest, err := parseFlags(env, args, statusUsage, func(fs *flag.FlagSet) {
+		fs.StringVar(&lakeFlag, "lake", "", "lake name from config.json")
 		fs.StringVar(&serverFlag, "server", "", "lake base URL")
 		fs.StringVar(&tokenFlag, "token-file", "", "device token file")
 	})
@@ -102,12 +109,16 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	server := config.ResolveServer(file, env.getenv, serverFlag)
-	tokenFile, err := tokenPathFor(env, tokenFlag, file)
+	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
 		return err
 	}
-	token, err := resolveToken(env, tokenFlag, file)
+	if len(lakes) == 0 {
+		return fmt.Errorf("no lake is configured")
+	}
+	lake := lakes[0]
+	server, tokenFile := lake.Server, lake.TokenFile
+	token, err := lakeToken(lake)
 	if err != nil {
 		return err
 	}
@@ -121,6 +132,10 @@ func runStatus(env Env, args []string) error {
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	if err := writeCaptureState(env.stdout(), state); err != nil {
 		return err
+	}
+	fmt.Fprintf(env.stdout(), "lake: %s\n", lake.Name)
+	if len(lakes) > 1 {
+		fmt.Fprintf(env.stdout(), "other_lakes: %d (pass --lake to show one)\n", len(lakes)-1)
 	}
 	writeEndpoint(env.stdout(), server, tokenFile)
 	fmt.Fprintf(env.stdout(), "health: %s\n", probeHealth(server.Value))

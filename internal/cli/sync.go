@@ -17,7 +17,7 @@ import (
 const syncUsage = `terva-lampi sync — push new bytes once
 
 usage:
-  terva-lampi sync [--server URL] [--token-file PATH]
+  terva-lampi sync [--lake NAME] [--server URL] [--token-file PATH]
 
 Walks terva sessions, Claude Code projects/**/*.jsonl, Codex
 rollout-*.jsonl, OpenCode export JSON, Cursor IDE state.vscdb
@@ -81,6 +81,11 @@ hello runs before the files are read and scanned. A blob over 4 MiB goes as Cont
 pieces. No timeout covers a whole request; one that moves no bytes for
 60s is cancelled.
 
+--lake names a lake from the lakes map in config.json. Until each lake
+has its own sync state, sync pushes only to the lake named default: the
+one the top-level server, LAMPI_SERVER, or nothing describes.
+--server and --token-file override that lake's values.
+
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
 the token path in config.json, then the token file in the config
@@ -95,8 +100,9 @@ func runSync(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), syncUsage)
 		return nil
 	}
-	var serverFlag, tokenFlag string
+	var serverFlag, tokenFlag, lakeFlag string
 	rest, err := parseFlags(env, args, syncUsage, func(fs *flag.FlagSet) {
+		fs.StringVar(&lakeFlag, "lake", "", "lake name from config.json")
 		fs.StringVar(&serverFlag, "server", "", "lake base URL")
 		fs.StringVar(&tokenFlag, "token-file", "", "device token file")
 	})
@@ -111,7 +117,15 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	token, err := resolveToken(env, tokenFlag, file)
+	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
+	if err != nil {
+		return err
+	}
+	lake, err := pushLake(lakes, lakeFlag, env.stderr(), "sync")
+	if err != nil {
+		return err
+	}
+	token, err := lakeToken(lake)
 	if err != nil {
 		return err
 	}
@@ -130,7 +144,7 @@ func runSync(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	res, err := upload.Sync(ctx, upload.Options{
-		ServerURL:     config.ResolveServer(file, env.getenv, serverFlag).Value,
+		ServerURL:     lake.Server.Value,
 		Token:         token,
 		PieceBytes:    upload.DefaultPieceBytes,
 		TervaHome:     homeOf(src, protocol.HarnessTerva),
@@ -141,7 +155,7 @@ func runSync(env Env, args []string) error {
 		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
 		MachineID:     m.MachineID,
 		StateDir:      state,
-		Projects:      file.Projects,
+		Projects:      lake.Projects,
 		UploadHits:    file.Redaction.UploadHits,
 	})
 	printSync(env.stdout(), env.stderr(), "", res)

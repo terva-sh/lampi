@@ -37,6 +37,9 @@ type File struct {
 	Redaction RedactionConfig `json:"redaction,omitempty"`
 	Harnesses Harnesses       `json:"harnesses,omitempty"`
 	Agent     AgentConfig     `json:"agent,omitempty"`
+	// Lakes names more lakes than the one server describes. See
+	// ResolveLakes.
+	Lakes map[string]LakeConfig `json:"lakes,omitempty"`
 }
 
 // Machine is the stable identity written once.
