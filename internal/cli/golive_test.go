@@ -10,9 +10,12 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,6 +24,69 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/testharness"
 )
+
+func TestGoLiveProcessCrash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires SIGKILL")
+	}
+	f := newGoLiveFixture(t)
+	data := filepath.Join(f.root, "lake")
+	endpoint, process := goLiveServe(t, data)
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	var committed atomic.Int64
+	proxy.ModifyResponse = func(r *http.Response) error {
+		if r.Request.Method == http.MethodPost && r.Request.URL.Path == "/v1/manifests" && r.StatusCode == 200 && committed.Add(1) == 10 {
+			if err := process.Process.Kill(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		http.Error(w, "synthetic process stopped", http.StatusBadGateway)
+	}
+	srv := httptest.NewServer(proxy)
+	t.Cleanup(srv.Close)
+	specs := make([]testharness.SessionSpec, 500)
+	for i := range specs {
+		specs[i] = testharness.SessionSpec{ID: fmt.Sprintf("crash-%04d", i), Prompt: strings.Repeat("synthetic crash payload ", 4096)}
+	}
+	if _, err := testharness.PlantTerva(f.homes["terva"], filepath.Join(f.root, "allowed"), specs); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.run("sync", "--server", srv.URL); err == nil {
+		t.Fatal("sync succeeded despite killed server")
+	}
+	if committed.Load() != 10 {
+		t.Fatalf("kill point not reached: %d manifests", committed.Load())
+	}
+	if err := process.Wait(); err == nil {
+		t.Fatal("server was not killed")
+	}
+	endpoint, _ = goLiveServe(t, data)
+	if _, _, err := f.run("serve", "fsck", "--data", data); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.run("sync", "--server", endpoint); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := f.run("status", "--server", endpoint)
+	if err != nil || !strings.Contains(out, "catalog_sessions: 500\ncatalog_artifacts: 500\ncatalog_machines: 1") {
+		t.Fatalf("recovery counts: %v %s", err, out)
+	}
+	out, _, err = f.run("sync", "--server", endpoint)
+	if err != nil || !strings.Contains(out, "manifests 0") || !strings.Contains(out, "unchanged 500") {
+		t.Fatalf("convergence: %v %s", err, out)
+	}
+	if _, _, err := f.run("serve", "fsck", "--data", data); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("SIGKILL after 10 committed manifests in a 500-session sync; restart fsck clean; retry converges to 500 sessions/artifacts; final sync unchanged; fsck still clean")
+}
 
 func TestGoLive20KSync(t *testing.T) {
 	f := newGoLiveFixture(t)

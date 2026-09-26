@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3D8YXG7DVRBNTKGQB5N8D45
 title: "Go-live: 32 MiB session through the TLS proxy on a 2 Mbit uplink"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/rollout
+  branch: t3code/web-session-lake-ui
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8b6762d2
+  commit: 09344e29cdbb4c8d55f0238eddd465f01227ef68
+  session: null
+  claimed_at: 2026-09-26T16:38:57Z
+  expires_at: null
 archive: null
 created_at: 2026-09-25T21:53:50Z
-updated_at: 2026-09-26T16:28:09Z
+updated_at: 2026-09-26T16:38:57Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -39,3 +46,7 @@ Throttled uplink. The synthetic container (`e2e/`) uploads a 32 MiB session thro
 ## Acceptance criteria
 
 - [ ] A 32 MiB session uploads through the proxy on a 2 Mbit uplink without a timeout
+
+## Implementation plan
+
+Use the existing TLS proxy with a temporary uniquely named path route to an isolated loopback synthetic lake. Require an ephemeral in-memory device bearer for that lake, keep certificate validation enabled, and throttle client blob-body reads to 250,000 bytes/s (2 Mbit/s). Seed a valid 32 MiB session with bounded JSONL lines, use the real upload pipeline/default chunk size, verify catalog and normalization, and remove only the temporary route on completion. No production lake data or device credentials are used.
