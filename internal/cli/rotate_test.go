@@ -180,3 +180,48 @@ func TestServeReloadsIdentityOnHangup(t *testing.T) {
 		t.Fatalf("other lake: %s", errb.String())
 	}
 }
+
+func TestThePinStaysWhenTheProfileUnderTheNewKeyCannotBeFetched(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatal(err)
+	}
+	first := f.pinnedKey()
+	if out, err := f.sync(); err != nil || !strings.Contains(out, "uploaded 1") {
+		t.Fatalf("first sync: %v\n%s", err, out)
+	}
+	f.serveIdentity("rotate", "--overlap", "1h")
+	// The device's profile has left the lake's profiles file, so the
+	// profile under the new key cannot be fetched: the pin stays, and
+	// the sync goes on under the old key while the overlap lasts.
+	profiles := f.lake.Profiles()
+	f.lake.SetProfiles(config.Profiles{"other": {}})
+	out, err := f.sync()
+	if err != nil || !strings.Contains(out, "the pin stays on key "+first) || strings.Contains(out, "pin moved") {
+		t.Fatalf("sync without a profile: %v\n%s", err, out)
+	}
+	if f.pinnedKey() != first {
+		t.Fatal("the pin moved without the profile under the new key")
+	}
+	// With the profile back, the next sync moves it.
+	f.lake.SetProfiles(profiles)
+	if out, err := f.sync(); err != nil || !strings.Contains(out, "pin moved to key") {
+		t.Fatalf("sync with the profile back: %v\n%s", err, out)
+	}
+	if f.pinnedKey() == first {
+		t.Fatal("pin did not move")
+	}
+}
+
+func TestCodesFromAKeyPastItsOverlapAreRefused(t *testing.T) {
+	f := newRegFixture(t)
+	code := f.mint("box")
+	// No overlap: the code's key is still listed active, but its window
+	// has ended. The lake signs the key list only with keys in their
+	// window by its own clock, the rule it redeems codes by, so register
+	// refuses at the signature.
+	f.serveIdentity("rotate", "--overlap", "0s")
+	if err := f.register(code+"\n", "--fingerprint", f.fingerprint()); err == nil || !strings.Contains(err.Error(), "check 3") || !strings.Contains(err.Error(), "not signed by key") {
+		t.Fatalf("register: %v", err)
+	}
+}
