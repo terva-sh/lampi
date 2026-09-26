@@ -89,8 +89,8 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 	p.Project = q.Get("project")
 	p.State = q.Get("state")
 	p.Cursor = q.Get("cursor")
-	if raw := q.Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
+	if q.Has("limit") {
+		n, err := strconv.Atoi(q.Get("limit"))
 		if err != nil || n < 1 || n > 200 {
 			return p, catalog.ErrPage
 		}
@@ -100,10 +100,13 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 		key  string
 		dest *bool
 	}{{"unlinked", &p.Unlinked}, {"current", &p.Current}} {
+		if !q.Has(entry.key) {
+			continue
+		}
 		raw := q.Get(entry.key)
 		if raw == "true" {
 			*entry.dest = true
-		} else if raw != "" && raw != "false" {
+		} else if raw != "false" {
 			return p, catalog.ErrPage
 		}
 	}

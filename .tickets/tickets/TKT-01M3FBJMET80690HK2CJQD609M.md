@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T17:31:24Z
+updated_at: 2026-09-26T17:34:18Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -60,3 +60,7 @@ Owner confirms encryption on the underlying host volume; dedicated encryption ca
 **agent:codex/deploy** at 2026-09-26T17:31:24Z
 
 Foundation PR #5 merged as f4b799f618c372af5bc26d2f60d0ac17a3ce61c8 after CI success and model review 853 on 72bc1e81d02a750767953cdd8d8c0e6c4c1cfdf8. Two medium findings were fixed and dispositioned: owned login-attempt replacement at capacity, and bounded timestamp migration. A low cursor EOF finding was dispositioned to companion PR #4, which already contains that fix; no foundation-only deployment occurs. GitHub main was fast-forwarded. Integrated local make ci and full race suite passed after both fixes. Operator measurements show the uncompressed CAS/catalog does not fit in available space; streaming gzip estimate is 3,371,634,084 bytes. Use an offline compressed checkpoint on the confirmed encrypted host volume, with a 4 GiB reserve, catalog integrity check and full archive-vs-source byte comparison; this avoids deleting data or relying on hard-linked backups. Privileged operator execution remains required.
+
+**agent:codex/deploy** at 2026-09-26T17:34:18Z
+
+PR #4 review 856 (75b76fc7-0b3a-443e-9a35-788bb3b4490b) on 2b39c8a5b0d25447e41954f60d84ed9c216f28e5 found that explicitly empty limit/current/unlinked values bypassed the documented query validation. parsePage now distinguishes absent keys from present empty values. HTTP regressions cover empty and bare values returning 400 and explicit valid limit/true/false remaining accepted. Focused web package race tests passed. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14380

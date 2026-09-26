@@ -113,9 +113,14 @@ func TestReadAPIThroughLakeMux(t *testing.T) {
 			t.Fatal("content exposed")
 		}
 	}
-	for _, path := range []string{"/api/web/v1/sessions?limit=201", "/api/web/v1/sessions?limit=0", "/api/web/v1/sessions?limit=2&limit=3", "/api/web/v1/sessions?unknown=1", "/api/web/v1/sessions?cursor=bad", "/api/web/v1/overview?x=y"} {
+	for _, path := range []string{"/api/web/v1/sessions?limit=", "/api/web/v1/sessions?limit", "/api/web/v1/sessions?unlinked=", "/api/web/v1/sessions?unlinked", "/api/web/v1/sessions/" + uid + "/artifacts?current=", "/api/web/v1/sessions/" + uid + "/artifacts?current", "/api/web/v1/sessions?limit=201", "/api/web/v1/sessions?limit=0", "/api/web/v1/sessions?limit=2&limit=3", "/api/web/v1/sessions?unknown=1", "/api/web/v1/sessions?cursor=bad", "/api/web/v1/overview?x=y"} {
 		if get(h, path, cookie).Code != 400 {
 			t.Fatal("bad input accepted", path)
+		}
+	}
+	for _, path := range []string{"/api/web/v1/sessions?limit=1", "/api/web/v1/sessions?unlinked=true", "/api/web/v1/sessions?unlinked=false", "/api/web/v1/sessions/" + uid + "/artifacts?current=true", "/api/web/v1/sessions/" + uid + "/artifacts?current=false"} {
+		if get(h, path, cookie).Code != 200 {
+			t.Fatal("valid explicit query rejected", path)
 		}
 	}
 	if get(h, "/api/web/v1/sessions/missing", cookie).Code != 404 {
