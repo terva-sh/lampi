@@ -354,9 +354,12 @@ Each lake also has its own machine id: the `default` lake keeps
 `machine.json`, and any other lake gets `machines/<name>.json` in the
 config directory, so two lakes cannot join their data by machine.
 
-Until the agent pushes to every lake at once (TKT-01M3FHHBP), `sync`
-and the agent push to one lake per run: `--lake`, or `default`, or the
-first lake by name, and they name the others.
+`sync` pushes to every lake in turn, or to the one `--lake` names. The
+agent pushes to every lake. Each lake has its own outbox, backoff,
+debounce ceiling and 401 message, so a lake that is down or refuses the
+token waits out its own retry while the others keep receiving. With
+more than one lake, each output line starts with `lake <name>: `.
+`status` prints one block per lake.
 
 ### Cursor sessions with an empty cwd
 

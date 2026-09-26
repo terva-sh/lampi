@@ -59,10 +59,9 @@ Cursor CLI chat needs an absolute cwd in the sibling meta.json, or
 sync refuses that export. Those refusals are named on sync stderr.
 The projects allow and deny rules are unchanged.
 
-status shows one lake: the one --lake names, or the default lake, or
-the first lake by name when there is no default. The lake line names
-it, and other_lakes counts the rest. machine_id is this machine's id for
-that lake. The capture state lines (outbox, watermarks, last sync) are
+status prints the harness lines, then one block per lake, each opening
+with its lake line: every lake, or the one --lake names. machine_id is
+this machine's id for that lake. The capture state lines (outbox, watermarks, last sync) are
 that lake's, from lakes/<name>/ in the state directory. Before the first
 sync on this release they are read from the single-lake files, and a
 state line says so.
@@ -114,8 +113,20 @@ func runStatus(env Env, args []string) error {
 	if len(lakes) == 0 {
 		return fmt.Errorf("no lake is configured")
 	}
-	lake := lakes[0]
-	server, tokenFile := lake.Server, lake.TokenFile
+	for _, h := range harnessStatuses(env.getenv, file.Harnesses) {
+		fmt.Fprintln(env.stdout(), h.line())
+	}
+	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
+	// One block per lake, each opening with its lake line.
+	for _, lake := range lakes {
+		if err := writeLakeStatus(env, state, lake); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeLakeStatus(env Env, state string, lake config.Lake) error {
 	token, err := lakeToken(lake)
 	if err != nil {
 		return err
@@ -124,28 +135,25 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(env.stdout(), "machine_id: %s\n", m.MachineID)
+	w := env.stdout()
+	fmt.Fprintf(w, "lake: %s\n", lake.Name)
+	if lake.LakeID != "" {
+		fmt.Fprintf(w, "lake_id: %s\n", lake.LakeID)
+	}
+	fmt.Fprintf(w, "machine_id: %s\n", m.MachineID)
 	if m.Hostname != "" {
-		fmt.Fprintf(env.stdout(), "hostname: %s\n", m.Hostname)
+		fmt.Fprintf(w, "hostname: %s\n", m.Hostname)
 	}
-	for _, h := range harnessStatuses(env.getenv, file.Harnesses) {
-		fmt.Fprintln(env.stdout(), h.line())
-	}
-	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	capture, legacy := captureDir(state, lake)
 	if legacy {
-		fmt.Fprintf(env.stdout(), "state: single-lake layout in %s; the next sync or agent start moves it to lakes/%s\n", state, lake.Name)
+		fmt.Fprintf(w, "state: single-lake layout in %s; the next sync or agent start moves it to lakes/%s\n", state, lake.Name)
 	}
-	if err := writeCaptureState(env.stdout(), capture); err != nil {
+	if err := writeCaptureState(w, capture); err != nil {
 		return err
 	}
-	fmt.Fprintf(env.stdout(), "lake: %s\n", lake.Name)
-	if len(lakes) > 1 {
-		fmt.Fprintf(env.stdout(), "other_lakes: %d (pass --lake to show one)\n", len(lakes)-1)
-	}
-	writeEndpoint(env.stdout(), server, tokenFile)
-	fmt.Fprintf(env.stdout(), "health: %s\n", probeHealth(server.Value))
-	fmt.Fprint(env.stdout(), probeCatalog(server.Value, token))
+	writeEndpoint(w, lake.Server, lake.TokenFile)
+	fmt.Fprintf(w, "health: %s\n", probeHealth(lake.Server.Value))
+	fmt.Fprint(w, probeCatalog(lake.Server.Value, token))
 	return nil
 }
 

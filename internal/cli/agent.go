@@ -89,7 +89,8 @@ const agentUsage = `terva-lampi agent — local capture
 
 usage:
   terva-lampi agent [--server URL] [--token-file PATH]
-                                 watch session JSONL and upload until signalled
+                                 watch session JSONL and upload to every lake
+                                 until signalled
   terva-lampi agent discover     list session JSONL files
   terva-lampi agent machine-id   print the stable machine id, creating it if needed
   terva-lampi agent config       print paths, the effective server URL and
@@ -248,29 +249,32 @@ func runAgentDaemon(env Env, args []string) error {
 // falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json,
 // the same order sync and status use.
 func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
-	opt, tokenPath, src, n, err := loadAgent(env, serverFlag, tokenFlag)
+	lakes, src, n, err := loadAgentLakes(env, serverFlag, tokenFlag)
 	if err != nil {
 		return err
+	}
+	if len(lakes) == 0 {
+		return fmt.Errorf("no lake is configured")
 	}
 	window, longest, err := agentWindows(env)
 	if err != nil {
 		return err
 	}
-	// The memo lives as long as the process. Its first pass, the one
-	// at start, hashes every file.
-	opt.Memo = upload.NewMemo()
 	poll, err := watch.PollByDefault(env.getenv)
 	if err != nil {
 		return err
 	}
-	removePID, err := writeAgentPID(opt.StateDir)
+	state := lakes[0].opt.StateDir
+	removePID, err := writeAgentPID(state)
 	if err != nil {
 		return err
 	}
-	if opt.LakeStateDir == lakestate.Dir(opt.StateDir, config.DefaultLake) {
-		if err := migrateDefault(env, opt.StateDir, true); err != nil {
-			removePID()
-			return err
+	for _, l := range lakes {
+		if l.name == config.DefaultLake {
+			if err := migrateDefault(env, state, true); err != nil {
+				removePID()
+				return err
+			}
 		}
 	}
 	defer removePID()
@@ -280,39 +284,54 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	env.Stdout = &syncWriter{mu: &mu, w: env.stdout()}
 	env.Stderr = &syncWriter{mu: &mu, w: env.stderr()}
 
-	fmt.Fprintf(env.stdout(), "machine_id: %s\n", opt.MachineID)
+	if len(lakes) == 1 {
+		fmt.Fprintf(env.stdout(), "machine_id: %s\n", lakes[0].opt.MachineID)
+	} else {
+		for _, l := range lakes {
+			fmt.Fprintf(env.stdout(), "lake %s: server=%s machine_id=%s\n", l.name, l.opt.ServerURL, l.opt.MachineID)
+		}
+	}
 	for _, s := range src {
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Backend(poll))
 
-	kick := make(chan struct{}, 1)
-	wake := func() {
-		select {
-		case kick <- struct{}{}:
-		default:
+	runners := make([]*lakeRunner, len(lakes))
+	for i, l := range lakes {
+		runners[i] = newLakeRunner(env, l)
+	}
+	// wakeAll asks every lake to push. Growth skips a lake that is
+	// waiting out a failure: its retry picks the growth up, and a lake
+	// that is down is not asked again on every append. The start pass and
+	// SIGUSR1 ask every lake.
+	wakeAll := func(growth bool) {
+		for _, r := range runners {
+			if growth && r.waiting.Load() {
+				continue
+			}
+			if !growth {
+				r.waiting.Store(false)
+			}
+			r.wake()
 		}
 	}
-	// waiting is set while a failed push waits to retry. Growth then does
-	// not start a push: the retry picks it up, and the lake is not asked
-	// again on every append. SIGUSR1 still asks for one now.
-	var waiting atomic.Bool
-	watchKick(ctx, func() {
-		waiting.Store(false)
-		wake()
-	})
-	// Growth waits for the watch to go quiet, so a burst of writes is
-	// one sync. The start pass and SIGUSR1 do not wait.
-	settle := newDebouncer(window, longest, func() {
-		if !waiting.Load() {
-			wake()
+	anyReady := func() bool {
+		for _, r := range runners {
+			if !r.waiting.Load() {
+				return true
+			}
 		}
-	})
+		return false
+	}
+	watchKick(ctx, func() { wakeAll(false) })
+	// Growth waits for the watch to go quiet, so a burst of writes is
+	// one sync per lake.
+	settle := newDebouncer(window, longest, func() { wakeAll(true) })
 	defer settle.stop()
 	watchers := startWatches(src, poll, func(c watch.Change) {
 		fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
-		if !waiting.Load() {
+		if anyReady() {
 			settle.touch()
 		}
 	}, func(err error) {
@@ -336,101 +355,161 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		fmt.Fprintln(env.stdout(), "watching")
 		// Files already on disk are not a watch event. One sync at
 		// start is how they reach the lake before the next append.
-		wake()
+		wakeAll(false)
 	}()
 
-	// One timer, reset on each failure. The callback only wakes the
-	// loop, so a retry cannot run beside the sync already in progress.
-	var retryMu sync.Mutex
-	var retry *time.Timer
-	disarmRetry := func() {
-		retryMu.Lock()
-		defer retryMu.Unlock()
-		waiting.Store(false)
-		if retry != nil {
-			retry.Stop()
-			retry = nil
-		}
+	// Each lake runs on its own, so a lake that is down or refusing the
+	// token waits out its own backoff and does not hold back another.
+	// lakeCtx ends on shutdown or a watch failure; each runner then
+	// drains its outbox and returns.
+	lakeCtx, stopLakes := context.WithCancel(ctx)
+	var lakesDone sync.WaitGroup
+	for _, r := range runners {
+		lakesDone.Add(1)
+		go func(r *lakeRunner) {
+			defer lakesDone.Done()
+			r.run(lakeCtx)
+		}(r)
 	}
-	armRetry := func(d time.Duration) {
-		retryMu.Lock()
-		defer retryMu.Unlock()
-		if retry != nil {
-			retry.Stop()
-		}
-		waiting.Store(true)
-		retry = time.AfterFunc(d, func() {
-			waiting.Store(false)
-			wake()
-		})
+	finish := func() {
+		stopLakes()
+		lakesDone.Wait()
 	}
-	defer disarmRetry()
+
+	select {
+	case <-ctx.Done():
+		watchCancel()
+		_ = waitWatches(watchErr, len(watchers))
+		finish()
+		return nil
+	case err := <-watchErr:
+		watchCancel()
+		if rest := waitWatches(watchErr, len(watchers)-1); err == nil {
+			err = rest
+		}
+		finish()
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+}
+
+// lakeRunner is one lake's push loop: its own kick, backoff, retry
+// timer, memo, and refusal log.
+type lakeRunner struct {
+	env  Env
+	lake agentLake
+	kick chan struct{}
+	// waiting is set while a failed push waits to retry. Growth then
+	// does not start a push: the retry picks it up.
+	waiting atomic.Bool
+
+	retryMu sync.Mutex
+	retry   *time.Timer
+}
+
+func newLakeRunner(env Env, l agentLake) *lakeRunner {
+	// The memo lives as long as the process. Its first pass, the one at
+	// start, hashes every file. Each lake has its own, because a file
+	// pushed to one lake is not pushed to another.
+	l.opt.Memo = upload.NewMemo()
+	return &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1)}
+}
+
+func (r *lakeRunner) wake() {
+	select {
+	case r.kick <- struct{}{}:
+	default:
+	}
+}
+
+// armRetry resets the one retry timer. Its callback only wakes the
+// loop, so a retry cannot run beside the sync already in progress.
+func (r *lakeRunner) armRetry(d time.Duration) {
+	r.retryMu.Lock()
+	defer r.retryMu.Unlock()
+	if r.retry != nil {
+		r.retry.Stop()
+	}
+	r.waiting.Store(true)
+	r.retry = time.AfterFunc(d, func() {
+		r.waiting.Store(false)
+		r.wake()
+	})
+}
+
+func (r *lakeRunner) disarmRetry() {
+	r.retryMu.Lock()
+	defer r.retryMu.Unlock()
+	r.waiting.Store(false)
+	if r.retry != nil {
+		r.retry.Stop()
+		r.retry = nil
+	}
+}
+
+// errf prints a line about this lake, labelled when there are several.
+func (r *lakeRunner) errf(format string, args ...any) {
+	fmt.Fprintf(r.env.stderr(), "terva-lampi: "+r.lake.label+format+"\n", args...)
+}
+
+// run pushes on each kick until ctx ends, then drains the outbox.
+func (r *lakeRunner) run(ctx context.Context) {
+	defer r.disarmRetry()
 	bo := agentBackoff()
 	// seen keeps refusal and skip lines to one print while they last.
 	seen := &changeLog{}
-	// authLogged holds the 401 line to one per run of refusals. A success
-	// or a different error lets it print again.
+	// authLogged holds the 401 line to one per run of refusals. A
+	// success or a different error lets it print again.
 	authLogged := false
-
+	opt := r.lake.opt
 	for {
 		select {
 		case <-ctx.Done():
-			disarmRetry()
-			watchCancel()
-			_ = waitWatches(watchErr, len(watchers))
-			return drainAgent(env, opt, seen)
-		case err := <-watchErr:
-			disarmRetry()
-			watchCancel()
-			if rest := waitWatches(watchErr, len(watchers)-1); err == nil {
-				err = rest
-			}
-			drainAgent(env, opt, seen)
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
-		case <-kick:
-			// A kick that was already queued must not start a sync once
-			// shutdown has begun. The drain below is the last push.
-			var err error
-			if ctx.Err() == nil {
-				err = runAgentSync(ctx, env, opt, "", seen)
-			}
-			if ctx.Err() != nil {
-				disarmRetry()
-				watchCancel()
-				_ = waitWatches(watchErr, len(watchers))
-				return drainAgent(env, opt, seen)
-			}
-			// A token the lake refuses will not start working in two
-			// seconds. Say so once, naming the file, and wait the cap.
-			if upload.Unauthorized(err) {
-				if !authLogged {
-					authLogged = true
-					fmt.Fprintf(env.stderr(), "terva-lampi: %s\n", tokenRefused(tokenPath, opt.Token, err, bo.max))
-				}
-				armRetry(bo.capped())
-				continue
-			}
-			authLogged = false
-			if err != nil {
-				// A refusal is the allowlist or the scan. It will not
-				// change until the process is restarted with a new config.
-				// The rest of the pass reached the lake. runAgentSync
-				// printed the refusals that are new.
-				if _, refused := err.(*upload.Rejected); refused {
-					bo.reset()
-					disarmRetry()
-					continue
-				}
-				fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", err)
-				armRetry(bo.next())
-				continue
-			}
-			bo.reset()
-			disarmRetry()
+			r.disarmRetry()
+			drainAgent(r.env, opt, r.lake.label, seen)
+			return
+		case <-r.kick:
 		}
+		// A kick that was already queued must not start a sync once
+		// shutdown has begun. The drain is the last push.
+		var err error
+		if ctx.Err() == nil {
+			err = runAgentSync(ctx, r.env, opt, r.lake.label, seen)
+		}
+		if ctx.Err() != nil {
+			r.disarmRetry()
+			drainAgent(r.env, opt, r.lake.label, seen)
+			return
+		}
+		// A token the lake refuses will not start working in two
+		// seconds. Say so once, naming the file, and wait the cap.
+		if upload.Unauthorized(err) {
+			if !authLogged {
+				authLogged = true
+				r.errf("%s", tokenRefused(r.lake.tokenPath, opt.Token, err, bo.max))
+			}
+			r.armRetry(bo.capped())
+			continue
+		}
+		authLogged = false
+		if err != nil {
+			// A refusal is the allowlist or the scan. It will not change
+			// until the process is restarted with a new config. The rest
+			// of the pass reached the lake. runAgentSync printed the
+			// refusals that are new.
+			if _, refused := err.(*upload.Rejected); refused {
+				bo.reset()
+				r.disarmRetry()
+				continue
+			}
+			r.errf("%v", err)
+			r.armRetry(bo.next())
+			continue
+		}
+		bo.reset()
+		r.disarmRetry()
 	}
 }
 
@@ -443,46 +522,81 @@ func agentWindows(env Env) (window, longest time.Duration, err error) {
 	return file.Agent.Windows()
 }
 
-// loadAgent resolves the options once at start. tokenPath is the file
-// the token came from, or would have, for the 401 log line.
+// agentLake is one lake the agent pushes to: its options, the token
+// file named in the 401 line, and the label on its output lines, empty
+// when it is the only lake.
+type agentLake struct {
+	name      string
+	opt       upload.Options
+	tokenPath string
+	label     string
+}
+
+// loadAgent is loadAgentLakes for the first lake, for callers that
+// want one.
 func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, tokenPath string, src []source, n int, err error) {
+	lakes, src, n, err := loadAgentLakes(env, serverFlag, tokenFlag)
+	if err != nil {
+		return upload.Options{}, "", nil, 0, err
+	}
+	if len(lakes) == 0 {
+		return upload.Options{}, "", nil, 0, fmt.Errorf("no lake is configured")
+	}
+	return lakes[0].opt, lakes[0].tokenPath, src, n, nil
+}
+
+// loadAgentLakes resolves every lake's options once at start. Each lake
+// has its own token, allowlist, state directory and machine id. The
+// harness roots, the debounce and the redaction override are the
+// machine's and the same for all.
+func loadAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, src []source, n int, err error) {
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
-		return upload.Options{}, "", nil, 0, err
+		return nil, nil, 0, err
 	}
-	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
+	resolved, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
-		return upload.Options{}, "", nil, 0, err
-	}
-	lake, err := pushLake(lakes, "", env.stderr(), "agent")
-	if err != nil {
-		return upload.Options{}, "", nil, 0, err
-	}
-	tokenPath = lake.TokenFile.Value
-	token, err := lakeToken(lake)
-	if err != nil {
-		return upload.Options{}, "", nil, 0, err
-	}
-	server := lake.Server.Value
-	// A token that would cross the network in the clear stops the agent
-	// at start. It cannot change until the config does.
-	if err := upload.CheckToken(server, token); err != nil {
-		return upload.Options{}, "", nil, 0, err
+		return nil, nil, 0, err
 	}
 	src, n, err = countSources(env.getenv, file.Harnesses)
 	if err != nil {
-		return upload.Options{}, "", nil, 0, err
+		return nil, nil, 0, err
 	}
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
-		return upload.Options{}, "", nil, 0, err
+		return nil, nil, 0, err
+	}
+	for _, lake := range resolved {
+		opt, err := lakeOptions(env, file, state, src, lake)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		l := agentLake{name: lake.Name, opt: opt, tokenPath: lake.TokenFile.Value}
+		if len(resolved) > 1 {
+			l.label = "lake " + lake.Name + ": "
+		}
+		lakes = append(lakes, l)
+	}
+	return lakes, src, n, nil
+}
+
+// lakeOptions is one lake's upload options. A token that would cross
+// the network in the clear stops the command: it cannot change until
+// the config does.
+func lakeOptions(env Env, file config.File, state string, src []source, lake config.Lake) (upload.Options, error) {
+	token, err := lakeToken(lake)
+	if err != nil {
+		return upload.Options{}, err
+	}
+	if err := upload.CheckToken(lake.Server.Value, token); err != nil {
+		return upload.Options{}, fmt.Errorf("lake %s: %w", lake.Name, err)
 	}
 	m, err := config.EnsureLakeMachine(env.getenv, lake.Name)
 	if err != nil {
-		return upload.Options{}, "", nil, 0, err
+		return upload.Options{}, err
 	}
 	return upload.Options{
-		ServerURL:     server,
+		ServerURL:     lake.Server.Value,
 		Token:         token,
 		PieceBytes:    upload.DefaultPieceBytes,
 		TervaHome:     homeOf(src, protocol.HarnessTerva),
@@ -496,7 +610,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 		LakeStateDir:  lakestate.Dir(state, lake.Name),
 		Projects:      lake.Projects,
 		UploadHits:    file.Redaction.UploadHits,
-	}, tokenPath, src, n, nil
+	}, nil
 }
 
 func countSources(getenv func(string) string, harnesses config.Harnesses) ([]source, int, error) {
@@ -560,7 +674,7 @@ func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix strin
 		}
 		res.Skipped = seen.fresh("skip", res.Skipped)
 		if fresh := seen.fresh("refuse", reasons); len(fresh) > 0 {
-			fmt.Fprintf(env.stderr(), "terva-lampi: %v\n", &upload.Rejected{Reasons: fresh})
+			fmt.Fprintf(env.stderr(), "terva-lampi: %s%v\n", prefix, &upload.Rejected{Reasons: fresh})
 		}
 	}
 	printSync(env.stdout(), env.stderr(), prefix, res)
@@ -598,13 +712,13 @@ func (c *changeLog) fresh(kind string, lines []string) []string {
 // on purpose: the one that stopped the watch is already cancelled, and
 // using it would abort the drain it exists to finish. An error is logged
 // and not returned. Shutdown still succeeds.
-func drainAgent(env Env, opt upload.Options, seen *changeLog) error {
+func drainAgent(env Env, opt upload.Options, label string, seen *changeLog) error {
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
-	fmt.Fprintln(env.stderr(), "terva-lampi: draining outbox")
-	if err := runAgentSync(ctx, env, opt, "drain: ", seen); err != nil {
+	fmt.Fprintf(env.stderr(), "terva-lampi: %sdraining outbox\n", label)
+	if err := runAgentSync(ctx, env, opt, label+"drain: ", seen); err != nil {
 		if _, refused := err.(*upload.Rejected); !refused {
-			fmt.Fprintf(env.stderr(), "terva-lampi: drain: %v\n", err)
+			fmt.Fprintf(env.stderr(), "terva-lampi: %sdrain: %v\n", label, err)
 		}
 	}
 	return nil
