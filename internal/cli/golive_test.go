@@ -5,8 +5,10 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +25,156 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/testharness"
+	"terva.sh/lampi/internal/upload"
 )
+
+// This is explicitly opt-in: it temporarily adds a route to an operator-owned
+// Traefik file-provider directory. No production endpoint is compiled into it.
+func TestGoLiveSlowTLS(t *testing.T) {
+	origin, dir := os.Getenv("LAMPI_GOLIVE_ORIGIN"), os.Getenv("LAMPI_GOLIVE_TRAEFIK_DIR")
+	if origin == "" || dir == "" {
+		t.Skip("set LAMPI_GOLIVE_ORIGIN and LAMPI_GOLIVE_TRAEFIK_DIR for the proxy drill")
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" {
+		t.Fatal("expected a bare HTTPS origin")
+	}
+	f := newGoLiveFixture(t)
+	lake, err := api.Open(filepath.Join(f.root, "lake"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	token := rand.Text()
+	lake.Allow(token)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	name := "lampi-golive-" + strings.ToLower(rand.Text())
+	prefix := "/_" + name
+	configuration := map[string]any{"http": map[string]any{
+		"routers":     map[string]any{name: map[string]any{"rule": "Host(`" + u.Hostname() + "`) && PathPrefix(`" + prefix + "/`)", "service": name, "middlewares": []string{name}, "tls": map[string]any{}}},
+		"services":    map[string]any{name: map[string]any{"loadBalancer": map[string]any{"servers": []any{map[string]string{"url": srv.URL}}}}},
+		"middlewares": map[string]any{name: map[string]any{"stripPrefix": map[string]any{"prefixes": []string{prefix}}}},
+	}}
+	b, err := json.Marshal(configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stage outside the watched suffix, then rename only our newly-created file.
+	file, err := os.CreateTemp(dir, name+"-*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := file.Name()
+	target := staged + ".yml"
+	t.Cleanup(func() { _ = os.Remove(staged); _ = os.Remove(target) })
+	if _, err = file.Write(b); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Rename(staged, target); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := origin + prefix
+	probe := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		req, _ := http.NewRequest(http.MethodGet, endpoint+"/v1/stats", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := probe.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("temporary TLS route did not become ready")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	res, err := testharness.PlantTerva(f.homes["terva"], filepath.Join(f.root, "allowed"), []testharness.SessionSpec{{ID: "slow-upload"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(res.Files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := []byte(`{"type":"message","role":"user","content":"` + strings.Repeat("synthetic ", 3000) + `"}` + "\n")
+	for len(body)+len(line) <= 32<<20 {
+		body = append(body, line...)
+	}
+	// JSON permits whitespace; keep each line small enough for the scanner.
+	for len(body) < 32<<20 {
+		body = append(body, '\n')
+	}
+	if err = os.WriteFile(res.Files[0], body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	opt, _, _, _, err := loadAgent(Env{Getenv: f.getenv}, endpoint, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.Token = token
+	var sent atomic.Int64
+	opt.Client = &http.Client{Transport: goLiveSlowTransport{base: http.DefaultTransport, sent: &sent}}
+	start := time.Now()
+	result, err := upload.Sync(t.Context(), opt)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Manifests != 1 || sent.Load() != 32<<20 || elapsed < 130*time.Second {
+		t.Fatalf("unexpected transfer: manifests=%d bytes=%d elapsed=%s", result.Manifests, sent.Load(), elapsed)
+	}
+	if err = lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := lake.Catalog.ListSessions(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].NormalizeError != "" {
+		t.Fatal("uploaded session did not normalize")
+	}
+	t.Logf("32 MiB uploaded through trusted HTTPS Traefik route at 250000 bytes/s in %s; one manifest accepted and normalized", elapsed)
+}
+
+type goLiveSlowTransport struct {
+	base http.RoundTripper
+	sent *atomic.Int64
+}
+
+func (s goLiveSlowTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodPut && r.Body != nil {
+		r.Body = &goLiveSlowBody{ReadCloser: r.Body, start: time.Now(), sent: s.sent}
+	}
+	return s.base.RoundTrip(r)
+}
+
+type goLiveSlowBody struct {
+	io.ReadCloser
+	start time.Time
+	bytes int64
+	sent  *atomic.Int64
+}
+
+func (s *goLiveSlowBody) Read(p []byte) (int, error) {
+	if len(p) > 16384 {
+		p = p[:16384]
+	}
+	n, err := s.ReadCloser.Read(p)
+	s.bytes += int64(n)
+	s.sent.Add(int64(n))
+	if wait := time.Until(s.start.Add(time.Duration(s.bytes) * time.Second / 250000)); wait > 0 {
+		time.Sleep(wait)
+	}
+	return n, err
+}
 
 func TestGoLiveProcessCrash(t *testing.T) {
 	if runtime.GOOS == "windows" {
