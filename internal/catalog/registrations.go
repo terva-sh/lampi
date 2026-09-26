@@ -140,9 +140,15 @@ func (c *Catalog) Registrations(ctx context.Context) ([]Registration, error) {
 
 // RevokeRegistration revokes the pending code with this id, or the
 // pending code for this device name. A used code cannot be revoked; the
-// device it made can.
+// device it made can. The read and the update are one transaction, so a
+// redemption in serve cannot land between them.
 func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.Time) (Registration, error) {
-	r, err := scanRegistration(c.db.QueryRowContext(ctx, `SELECT `+registrationCols+` FROM registrations
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Registration{}, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	r, err := scanRegistration(tx.QueryRowContext(ctx, `SELECT `+registrationCols+` FROM registrations
 		WHERE (id=? OR (name=? AND used_at IS NULL AND revoked_at IS NULL)) ORDER BY created_at DESC LIMIT 1`, ref, ref))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Registration{}, fmt.Errorf("%w: %s", ErrNoRegistration, ref)
@@ -156,7 +162,14 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.T
 	if !r.Revoked.IsZero() {
 		return r, nil
 	}
-	if _, err := c.db.ExecContext(ctx, `UPDATE registrations SET revoked_at=? WHERE id=?`, stamp(now), r.ID); err != nil {
+	res, err := tx.ExecContext(ctx, `UPDATE registrations SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL`, stamp(now), r.ID)
+	if err != nil {
+		return Registration{}, fmt.Errorf("catalog: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return Registration{}, fmt.Errorf("catalog: registration %s changed while it was being revoked; run serve register --list and try again", r.ID)
+	}
+	if err := tx.Commit(); err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
 	r.Revoked = now.UTC()

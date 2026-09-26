@@ -392,6 +392,10 @@ type lakeRunner struct {
 	// has drained.
 	stop context.CancelFunc
 	done chan struct{}
+	// ready closes when the runner may push: at once for a lake with
+	// no pin, and after the first profile fetch for a pinned one, so a
+	// deny rule in the lake's profile applies to the first push.
+	ready chan struct{}
 	// waiting is set while a failed push waits to retry. Growth then
 	// does not start a push: the retry picks it up.
 	waiting atomic.Bool
@@ -405,7 +409,7 @@ func newLakeRunner(env Env, l agentLake) *lakeRunner {
 	// start, hashes every file. Each lake has its own, because a file
 	// pushed to one lake is not pushed to another.
 	l.opt.Memo = upload.NewMemo()
-	r := &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1), done: make(chan struct{})}
+	r := &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{})}
 	r.setLabel(l.label)
 	return r
 }
@@ -461,6 +465,14 @@ func (r *lakeRunner) run(ctx context.Context) {
 	// success or a different error lets it print again.
 	authLogged := false
 	opt := r.lake.opt
+	// A kick that comes before ready waits in the channel. A runner
+	// stopped before it was ready has pushed nothing, and its outbox
+	// stays on disk for the next runner of this lake.
+	select {
+	case <-ctx.Done():
+		return
+	case <-r.ready:
+	}
 	for {
 		select {
 		case <-ctx.Done():

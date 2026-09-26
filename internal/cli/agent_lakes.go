@@ -32,31 +32,46 @@ type lakeSet struct {
 	// does not change. A reload that would change them says so.
 	machine string
 
-	// reloadMu serializes reloads: SIGHUP and each lake's profile fetch
-	// can ask for one.
-	reloadMu sync.Mutex
-
 	wg sync.WaitGroup
-	mu sync.Mutex
+	// reloading is held for the whole of a reload. It keeps reloads one
+	// at a time, since SIGHUP and each lake's profile fetch can ask for
+	// one, and wait does not return, nor agent.pid get released, while a
+	// reload still works on the lakes' state.
+	reloading sync.Mutex
+	mu        sync.Mutex
 	// runners is keyed by lake name. reload is the only writer besides
-	// the start, and SIGHUP delivers reloads one at a time.
+	// the start, and reloading keeps reloads one at a time.
 	runners map[string]*lakeRunner
 }
 
 // start runs one lake until the set's context ends or stop is called
 // for it. It moves single-lake state first when the lake is default.
 func (s *lakeSet) start(l agentLake) error {
-	if l.name == config.DefaultLake {
-		if err := migrateDefault(s.env, s.state, true); err != nil {
-			return err
-		}
+	if err := s.prepare(l); err != nil {
+		return err
 	}
+	s.launch(l)
+	return nil
+}
+
+// prepare is the part of starting a lake that can fail: moving
+// single-lake state when the lake is default. Once shutdown has begun
+// it does nothing, since the lake will not start.
+func (s *lakeSet) prepare(l agentLake) error {
+	if l.name != config.DefaultLake || s.ctx.Err() != nil {
+		return nil
+	}
+	return migrateDefault(s.env, s.state, true)
+}
+
+// launch starts the lake's runner. It cannot fail.
+func (s *lakeSet) launch(l agentLake) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Shutdown has begun: the lake would only drain an outbox the
 	// runner before it already drained.
 	if s.ctx.Err() != nil {
-		return nil
+		return
 	}
 	r := newLakeRunner(s.env, l)
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -69,22 +84,29 @@ func (s *lakeSet) start(l agentLake) error {
 		defer cancel()
 		r.run(ctx)
 	}()
-	// A pinned lake's profile is fetched while the lake runs. Its loop
+	// A pinned lake's profile is fetched while the lake runs, and the
+	// lake does not push until the first fetch has answered. Its loop
 	// is not part of done: a profile that changes asks for a reload,
 	// and that reload may stop this very lake.
-	if lakeprofile.Pinned(l.cfg) {
+	if !lakeprofile.Pinned(l.cfg) {
+		close(r.ready)
+	} else {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			watchProfile(ctx, s.env, r, profileEvery, s.reload)
 		}()
 	}
-	return nil
 }
 
-// wait returns once every runner has drained, after the set's context
-// has ended.
-func (s *lakeSet) wait() { s.wg.Wait() }
+// wait returns once a reload in progress has finished and every runner
+// has drained, after the set's context has ended. A reload that begins
+// later sees the context ended and does nothing.
+func (s *lakeSet) wait() {
+	s.reloading.Lock()
+	s.reloading.Unlock()
+	s.wg.Wait()
+}
 
 func (s *lakeSet) snapshot() []*lakeRunner {
 	s.mu.Lock()
@@ -129,15 +151,20 @@ func (s *lakeSet) anyReady() bool {
 // so work already queued for it is pushed, not dropped. Then the new
 // and changed lakes start with a full pass. A lake that did not change
 // keeps running, its backoff and memo intact. A config that does not
-// resolve, or a token that would go in the clear, leaves the lakes as
-// they were.
+// resolve, a token that would go in the clear, or a new lake that
+// cannot be prepared leaves the lakes as they were.
 func (s *lakeSet) reload() {
-	s.reloadMu.Lock()
-	defer s.reloadMu.Unlock()
+	s.reloading.Lock()
+	defer s.reloading.Unlock()
 	if s.ctx.Err() != nil {
 		return
 	}
 	next, cc, err := s.resolve()
+	// Shutdown began while the config was read: say nothing, and leave
+	// the draining runners alone.
+	if s.ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(s.env.stderr(), "terva-lampi: reload: %v; the lakes are unchanged\n", err)
 		return
@@ -152,7 +179,6 @@ func (s *lakeSet) reload() {
 	}
 	s.mu.Lock()
 	var removed, changed, added, kept []string
-	var stopping []*lakeRunner
 	for name, r := range s.runners {
 		l, ok := want[name]
 		switch {
@@ -162,16 +188,41 @@ func (s *lakeSet) reload() {
 			changed = append(changed, name)
 		default:
 			kept = append(kept, name)
-			r.setLabel(l.label)
+		}
+	}
+	for name := range want {
+		if _, ok := s.runners[name]; !ok {
+			added = append(added, name)
+		}
+	}
+	s.mu.Unlock()
+
+	// What can fail runs before any lake stops, so a failure leaves
+	// every lake running as it was rather than one stopped for good.
+	for _, l := range next {
+		if !slices.Contains(added, l.name) && !slices.Contains(changed, l.name) {
+			continue
+		}
+		if err := s.prepare(l); err != nil {
+			fmt.Fprintf(s.env.stderr(), "terva-lampi: reload: lake %s: %v; the lakes are unchanged\n", l.name, err)
+			return
+		}
+	}
+	// Shutdown began while the lakes were prepared: the runners are
+	// draining already and nothing new starts.
+	if s.ctx.Err() != nil {
+		return
+	}
+
+	s.mu.Lock()
+	var stopping []*lakeRunner
+	for name, r := range s.runners {
+		if slices.Contains(kept, name) {
+			r.setLabel(want[name].label)
 			continue
 		}
 		stopping = append(stopping, r)
 		delete(s.runners, name)
-	}
-	for name := range want {
-		if _, ok := s.runners[name]; !ok && !slices.Contains(changed, name) {
-			added = append(added, name)
-		}
 	}
 	s.mu.Unlock()
 
@@ -187,10 +238,7 @@ func (s *lakeSet) reload() {
 		if !slices.Contains(added, l.name) && !slices.Contains(changed, l.name) {
 			continue
 		}
-		if err := s.start(l); err != nil {
-			fmt.Fprintf(s.env.stderr(), "terva-lampi: reload: lake %s: %v\n", l.name, err)
-			continue
-		}
+		s.launch(l)
 		s.mu.Lock()
 		r := s.runners[l.name]
 		s.mu.Unlock()
@@ -236,14 +284,17 @@ const profileEvery = time.Hour
 // watchProfile fetches the lake's profile now and every interval until
 // ctx ends. A copy that verifies against the pin and has a new version
 // replaces the cached one, and changed asks for a reload so the lake's
-// project rules take effect. A failed fetch or a copy that does not
-// verify is said once per run of failures, and the cached copy stays.
+// project rules take effect. A copy that names another profile with the
+// same content replaces the cached one without a reload. A failed fetch
+// or a copy that does not verify is said once per run of failures, and
+// the cached copy stays. The runner is let push once the first fetch
+// has answered and any reload it asked for is done.
 func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Duration, changed func()) {
 	l := r.lake
 	dir := l.opt.LakeStateDir
-	have := ""
+	have, haveName := "", ""
 	if d, ok, err := lakeprofile.Load(dir, l.cfg); err == nil && ok {
-		have = d.Payload.Version
+		have, haveName = d.Payload.Version, d.Payload.Profile
 	}
 	failing := false
 	fetch := func() {
@@ -269,18 +320,22 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 			return
 		}
 		failing = false
-		if d.Payload.Version == have {
+		if d.Payload.Version == have && d.Payload.Profile == haveName {
 			return
 		}
 		if err := lakeprofile.Save(dir, d); err != nil {
 			r.errf("profile: %v", err)
 			return
 		}
-		have = d.Payload.Version
-		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), d.Payload.Profile, have)
-		changed()
+		newVersion := d.Payload.Version != have
+		have, haveName = d.Payload.Version, d.Payload.Profile
+		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), haveName, have)
+		if newVersion {
+			changed()
+		}
 	}
 	fetch()
+	close(r.ready)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {

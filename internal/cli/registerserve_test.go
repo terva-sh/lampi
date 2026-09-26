@@ -142,3 +142,39 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 		t.Fatal("audit holds the secret")
 	}
 }
+
+func TestServeRegisterPrintsNoCodeWhoseMintIsNotAudited(t *testing.T) {
+	dir, _, url := registerLake(t)
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := Run(append([]string{"serve"}, append(args, "--data", dir)...), Env{Stdout: &out, Stderr: &bytes.Buffer{}})
+		return out.String(), err
+	}
+	if _, err := run("identity", "set-url", url); err != nil {
+		t.Fatal(err)
+	}
+	// An audit log that cannot be opened for append.
+	if err := os.Remove(audit.Path(dir)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run("register", "--name", "newbox")
+	if err == nil || !strings.Contains(err.Error(), "revoked and not printed") {
+		t.Fatalf("mint with a broken audit log: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("stdout holds a code: %q", out)
+	}
+	if list, _ := run("register", "--list"); !strings.Contains(list, " newbox revoked ") {
+		t.Fatalf("list:\n%s", list)
+	}
+	// The name is free once the audit log works again.
+	if err := os.Remove(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("register", "--name", "newbox"); err != nil || !strings.HasPrefix(out, regcode.Prefix) {
+		t.Fatalf("mint after repair: %q %v", out, err)
+	}
+}

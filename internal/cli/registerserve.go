@@ -190,17 +190,22 @@ func runServeRegister(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(env.stdout(), code)
-	fmt.Fprintf(env.stderr(), "terva-lampi serve register: code %s for %s expires %s; lake %s key fingerprint %s\n",
-		reg.ID, reg.Name, reg.Expires.Format(time.RFC3339), id.LakeID, identity.Fingerprint(id.ActiveKeys(now)[0].Pub))
 	prof := profile
 	if prof == "" {
 		prof = config.DefaultProfile
 	}
+	// The mint is recorded before the code is printed. A code whose mint
+	// the audit log does not hold is revoked and never shown.
 	if err := audit.Append(data, audit.Event{Time: now, Kind: audit.RegistrationCreated, Device: reg.Name, Actor: "serve register",
 		Detail: fmt.Sprintf("registration=%s profile=%s expires=%s", reg.ID, prof, reg.Expires.Format(time.RFC3339))}); err != nil {
-		return fmt.Errorf("minted %s, but writing it to %s failed: %w; revoke it with serve register --revoke %s if the record matters", reg.ID, audit.FileName, err, reg.ID)
+		if _, rerr := cat.RevokeRegistration(ctx, reg.ID, now); rerr != nil {
+			return fmt.Errorf("writing the mint of %s to %s failed: %w; the code was not printed, but revoking it also failed: %v; run serve register --revoke %s", reg.ID, audit.FileName, err, rerr, reg.ID)
+		}
+		return fmt.Errorf("writing the mint of %s to %s failed: %w; the code was revoked and not printed; fix the audit log and mint again", reg.ID, audit.FileName, err)
 	}
+	fmt.Fprintln(env.stdout(), code)
+	fmt.Fprintf(env.stderr(), "terva-lampi serve register: code %s for %s expires %s; lake %s key fingerprint %s\n",
+		reg.ID, reg.Name, reg.Expires.Format(time.RFC3339), id.LakeID, identity.Fingerprint(id.ActiveKeys(now)[0].Pub))
 	return nil
 }
 
