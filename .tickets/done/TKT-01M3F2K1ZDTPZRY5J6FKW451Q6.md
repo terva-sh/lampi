@@ -22,12 +22,12 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:40:58Z
-updated_at: 2026-09-26T15:06:51Z
+updated_at: 2026-09-26T17:27:02Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
 updated_by:
-  id: agent:codex/web-ui-release-a
+  id: agent:codex/deploy
   name: ""
 extensions: {}
 ---
@@ -57,6 +57,12 @@ Follow docs/web-ui-plan.md, including pinned sibling sources and release A defau
 ## Implementation plan
 
 Add dedicated catalog DTOs and parameterized SQL rather than extending unbounded ListSessions for browser use. Index supported filters and newest-head-update/UID ordering; handle legacy mixed-precision RFC3339 timestamps chronologically. Default limit 50/max 200, keyset cursors bound to filters, explicit unlinked-project selector. Test empty catalogs, same-time rows, fractional timestamps, multi-machine dedup, unknown project, every status and invalid filters/cursors. Seed 20k rows to inspect query plans and page bounds; document live-view behavior on concurrent head movement.
+
+## Notes
+
+**agent:codex/deploy** at 2026-09-26T17:27:02Z
+
+Foundation PR #5 review 6386c7d0-d1a1-4c4b-9af3-3c4c408ae196 on 8d8371aa9d4fa406b1f1008bc053c8ddd3682d6b identified unbounded memory in dashboard timestamp migration. Replaced the whole-catalog slice with 512-row primary-key seek batches, closing each read before updates while retaining transaction atomicity and nanosecond/offset parsing. Regression migrates 1,537 rows including the smallest key and verifies complete rollback when a later batch has an invalid timestamp. Focused migration and pagination race tests passed. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/5#issuecomment-14361
 
 ## Summary
 

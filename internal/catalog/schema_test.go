@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func userVersion(t *testing.T, db *sql.DB) int {
@@ -158,5 +159,98 @@ func TestOpenMigratesUnversionedCatalog(t *testing.T) {
 	jobs, err := c.ListNormalizeJobs(t.Context())
 	if err != nil || len(jobs) != 0 {
 		t.Fatalf("normalize_jobs: %v %v", jobs, err)
+	}
+}
+
+func TestDashboardMigrationAcrossBatches(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid=%t", invalid), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "catalog.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			tx, err := db.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			for _, migrate := range migrations[:2] {
+				if err := migrate(tx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := tx.Exec(`PRAGMA user_version=2`); err != nil {
+				t.Fatal(err)
+			}
+			const n = 1537
+			expected := make(map[string]int64, n)
+			for i := 0; i < n; i++ {
+				uid := fmt.Sprintf("uid-%05d", i)
+				if i == 0 {
+					uid = ""
+				} // The initial query must not skip the smallest key.
+				when := time.Date(2026, 9, 26, 1, 0, 0, i*12345, time.FixedZone("offset", 3600))
+				raw := when.Format(time.RFC3339Nano)
+				expected[uid] = when.UnixNano()
+				if invalid && i == n-1 {
+					raw = "bad-timestamp"
+				}
+				if _, err := tx.Exec(`INSERT INTO sessions(session_uid,harness,native_session_id,head_sha256,manifest_json,ingested_at) VALUES(?,'terva',?,'head','{}',?)`, uid, uid, raw); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			c, err := Open(path)
+			if invalid {
+				if err == nil {
+					c.Close()
+					t.Fatal("invalid timestamp accepted")
+				}
+				if userVersion(t, db) != 2 {
+					t.Fatal("failed migration advanced version")
+				}
+				tx, err := db.Begin()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback()
+				exists, err := columnExists(tx, "sessions", "web_updated_ns")
+				if err != nil || exists {
+					t.Fatalf("partial migration survived rollback: %v %v", exists, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			rows, err := c.db.Query(`SELECT session_uid,web_updated_ns FROM sessions`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rows.Close()
+			count := 0
+			for rows.Next() {
+				var uid string
+				var ns int64
+				if err := rows.Scan(&uid, &ns); err != nil {
+					t.Fatal(err)
+				}
+				if want, ok := expected[uid]; !ok || ns != want {
+					t.Fatalf("bad migrated timestamp for %q", uid)
+				}
+				count++
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			if count != n {
+				t.Fatalf("migrated %d rows", count)
+			}
+		})
 	}
 }
