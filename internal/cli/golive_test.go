@@ -8,17 +8,78 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/testharness"
 )
+
+func TestGoLive20KSync(t *testing.T) {
+	f := newGoLiveFixture(t)
+	lake, err := api.Open(filepath.Join(f.root, "lake"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	var manifests, puts atomic.Int64
+	h := lake.Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/manifests" {
+			manifests.Add(1)
+		}
+		if r.Method == http.MethodPut {
+			puts.Add(1)
+		}
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	for id, plant := range map[string]func(string, string, []testharness.SessionSpec) (testharness.PlantResult, error){"terva": testharness.PlantTerva, "claude": testharness.PlantClaude, "codex": testharness.PlantCodex, "opencode": testharness.PlantOpenCode} {
+		specs := make([]testharness.SessionSpec, 5000)
+		for i := range specs {
+			specs[i].ID = fmt.Sprintf("scale-%s-%05d", id, i)
+		}
+		if _, err := plant(f.homes[id], filepath.Join(f.root, "allowed"), specs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := time.Now()
+	out, errs, err := f.run("sync", "--server", srv.URL)
+	first := time.Since(start)
+	if err != nil {
+		t.Fatalf("first sync: %v %s", err, errs)
+	}
+	counts, err := lake.Catalog.Counts(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Sessions != 20000 || counts.Artifacts != 20000 || manifests.Load() != 20000 {
+		t.Fatalf("first counts: %+v manifests=%d output=%s", counts, manifests.Load(), out)
+	}
+	t.Logf("first sync: %s; counts=%+v; manifests=%d puts=%d", first, counts, manifests.Load(), puts.Load())
+	manifests.Store(0)
+	puts.Store(0)
+	start = time.Now()
+	out, errs, err = f.run("sync", "--server", srv.URL)
+	second := time.Since(start)
+	if err != nil || manifests.Load() != 0 || puts.Load() != 0 || !strings.Contains(out, "unchanged 20000") {
+		t.Fatalf("second sync: %v %s %s manifests=%d puts=%d", err, out, errs, manifests.Load(), puts.Load())
+	}
+	if second > 15*time.Second {
+		t.Fatalf("unchanged sync took %s; expected seconds", second)
+	}
+	t.Logf("unchanged sync: %s; zero manifests and blob PUTs; %s", second, strings.TrimSpace(out))
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestGoLiveServeProcess(t *testing.T) {
 	data := os.Getenv("LAMPI_GOLIVE_PROCESS_DATA")
