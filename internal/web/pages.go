@@ -1,6 +1,7 @@
 package web
 
 import (
+	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
@@ -245,6 +246,12 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	uid := r.PathValue("uid")
 	d.Session, err = s.catalog.DashboardSession(ctx, uid)
+	if errors.Is(err, sql.ErrNoRows) {
+		// A link to a purged session, or one this lake never had.
+		d.Unavailable = "gone"
+		renderStatus(w, r, d, http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		pageError(w, err)
 		return

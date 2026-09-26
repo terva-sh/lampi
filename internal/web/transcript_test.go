@@ -149,3 +149,43 @@ func TestTranscriptPageRendersLiterallyAndHandlesStaleLinks(t *testing.T) {
 		t.Fatal("pending page", w.Code)
 	}
 }
+
+func TestDeepLinksReportEveryUnavailableState(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid := seedSession(t, lake.Catalog, "links")
+	cookie, _ := signIn(t, idp, h)
+	gen := publishEvents(t, lake, uid, 10, func(i int) string { return fmt.Sprint("event ", i) })
+	link := fmt.Sprintf("/sessions/%s/transcript?gen=%d&at=", uid, gen)
+	w := get(h, link+"9999", cookie)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Event 9999 is past the end of this transcript, which has 10 events.") {
+		t.Fatal("out of range", w.Code, w.Body.String())
+	}
+	if w := get(h, link+"3", cookie); !strings.Contains(w.Body.String(), `id="e-3" class="event actor-assistant target"`) {
+		t.Fatal("in range")
+	}
+	if _, err := lake.Catalog.EnqueueNormalize(t.Context(), uid, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	w = get(h, link+"3", cookie)
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "Event positions can change when it lands.") || !strings.Contains(w.Body.String(), `href="/sessions/`+uid+`">Session details`) {
+		t.Fatal("pending link", w.Code)
+	}
+	gen2, _, _, _ := lake.Catalog.NormalizeVersion(t.Context(), uid)
+	if err := lake.StoreEvents(t.Context(), uid, nil, fmt.Errorf("synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Catalog.DeleteNormalizeJob(t.Context(), uid, gen2); err != nil {
+		t.Fatal(err)
+	}
+	if w := get(h, link+"3", cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "Normalization failed") {
+		t.Fatal("failed link", w.Code)
+	}
+	plan, _, _ := lake.PlanPurge(t.Context(), uid)
+	if err := lake.Purge(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	w = get(h, link+"3", cookie)
+	if w.Code != 404 || !strings.Contains(w.Body.String(), "This session is not in the lake") || w.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatal("purged link", w.Code, w.Body.String())
+	}
+}

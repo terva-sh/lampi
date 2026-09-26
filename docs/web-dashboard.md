@@ -141,8 +141,11 @@ A session whose normalization is ready links to its transcript at
 `/sessions/{uid}/transcript`. The page shows 100 normalized events at a time in
 recorded order, as plain text, with earlier and later pages. Every event has a
 link that names its generation and position; opening one shows the page around
-it and marks it. A link to a generation that is no longer published says so.
-It does not show whatever now sits at that position. Long text, large `extra`
+it, marks it and moves keyboard focus to it. A link never shows whatever now
+sits at that position in a different generation. Instead it says what happened:
+a newer generation replaced it, normalization is running or failed, the position
+is past the end, or the session was purged. Each case links back to the current
+view. Long text, large `extra`
 objects and encrypted values are reduced as the
 [browser API contract](web-api.md#transcript-events) describes.
 
