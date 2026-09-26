@@ -313,3 +313,12 @@ Epic: [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ — Web retrieval: browse, search and expo
 | [TKT-01M3F2PGMZKTFXSX521T07A4HA](../.tickets/draft/TKT-01M3F2PGMZKTFXSX521T07A4HA.md) | Web: add filtered transcript search and result navigation |
 | [TKT-01M3F2PGRMS5NJZK90JCTAF0SP](../.tickets/draft/TKT-01M3F2PGRMS5NJZK90JCTAF0SP.md) | Export: add bounded authorized web downloads and shared projection |
 | [TKT-01M3F2PGWAJRETEYE51GTX17DP](../.tickets/draft/TKT-01M3F2PGWAJRETEYE51GTX17DP.md) | Web retrieval: integrate downloads and validate the release |
+
+### Release C
+
+Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize accepted ingestion updates](../.tickets/draft/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md). Depends on release A; it can be scheduled independently of release B because it uses catalog metadata only.
+
+| Ticket | Work |
+|---|---|
+| [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/draft/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
+| [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/draft/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web analytics: add bounded ingestion charts and release validation |
