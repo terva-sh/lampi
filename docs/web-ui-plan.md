@@ -300,3 +300,16 @@ Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only 
 | [TKT-01M3F2K241CAKSX5QM5NGP24RW](../.tickets/draft/TKT-01M3F2K241CAKSX5QM5NGP24RW.md) | Web API: expose authorized metadata reads through the lake mux |
 | [TKT-01M3F2K27WTA90MB3K2M2AVZ6H](../.tickets/draft/TKT-01M3F2K27WTA90MB3K2M2AVZ6H.md) | Web UI: build the lake overview and metadata browser |
 | [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/draft/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
+
+
+### Release B
+
+Epic: [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ — Web retrieval: browse, search and export stored sessions](../.tickets/draft/TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ.md). Depends on release A.
+
+| Ticket | Work |
+|---|---|
+| [TKT-01M3F2PGDY06D7XE12NWQ9EZF4](../.tickets/draft/TKT-01M3F2PGDY06D7XE12NWQ9EZF4.md) | Web: browse normalized transcripts with generation-safe paging |
+| [TKT-01M3F2PGHM6VHQBNE5XKDXS407](../.tickets/draft/TKT-01M3F2PGHM6VHQBNE5XKDXS407.md) | Search: index current normalized content with durable FTS5 work |
+| [TKT-01M3F2PGMZKTFXSX521T07A4HA](../.tickets/draft/TKT-01M3F2PGMZKTFXSX521T07A4HA.md) | Web: add filtered transcript search and result navigation |
+| [TKT-01M3F2PGRMS5NJZK90JCTAF0SP](../.tickets/draft/TKT-01M3F2PGRMS5NJZK90JCTAF0SP.md) | Export: add bounded authorized web downloads and shared projection |
+| [TKT-01M3F2PGWAJRETEYE51GTX17DP](../.tickets/draft/TKT-01M3F2PGWAJRETEYE51GTX17DP.md) | Web retrieval: integrate downloads and validate the release |
