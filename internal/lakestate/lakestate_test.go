@@ -198,3 +198,37 @@ func TestSyncFailuresThatMeanNotSupportedAreNotErrors(t *testing.T) {
 		t.Error("an I/O error from sync was treated as unsupported")
 	}
 }
+
+func TestAFailedSidecarRemovalIsRetried(t *testing.T) {
+	dir, closeAll := legacyState(t)
+	moved, err := Migrate(dir, "default")
+	closeAll()
+	if err != nil || !moved {
+		t.Fatalf("moved=%v err=%v", moved, err)
+	}
+	// Leftovers of a cleanup that stopped: the database, and a sidecar
+	// that cannot be removed (a non-empty directory).
+	if err := os.WriteFile(filepath.Join(dir, "outbox.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stuck := filepath.Join(dir, "outbox.db-wal")
+	if err := os.MkdirAll(filepath.Join(stuck, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Migrate(dir, "default"); err == nil {
+		t.Fatal("cleanup past an unremovable sidecar reported success")
+	}
+	if has, _ := Legacy(dir); !has {
+		t.Fatal("the database went before its sidecar, so nothing retries the cleanup")
+	}
+	if err := os.RemoveAll(stuck); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Migrate(dir, "default"); err != nil {
+		t.Fatal(err)
+	}
+	if has, _ := Legacy(dir); has {
+		t.Fatal("legacy still reported after the retry")
+	}
+	requireMigrated(t, dir)
+}

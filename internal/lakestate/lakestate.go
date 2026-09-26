@@ -174,14 +174,16 @@ func copyFile(src, dst string) error {
 }
 
 // removeLegacy removes the legacy files and their SQLite sidecars, by
-// name. Nothing else in stateDir is touched.
+// name. Nothing else in stateDir is touched. Each database goes after its
+// sidecars, so a removal that fails part way leaves a file Legacy sees
+// and the next start retries the cleanup.
 func removeLegacy(stateDir string) error {
 	var names []string
 	for _, f := range sqliteFiles {
-		names = append(names, f)
 		for _, s := range sidecars {
 			names = append(names, f+s)
 		}
+		names = append(names, f)
 	}
 	names = append(names, plainFiles...)
 	for _, n := range names {
