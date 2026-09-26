@@ -155,3 +155,41 @@ func TestWebOffAndCanceledRead(t *testing.T) {
 		t.Fatal("healthz")
 	}
 }
+
+func TestPagesEscapeMetadataAndWorkWithoutScripts(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid := seedSession(t, lake.Catalog, `<script>window.owned=true</script>`)
+	cookie, _ := signIn(t, idp, h)
+	for _, path := range []string{"/", "/sessions", "/sessions?harness=codex&state=unknown", "/sessions/" + uid, "/sessions/" + uid + "?collection=provenance", "/conflicts"} {
+		w := get(h, path, cookie)
+		if w.Code != 200 {
+			t.Fatal(path, w.Code, w.Body.String())
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "</html>") || !strings.Contains(body, `action="/auth/oidc/logout"`) {
+			t.Fatal("incomplete template", path)
+		}
+		if strings.Contains(body, "<script>window.owned") || strings.Contains(body, "#ZgotmplZ") {
+			t.Fatal("unsafe template", path)
+		}
+		if w.Header().Get("Content-Security-Policy") == "" {
+			t.Fatal("missing CSP")
+		}
+	}
+	w := get(h, "/sessions", cookie)
+	if !strings.Contains(w.Body.String(), "&lt;script&gt;") || !strings.Contains(w.Body.String(), `method="get"`) {
+		t.Fatal("escaped no-JS form")
+	}
+	r := httptest.NewRequest("GET", "https://lake.example/", nil)
+	r.Header.Set("X-Lampi-Refresh", "1")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Fatal("expired refresh redirected to IdP")
+	}
+	for _, path := range []string{"/assets/lake.css", "/assets/lake.js"} {
+		if get(h, path, nil).Code != 200 {
+			t.Fatal("asset", path)
+		}
+	}
+}

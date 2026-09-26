@@ -37,6 +37,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, client *http.Client) (http.
 	get("/api/web/v1/sessions/{uid}", s.session)
 	get("/api/web/v1/sessions/{uid}/{collection}", s.records)
 	get("/api/web/v1/conflicts", s.conflicts)
+	s.pageRoutes(m)
 	return webauth.Headers(m), nil
 }
 func readContext(r *http.Request) (context.Context, context.CancelFunc) {

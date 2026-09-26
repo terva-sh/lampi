@@ -205,7 +205,7 @@ func (b *Browser) Guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, ok := b.lookup(r)
 		if !ok {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("X-Lampi-Refresh") == "1" {
 				jsonError(w, 401, "not_authenticated")
 				return
 			}
@@ -213,7 +213,7 @@ func (b *Browser) Guard(next http.Handler) http.Handler {
 			return
 		}
 		if !s.Identity.Viewer {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("X-Lampi-Refresh") == "1" {
 				jsonError(w, 403, "not_authorized")
 			} else {
 				authError(w, 403, "Your account has no lake viewer access.")
