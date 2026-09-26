@@ -136,6 +136,10 @@ func TestStatusAndConflictsSelectALake(t *testing.T) {
 	if err := f.run("conflicts", "--lake", "work"); err != nil {
 		t.Fatalf("conflicts --lake work: %v\n%s", err, f.stderr)
 	}
+	// --server alone is ambiguous with two lakes: whose token?
+	if err := f.run("conflicts", "--server", "http://127.0.0.1:1"); err == nil || !strings.Contains(err.Error(), "pass --lake") {
+		t.Fatalf("conflicts --server with two lakes: %v", err)
+	}
 	if err := f.run("conflicts", "--lake", "work", "--data", t.TempDir()); err == nil {
 		t.Fatal("conflicts took both --lake and --data")
 	}

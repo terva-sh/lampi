@@ -42,7 +42,8 @@ order sync and status use. The token is not an argument. The lake is
 only the --server flag: LAMPI_SERVER and config.json do not turn this
 command into a remote read. --lake does: it reads the lake of that name
 from config.json, with its server and token file, and --server and
---token-file then override that lake's values.
+--token-file then override that lake's values. With more than one lake
+in config.json, --server needs --lake, so the token sent is that lake's.
 `
 
 func runConflicts(env Env, args []string) error {
@@ -68,7 +69,10 @@ func runConflicts(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), conflictsUsage)
 		return fmt.Errorf("pass --data or a lake, not both")
 	}
-	if lakeFlag != "" {
+	// --server is resolved like --lake: with one lake it is that lake's
+	// URL, as before, and with several it needs --lake, so the token
+	// sent is the named lake's and not a guess.
+	if lakeFlag != "" || serverFlag != "" {
 		file, err := config.LoadFile(env.getenv)
 		if err != nil {
 			return err
@@ -86,9 +90,6 @@ func runConflicts(env Env, args []string) error {
 			return err
 		}
 		return writeConflicts(env.stdout(), body.Conflicts)
-	}
-	if serverFlag != "" {
-		return writeRemoteConflicts(env, serverFlag, tokenFlag)
 	}
 	if data == "" {
 		data, err = config.StateDir(env.getenv)
@@ -117,22 +118,6 @@ func writeLocalConflicts(w io.Writer, data string) error {
 		return err
 	}
 	return writeConflicts(w, asProtocolConflicts(rows))
-}
-
-func writeRemoteConflicts(env Env, server, tokenFlag string) error {
-	file, err := config.LoadFile(env.getenv)
-	if err != nil {
-		return err
-	}
-	token, err := resolveToken(env, tokenFlag, file)
-	if err != nil {
-		return err
-	}
-	body, err := fetchConflicts(server, token)
-	if err != nil {
-		return err
-	}
-	return writeConflicts(env.stdout(), body.Conflicts)
 }
 
 func fetchConflicts(server, token string) (protocol.ConflictsResponse, error) {
