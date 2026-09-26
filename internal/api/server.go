@@ -289,6 +289,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/conflicts", s.authed(s.conflicts))
 	mux.HandleFunc("POST /v1/hello", s.authed(s.hello))
 	mux.HandleFunc("GET "+protocol.AgentConfigPath, s.authed(s.agentConfig))
+	mux.HandleFunc("POST "+protocol.RegisterPath, s.register)
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
 	mux.HandleFunc("POST /v1/manifests", s.authed(s.manifest))
@@ -312,18 +313,28 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		hash, ok := s.Devices.Lookup(r.Header.Get("Authorization"))
-		if !ok {
+		// A token from the token file is in Devices. A registered
+		// device's token is only in the catalog, which is read for every
+		// request anyway, so a revoke lands on the next one.
+		hash, inFile := s.Devices.Lookup(r.Header.Get("Authorization"))
+		if !inFile {
+			hash = auth.BearerHash(r.Header.Get("Authorization"))
+		}
+		if hash == "" {
 			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
 		}
-		// A token is published only after its device row is recorded, so
-		// a token with no row is a lake in a bad state. Fail closed.
 		d, found, err := s.Catalog.DeviceByHash(r.Context(), hash)
 		if err != nil {
 			s.fail(w, r, http.StatusInternalServerError, err)
 			return
 		}
+		if !inFile && (!found || d.Source != catalog.DeviceFromRegistration) {
+			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized"))
+			return
+		}
+		// A token is published only after its device row is recorded, so
+		// a token with no row is a lake in a bad state. Fail closed.
 		if !found {
 			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this token has no device record"))
 			return

@@ -1,0 +1,144 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/regcode"
+)
+
+// registerLake is a running lake with a token file and an identity.
+func registerLake(t *testing.T) (dir string, lake *api.Server, url string) {
+	t.Helper()
+	dir = t.TempDir()
+	tokens := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tokens, "laptop.token"), []byte(strings.Repeat("c3", 32)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	devices, err := auth.LoadDevices(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake, err = api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lake.Close() })
+	lake.Devices = devices
+	if err := lake.SyncDevices(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	return dir, lake, srv.URL
+}
+
+func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
+	dir, lake, url := registerLake(t)
+	run := func(args ...string) (string, string, error) {
+		var out, errb bytes.Buffer
+		err := Run(append([]string{"serve"}, append(args, "--data", dir)...), Env{Stdout: &out, Stderr: &errb})
+		return out.String(), errb.String(), err
+	}
+	if _, _, err := run("register", "--name", "newbox"); err == nil || !strings.Contains(err.Error(), "set-url") {
+		t.Fatalf("mint without a URL: %v", err)
+	}
+	if _, _, err := run("identity", "set-url", "http://lake.example"); err == nil || !strings.Contains(err.Error(), "plain http") {
+		t.Fatalf("plain http URL: %v", err)
+	}
+	// A URL that answers as another lake is refused before a code exists.
+	other, _, otherURL := registerLake(t)
+	_ = other
+	if _, _, err := run("identity", "set-url", otherURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := run("register", "--name", "newbox"); err == nil || !strings.Contains(err.Error(), "does not reach this lake") {
+		t.Fatalf("mint through another lake's URL: %v", err)
+	}
+	if out, _, err := run("identity", "set-url", url+"/"); err != nil || out != "public_url "+url+"\n" {
+		t.Fatalf("set-url: %q %v", out, err)
+	}
+	if out, _, _ := run("identity"); !strings.Contains(out, "public_url "+url) {
+		t.Fatalf("identity:\n%s", out)
+	}
+	if _, _, err := run("register", "--name", "newbox", "--profile", "ci"); err == nil || !strings.Contains(err.Error(), "no profile named ci") {
+		t.Fatalf("unknown profile: %v", err)
+	}
+	out, stderr, err := run("register", "--name", "newbox", "--expires", "2h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := strings.TrimSpace(out)
+	if strings.Count(out, "\n") != 1 || !strings.HasPrefix(code, regcode.Prefix) {
+		t.Fatalf("stdout is not one code: %q", out)
+	}
+	c, err := regcode.Decode(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.URL != url || c.LakeID != lake.Identity.LakeID || !strings.Contains(stderr, c.Fingerprint()) {
+		t.Fatalf("code %+v stderr %s", c, stderr)
+	}
+	if strings.Contains(stderr, c.Secret) {
+		t.Fatal("stderr holds the secret")
+	}
+	if _, _, err := run("register", "--name", "newbox"); err == nil || !strings.Contains(err.Error(), "pending code") {
+		t.Fatalf("second code for one name: %v", err)
+	}
+
+	body, _ := json.Marshal(protocol.RegisterRequest{Secret: c.Secret, TokenSHA256: auth.HashToken(strings.Repeat("e7", 32)), MachineID: "m-new"})
+	for i, want := range []int{http.StatusOK, http.StatusForbidden} {
+		resp, err := http.Post(c.URL+protocol.RegisterPath, "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Fatalf("redeem %d: %s", i, resp.Status)
+		}
+	}
+	list, _, _ := run("register", "--list")
+	if !strings.Contains(list, " newbox used profile=default ") || !strings.Contains(list, " device=dev_") {
+		t.Fatalf("list:\n%s", list)
+	}
+	devs, _, _ := run("devices")
+	if !strings.Contains(devs, "newbox active registration profile=default machine=m-new ") {
+		t.Fatalf("devices:\n%s", devs)
+	}
+
+	// Revoke a pending code; a used one cannot be.
+	if _, _, err := run("register", "--name", "spare"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, err := run("register", "--revoke", "spare"); err != nil || !strings.Contains(out, "revoked reg_") {
+		t.Fatalf("revoke: %q %v", out, err)
+	}
+	if _, _, err := run("register", "--revoke", "newbox"); err == nil {
+		t.Fatal("revoked a used code")
+	}
+	if _, _, err := run("register", "--list", "--name", "x"); err == nil {
+		t.Fatal("two modes accepted")
+	}
+	raw, _ := os.ReadFile(audit.Path(dir))
+	for _, kind := range []string{"registration.created", "registration.redeemed", "registration.revoked", "registration.refused"} {
+		if !strings.Contains(string(raw), kind) {
+			t.Fatalf("audit lacks %s:\n%s", kind, raw)
+		}
+	}
+	if strings.Contains(string(raw), c.Secret) {
+		t.Fatal("audit holds the secret")
+	}
+}

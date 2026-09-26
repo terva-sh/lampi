@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -34,22 +35,37 @@ func (s *Server) agentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, _ := r.Context().Value(deviceKey{}).(catalog.Device)
+	signed, err := s.signedProfile(d)
+	if errors.Is(err, errNoProfile) {
+		s.fail(w, r, http.StatusNotFound, err)
+		return
+	}
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, signed)
+}
+
+var errNoProfile = errors.New("profile is not in the lake's profiles file")
+
+// signedProfile is device d's profile signed for the agent.
+func (s *Server) signedProfile(d catalog.Device) (*protocol.Signed, error) {
 	name := d.Profile
 	if name == "" {
 		name = config.DefaultProfile
 	}
 	p, ok := s.Profiles()[name]
 	if !ok {
-		s.fail(w, r, http.StatusNotFound, fmt.Errorf("profile %s is not in the lake's profiles file", name))
-		return
+		return nil, fmt.Errorf("%w: %s", errNoProfile, name)
 	}
 	raw, err := json.Marshal(p)
 	if err != nil {
-		s.fail(w, r, http.StatusInternalServerError, err)
-		return
+		return nil, err
 	}
 	now := s.now()
-	signed, err := s.Identity.Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
+	return s.Identity.Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
 		LakeID:   s.Identity.LakeID,
 		DeviceID: d.ID,
 		Profile:  name,
@@ -57,10 +73,4 @@ func (s *Server) agentConfig(w http.ResponseWriter, r *http.Request) {
 		IssuedAt: now,
 		Config:   raw,
 	}, now)
-	if err != nil {
-		s.fail(w, r, http.StatusInternalServerError, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, signed)
 }

@@ -30,17 +30,21 @@ const serveUsage = `terva-lampi serve — run the lake
 
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
-                    [--web-config PATH]
+                    [--profiles PATH] [--web-config PATH]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
   terva-lampi serve fsck [--data DIR] [--repair]
                                  re-hash every stored object
   terva-lampi serve purge --session UID [--data DIR] [--yes]
                                  remove one session and its blobs
-  terva-lampi serve identity [--data DIR]
-                                 print the lake id and key fingerprints
-  terva-lampi serve devices [list|revoke NAME|unbind NAME] [--data DIR]
-                                 list devices, or revoke or unbind one
+  terva-lampi serve identity [set-url URL] [--data DIR]
+                                 print the lake id and key fingerprints,
+                                 or set the URL agents reach the lake at
+  terva-lampi serve devices [list|revoke NAME|unbind NAME|set-profile NAME P] [--data DIR]
+                                 list devices, or change one
+  terva-lampi serve register --name NAME [--expires 24h] [--profile P]
+                                 mint a one-time registration code
+                                 (--list and --revoke manage them)
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -48,8 +52,10 @@ counts. GET /v1/conflicts lists divergent_copy artifacts. Both use the
 same auth as the other /v1 routes. GET /.well-known/terva-lampi/keys is
 open: it returns the lake id and public keys, signed over the caller's
 nonce, and no catalog data. It shares a rate limit with the other open
-routes. /v1/* requires
-a device token when --token-file is set. With no token file the
+routes. POST /v1/register is open too: it redeems a registration code
+(serve register --help) and shares that rate limit. The rest of /v1/*
+requires a device token when --token-file is set: one from the token
+file, or one a registration created. Registration needs --token-file. With no token file the
 process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.
 
@@ -135,6 +141,8 @@ func runServe(env Env, args []string) error {
 			return runServeIdentity(env, args[1:])
 		case "devices":
 			return runServeDevices(env, args[1:])
+		case "register":
+			return runServeRegister(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, profilesFile, webConfigFile string
