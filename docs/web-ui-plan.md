@@ -1,6 +1,6 @@
 # Web dashboard and retrieval plan
 
-Status: accepted direction, implementation not started. The owner approved a
+Status: release A promoted and implementation in progress; releases B/C remain draft. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -288,18 +288,18 @@ status changes move a file. All acceptance criteria start unchecked.
 
 ### Release A
 
-Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only lake visibility](../.tickets/draft/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md).
+Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only lake visibility](../.tickets/tickets/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md).
 
 | Ticket | Work |
 |---|---|
-| [TKT-01M3F2K1EZ0CVDH1KPA127XYZ3](../.tickets/draft/TKT-01M3F2K1EZ0CVDH1KPA127XYZ3.md) | Web: add explicit server configuration and exposure guards |
-| [TKT-01M3F2K1J85QBJCBX9S462QG2V](../.tickets/draft/TKT-01M3F2K1J85QBJCBX9S462QG2V.md) | OIDC: implement provider verification and group authorization |
-| [TKT-01M3F2K1NMEEXDZSA3J140B075](../.tickets/draft/TKT-01M3F2K1NMEEXDZSA3J140B075.md) | OIDC: add browser sessions, login routes and request guards |
-| [TKT-01M3F2K1RTWH93KB9DSMWR21DQ](../.tickets/draft/TKT-01M3F2K1RTWH93KB9DSMWR21DQ.md) | Catalog: track published normalization generations explicitly |
-| [TKT-01M3F2K1ZDTPZRY5J6FKW451Q6](../.tickets/draft/TKT-01M3F2K1ZDTPZRY5J6FKW451Q6.md) | Catalog: add bounded dashboard queries and stable pagination |
-| [TKT-01M3F2K241CAKSX5QM5NGP24RW](../.tickets/draft/TKT-01M3F2K241CAKSX5QM5NGP24RW.md) | Web API: expose authorized metadata reads through the lake mux |
-| [TKT-01M3F2K27WTA90MB3K2M2AVZ6H](../.tickets/draft/TKT-01M3F2K27WTA90MB3K2M2AVZ6H.md) | Web UI: build the lake overview and metadata browser |
-| [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/draft/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
+| [TKT-01M3F2K1EZ0CVDH1KPA127XYZ3](../.tickets/tickets/TKT-01M3F2K1EZ0CVDH1KPA127XYZ3.md) | Web: add explicit server configuration and exposure guards |
+| [TKT-01M3F2K1J85QBJCBX9S462QG2V](../.tickets/tickets/TKT-01M3F2K1J85QBJCBX9S462QG2V.md) | OIDC: implement provider verification and group authorization |
+| [TKT-01M3F2K1NMEEXDZSA3J140B075](../.tickets/tickets/TKT-01M3F2K1NMEEXDZSA3J140B075.md) | OIDC: add browser sessions, login routes and request guards |
+| [TKT-01M3F2K1RTWH93KB9DSMWR21DQ](../.tickets/tickets/TKT-01M3F2K1RTWH93KB9DSMWR21DQ.md) | Catalog: track published normalization generations explicitly |
+| [TKT-01M3F2K1ZDTPZRY5J6FKW451Q6](../.tickets/tickets/TKT-01M3F2K1ZDTPZRY5J6FKW451Q6.md) | Catalog: add bounded dashboard queries and stable pagination |
+| [TKT-01M3F2K241CAKSX5QM5NGP24RW](../.tickets/tickets/TKT-01M3F2K241CAKSX5QM5NGP24RW.md) | Web API: expose authorized metadata reads through the lake mux |
+| [TKT-01M3F2K27WTA90MB3K2M2AVZ6H](../.tickets/tickets/TKT-01M3F2K27WTA90MB3K2M2AVZ6H.md) | Web UI: build the lake overview and metadata browser |
+| [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/tickets/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
 
 
 ### Release B

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2K1NMEEXDZSA3J140B075
 title: "OIDC: add browser sessions, login routes and request guards"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: high
 due_on: null
@@ -23,12 +23,12 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:40:58Z
-updated_at: 2026-09-26T14:40:58Z
+updated_at: 2026-09-26T14:51:22Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
 updated_by:
-  id: agent:codex/web-ui-planning
+  id: agent:codex/web-ui-release-a
   name: ""
 extensions: {}
 ---
