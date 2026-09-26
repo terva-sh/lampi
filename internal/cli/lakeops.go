@@ -28,7 +28,8 @@ INTO copy, one consistent snapshot. The CAS is copied after it, so
 the copy holds every object that snapshot names. Upload temp files
 and cas/partial are left out. An object already in DIR with the same
 size is not copied again, so a second backup into DIR copies only
-what is new. normalized/ and parquet/ are derived and are not copied.
+what is new. normalized/, parquet/ and search.db are derived and are
+not copied.
 
 identity.json holds the lake's private signing keys. Agents pin them,
 and serve refuses to start on a catalog whose identity.json is lost,

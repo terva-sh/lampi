@@ -21,14 +21,16 @@ import (
 type Server struct {
 	catalog *catalog.Catalog
 	events  *recall.Reader
-	auth    *webauth.Browser
+	// index is the search index. Nil turns search off.
+	index *recall.Index
+	auth  *webauth.Browser
 }
 
 // New builds a handler mounted inside api.Server's request accounting.
-// normalized is the lake's derived JSONL directory, read only through
-// recall. client is nil in production; tests supply the trust pool of
-// their synthetic HTTPS IdP.
-func New(cfg webconfig.Config, cat *catalog.Catalog, normalized string, client *http.Client, loggers ...*slog.Logger) (http.Handler, error) {
+// Transcript text is read only through reader, and search only through
+// index, which may be nil. client is nil in production; tests supply
+// the trust pool of their synthetic HTTPS IdP.
+func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, index *recall.Index, client *http.Client, loggers ...*slog.Logger) (http.Handler, error) {
 	auth, err := webauth.New(cfg, client)
 	if err != nil {
 		return nil, err
@@ -36,7 +38,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, normalized string, client *
 	if len(loggers) > 0 {
 		auth.Logger = loggers[0]
 	}
-	s := &Server{catalog: cat, events: recall.NewReader(cat, normalized), auth: auth}
+	s := &Server{catalog: cat, events: reader, index: index, auth: auth}
 	m := http.NewServeMux()
 	auth.Routes(m)
 	get := func(path string, h http.HandlerFunc) { m.Handle("GET "+path, s.guardRead(h)) }

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"path/filepath"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/recall"
 )
 
 const purgeUsage = `terva-lampi serve purge — remove one session from the lake
@@ -16,9 +18,10 @@ usage:
   terva-lampi serve purge --session UID [--data DIR] [--yes]
 
 Lists what purge removes and changes nothing. --yes removes it: the
-CAS objects and logical indexes no other session names, then the
-session's normalized JSONL and parquet, then its catalog rows
-(session, artifacts, provenance, aliases, normalize job).
+session's rows in the search index (search.db), the CAS objects and
+logical indexes no other session names, then the session's
+normalized JSONL and parquet, then its catalog rows (session,
+artifacts, provenance, aliases, normalize job).
 
 The session's blobs are its artifact digests, the chunks and tail of
 its last manifest, the chunks of its logical files, and the tail
@@ -92,6 +95,11 @@ func runServePurge(env Env, args []string) error {
 	if !yes {
 		fmt.Fprintln(out, "dry run; pass --yes to remove")
 		return nil
+	}
+	// The search index goes first: its rows are text from the session,
+	// and a purge that stops after it can be run again.
+	if err := recall.RemoveFromIndex(ctx, filepath.Join(data, recall.IndexFile), uid); err != nil {
+		return err
 	}
 	if err := lake.Purge(ctx, plan); err != nil {
 		return err

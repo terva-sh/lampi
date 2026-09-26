@@ -262,6 +262,23 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 	}
 	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
 		s.logger().Error("normalize job not cleared", "session_uid", job.SessionUID, "err", err.Error())
+		return
+	}
+	s.published(job.SessionUID)
+}
+
+// OnPublished sets fn to be called with a session UID once a
+// normalize outcome is final: published with its job cleared, or
+// recorded as a failure. A derived view such as the search index uses
+// it to catch up. fn must not block. It is safe to call while workers
+// run.
+func (s *Server) OnPublished(fn func(sessionUID string)) {
+	s.onPublished.Store(&fn)
+}
+
+func (s *Server) published(sessionUID string) {
+	if fn := s.onPublished.Load(); fn != nil && *fn != nil {
+		(*fn)(sessionUID)
 	}
 }
 
@@ -308,7 +325,9 @@ func (s *Server) recordPanic(job catalog.NormalizeJob, r any) {
 	}
 	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
 		workerLog.Printf("normalize %s: delete job: %v", job.SessionUID, err)
+		return
 	}
+	s.published(job.SessionUID)
 }
 
 func (s *Server) lockSession(sessionUID string) func() {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -35,7 +37,13 @@ func fixture(t *testing.T) (*api.Server, *testidp.Server, http.Handler, *bytes.B
 	logs := &bytes.Buffer{}
 	lake.Log = slog.New(slog.NewTextHandler(logs, nil))
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"readers": "viewer"}}}
-	lake.Web, err = New(cfg, lake.Catalog, lake.Normalized, idp.Client(), lake.Log)
+	reader := recall.NewReader(lake.Catalog, lake.Normalized)
+	index, err := recall.OpenIndex(filepath.Join(t.TempDir(), recall.IndexFile), reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { index.Close() })
+	lake.Web, err = New(cfg, lake.Catalog, reader, index, idp.Client(), lake.Log)
 	if err != nil {
 		t.Fatal(err)
 	}

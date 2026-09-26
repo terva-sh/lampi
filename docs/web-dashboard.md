@@ -147,6 +147,31 @@ objects and encrypted values are reduced as the
 [browser API contract](web-api.md#transcript-events) describes. Raw blobs, export
 and administration are absent.
 
+## Search index
+
+With web configuration, serve keeps a full-text index of normalized event text
+in `search.db` in the data directory. It is derived from the published
+normalized JSONL and holds nothing else. A serve without web configuration
+neither builds nor updates it.
+
+- **Catch-up.** The index follows the catalog. Each finished normalization
+  wakes it, and it also checks every five minutes and at every start, so a crash
+  or restart loses no work. A new generation becomes searchable in one step, and
+  the old one stays searchable until then. A pending, failed or purged session
+  drops out of results at once, even before the index removes its rows.
+- **Coverage.** Search results report how many ready sessions are indexed, how
+  many are behind, and how many the index could not read. A session it could not
+  read is retried when a new generation is published.
+- **Size.** The trigram index takes roughly two to three times the indexed text
+  on disk. Only the first 256 KiB of one event's text is indexed; the full text
+  stays in the transcript.
+- **Rebuild.** Stop serve, delete `search.db`, `search.db-wal` and
+  `search.db-shm`, and start serve. The index is rebuilt in the background while
+  the lake keeps serving. A file with an unknown schema version is rebuilt the
+  same way on its own.
+- **Backup and purge.** `serve backup` does not copy the index; a restored lake
+  rebuilds it. `serve purge` removes the session's index rows first.
+
 ## Validation, backup and rollout
 
 The catalog upgrade adds published-generation/head markers and indexed numeric

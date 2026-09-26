@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"terva.sh/lampi/internal/auth"
@@ -55,11 +56,19 @@ type Server struct {
 	Now      func() time.Time
 	// Log gets one line per request and normalize failures. Nil discards.
 	Log *slog.Logger
+	// BeforeClose, when set, runs in Shutdown after the normalize
+	// workers stop and before the catalog closes, so a background
+	// reader of the catalog can stop first.
+	BeforeClose func()
 
 	// limits, when set, replaces defaultDeadlines. Tests shorten it.
 	limits *deadlines
 	// active counts requests in a handler. Shutdown waits for it.
 	active sync.WaitGroup
+
+	// onPublished is set by OnPublished. Workers read it, and they
+	// may already be running when it is set.
+	onPublished atomic.Pointer[func(string)]
 
 	norm        *normalizeQueue
 	normalizeWG sync.WaitGroup
@@ -229,6 +238,9 @@ func (s *Server) Shutdown(ctx context.Context) (left int, err error) {
 		_ = s.WaitNormalized(ctx)
 		left = s.norm.shutdown()
 		s.normalizeWG.Wait()
+	}
+	if s.BeforeClose != nil {
+		s.BeforeClose()
 	}
 	err = s.Catalog.Close()
 	s.Catalog = nil

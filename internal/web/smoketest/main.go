@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
@@ -96,7 +98,16 @@ func run() error {
 	defer ln.Close()
 	origin := "http://" + ln.Addr().String()
 	cfg := webconfig.Config{BaseURL: origin, OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lampi-smoke", RoleMap: map[string]string{"readers": "viewer"}}}
-	lake.Web, err = web.New(cfg, lake.Catalog, lake.Normalized, idp.Client())
+	reader := recall.NewReader(lake.Catalog, lake.Normalized)
+	index, err := recall.OpenIndex(filepath.Join(dir, recall.IndexFile), reader)
+	if err != nil {
+		return err
+	}
+	defer index.Close()
+	if err := index.Pass(ctx); err != nil {
+		return err
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, idp.Client())
 	if err != nil {
 		return err
 	}

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -219,39 +220,51 @@ type cursor struct {
 	Off   int64  `json:"o"`
 }
 
-func (r *Reader) sign(c cursor) string {
-	b, _ := json.Marshal(c)
-	mac := hmac.New(sha256.New, r.key)
-	mac.Write(b)
-	return base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-}
+func (r *Reader) sign(c cursor) string { return r.signBody(c) }
 
 func (r *Reader) verify(s string) (cursor, error) {
 	var c cursor
-	if len(s) > 2048 {
-		return c, ErrInvalid
-	}
-	i := bytes.IndexByte([]byte(s), '.')
-	if i < 0 {
-		return c, ErrInvalid
-	}
-	body, err := base64.RawURLEncoding.DecodeString(s[:i])
+	body, err := r.verifySigned(s)
 	if err != nil {
-		return c, ErrInvalid
-	}
-	sum, err := base64.RawURLEncoding.DecodeString(s[i+1:])
-	if err != nil {
-		return c, ErrInvalid
-	}
-	mac := hmac.New(sha256.New, r.key)
-	mac.Write(body)
-	if !hmac.Equal(sum, mac.Sum(nil)) {
-		return c, ErrInvalid
+		return c, err
 	}
 	if json.Unmarshal(body, &c) != nil || c.V != 1 {
 		return c, ErrInvalid
 	}
 	return c, nil
+}
+
+// signBody encodes v as JSON with an HMAC under the process key.
+func (r *Reader) signBody(v any) string {
+	b, _ := json.Marshal(v)
+	mac := hmac.New(sha256.New, r.key)
+	mac.Write(b)
+	return base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// verifySigned returns the JSON body of a token signBody made.
+func (r *Reader) verifySigned(s string) ([]byte, error) {
+	if len(s) > 2048 {
+		return nil, ErrInvalid
+	}
+	i := strings.IndexByte(s, '.')
+	if i < 0 {
+		return nil, ErrInvalid
+	}
+	body, err := base64.RawURLEncoding.DecodeString(s[:i])
+	if err != nil {
+		return nil, ErrInvalid
+	}
+	sum, err := base64.RawURLEncoding.DecodeString(s[i+1:])
+	if err != nil {
+		return nil, ErrInvalid
+	}
+	mac := hmac.New(sha256.New, r.key)
+	mac.Write(body)
+	if !hmac.Equal(sum, mac.Sum(nil)) {
+		return nil, ErrInvalid
+	}
+	return body, nil
 }
 
 // Events reads one page of uid's published events.
