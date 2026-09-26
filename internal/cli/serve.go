@@ -18,6 +18,7 @@ import (
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
@@ -34,11 +35,16 @@ usage:
                                  re-hash every stored object
   terva-lampi serve purge --session UID [--data DIR] [--yes]
                                  remove one session and its blobs
+  terva-lampi serve identity [--data DIR]
+                                 print the lake id and key fingerprints
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
 counts. GET /v1/conflicts lists divergent_copy artifacts. Both use the
-same auth as the other /v1 routes. /v1/* requires
+same auth as the other /v1 routes. GET /.well-known/terva-lampi/keys is
+open: it returns the lake id and public keys, signed over the caller's
+nonce, and no catalog data. It shares a rate limit with the other open
+routes. /v1/* requires
 a device token when --token-file is set. With no token file the
 process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.
@@ -63,7 +69,8 @@ token is not an argument. SIGHUP reads the token file again. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
 
-The lake directory holds cas/ (sha256 blobs), catalog.db (SQLite),
+The lake directory holds identity.json (the lake id and private
+signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
 normalized/ (one JSONL file per session), and parquet/ (date and
 harness partitions). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
@@ -101,6 +108,8 @@ func runServe(env Env, args []string) error {
 			return runServeFsck(env, args[1:])
 		case "purge":
 			return runServePurge(env, args[1:])
+		case "identity":
+			return runServeIdentity(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, webConfigFile string
@@ -156,6 +165,11 @@ func runServe(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	created, err := lake.EnsureIdentity(data)
+	if err != nil {
+		lake.Close()
+		return err
+	}
 	sweepCAS(env, lake.CAS, time.Now())
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
@@ -174,6 +188,11 @@ func runServe(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: listening on %s\n", ln.Addr())
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: data %s\n", data)
+	if created {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: made identity %s; back up %s\n", lake.Identity.LakeID, identity.FileName)
+	} else {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: identity %s\n", lake.Identity.LakeID)
+	}
 	if devices == nil || devices.Empty() {
 		fmt.Fprintln(env.stderr(), "terva-lampi serve: no device token configured; accepting unauthenticated requests")
 	} else if devices.Len() == 1 {
