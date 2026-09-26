@@ -215,3 +215,41 @@ func TestFullMuxSeparatesDeviceAndBrowser(t *testing.T) {
 		t.Fatal("device grants browser access")
 	}
 }
+
+func TestBrowserCanReplaceAttemptAtCapacity(t *testing.T) {
+	b, _, h := browserFixture(t)
+	first := request(h, "GET", "https://lake.example"+LoginPath)
+	if first.Code != 303 {
+		t.Fatalf("first login: %d", first.Code)
+	}
+	old := first.Result().Cookies()[0]
+	for len(b.attempts) < maxEntries {
+		b.attempts[randomID()] = attempt{expires: time.Now().Add(time.Hour)}
+	}
+	for _, cookies := range [][]*http.Cookie{nil, {{Name: old.Name, Value: randomID()}}} {
+		if w := request(h, "GET", "https://lake.example"+LoginPath, cookies...); w.Code != 503 {
+			t.Fatalf("unowned attempt bypassed cap: %d", w.Code)
+		}
+	}
+	replaced := request(h, "GET", "https://lake.example"+LoginPath, old)
+	if replaced.Code != 303 {
+		t.Fatalf("owned attempt replacement: %d", replaced.Code)
+	}
+	next := replaced.Result().Cookies()[0]
+	if next.Value == old.Value {
+		t.Fatal("attempt identifier reused")
+	}
+	if len(b.attempts) != maxEntries {
+		t.Fatalf("attempt count: %d", len(b.attempts))
+	}
+	if _, ok := b.attempts[old.Value]; ok {
+		t.Fatal("old attempt retained")
+	}
+	if _, ok := b.attempts[next.Value]; !ok {
+		t.Fatal("new attempt missing")
+	}
+	// A concurrent restart that still carries the old cookie must not exceed cap.
+	if w := request(h, "GET", "https://lake.example"+LoginPath, old); w.Code != 503 {
+		t.Fatalf("stale cookie bypassed cap: %d", w.Code)
+	}
+}

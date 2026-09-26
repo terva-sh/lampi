@@ -23,12 +23,12 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:40:58Z
-updated_at: 2026-09-26T15:00:59Z
+updated_at: 2026-09-26T17:23:41Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
 updated_by:
-  id: agent:codex/web-ui-release-a
+  id: agent:codex/deploy
   name: ""
 extensions: {}
 ---
@@ -58,6 +58,12 @@ Follow docs/web-ui-plan.md, including pinned sibling sources and release A defau
 ## Implementation plan
 
 Implement bounded session/attempt stores with injectable clocks and sweeping. Validate local return paths including encoded redirects. Set Secure/HttpOnly/SameSite=Lax cookies according to configured public origin. Protect logout against cross-origin requests and revoke the server record. Guard page requests with login redirect and JSON API requests with 401; mapped-role failures are 403. Test through mux composition, including swapped-browser callbacks, replay, expired attempts, invalid cookies, session caps, restart invalidation and hard expiry under repeated polling.
+
+## Notes
+
+**agent:codex/deploy** at 2026-09-26T17:23:41Z
+
+Foundation PR #5 review 8409cd63-179c-414f-b5ba-05d440d19209 on 62d5058973b2ebbfd68fb55783d38f093b3909c1 found a medium login-capacity bug: an existing browser could not replace its abandoned attempt when all 1,024 slots were occupied. Fixed both locked capacity checks to account for ownership, preserving the old entry until provider setup succeeds and rechecking ownership after that call. Regression covers owned replacement at capacity, unknown/missing cookie refusal, stale-cookie refusal and unchanged capacity. Focused go test -race ./internal/webauth passed. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/5#issuecomment-14352
 
 ## Summary
 

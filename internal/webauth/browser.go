@@ -106,9 +106,14 @@ func authError(w http.ResponseWriter, status int, message string) {
 	_ = errorPage.Execute(w, message)
 }
 func (b *Browser) start(w http.ResponseWriter, r *http.Request) {
+	var oldID string
+	if old, err := r.Cookie(b.cookieName("attempt")); err == nil {
+		oldID = old.Value
+	}
 	b.mu.Lock()
 	b.sweep()
-	full := len(b.attempts) >= maxEntries
+	_, replacing := b.attempts[oldID]
+	full := len(b.attempts) >= maxEntries && !replacing
 	b.mu.Unlock()
 	if full {
 		authError(w, 503, "Too many sign-in attempts. Try again later.")
@@ -123,15 +128,14 @@ func (b *Browser) start(w http.ResponseWriter, r *http.Request) {
 	id := randomID()
 	b.mu.Lock()
 	b.sweep()
-	if len(b.attempts) >= maxEntries {
+	_, replacing = b.attempts[oldID]
+	if len(b.attempts) >= maxEntries && !replacing {
 		b.mu.Unlock()
 		authError(w, 503, "Too many sign-in attempts. Try again later.")
 		return
 	}
 	// Starting again from one browser replaces its abandoned attempt.
-	if old, err := r.Cookie(b.cookieName("attempt")); err == nil {
-		delete(b.attempts, old.Value)
-	}
+	delete(b.attempts, oldID)
 	b.attempts[id] = a
 	b.mu.Unlock()
 	b.cookie(w, "attempt", id, int(attemptTTL.Seconds()))
