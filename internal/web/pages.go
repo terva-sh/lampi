@@ -2,14 +2,17 @@ package web
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/webauth"
 )
 
@@ -31,7 +34,29 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return s
 	},
-	"sessionURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
+	"sessionURL":    func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
+	"transcriptURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) + "/transcript" },
+	"fromURL": func(uid string, from int64) string {
+		return "/sessions/" + url.PathEscape(uid) + "/transcript?from=" + strconv.FormatInt(from, 10)
+	},
+	"cursorURL": func(uid, cursor string) string {
+		return "/sessions/" + url.PathEscape(uid) + "/transcript?cursor=" + url.QueryEscape(cursor)
+	},
+	"str": func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	},
+	"count": func(p *int) string {
+		if p == nil {
+			return "unknown"
+		}
+		return fmt.Sprint(*p)
+	},
+	"deref":    func(p *bool) bool { return p != nil && *p },
+	"derefInt": func(p *int64) int64 { return *p },
+	"kib":      func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
 	"collectionURL": func(uid, kind string) string {
 		return "/sessions/" + url.PathEscape(uid) + "?collection=" + url.QueryEscape(kind)
 	},
@@ -46,20 +71,32 @@ type pageData struct {
 	Filters                    catalog.PageRequest
 	Collection, NextURL, AsOf  string
 	Poll                       bool
+	Transcript                 recall.EventPage
+	// Unavailable names why a transcript cannot be shown: a
+	// normalization state, "missing", or "stale" for a link to a
+	// generation that is no longer published.
+	Unavailable string
+	StaleGen    int64
+	Target      int64
+	HasTarget   bool
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
 	m.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(assets)))
 }
 func render(w http.ResponseWriter, r *http.Request, d pageData) {
+	renderStatus(w, r, d, http.StatusOK)
+}
+func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int) {
 	id, csrf := webauth.Current(r)
 	d.Display = id.Display
 	d.CSRF = csrf
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	_ = pages.ExecuteTemplate(w, "layout", d)
 }
 func nextURL(r *http.Request, cursor string) string {
@@ -151,3 +188,54 @@ func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor)})
 }
+
+// transcriptPage shows one page of a session's published events. at
+// is a deep link target: the page starts a few events before it and
+// marks it. A gen that is no longer published is reported, not
+// replaced with whatever now sits at that position.
+func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	req, err := parseEvents(q, "at")
+	if err != nil {
+		pageError(w, err)
+		return
+	}
+	d := pageData{Title: "Transcript", View: "transcript"}
+	if q.Has("at") {
+		at, err := strconv.ParseInt(q.Get("at"), 10, 64)
+		if err != nil || at < 0 || q.Has("cursor") {
+			pageError(w, recall.ErrInvalid)
+			return
+		}
+		d.Target, d.HasTarget = at, true
+		if !q.Has("from") {
+			req.From = max(0, at-targetLead)
+		}
+	}
+	ctx, cancel := readContext(r)
+	defer cancel()
+	uid := r.PathValue("uid")
+	d.Session, err = s.catalog.DashboardSession(ctx, uid)
+	if err != nil {
+		pageError(w, err)
+		return
+	}
+	d.Transcript, err = s.events.Events(ctx, uid, req)
+	var unavailable recall.UnavailableError
+	switch {
+	case err == nil:
+		d.AsOf = d.Transcript.AsOf
+		render(w, r, d)
+	case errors.As(err, &unavailable):
+		d.Unavailable = unavailable.State
+		renderStatus(w, r, d, http.StatusConflict)
+	case errors.Is(err, recall.ErrGenerationChanged):
+		d.Unavailable, d.StaleGen = "stale", req.Gen
+		renderStatus(w, r, d, http.StatusConflict)
+	default:
+		pageError(w, err)
+	}
+}
+
+// targetLead is how many events a deep link shows before its target.
+const targetLead = 5

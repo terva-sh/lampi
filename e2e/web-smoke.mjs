@@ -54,6 +54,29 @@ try {
   await page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Conflicts', exact: true}).click();
   assert.ok((await page.locator('tbody tr').count()) > 0);
   assert.match(await page.locator('tbody').innerText(), /Head retained/);
+  // Transcript viewer: a ready session, literal text, bounds, paging and deep links.
+  await page.goto(live.url + '/sessions?state=ready');
+  await page.locator('.session-name').first().click();
+  await page.getByRole('link', {name: 'Read transcript →'}).click();
+  await page.getByRole('heading', {name: 'Transcript', exact: true}).waitFor();
+  assert.equal(await page.locator('.event').count(), 100);
+  assert.equal(await page.evaluate(() => window.owned), undefined);
+  assert.ok(await page.locator('.badge.failed', {hasText: 'tool error'}).count() > 0, 'tool error badge');
+  await page.getByText(/Showing the first 32 KiB of/).waitFor();
+  await page.getByText('Encrypted content is stored opaque. It is not decrypted or shown.').waitFor();
+  assert.equal(await page.getByText('c3ludGhldGljLWNpcGhlcnRleHQ=').count(), 0);
+  await page.screenshot({path: join(artifacts, 'transcript-desktop.png'), fullPage: false});
+  const transcriptURL = page.url();
+  await page.getByRole('link', {name: 'Later events →'}).first().click();
+  assert.equal(await page.locator('.event').first().getAttribute('id'), 'e-100');
+  await page.getByRole('link', {name: 'Link to event 120'}).click();
+  assert.match(page.url(), /[?&]gen=\d+&at=120#e-120$|[?&]at=120&gen=\d+#e-120$/);
+  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'e-120');
+  assert.equal(await page.locator('.event.target').getAttribute('id'), 'e-120');
+  await page.setViewportSize({width: 390, height: 844});
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile transcript overflows');
+  await page.screenshot({path: join(artifacts, 'transcript-mobile.png'), fullPage: false});
+  await page.setViewportSize({width: 1440, height: 1100});
   await page.goto(live.url);
   await page.clock.install();
   let refreshes = 0;
@@ -110,6 +133,10 @@ try {
   await basic.getByLabel('Harness', {exact: true}).selectOption('claude');
   await basic.getByRole('button', {name: 'Apply filters'}).click();
   assert.equal(await basic.locator('tbody tr').count(), 21);
+  await basic.goto(transcriptURL);
+  assert.equal(await basic.locator('.event').count(), 100);
+  await basic.getByRole('link', {name: 'Later events →'}).first().click();
+  assert.equal(await basic.locator('.event').first().getAttribute('id'), 'e-100');
   const denied = await fixture(['--deny']);
   const denyPage = await context.newPage(); await denyPage.goto(denied.url);
   await denyPage.getByRole('heading', {name: /no lake viewer access/}).waitFor();
@@ -117,7 +144,7 @@ try {
   const emptyPage = await context.newPage(); await emptyPage.goto(empty.url);
   await emptyPage.getByRole('heading', {name: 'No sessions to show'}).waitFor();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));

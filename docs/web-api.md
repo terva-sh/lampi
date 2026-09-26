@@ -1,4 +1,4 @@
-# Browser metadata API
+# Browser API
 
 The optional browser interface is enabled by `serve --web-config PATH`. It
 requires OIDC viewer membership and a browser session. Device bearer tokens
@@ -21,6 +21,7 @@ raw manifests never appear in these responses.
 | `/sessions/{uid}/provenance` | Machine/digest/path observation page |
 | `/sessions/{uid}/conflicts` | Divergent artifact page |
 | `/conflicts` | Divergent artifacts across sessions |
+| `/sessions/{uid}/events` | One page of the session's published normalized events; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
 arrays. `limit` defaults to 50 and accepts 1–200. `cursor` is opaque, bound to the
@@ -51,5 +52,58 @@ integrity probe. Later content readers must still detect missing files.
 
 The overview counts catalog artifact versions, not unique blobs or disk bytes.
 Contributing machines are not online machines. Head update timestamps do not
-measure upload throughput. No endpoint returns transcript bodies or initiates
-normalization, export, deletion, merge, or ingestion.
+measure upload throughput. Only the events route below returns transcript text.
+No endpoint initiates normalization, export, deletion, merge, or ingestion.
+
+## Transcript events
+
+`/sessions/{uid}/events` reads the published normalized JSONL of one session.
+It never starts normalization and never reads raw blobs. The reader lives in
+`internal/recall`, the query layer the planned MCP server will share, so both
+return the same shape.
+
+Parameters, each at most once:
+
+| Parameter | Meaning |
+|---|---|
+| `from` | First event position, counted from 0. Default 0. A position past the end returns an empty final page. |
+| `limit` | Events per page, 1–200, default 100. |
+| `cursor` | Continues from `next_cursor`. `from` is ignored when it is set. |
+| `gen` | Pins the read to one generation. Generation 0 is valid. |
+
+A page is `{session_uid, generation, head_sha256, from, items, next_cursor,
+prev_from, end, as_of}`. `prev_from` is the `from` of the previous page, or null
+on the first page. `end` is true when the page reaches the last event; then
+`next_cursor` is empty.
+
+Each item is `{position, link, content_bytes, content_truncated, extra_omitted,
+opaque_content, oversized, unreadable, event}`. `event` is the normalized event
+(schema version 1) with three reductions, each flagged:
+
+- `content_text` longer than 32 KiB is cut at a rune boundary.
+  `content_bytes` is the full length and `content_truncated` is true.
+- Keys under `extra` that name encrypted, cipher or sealed values are removed.
+  They are never decrypted. `opaque_content` is true.
+- An `extra` object that still encodes to more than 16 KiB is dropped.
+  `extra_omitted` is true.
+
+A line longer than 16 MiB is `oversized` with a null event. A line that is not
+JSON is `unreadable`. Both keep their position. A page stops at the limit or
+once its items reach 1 MiB, whichever comes first, and always holds at least one
+event. `link` is the viewer URL of that event in that generation.
+
+Every page holds one generation. The reader reads the publication state, opens
+the file, and reads the state again. A worker bumps the generation before it
+replaces the file, so an unchanged state proves which generation the open file
+holds. Cursors are signed with a key made at process start, and bound to the
+session, generation, head and file identity. A restart invalidates them.
+
+| Status | Error | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | Bad parameter or cursor |
+| 404 | `not_found` | Unknown session |
+| 409 | `transcript_unavailable` | `state` is `pending`, `failed`, `unknown`, or `missing` (catalog says ready, file absent) |
+| 409 | `generation_changed` | `gen` or the cursor names a generation that is no longer published; reload |
+
+The events route is an authenticated read of transcript text with the viewer role.
+Text is returned exactly as stored. The web page renders it as plain text.

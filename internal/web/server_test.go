@@ -35,7 +35,7 @@ func fixture(t *testing.T) (*api.Server, *testidp.Server, http.Handler, *bytes.B
 	logs := &bytes.Buffer{}
 	lake.Log = slog.New(slog.NewTextHandler(logs, nil))
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"readers": "viewer"}}}
-	lake.Web, err = New(cfg, lake.Catalog, idp.Client(), lake.Log)
+	lake.Web, err = New(cfg, lake.Catalog, lake.Normalized, idp.Client(), lake.Log)
 	if err != nil {
 		t.Fatal(err)
 	}

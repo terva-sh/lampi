@@ -48,3 +48,9 @@
   document.addEventListener('visibilitychange', schedule);
   schedule();
 })();
+// A deep link names one event. Move keyboard focus there as well as
+// the scroll position, so the next Tab continues from it.
+(() => {
+  const target = document.querySelector('.event.target') || (location.hash.startsWith('#e-') && document.getElementById(location.hash.slice(1)));
+  if (target) target.focus({preventScroll: false});
+})();

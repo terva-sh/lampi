@@ -135,8 +135,17 @@ configuration bypass.
 Overview and the first session page refresh every 25 seconds while visible.
 Other pages stay still. Refresh pauses on failures, expired login, hidden tabs or
 keyboard focus inside the updated table. Manual refresh retries. Forms, navigation
-and tables also work without JavaScript. Raw transcripts, export and administration
-are absent from this release.
+and tables also work without JavaScript.
+
+A session whose normalization is ready links to its transcript at
+`/sessions/{uid}/transcript`. The page shows 100 normalized events at a time in
+recorded order, as plain text, with earlier and later pages. Every event has a
+link that names its generation and position; opening one shows the page around
+it and marks it. A link to a generation that is no longer published says so.
+It does not show whatever now sits at that position. Long text, large `extra`
+objects and encrypted values are reduced as the
+[browser API contract](web-api.md#transcript-events) describes. Raw blobs, export
+and administration are absent.
 
 ## Validation, backup and rollout
 

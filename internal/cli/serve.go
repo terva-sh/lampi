@@ -174,7 +174,7 @@ func runServe(env Env, args []string) error {
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
-		lake.Web, err = web.New(*webCfg, lake.Catalog, nil, lake.Log)
+		lake.Web, err = web.New(*webCfg, lake.Catalog, lake.Normalized, nil, lake.Log)
 		if err != nil {
 			lake.Close()
 			return err
