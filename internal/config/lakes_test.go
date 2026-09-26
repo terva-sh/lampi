@@ -217,3 +217,15 @@ func TestLakeConfigErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestFlagsOverrideTheOnlyLakeOfAMap(t *testing.T) {
+	f := parseFile(t, `{"lakes":{"work":{"server":"https://work.example"}}}`)
+	lakes, err := ResolveLakes(f, envOf(baseEnv()), LakeFlags{Server: "https://other.example"})
+	if err != nil || lakeNames(lakes) != "work" || lakes[0].Server != (Setting{"https://other.example", SourceFlag}) {
+		t.Fatalf("%v %+v", err, lakes)
+	}
+	lakes, err = ResolveLakes(f, envOf(baseEnv()), LakeFlags{TokenFile: "/t/x"})
+	if err != nil || lakeNames(lakes) != "work" || lakes[0].TokenFile != (Setting{"/t/x", SourceFlag}) {
+		t.Fatalf("%v %+v", err, lakes)
+	}
+}

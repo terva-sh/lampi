@@ -86,8 +86,37 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 	if flags.Lake != "" && !ValidLakeName(flags.Lake) {
 		return nil, fmt.Errorf("--lake %q is not a lake name", flags.Lake)
 	}
-	// Flags apply to the lake --lake names, or to the default lake.
+	// Which lakes exist does not depend on the flags: a flag overrides a
+	// lake, it does not add one. The legacy default lake exists with no
+	// map at all, or when the top-level fields or the environment name it.
+	legacy := !explicitDefault && (len(file.Lakes) == 0 ||
+		file.Server != "" || file.TokenFile != "" ||
+		getenv("LAMPI_SERVER") != "" || getenv("LAMPI_TOKEN_FILE") != "")
+	count := len(file.Lakes)
+	if legacy {
+		count++
+	}
+	// Flags apply to the lake --lake names, or to the only lake, and need
+	// --lake when there are several.
 	target := flags.Lake
+	if target == "" && (flags.Server != "" || flags.TokenFile != "") {
+		if count > 1 {
+			names := []string{}
+			if legacy {
+				names = append(names, DefaultLake)
+			}
+			for name := range file.Lakes {
+				names = append(names, name)
+			}
+			sort.Strings(names[boolInt(legacy):])
+			return nil, fmt.Errorf("--server and --token-file apply to one lake and %d are configured (%s); pass --lake", count, strings.Join(names, ", "))
+		}
+		if !legacy {
+			for name := range file.Lakes {
+				target = name
+			}
+		}
+	}
 	if target == "" {
 		target = DefaultLake
 	}
@@ -99,10 +128,6 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 	}
 
 	var lakes []Lake
-	legacy := !explicitDefault && (len(file.Lakes) == 0 ||
-		file.Server != "" || file.TokenFile != "" ||
-		getenv("LAMPI_SERVER") != "" || getenv("LAMPI_TOKEN_FILE") != "" ||
-		(target == DefaultLake && (flags.Server != "" || flags.TokenFile != "")))
 	if legacy {
 		f := flagFor(DefaultLake)
 		tok, err := ResolveTokenFile(file, getenv, f.TokenFile)
@@ -168,10 +193,14 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 		}
 		return nil, fmt.Errorf("no lake named %s; configured: %s", flags.Lake, lakeNames(lakes))
 	}
-	if (flags.Server != "" || flags.TokenFile != "") && len(lakes) > 1 {
-		return nil, fmt.Errorf("--server and --token-file apply to one lake and %d are configured (%s); pass --lake", len(lakes), lakeNames(lakes))
-	}
 	return lakes, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func checkLakeEntry(name string, lc LakeConfig) error {
