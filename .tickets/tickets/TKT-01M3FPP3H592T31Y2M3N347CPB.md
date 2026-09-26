@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-09-26T21:14:01Z
+updated_at: 2026-09-26T21:18:27Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -110,3 +110,7 @@ Both MCP tickets are draft. Promote TKT-01M3FPWCH4 after choosing between OIDC f
 - recall.EventLink
 
 cli.startWeb shows how the index is started and stopped (OnPublished, BeforeClose). An MCP server needs the same wiring whether or not web is enabled.
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T21:18:27Z
+
+Pre-PR review, 2026-09-26: an independent read-only review of the branch diff by a second model (Sonnet) found no correctness or security defects. It traced generation pinning against the worker, cursor signing, index flip and read-time re-check, route guards, escaping, shutdown ordering and lake.js DOM use. It noted two low items. (1) Search looks up the session summary once per distinct session on a page: at most 200 small indexed queries, accepted. (2) strings.Title in the existing details page predates this branch and is untouched. The reviewer left EnqueueNormalize atomicity unverified. Checked: the generation bump and the job-row insert commit in one transaction (internal/catalog/normalize_queue.go), which the pinning argument relies on.
