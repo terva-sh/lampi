@@ -57,7 +57,7 @@ func TestProviderRefusesInvalidIdentity(t *testing.T) {
 	}
 }
 func TestProviderGroupsAndAvailability(t *testing.T) {
-	for _, g := range []any{[]string{"other"}, []any{"readers", 12}, nil} {
+	for _, g := range []any{[]string{"other"}, []any{"readers", 12}, []any{"readers", nil}, nil} {
 		s := testidp.New()
 		s.Groups = g
 		p, _ := NewProvider(providerConfig(s), s.Client())

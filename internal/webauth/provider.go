@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -157,7 +158,7 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 		return Identity{}, ErrIdentity
 	}
 	id, err := d.verifier.Verify(ctx, raw)
-	if err != nil || id.Subject == "" || subtle.ConstantTimeCompare([]byte(id.Nonce), []byte(nonce)) != 1 {
+	if err != nil || strings.TrimSpace(id.Subject) == "" || subtle.ConstantTimeCompare([]byte(id.Nonce), []byte(nonce)) != 1 {
 		return Identity{}, ErrIdentity
 	}
 	var claims map[string]json.RawMessage
@@ -180,13 +181,25 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 	return out, nil
 }
 func groups(raw json.RawMessage) []string {
-	var one string
-	if json.Unmarshal(raw, &one) == nil && one != "" {
-		return []string{one}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
 	}
-	var many []string
-	if json.Unmarshal(raw, &many) == nil {
-		return many
+	switch v := value.(type) {
+	case string:
+		if v != "" {
+			return []string{v}
+		}
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, entry := range v {
+			group, ok := entry.(string)
+			if !ok || group == "" {
+				return nil
+			}
+			out = append(out, group)
+		}
+		return out
 	}
 	return nil
 }

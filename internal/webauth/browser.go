@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,6 +39,8 @@ type viewerKey struct{}
 
 // Browser owns bounded, process-local sessions. A restart revokes all of them.
 type Browser struct {
+	// Logger is optional and must be set before serving requests.
+	Logger   *slog.Logger
 	cfg      webconfig.Config
 	provider *Provider
 	mu       sync.Mutex
@@ -116,13 +119,13 @@ func (b *Browser) start(w http.ResponseWriter, r *http.Request) {
 	full := len(b.attempts) >= maxEntries && !replacing
 	b.mu.Unlock()
 	if full {
-		authError(w, 503, "Too many sign-in attempts. Try again later.")
+		b.refuse(w, r, 503, "Too many sign-in attempts. Try again later.")
 		return
 	}
 	a := attempt{state: randomID(), nonce: randomID(), verifier: randomID(), next: safeReturn(r.URL.Query().Get("next")), expires: b.now().Add(attemptTTL)}
 	to, err := b.provider.AuthURL(r.Context(), a.state, a.nonce, a.verifier)
 	if err != nil {
-		authError(w, 503, "The identity provider is unavailable. Try again later.")
+		b.refuse(w, r, 503, "The identity provider is unavailable. Try again later.")
 		return
 	}
 	id := randomID()
@@ -131,7 +134,7 @@ func (b *Browser) start(w http.ResponseWriter, r *http.Request) {
 	_, replacing = b.attempts[oldID]
 	if len(b.attempts) >= maxEntries && !replacing {
 		b.mu.Unlock()
-		authError(w, 503, "Too many sign-in attempts. Try again later.")
+		b.refuse(w, r, 503, "Too many sign-in attempts. Try again later.")
 		return
 	}
 	// Starting again from one browser replaces its abandoned attempt.
@@ -145,7 +148,7 @@ func (b *Browser) callback(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(b.cookieName("attempt"))
 	b.cookie(w, "attempt", "", -1)
 	if err != nil {
-		authError(w, 403, "Sign-in could not be completed.")
+		b.refuse(w, r, 403, "Sign-in could not be completed.")
 		return
 	}
 	b.mu.Lock()
@@ -154,16 +157,16 @@ func (b *Browser) callback(w http.ResponseWriter, r *http.Request) {
 	b.mu.Unlock()
 	q := r.URL.Query()
 	if !ok || !a.expires.After(b.now()) || subtle.ConstantTimeCompare([]byte(a.state), []byte(q.Get("state"))) != 1 || q.Get("error") != "" {
-		authError(w, 403, "Sign-in could not be completed.")
+		b.refuse(w, r, 403, "Sign-in could not be completed.")
 		return
 	}
 	id, err := b.provider.Exchange(r.Context(), q.Get("code"), a.nonce, a.verifier)
 	if err != nil {
-		authError(w, 403, "Sign-in could not be completed.")
+		b.refuse(w, r, 403, "Sign-in could not be completed.")
 		return
 	}
 	if !id.Viewer {
-		authError(w, 403, "Your account has no lake viewer access. Ask the operator to map your group.")
+		b.refuse(w, r, 403, "Your account has no lake viewer access. Ask the operator to map your group.")
 		return
 	}
 	now := b.now()
@@ -176,7 +179,7 @@ func (b *Browser) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(b.sessions) >= maxEntries {
 		b.mu.Unlock()
-		authError(w, 503, "Too many active sessions. Try again later.")
+		b.refuse(w, r, 503, "Too many active sessions. Try again later.")
 		return
 	}
 	b.sessions[key] = s
@@ -209,7 +212,7 @@ func (b *Browser) Guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s, ok := b.lookup(r)
 		if !ok {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("X-Lampi-Refresh") == "1" {
 				jsonError(w, 401, "not_authenticated")
 				return
 			}
@@ -217,10 +220,10 @@ func (b *Browser) Guard(next http.Handler) http.Handler {
 			return
 		}
 		if !s.Identity.Viewer {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("X-Lampi-Refresh") == "1" {
 				jsonError(w, 403, "not_authorized")
 			} else {
-				authError(w, 403, "Your account has no lake viewer access.")
+				b.refuse(w, r, 403, "Your account has no lake viewer access.")
 			}
 			return
 		}
@@ -235,12 +238,12 @@ func jsonError(w http.ResponseWriter, status int, code string) {
 func (b *Browser) logout(w http.ResponseWriter, r *http.Request) {
 	s, ok := b.lookup(r)
 	if !ok {
-		authError(w, 401, "Your session has ended.")
+		b.refuse(w, r, 401, "Your session has ended.")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if r.ParseForm() != nil || (r.Header.Get("Origin") != "" && r.Header.Get("Origin") != b.cfg.BaseURL) || r.Header.Get("Sec-Fetch-Site") == "cross-site" || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("csrf")), []byte(s.CSRF)) != 1 {
-		authError(w, 403, "The sign-out request could not be verified.")
+		b.refuse(w, r, 403, "The sign-out request could not be verified.")
 		return
 	}
 	c, _ := r.Cookie(b.cookieName("session"))
@@ -276,4 +279,12 @@ func safeReturn(raw string) string {
 		decoded = next
 	}
 	return "/"
+}
+
+// All reasons passed here are fixed categories, never provider errors or input.
+func (b *Browser) refuse(w http.ResponseWriter, r *http.Request, status int, reason string) {
+	if b.Logger != nil {
+		b.Logger.WarnContext(r.Context(), "browser auth refused", "status", status, "reason", reason)
+	}
+	authError(w, status, reason)
 }

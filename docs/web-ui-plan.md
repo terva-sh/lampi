@@ -1,6 +1,6 @@
 # Web dashboard and retrieval plan
 
-Status: release A promoted and implementation in progress; releases B/C remain draft. The owner approved a
+Status: release A implemented and validated; releases B/C remain draft. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -29,7 +29,7 @@ HTTPS identity provider without production credentials or a live host.
 ingestion. `internal/catalog` stores sessions, artifact versions, provenance,
 project links, normalization generations and queued jobs. Normalizers produce
 JSONL and Parquet for six harnesses. `internal/cli/export.go` implements local
-events and allowlisted ShareGPT/trajectory exports. No browser UI or OIDC exists.
+events and allowlisted ShareGPT/trajectory exports. At planning time no browser UI or OIDC existed; release A now implements them.
 
 The session `ingested_at` advances on a head change. Provenance records the
 first observation of a session/machine/digest tuple, not every upload attempt.
@@ -178,11 +178,11 @@ RFC3339Nano strings have different fractional precision. Lists are live views:
 rows can move on ingest; refresh restarts pagination. Detail returns `404` for
 an unknown UID. Every child collection must also be bounded.
 
-Add an explicit nullable published normalization generation. Existing rows start
+Record an explicit nullable published normalization generation and head digest. Existing rows start
 unknown unless safely reconciled; an empty error must never imply success.
 State precedence: queued job (including running/retrying) is `pending`; a
-recorded terminal failure is `failed`; published generation equal to current
-generation is `ready`; otherwise `unknown`. Publication records success only
+recorded terminal failure is `failed`; published generation and head equal to the current
+generation and head is `ready`; otherwise `unknown`. Publication records success only
 after the matching generation's derived files are published. A superseded worker
 must not mark a newer generation ready. Restart, failure, purge and migration
 must preserve these meanings. Later content reads still detect missing files.
@@ -283,12 +283,12 @@ dashboard completion is not proof that those checks passed.
 
 ## Ticket map
 
-Ticket links refer to the draft files as filed; use `git ticket show ID` after
-status changes move a file. All acceptance criteria start unchecked.
+Ticket links track the current files; use `git ticket show ID` after future
+status changes move a file. Release A and its eight children are done.
 
 ### Release A
 
-Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only lake visibility](../.tickets/tickets/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md).
+Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only lake visibility](../.tickets/done/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md).
 
 | Ticket | Work |
 |---|---|
@@ -297,9 +297,9 @@ Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only 
 | [TKT-01M3F2K1NMEEXDZSA3J140B075](../.tickets/done/TKT-01M3F2K1NMEEXDZSA3J140B075.md) | OIDC: add browser sessions, login routes and request guards |
 | [TKT-01M3F2K1RTWH93KB9DSMWR21DQ](../.tickets/done/TKT-01M3F2K1RTWH93KB9DSMWR21DQ.md) | Catalog: track published normalization generations explicitly |
 | [TKT-01M3F2K1ZDTPZRY5J6FKW451Q6](../.tickets/done/TKT-01M3F2K1ZDTPZRY5J6FKW451Q6.md) | Catalog: add bounded dashboard queries and stable pagination |
-| [TKT-01M3F2K241CAKSX5QM5NGP24RW](../.tickets/tickets/TKT-01M3F2K241CAKSX5QM5NGP24RW.md) | Web API: expose authorized metadata reads through the lake mux |
-| [TKT-01M3F2K27WTA90MB3K2M2AVZ6H](../.tickets/tickets/TKT-01M3F2K27WTA90MB3K2M2AVZ6H.md) | Web UI: build the lake overview and metadata browser |
-| [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/tickets/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
+| [TKT-01M3F2K241CAKSX5QM5NGP24RW](../.tickets/done/TKT-01M3F2K241CAKSX5QM5NGP24RW.md) | Web API: expose authorized metadata reads through the lake mux |
+| [TKT-01M3F2K27WTA90MB3K2M2AVZ6H](../.tickets/done/TKT-01M3F2K27WTA90MB3K2M2AVZ6H.md) | Web UI: build the lake overview and metadata browser |
+| [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/done/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
 
 
 ### Release B

@@ -244,7 +244,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
 	mux.HandleFunc("POST /v1/manifests", s.authed(s.manifest))
 	if s.Web != nil {
-		mux.Handle("/", s.Web)
+		// Dispatch reserved paths to the unchanged ingest mux. Registering a
+		// catch-all there would change its method-not-allowed answers.
+		return s.serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/healthz" || r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {
+				mux.ServeHTTP(w, r)
+			} else {
+				s.Web.ServeHTTP(w, r)
+			}
+		}))
 	}
 	return s.serveHTTP(mux)
 }
