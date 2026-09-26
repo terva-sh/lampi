@@ -294,6 +294,54 @@ empty id and is not linked. See [docs/protocol.md](docs/protocol.md).
 `terva-lampi agent config` prints how many allow and deny rules are
 loaded. `sync` names each refused session and exits non-zero.
 
+### Many lakes
+
+`config.json` can name more lakes under `lakes`, keyed by a short name:
+lowercase letters, digits, `-` and `_`, at most 32 characters. Each
+entry has its own `server`, `token_file` and `projects`. Registration
+also writes the lake's pinned `lake_id`, `key_id` and `public_key`.
+
+```json
+{
+  "server": "https://home.example",
+  "projects": {
+    "allow": [{"cwd_prefix": "/home/drew/src"}],
+    "deny": [{"cwd_prefix": "/home/drew/src/private"}]
+  },
+  "lakes": {
+    "work": {
+      "server": "https://work.example",
+      "token_file": "/home/drew/.config/terva-lampi/tokens/work.token",
+      "projects": {"allow": [{"git_remote": "git@git.example:work/app.git"}]}
+    }
+  }
+}
+```
+
+- The top-level `server` and `token_file`, `LAMPI_SERVER` and
+  `LAMPI_TOKEN_FILE` describe the lake named `default`, exactly as they
+  did before the map. A config with no `lakes` is that one lake.
+- A lake's `projects.allow` admits sessions to that lake only. The
+  top-level `projects.allow` belongs to the `default` lake. With only a
+  `lakes` map it is refused, so move each rule under its lake.
+- Top-level `projects.deny` applies to every lake, as well as each
+  lake's own deny rules. `redaction` applies to every lake.
+- `token_file` defaults to `tokens/<name>.token` in the config
+  directory, and to the usual `token` for an entry named `default`. An
+  entry named `default` beside a top-level `server` or `token_file` is
+  an error.
+- `--lake NAME` picks one lake on `sync`, `status` and `conflicts`.
+  `--server` and `--token-file` then override that lake's values. With
+  more than one lake they need `--lake`.
+- `terva-lampi agent config` prints one `lake` line per lake, with the
+  source of its server and token file.
+
+Until each lake has its own sync state (TKT-01M3FP110), `sync` and the
+agent push only to the `default` lake and say how many others are
+configured. `sync --lake` names another lake and is refused, and a
+config with only a `lakes` map stops the agent at start. `status` and
+`conflicts` read any lake.
+
 ### Cursor sessions with an empty cwd
 
 The `projects` allow and deny rules are the same for every harness.

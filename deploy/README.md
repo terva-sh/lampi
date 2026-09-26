@@ -26,6 +26,13 @@ and `agent config` print `source=flag`, `env`, `config`, or `default`
 beside each. The token is not a command argument. Restart the agent to
 reload any of these, and to reload `harnesses`.
 
+## More than one lake
+
+`config.json` can name more lakes under `lakes`, each with its own
+server, token file and allowlist. The top-level `server` and
+`token_file` stay the lake named `default`, so these examples need no
+edit. See [Many lakes](../README.md#many-lakes) in the root README.
+
 ## Harnesses
 
 Optional `harnesses` in `~/.config/terva-lampi/config.json`

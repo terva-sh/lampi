@@ -443,16 +443,20 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	tokenFile, err := tokenPathFor(env, tokenFlag, file)
+	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	tokenPath = tokenFile.Value
-	token, err := resolveToken(env, tokenFlag, file)
+	lake, err := pushLake(lakes, "", env.stderr(), "agent")
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	server := config.ResolveServer(file, env.getenv, serverFlag).Value
+	tokenPath = lake.TokenFile.Value
+	token, err := lakeToken(lake)
+	if err != nil {
+		return upload.Options{}, "", nil, 0, err
+	}
+	server := lake.Server.Value
 	// A token that would cross the network in the clear stops the agent
 	// at start. It cannot change until the config does.
 	if err := upload.CheckToken(server, token); err != nil {
@@ -482,7 +486,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
 		MachineID:     m.MachineID,
 		StateDir:      state,
-		Projects:      file.Projects,
+		Projects:      lake.Projects,
 		UploadHits:    file.Redaction.UploadHits,
 	}, tokenPath, src, n, nil
 }
@@ -640,10 +644,6 @@ func runAgentConfig(env Env) error {
 	if err != nil {
 		return err
 	}
-	tokenFile, err := tokenPathFor(env, "", file)
-	if err != nil {
-		return err
-	}
 	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
@@ -658,7 +658,14 @@ func runAgentConfig(env Env) error {
 	}
 	fmt.Fprintf(env.stdout(), "config_dir: %s\n", cfgDir)
 	fmt.Fprintf(env.stdout(), "state_dir: %s\n", state)
-	writeEndpoint(env.stdout(), config.ResolveServer(file, env.getenv, ""), tokenFile)
+	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{})
+	if err != nil {
+		return err
+	}
+	if len(lakes) > 0 {
+		writeEndpoint(env.stdout(), lakes[0].Server, lakes[0].TokenFile)
+	}
+	writeLakes(env.stdout(), lakes)
 	for _, s := range src {
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}
