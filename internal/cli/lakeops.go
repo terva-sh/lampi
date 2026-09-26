@@ -32,7 +32,8 @@ what is new. normalized/ and parquet/ are derived and are not copied.
 
 identity.json holds the lake's private signing keys. Agents pin them,
 and serve refuses to start on a catalog whose identity.json is lost,
-so a restore needs this copy.
+so a restore needs this copy. When the catalog copy records a lake id
+and identity.json is missing or names another lake, the backup fails.
 
 --token-file is the file or directory serve reads. It is copied to
 DIR under its own name. The copy holds sha256 lines, not tokens,
@@ -47,8 +48,9 @@ usage:
   terva-lampi serve fsck [--data DIR] [--repair]
 
 Reads every object under cas/sha256 and checks that its bytes hash to
-its name. Reads identity.json, when there is one, and checks that each
-key matches its id. Reads every cas/logical index and checks that each chunk it
+its name. Reads identity.json and checks each key against its id and
+the file against the lake id the catalog recorded. A missing file is a
+failure only when the catalog recorded one. Reads every cas/logical index and checks that each chunk it
 names is stored. Each bad entry is named on stdout, and the command
 exits non-zero when there is one. It runs while serve runs.
 
@@ -111,15 +113,7 @@ func runServeBackup(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stdout(), "cas: %d new entries copied\n", copied)
 
-	// The identity is made before its lake id is recorded, so a catalog
-	// snapshot that names a lake id always has the file to go with it.
-	idSrc := identity.Path(data)
-	if _, err := os.Stat(idSrc); err == nil {
-		if err := copyFile(idSrc, identity.Path(out)); err != nil {
-			return err
-		}
-		fmt.Fprintf(env.stdout(), "identity: %s\n", identity.Path(out))
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := backupIdentity(env, data, out); err != nil {
 		return err
 	}
 
@@ -316,18 +310,72 @@ func runServeFsck(env Env, args []string) error {
 	return fmt.Errorf("fsck: %d bad entries; --repair removes them", len(bad))
 }
 
-// fsckIdentity loads identity.json. A missing file is reported and is
-// not an error: serve makes one on a lake that never recorded a lake id.
-// --repair never touches it.
-func fsckIdentity(env Env, data string) error {
+// recordedLakeID reads the lake id a catalog file has recorded, without
+// writing to it. A missing catalog has recorded nothing.
+func recordedLakeID(ctx context.Context, path string) (string, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	cat, err := catalog.OpenReadOnly(path)
+	if err != nil {
+		return "", err
+	}
+	defer cat.Close()
+	return cat.LakeID(ctx)
+}
+
+// backupIdentity copies identity.json into the backup. The identity is
+// made before its lake id is recorded, so a catalog snapshot that names
+// a lake id should always have the file. When it does not, or the file
+// names another lake, the backup fails: a restore of it would refuse to
+// start.
+func backupIdentity(env Env, data, out string) error {
+	recorded, err := recordedLakeID(context.Background(), filepath.Join(out, "catalog.db"))
+	if err != nil {
+		return err
+	}
 	id, err := identity.Load(data)
-	if errors.Is(err, os.ErrNotExist) {
+	switch {
+	case errors.Is(err, os.ErrNotExist) && recorded == "":
+		return nil
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("backup: the catalog is lake %s but %s is missing; the backup would not start. Restore identity.json from an earlier backup first", recorded, identity.Path(data))
+	case err != nil:
+		return fmt.Errorf("backup: %w", err)
+	case recorded != "" && recorded != id.LakeID:
+		return fmt.Errorf("backup: the catalog is lake %s but %s holds lake %s", recorded, identity.Path(data), id.LakeID)
+	}
+	if err := copyFile(identity.Path(data), identity.Path(out)); err != nil {
+		return err
+	}
+	fmt.Fprintf(env.stdout(), "identity: %s\n", identity.Path(out))
+	return nil
+}
+
+// fsckIdentity loads identity.json and checks it against the lake id the
+// catalog recorded. A missing file on a catalog that recorded nothing is
+// reported and is not an error: serve makes one there. A missing or
+// different file on a catalog that recorded a lake id is an error,
+// because serve refuses to start on it. --repair never touches it.
+func fsckIdentity(env Env, data string) error {
+	recorded, err := recordedLakeID(context.Background(), filepath.Join(data, "catalog.db"))
+	if err != nil {
+		return err
+	}
+	id, err := identity.Load(data)
+	switch {
+	case errors.Is(err, os.ErrNotExist) && recorded == "":
 		fmt.Fprintln(env.stdout(), "identity: none")
 		return nil
-	}
-	if err != nil {
+	case errors.Is(err, os.ErrNotExist):
+		fmt.Fprintf(env.stdout(), "bad identity: missing; the catalog is lake %s\n", recorded)
+		return fmt.Errorf("fsck: identity.json is missing; restore it from a backup, or serve will not start")
+	case err != nil:
 		fmt.Fprintf(env.stdout(), "bad identity: %v\n", err)
 		return fmt.Errorf("fsck: identity.json does not load; restore it from a backup")
+	case recorded != "" && recorded != id.LakeID:
+		fmt.Fprintf(env.stdout(), "bad identity: holds lake %s; the catalog is lake %s\n", id.LakeID, recorded)
+		return fmt.Errorf("fsck: identity.json is another lake's; restore the matching one from a backup")
 	}
 	fmt.Fprintf(env.stdout(), "identity: %s, %d keys\n", id.LakeID, len(id.Keys))
 	return nil

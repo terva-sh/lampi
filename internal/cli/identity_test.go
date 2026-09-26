@@ -103,3 +103,44 @@ func TestFsckChecksTheIdentity(t *testing.T) {
 		t.Fatal("broken file read as missing")
 	}
 }
+
+func TestBackupFailsWhenTheRecordedIdentityIsMissing(t *testing.T) {
+	dir, lake, _, _ := liveLake(t)
+	if _, err := lake.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(identity.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	err := Run([]string{"serve", "backup", "--data", dir, "--out", t.TempDir() + "/b"}, Env{Stdout: &stdout, Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(err.Error(), lake.Identity.LakeID) {
+		t.Fatalf("backup without the recorded identity: %v\n%s", err, stdout.String())
+	}
+}
+
+func TestBackupOfAPreIdentityLakeSucceedsWithoutOne(t *testing.T) {
+	dir, _, _, _ := liveLake(t)
+	var stdout bytes.Buffer
+	if err := Run([]string{"serve", "backup", "--data", dir, "--out", t.TempDir() + "/b"}, Env{Stdout: &stdout, Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout.String(), "identity:") {
+		t.Fatalf("pre-identity backup names an identity:\n%s", stdout.String())
+	}
+}
+
+func TestFsckFailsWhenTheRecordedIdentityIsMissing(t *testing.T) {
+	dir, lake, _, _ := liveLake(t)
+	if _, err := lake.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(identity.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	err := Run([]string{"serve", "fsck", "--data", dir}, Env{Stdout: &stdout, Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(stdout.String(), "bad identity: missing; the catalog is lake "+lake.Identity.LakeID) {
+		t.Fatalf("fsck without the recorded identity: %v\n%s", err, stdout.String())
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -331,16 +332,19 @@ func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 // handler does not see it.
 const wellKnownPrefix = "/.well-known/terva-lampi/"
 
-// maxHelloBytes bounds the hello body, which is at most a nonce.
+// maxHelloBytes is how much of the hello body is read. It is at most a
+// nonce; the rest is ignored.
 const maxHelloBytes = 4 << 10
 
 func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
+	// Before the nonce, hello ignored its body, and a protocol 1 client
+	// may still send anything. A body that is not a HelloRequest is read
+	// as one with no nonce, as before. A nonce that decodes but is not
+	// valid is refused: only a client that knows the field sends it.
 	var req protocol.HelloRequest
-	// An older client sends {}; an empty body is read as the same.
-	if r.ContentLength != 0 {
-		if !s.decodeJSON(w, r, &req, maxHelloBytes, "") {
-			return
-		}
+	raw, _ := io.ReadAll(io.LimitReader(r.Body, maxHelloBytes))
+	if json.Unmarshal(raw, &req) != nil {
+		req = protocol.HelloRequest{}
 	}
 	if !identity.ValidNonce(req.Nonce) {
 		s.fail(w, r, http.StatusBadRequest, errors.New("nonce is at most 128 characters of base64url or hex"))

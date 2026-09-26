@@ -149,9 +149,12 @@ func TestHelloSignsTheNonceAndStillTakesAnEmptyBody(t *testing.T) {
 	if err := json.Unmarshal(hr.Proof.Payload, &proof); err != nil || proof.Nonce != "abc" || proof.LakeID != hr.LakeID {
 		t.Fatalf("proof %+v %v", proof, err)
 	}
-	// What a client before this release sends.
-	if rr := post(`{}`); rr.Code != http.StatusOK {
-		t.Fatalf("old hello %d %s", rr.Code, rr.Body)
+	// What a client before this release sends, and bodies it was free to
+	// send while hello ignored its body.
+	for _, body := range []string{`{}`, ``, `not json`, `[1,2]`, `{"nonce":7}`, strings.Repeat("x", maxHelloBytes*2)} {
+		if rr := post(body); rr.Code != http.StatusOK {
+			t.Fatalf("old hello %q: %d %s", body[:min(len(body), 20)], rr.Code, rr.Body)
+		}
 	}
 	if rr := post(`{"nonce":"a b"}`); rr.Code != http.StatusBadRequest {
 		t.Fatalf("bad nonce %d", rr.Code)

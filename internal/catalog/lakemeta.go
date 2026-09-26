@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // migrateLakeMeta adds lake_meta, a key/value table for facts about the
@@ -23,6 +24,11 @@ func (c *Catalog) LakeID(ctx context.Context) (string, error) {
 	var id string
 	err := c.db.QueryRowContext(ctx, `SELECT value FROM lake_meta WHERE key='lake_id'`).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	// A read-only open of a catalog from before schema 4 has no table.
+	// That catalog has recorded nothing.
+	if err != nil && strings.Contains(err.Error(), "no such table: lake_meta") {
 		return "", nil
 	}
 	if err != nil {
