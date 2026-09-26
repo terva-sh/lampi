@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3D8YXCRWV2HXBHN22KWMQZ8
 title: "Go-live: canary secrets in three places never reach the lake"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -17,16 +17,23 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/rollout
+  branch: t3code/web-session-lake-ui
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8b6762d2
+  commit: 4d93d9e48aa0114806d7c1a6080c8879a8aba6d7
+  session: null
+  claimed_at: 2026-09-26T16:28:09Z
+  expires_at: null
 archive: null
 created_at: 2026-09-25T21:53:49Z
-updated_at: 2026-09-26T01:17:17Z
+updated_at: 2026-09-26T16:28:09Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/cd41c9ac
-  name: Claude Code local agent
+  id: agent:codex/rollout
+  name: ""
 extensions: {}
 ---
 
@@ -39,3 +46,7 @@ Canary secrets. Plant three canaries and sync them to a dev lake: one token in J
 ## Acceptance criteria
 
 - [ ] A canary in escaped JSON, one in a git remote, and one in a denied project are each absent from the CAS, the catalog, and the normalized events
+
+## Implementation plan
+
+Add a reproducible isolated go-live test using real sync and a loopback lake. Plant fake token-shaped canaries in escaped transcript text, git remote credentials and a denied project, plus a clean control. Assert expected accepted/refused sessions and scan CAS, SQLite catalog including sidecars, and normalized files for both literal and escaped canaries. No real harness homes or credentials are read.

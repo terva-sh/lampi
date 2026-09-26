@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3D8YXBNVR3D95XFQ1RXMM3G
 title: "Go-live: 20k seeded sessions, second unchanged sync is fast and silent"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: high
 due_on: null
@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T21:53:49Z
-updated_at: 2026-09-25T21:53:49Z
+updated_at: 2026-09-26T16:28:08Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/cd41c9ac
-  name: Claude Code local agent
+  id: agent:codex/rollout
+  name: ""
 extensions: {}
 ---
 
