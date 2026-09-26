@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:20:46Z
+updated_at: 2026-09-26T21:24:33Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -59,3 +59,9 @@ Part of the agent onboarding epic. Add the client commands for both onboarding p
 - [ ] lakes list and lakes remove work, and remove keeps state unless --purge-state is given
 - [ ] register refuses when the published key list at the code's URL does not list the code's key as active or its nonce signature fails
 - [ ] register shows the URL, lake id and fingerprint and needs confirmation, or --fingerprint when there is no terminal
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-26T21:24:33Z
+
+From TKT-01M3FP115: after writing config.json, register and lakes remove must print reloadAgent(stateDir) (internal/cli/pidfile_*.go). On Unix it SIGHUPs a running agent; on Windows it says a restart is required, which is TKT-01M3FP115's third criterion. When writing config.json keep an empty lakes map as {} (no omitempty on that write): an empty map means standalone, a missing one means the loopback lake.

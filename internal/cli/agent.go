@@ -172,7 +172,11 @@ the allowlist or the scan refused is not retried. A refusal or a
 skipped file is logged the first pass it appears and not again while
 it lasts. SIGTERM or interrupt
 drains the outbox best-effort and exits. On Unix, SIGUSR1 asks for a
-sync now. The filesystem watch is still the source of truth; the
+sync now, and SIGHUP reads the lakes again: a lake that is gone or
+changed drains its outbox and stops, a changed or new one starts with
+a full pass, and one that did not change keeps running. With
+"lakes": {} and no server the agent has no lake: it watches, uploads
+nothing, and says so once. The filesystem watch is still the source of truth; the
 signal only skips the wait. While the
 daemon runs it writes agent.pid in the state directory and holds a
 lock on it. A second agent on that directory exits and names the
@@ -189,8 +193,9 @@ and status and agent config print source=flag, env, config, or
 default for each. The token is read from a file, never from an
 argument. The agent does not start when a token would go to an
 http:// URL whose host is not localhost, 127.0.0.0/8, or ::1. Use
-https for a remote lake. The server URL, token, allowlist, and
-harnesses map are read at start; restart the process to reload them.
+https for a remote lake. The harnesses map and the debounce are read
+at start, and so are the lakes on Windows; restart the process to
+reload them.
 `
 
 func runAgent(env Env, args []string) error {
@@ -253,9 +258,6 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	if err != nil {
 		return err
 	}
-	if len(lakes) == 0 {
-		return fmt.Errorf("no lake is configured")
-	}
 	window, longest, err := agentWindows(env)
 	if err != nil {
 		return err
@@ -264,18 +266,13 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	if err != nil {
 		return err
 	}
-	state := lakes[0].opt.StateDir
-	removePID, err := writeAgentPID(state)
+	state, err := config.StateDir(env.getenv)
 	if err != nil {
 		return err
 	}
-	for _, l := range lakes {
-		if l.name == config.DefaultLake {
-			if err := migrateDefault(env, state, true); err != nil {
-				removePID()
-				return err
-			}
-		}
+	removePID, err := writeAgentPID(state)
+	if err != nil {
+		return err
 	}
 	defer removePID()
 	// Banner and watch lines share a mutex so a change report and a
@@ -284,9 +281,13 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	env.Stdout = &syncWriter{mu: &mu, w: env.stdout()}
 	env.Stderr = &syncWriter{mu: &mu, w: env.stderr()}
 
-	if len(lakes) == 1 {
+	switch len(lakes) {
+	case 0:
+		// Standalone: said once, here. Growth has no lake to wake.
+		fmt.Fprintf(env.stdout(), "no lake is configured: watching, uploading nothing. %s\n", reloadHint)
+	case 1:
 		fmt.Fprintf(env.stdout(), "machine_id: %s\n", lakes[0].opt.MachineID)
-	} else {
+	default:
 		for _, l := range lakes {
 			fmt.Fprintf(env.stdout(), "lake %s: server=%s machine_id=%s\n", l.name, l.opt.ServerURL, l.opt.MachineID)
 		}
@@ -297,41 +298,34 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Backend(poll))
 
-	runners := make([]*lakeRunner, len(lakes))
-	for i, l := range lakes {
-		runners[i] = newLakeRunner(env, l)
-	}
-	// wakeAll asks every lake to push. Growth skips a lake that is
-	// waiting out a failure: its retry picks the growth up, and a lake
-	// that is down is not asked again on every append. The start pass and
-	// SIGUSR1 ask every lake.
-	wakeAll := func(growth bool) {
-		for _, r := range runners {
-			if growth && r.waiting.Load() {
-				continue
-			}
-			if !growth {
-				r.waiting.Store(false)
-			}
-			r.wake()
+	// Each lake runs on its own, so a lake that is down or refusing the
+	// token waits out its own backoff and does not hold back another.
+	// lakeCtx ends on shutdown or a watch failure; each runner then
+	// drains its outbox and returns.
+	lakeCtx, stopLakes := context.WithCancel(ctx)
+	set := &lakeSet{env: env, ctx: lakeCtx, state: state, runners: map[string]*lakeRunner{}}
+	for _, l := range lakes {
+		if err := set.start(l); err != nil {
+			stopLakes()
+			set.wait()
+			return err
 		}
 	}
-	anyReady := func() bool {
-		for _, r := range runners {
-			if !r.waiting.Load() {
-				return true
-			}
-		}
-		return false
+	finish := func() {
+		stopLakes()
+		set.wait()
 	}
-	watchKick(ctx, func() { wakeAll(false) })
+	watchKick(ctx, func() { set.wakeAll(false) })
+	// SIGHUP reads the lakes again. The rest of config.json, the
+	// harnesses and the debounce, still wants a restart.
+	watchReload(ctx, func() { set.reload(src, serverFlag, tokenFlag) })
 	// Growth waits for the watch to go quiet, so a burst of writes is
 	// one sync per lake.
-	settle := newDebouncer(window, longest, func() { wakeAll(true) })
+	settle := newDebouncer(window, longest, func() { set.wakeAll(true) })
 	defer settle.stop()
 	watchers := startWatches(src, poll, func(c watch.Change) {
 		fmt.Fprintf(env.stdout(), "watch: %s %s offset=%d size=%d\n", c.Op, c.RelPath, c.Offset, c.Size)
-		if anyReady() {
+		if set.anyReady() {
 			settle.touch()
 		}
 	}, func(err error) {
@@ -355,26 +349,8 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 		fmt.Fprintln(env.stdout(), "watching")
 		// Files already on disk are not a watch event. One sync at
 		// start is how they reach the lake before the next append.
-		wakeAll(false)
+		set.wakeAll(false)
 	}()
-
-	// Each lake runs on its own, so a lake that is down or refusing the
-	// token waits out its own backoff and does not hold back another.
-	// lakeCtx ends on shutdown or a watch failure; each runner then
-	// drains its outbox and returns.
-	lakeCtx, stopLakes := context.WithCancel(ctx)
-	var lakesDone sync.WaitGroup
-	for _, r := range runners {
-		lakesDone.Add(1)
-		go func(r *lakeRunner) {
-			defer lakesDone.Done()
-			r.run(lakeCtx)
-		}(r)
-	}
-	finish := func() {
-		stopLakes()
-		lakesDone.Wait()
-	}
 
 	select {
 	case <-ctx.Done():
@@ -400,7 +376,14 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 type lakeRunner struct {
 	env  Env
 	lake agentLake
-	kick chan struct{}
+	// label is lake.label, replaced when a reload changes how many
+	// lakes there are.
+	label atomic.Pointer[string]
+	kick  chan struct{}
+	// stop ends this runner alone, for a reload; done closes when it
+	// has drained.
+	stop context.CancelFunc
+	done chan struct{}
 	// waiting is set while a failed push waits to retry. Growth then
 	// does not start a push: the retry picks it up.
 	waiting atomic.Bool
@@ -414,8 +397,14 @@ func newLakeRunner(env Env, l agentLake) *lakeRunner {
 	// start, hashes every file. Each lake has its own, because a file
 	// pushed to one lake is not pushed to another.
 	l.opt.Memo = upload.NewMemo()
-	return &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1)}
+	r := &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1), done: make(chan struct{})}
+	r.setLabel(l.label)
+	return r
 }
+
+func (r *lakeRunner) setLabel(label string) { r.label.Store(&label) }
+
+func (r *lakeRunner) prefix() string { return *r.label.Load() }
 
 func (r *lakeRunner) wake() {
 	select {
@@ -451,7 +440,7 @@ func (r *lakeRunner) disarmRetry() {
 
 // errf prints a line about this lake, labelled when there are several.
 func (r *lakeRunner) errf(format string, args ...any) {
-	fmt.Fprintf(r.env.stderr(), "terva-lampi: "+r.lake.label+format+"\n", args...)
+	fmt.Fprintf(r.env.stderr(), "terva-lampi: "+r.prefix()+format+"\n", args...)
 }
 
 // run pushes on each kick until ctx ends, then drains the outbox.
@@ -468,7 +457,7 @@ func (r *lakeRunner) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			r.disarmRetry()
-			drainAgent(r.env, opt, r.lake.label, seen)
+			drainAgent(r.env, opt, r.prefix(), seen)
 			return
 		case <-r.kick:
 		}
@@ -476,11 +465,11 @@ func (r *lakeRunner) run(ctx context.Context) {
 		// shutdown has begun. The drain is the last push.
 		var err error
 		if ctx.Err() == nil {
-			err = runAgentSync(ctx, r.env, opt, r.lake.label, seen)
+			err = runAgentSync(ctx, r.env, opt, r.prefix(), seen)
 		}
 		if ctx.Err() != nil {
 			r.disarmRetry()
-			drainAgent(r.env, opt, r.lake.label, seen)
+			drainAgent(r.env, opt, r.prefix(), seen)
 			return
 		}
 		// A token the lake refuses will not start working in two
@@ -540,7 +529,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 		return upload.Options{}, "", nil, 0, err
 	}
 	if len(lakes) == 0 {
-		return upload.Options{}, "", nil, 0, fmt.Errorf("no lake is configured")
+		return upload.Options{}, "", nil, 0, errNoLake
 	}
 	return lakes[0].opt, lakes[0].tokenPath, src, n, nil
 }
@@ -562,14 +551,25 @@ func loadAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, s
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	state, err := config.StateDir(env.getenv)
+	lakes, err = agentLakes(env, file, src, resolved)
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	return lakes, src, n, nil
+}
+
+// agentLakes is the options of each resolved lake, labelled when there
+// are several.
+func agentLakes(env Env, file config.File, src []source, resolved []config.Lake) ([]agentLake, error) {
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return nil, err
+	}
+	var lakes []agentLake
 	for _, lake := range resolved {
 		opt, err := lakeOptions(env, file, state, src, lake)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, err
 		}
 		l := agentLake{name: lake.Name, opt: opt, tokenPath: lake.TokenFile.Value}
 		if len(resolved) > 1 {
@@ -577,7 +577,7 @@ func loadAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, s
 		}
 		lakes = append(lakes, l)
 	}
-	return lakes, src, n, nil
+	return lakes, nil
 }
 
 // lakeOptions is one lake's upload options. A token that would cross
@@ -808,7 +808,7 @@ func runAgentStatus(env Env) error {
 		return err
 	}
 	if len(lakes) == 0 {
-		return fmt.Errorf("no lake is configured")
+		return errNoLake
 	}
 	path, err := config.LakeMachinePath(env.getenv, lakes[0].Name)
 	if err != nil {

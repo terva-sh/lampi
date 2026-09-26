@@ -229,3 +229,29 @@ func TestFlagsOverrideTheOnlyLakeOfAMap(t *testing.T) {
 		t.Fatalf("%v %+v", err, lakes)
 	}
 }
+
+func TestEmptyLakesMapIsNoLake(t *testing.T) {
+	f := parseFile(t, `{"lakes":{}}`)
+	lakes, err := ResolveLakes(f, envOf(baseEnv()), LakeFlags{})
+	if err != nil || len(lakes) != 0 {
+		t.Fatalf("empty map: %v %s", err, lakeNames(lakes))
+	}
+	// No map at all is still the loopback default.
+	lakes, err = ResolveLakes(parseFile(t, `{}`), envOf(baseEnv()), LakeFlags{})
+	if err != nil || lakeNames(lakes) != "default" || lakes[0].Server.Value != DefaultServer {
+		t.Fatalf("no map: %v %s", err, lakeNames(lakes))
+	}
+	// A flag has no lake to override.
+	if _, err := ResolveLakes(f, envOf(baseEnv()), LakeFlags{Server: "https://x.example"}); err == nil || !strings.Contains(err.Error(), "lakes map is empty") {
+		t.Fatalf("flag on no lake: %v", err)
+	}
+	// LAMPI_SERVER and a top-level server still name the default lake.
+	env := baseEnv()
+	env["LAMPI_SERVER"] = "https://env.example"
+	if lakes, err := ResolveLakes(f, envOf(env), LakeFlags{}); err != nil || lakeNames(lakes) != "default" {
+		t.Fatalf("env: %v %s", err, lakeNames(lakes))
+	}
+	if lakes, err := ResolveLakes(parseFile(t, `{"lakes":{},"server":"https://top.example"}`), envOf(baseEnv()), LakeFlags{}); err != nil || lakeNames(lakes) != "default" {
+		t.Fatalf("top-level server: %v %s", err, lakeNames(lakes))
+	}
+}

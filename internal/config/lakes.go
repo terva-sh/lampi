@@ -65,7 +65,10 @@ func ValidLakeName(name string) bool { return lakeNamePattern.MatchString(name) 
 //
 // A config.json with no lakes map resolves to one lake named default,
 // exactly as server and token_file resolved before the map existed, so
-// an existing machine needs no edit. With a map, the legacy fields and
+// an existing machine needs no edit. An empty lakes map, "lakes": {},
+// with no top-level server, token_file or LAMPI_SERVER resolves to no
+// lake at all: the agent watches and uploads nothing, which is the
+// standalone state a machine is in before it is registered. With a map, the legacy fields and
 // LAMPI_SERVER or LAMPI_TOKEN_FILE still add the default lake. An entry
 // named default in the map together with a top-level server or
 // token_file is refused, because two places would describe one lake.
@@ -89,7 +92,7 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 	// Which lakes exist does not depend on the flags: a flag overrides a
 	// lake, it does not add one. The legacy default lake exists with no
 	// map at all, or when the top-level fields or the environment name it.
-	legacy := !explicitDefault && (len(file.Lakes) == 0 ||
+	legacy := !explicitDefault && (file.Lakes == nil ||
 		file.Server != "" || file.TokenFile != "" ||
 		getenv("LAMPI_SERVER") != "" || getenv("LAMPI_TOKEN_FILE") != "")
 	count := len(file.Lakes)
@@ -100,6 +103,9 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 	// --lake when there are several.
 	target := flags.Lake
 	if target == "" && (flags.Server != "" || flags.TokenFile != "") {
+		if count == 0 {
+			return nil, fmt.Errorf("--server and --token-file apply to a configured lake and config.json has none: its lakes map is empty")
+		}
 		if count > 1 {
 			names := []string{}
 			if legacy {

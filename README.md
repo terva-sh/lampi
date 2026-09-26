@@ -125,10 +125,11 @@ A watcher that cannot use fsnotify, at the inotify watch limit or
 after a queue overflow, polls that tree and says so. On macOS the
 agent polls by default; `LAMPI_WATCH=fsnotify` or `LAMPI_WATCH=poll`
 overrides that. A second agent on the same state directory exits and
-names the first one's pid. SIGTERM drains the outbox and exits. The server URL,
-the device token, the allowlist, and the harnesses map are read when
-the process starts; restart it to reload them. The one-shot command
-is still `sync`.
+names the first one's pid. SIGTERM drains the outbox and exits. On
+Unix, SIGHUP reads the lakes again: their servers, tokens and
+allowlists. The harnesses map and the debounce are read when the
+process starts, and so are the lakes on Windows; restart it to reload
+them. The one-shot command is still `sync`.
 
 `login` writes a device token and does not print it:
 
@@ -338,6 +339,21 @@ also writes the lake's pinned `lake_id`, `key_id` and `public_key`.
   more than one lake they need `--lake`.
 - `terva-lampi agent config` prints one `lake` line per lake, with the
   source of its server and token file.
+- `"lakes": {}` with no top-level `server`, `token_file` or
+  `LAMPI_SERVER` is no lake at all. The agent then discovers and
+  watches, uploads nothing, and says so once at start; `status` prints
+  `lakes: none configured`; `sync` fails and says why. This is the
+  standalone state a machine is in until it is registered. A
+  `config.json` with no `lakes` key still means the loopback lake.
+- On Unix, SIGHUP makes a running agent read its lakes again. A lake
+  that was removed, or whose server, token, machine id or rules
+  changed, drains its outbox before it stops, so nothing already
+  queued for it is dropped; a changed lake then starts again with a
+  full pass. A lake that did not change keeps running. A config that
+  does not resolve leaves the lakes as they were and says why. The
+  agent prints one `reload:` line naming what it added, removed,
+  restarted and kept. Commands that change the lakes send the signal
+  through `agent.pid`. Windows has no SIGHUP; restart the agent there.
 
 Each lake keeps its own sync state, in `lakes/<name>/` in the state
 directory: its outbox, its watermarks, and its last sync and attempt

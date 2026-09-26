@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,10 @@ import (
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/lakestate"
 )
+
+// errNoLake is what a command that talks to a lake says on a machine
+// whose config.json has an empty lakes map.
+var errNoLake = errors.New("no lake is configured: config.json has an empty lakes map")
 
 // migrateDefault moves single-lake state into the default lake's
 // directory, once. agentLocked says the caller holds agent.pid; a caller
@@ -75,6 +80,9 @@ func lakeToken(l config.Lake) (string, error) {
 
 // writeLakes prints one line per lake for agent config.
 func writeLakes(w io.Writer, lakes []config.Lake) {
+	if len(lakes) == 0 {
+		fmt.Fprintln(w, "lakes: none configured")
+	}
 	for _, l := range lakes {
 		id := l.LakeID
 		if id == "" {

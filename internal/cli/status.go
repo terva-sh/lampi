@@ -110,13 +110,15 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(lakes) == 0 {
-		return fmt.Errorf("no lake is configured")
-	}
 	for _, h := range harnessStatuses(env.getenv, file.Harnesses) {
 		fmt.Fprintln(env.stdout(), h.line())
 	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
+	if len(lakes) == 0 {
+		// Standalone is a state, not a failure: discovery still works.
+		fmt.Fprintln(env.stdout(), "lakes: none configured")
+		return nil
+	}
 	// One block per lake, each opening with its lake line.
 	for _, lake := range lakes {
 		if err := writeLakeStatus(env, state, lake); err != nil {

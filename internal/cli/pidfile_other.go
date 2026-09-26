@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -46,4 +47,17 @@ func lockAgentPID(path string) (func(), error) {
 		}
 	}
 	return nil, fmt.Errorf("agent: pid file: %s kept changing", path)
+}
+
+// reloadAgent returns the line a command that changed the lakes prints.
+// There is no SIGHUP here, so a running agent reads its lakes only at
+// start and has to be restarted.
+func reloadAgent(state string) string {
+	path := filepath.Join(state, "agent.pid")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "no agent is running; the next one to start reads the lakes"
+	}
+	pid := strings.TrimSpace(string(raw))
+	return fmt.Sprintf("restart the agent (pid %s in %s) to use the new lakes: it reads them only at start on this platform", pid, path)
 }
