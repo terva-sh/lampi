@@ -14,7 +14,9 @@ both. TKT-01M3D7YX records why this model was chosen over a push mirror.
    build. It is the gate.
 4. Request a model review when the pull request is ready. See
    [terva-review](#terva-review).
-5. Merge on Forgejo, then run `just sync-github --yes` to fast-forward
+5. Post a disposition for each finding while the pull request is still
+   open.
+6. Merge on Forgejo, then run `just sync-github --yes` to fast-forward
    GitHub `main`.
 
 ## External agents, on GitHub
@@ -73,6 +75,11 @@ pull request comment:
 To let another maintainer comment commands, add the login to both lists
 in the workflow, through a pull request.
 
+The reviewer acts only on an open pull request. A command on a merged
+or closed pull request fails with `pr_not_open`, and a merged pull
+request cannot be reopened. Post every `/terva disposition` before you
+merge.
+
 ### Reading the result
 
 The `terva-review/code` commit status is the gate, and the job result is
@@ -88,7 +95,10 @@ permission to merge.
 ### Carry
 
 A dispatch with `--input carry=true` copies the last review's verdict to a
-head whose later commits touch only `.tickets/**`. No model runs.
+head whose later commits touch only `.tickets/**`. No model runs. The
+verdict comes from an earlier review of the same pull request, so carry
+does not apply to a pull request's first review. That dispatch fails
+with `carry_source_not_found`. Dispatch without `carry` instead.
 
 ### Trusted configuration
 
