@@ -149,6 +149,13 @@ func LoadMachine(getenv func(string) string) (Machine, error) {
 	if err != nil {
 		return Machine{}, err
 	}
+	return loadMachineAt(path)
+}
+
+// LoadMachineFile reads a machine id file at path, as LoadMachine does.
+func LoadMachineFile(path string) (Machine, error) { return loadMachineAt(path) }
+
+func loadMachineAt(path string) (Machine, error) {
 	b, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return Machine{}, nil
@@ -168,7 +175,40 @@ func LoadMachine(getenv func(string) string) (Machine, error) {
 
 // EnsureMachine returns the existing machine id, or writes a new one.
 func EnsureMachine(getenv func(string) string) (Machine, error) {
-	m, err := LoadMachine(getenv)
+	path, err := MachinePath(getenv)
+	if err != nil {
+		return Machine{}, err
+	}
+	return ensureMachineAt(path)
+}
+
+// LakeMachinePath is the machine id file for one lake. The lake named
+// default keeps machine.json, so the id a lake already holds for this
+// machine does not change. Every other lake gets its own id in
+// machines/<name>.json, so two lakes cannot join their data by machine.
+func LakeMachinePath(getenv func(string) string, lake string) (string, error) {
+	if lake == DefaultLake {
+		return MachinePath(getenv)
+	}
+	dir, err := ConfigDir(getenv)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "machines", lake+".json"), nil
+}
+
+// EnsureLakeMachine returns this machine's id for one lake, or writes a
+// new one.
+func EnsureLakeMachine(getenv func(string) string, lake string) (Machine, error) {
+	path, err := LakeMachinePath(getenv, lake)
+	if err != nil {
+		return Machine{}, err
+	}
+	return ensureMachineAt(path)
+}
+
+func ensureMachineAt(path string) (Machine, error) {
+	m, err := loadMachineAt(path)
 	if err != nil {
 		return Machine{}, err
 	}
@@ -181,10 +221,6 @@ func EnsureMachine(getenv func(string) string) (Machine, error) {
 	}
 	host, _ := os.Hostname()
 	m = Machine{MachineID: uid, Hostname: host}
-	path, err := MachinePath(getenv)
-	if err != nil {
-		return Machine{}, err
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return Machine{}, err
 	}

@@ -81,10 +81,14 @@ hello runs before the files are read and scanned. A blob over 4 MiB goes as Cont
 pieces. No timeout covers a whole request; one that moves no bytes for
 60s is cancelled.
 
---lake names a lake from the lakes map in config.json. Until each lake
-has its own sync state, sync pushes only to the lake named default: the
-one the top-level server, LAMPI_SERVER, or nothing describes.
---server and --token-file override that lake's values.
+--lake names a lake from the lakes map in config.json. Without it,
+sync pushes to the lake named default (the one the top-level server,
+LAMPI_SERVER, or nothing describes), or to the first lake by name when
+there is none, and names the others. --server and --token-file
+override that lake's values. Each lake keeps its own sync state in
+lakes/<name>/ in the state directory. The first sync on this release
+moves single-lake state there; it waits for no agent, and refuses while
+an older agent holds it.
 
 --server defaults to LAMPI_SERVER, then the URL in config.json, or
 http://127.0.0.1:8787. --token-file defaults to LAMPI_TOKEN_FILE, then
@@ -137,7 +141,7 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	m, err := config.EnsureMachine(env.getenv)
+	lakeDir, m, err := prepareLake(env, state, lake, false)
 	if err != nil {
 		return err
 	}
@@ -155,6 +159,7 @@ func runSync(env Env, args []string) error {
 		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
 		MachineID:     m.MachineID,
 		StateDir:      state,
+		LakeStateDir:  lakeDir,
 		Projects:      lake.Projects,
 		UploadHits:    file.Redaction.UploadHits,
 	})

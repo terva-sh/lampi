@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBGQ3YV3PP22HPDDNKJM
 title: "Named devices: device ids on tokens, attribution, list and revoke"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ dependencies:
   - TKT-01M3FHHBDS7VCKK5AJ7T3H6DYX
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: onboarding/named-devices
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 737ae01a2696fc2a9835ea1a9ce4f77c0b7d7638
-  session: null
-  claimed_at: 2026-09-26T21:02:04Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T21:02:04Z
+updated_at: 2026-09-26T22:54:55Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -70,3 +63,9 @@ Catalog schema 5 adds devices (id, unique name, unique token_sha256, source, pro
 **agent:claude-code/e4a47e8c** at 2026-09-26T21:02:04Z
 
 Choices: revocation is a per-request catalog read, not a signal, so the operator command works on a running lake without knowing its pid; the cost is one indexed read per request. Revoke is final and a token returning to the file does not undo it, so a revoked laptop cannot come back by an editor undo. A token enrolled with Allow and no catalog row (tests only) authenticates with no device and binds nothing; production always syncs first. The audit log is JSONL with one O_APPEND write per event so serve and the CLI can both append. Pending codes and the registration source land with TKT-01M3FHHBJ (Registration codes); the profile column is there for TKT-01M3FHHBK. Evidence: internal/api/devices_test.go, internal/catalog/devices_test.go, internal/auth/devices_test.go, internal/cli/devices_test.go; go test -race ./... green.
+
+## Summary
+
+Merged to main in PR #10 (merge c7d699c; last change 413f697). Devices live in catalog schema 5; legacy --token-file entries load as named devices and bind to their first machine_id, with `serve devices unbind` to reset. authed reads the device per request, so `serve devices revoke` takes effect on a running lake with no signal. Each create, bind, unbind and revoke goes to audit.jsonl.
+
+Review: terva-review 903 raised three findings, all fixed (reload records before it publishes, bind rereads the row, the audit-failure message says the change stands). Review 914 raised two. finding-1 (concurrent claims of one machine) was rejected: transactions are _txlock=immediate, so a second bind waits and then sees the first one's binding; TestConcurrentBindsOfOneMachineRefuseTheLosers binds 16 times across two connections and exactly one wins. finding-2 (unbind telling you to retry after a failed audit write) was fixed in 413f697. The re-review of 413f697 was clean and CI was green.

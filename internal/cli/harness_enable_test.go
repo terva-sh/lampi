@@ -72,7 +72,7 @@ func TestDisabledHarnessLeavesWatermarkAndCAS(t *testing.T) {
 		t.Fatalf("first sync: %s", out)
 	}
 
-	stateDir := filepath.Join(state, "terva-lampi")
+	stateDir := filepath.Join(state, "terva-lampi", "lakes", "default")
 	machine := readMachineID(t, cfg)
 	tervaMark := readCursor(t, watermark.File(stateDir), machine, protocol.HarnessTerva, tervaHome, "sessions/abcd/sess-1.jsonl")
 	claudeMark := readCursor(t, watermark.File(stateDir), machine, protocol.HarnessClaude, claudeHome, claudeRel)

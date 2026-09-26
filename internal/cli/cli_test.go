@@ -529,7 +529,7 @@ func TestStatusReportsAgentAndServer(t *testing.T) {
 	if err := Run([]string{"sync", "--server", srv.URL, "--token-file", tokenCopy}, env); err != nil {
 		t.Fatal(err)
 	}
-	q, err := outbox.Open(outbox.File(filepath.Join(state, "terva-lampi")))
+	q, err := outbox.Open(outbox.File(filepath.Join(state, "terva-lampi", "lakes", "default")))
 	if err != nil {
 		t.Fatal(err)
 	}

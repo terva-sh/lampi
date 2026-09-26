@@ -339,11 +339,24 @@ also writes the lake's pinned `lake_id`, `key_id` and `public_key`.
 - `terva-lampi agent config` prints one `lake` line per lake, with the
   source of its server and token file.
 
-Until each lake has its own sync state (TKT-01M3FP110), `sync` and the
-agent push only to the `default` lake and say how many others are
-configured. `sync --lake` names another lake and is refused, and a
-config with only a `lakes` map stops the agent at start. `status` and
-`conflicts` read any lake.
+Each lake keeps its own sync state, in `lakes/<name>/` in the state
+directory: its outbox, its watermarks, and its last sync and attempt
+records. The quarantine records and `agent.pid` stay at the top and are
+shared. The first `sync` or agent start on this release moves the
+single-lake files into `lakes/default/`, and names the new place. The
+move copies the SQLite stores with `VACUUM INTO` into a hidden directory
+and renames it into place, then removes the old files by name. A lake
+sharing the directory (`serve` without `--data`) keeps its
+`catalog.db`, `cas/` and `identity.json`. `sync` refuses the move while
+an agent from an earlier release holds `agent.pid`; stop it first.
+
+Each lake also has its own machine id: the `default` lake keeps
+`machine.json`, and any other lake gets `machines/<name>.json` in the
+config directory, so two lakes cannot join their data by machine.
+
+Until the agent pushes to every lake at once (TKT-01M3FHHBP), `sync`
+and the agent push to one lake per run: `--lake`, or `default`, or the
+first lake by name, and they name the others.
 
 ### Cursor sessions with an empty cwd
 

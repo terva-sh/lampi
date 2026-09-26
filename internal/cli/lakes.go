@@ -7,30 +7,89 @@ import (
 
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakestate"
 )
 
-// perLakeStateTicket is the work that gives each lake its own sync
-// state. Until it lands, every lake would share one watermark store, and
-// a push to a second lake would skip what the first already has.
-const perLakeStateTicket = "TKT-01M3FP110 (Client state: per-lake directories and one-time legacy migration)"
+// fanOutTicket is the work that pushes to every lake at once. Until it
+// lands, sync and the agent push to one lake per run.
+const fanOutTicket = "TKT-01M3FHHBP (Agent: fan out to many lakes)"
 
 // pushLake picks the one lake sync and the agent push to in this
-// release: the default lake, which owns the existing state directory.
-// Another lake is refused rather than pushed to with the default lake's
-// watermarks. Other lakes are named on warn so they are not a silent
-// no-op.
+// release: the lake --lake names, else the default lake, else the first
+// by name. Other lakes are named on warn so they are not a silent no-op.
 func pushLake(lakes []config.Lake, selected string, warn io.Writer, cmd string) (config.Lake, error) {
 	if len(lakes) == 0 {
 		return config.Lake{}, fmt.Errorf("no lake is configured")
 	}
-	first := lakes[0]
-	if first.Name != config.DefaultLake {
-		return config.Lake{}, fmt.Errorf("%s pushes only to the lake named %s until %s lands; lake %s has no state of its own yet", cmd, config.DefaultLake, perLakeStateTicket, first.Name)
-	}
 	if selected == "" && len(lakes) > 1 {
-		fmt.Fprintf(warn, "terva-lampi %s: %d lakes configured; this release pushes to %s only\n", cmd, len(lakes), config.DefaultLake)
+		fmt.Fprintf(warn, "terva-lampi %s: %d lakes configured; this release pushes to %s only until %s lands\n", cmd, len(lakes), lakes[0].Name, fanOutTicket)
 	}
-	return first, nil
+	return lakes[0], nil
+}
+
+// prepareLake returns the lake's state directory and this machine's id
+// for it. For the default lake it first moves single-lake state into
+// that directory, once. agentLocked says the caller holds agent.pid; a
+// caller that does not takes it for the move, so an agent from before
+// this release is not writing the files while they move.
+func prepareLake(env Env, state string, lake config.Lake, agentLocked bool) (string, config.Machine, error) {
+	dir := lakestate.Dir(state, lake.Name)
+	if lake.Name == config.DefaultLake {
+		if err := migrateDefault(env, state, agentLocked); err != nil {
+			return "", config.Machine{}, err
+		}
+	}
+	m, err := config.EnsureLakeMachine(env.getenv, lake.Name)
+	if err != nil {
+		return "", config.Machine{}, err
+	}
+	return dir, m, nil
+}
+
+func migrateDefault(env Env, state string, agentLocked bool) error {
+	// Nothing at the top of the state directory: moved already, or a
+	// fresh machine.
+	has, err := lakestate.Legacy(state)
+	if err != nil || !has {
+		return err
+	}
+	// Legacy files are about to be moved, or, when lakes/default exists
+	// because a crash came between the rename and the cleanup, removed.
+	// Either way an agent from before this release may be writing them,
+	// so the lock is taken first.
+	if !agentLocked {
+		release, err := writeAgentPID(state)
+		if err != nil {
+			return fmt.Errorf("sync state in %s is in the single-lake layout and an agent holds it: %w; stop that agent, then run this again", state, err)
+		}
+		defer release()
+	}
+	moved, err := lakestate.Migrate(state, config.DefaultLake)
+	if err != nil {
+		return err
+	}
+	if moved {
+		fmt.Fprintf(env.stderr(), "terva-lampi: moved sync state to %s\n", lakestate.Dir(state, config.DefaultLake))
+	}
+	return nil
+}
+
+// captureDir is where status reads a lake's sync state: its own
+// directory, or for the default lake before its first sync on this
+// release, the single-lake files at the top of the state directory.
+// status is a read and does not move them.
+func captureDir(state string, lake config.Lake) (string, bool) {
+	dir := lakestate.Dir(state, lake.Name)
+	if lake.Name != config.DefaultLake {
+		return dir, false
+	}
+	if _, err := os.Stat(dir); err == nil {
+		return dir, false
+	}
+	if has, _ := lakestate.Legacy(state); has {
+		return state, true
+	}
+	return dir, false
 }
 
 // lakeToken reads a lake's device token. A token file that no flag,

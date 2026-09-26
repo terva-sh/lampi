@@ -90,10 +90,16 @@ type Options struct {
 	// to match, and they do not share watermarks.
 	CursorCLIHome string
 	MachineID     string
-	StateDir      string
-	Client        *http.Client
-	Projects      config.Projects
-	UploadHits    bool
+	// StateDir holds what does not depend on the lake: the quarantine
+	// records and the operator's acknowledgements.
+	StateDir string
+	// LakeStateDir holds this lake's outbox, watermarks, and last sync
+	// and attempt records. Empty uses StateDir, the layout from before a
+	// machine could report to several lakes.
+	LakeStateDir string
+	Client       *http.Client
+	Projects     config.Projects
+	UploadHits   bool
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
 	// StallTimeout cancels a request that moves no bytes for this long.
@@ -164,9 +170,17 @@ func (e *Rejected) Error() string {
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	res, err := syncOnce(ctx, opt)
 	if err == nil || ctx.Err() == nil {
-		recordAttempt(opt.StateDir, opt.now(), res.Skipped, err)
+		recordAttempt(opt.lakeState(), opt.now(), res.Skipped, err)
 	}
 	return res, err
+}
+
+// lakeState is where this lake's sync state lives.
+func (o Options) lakeState() string {
+	if o.LakeStateDir != "" {
+		return o.LakeStateDir
+	}
+	return o.StateDir
 }
 
 func syncOnce(ctx context.Context, opt Options) (Result, error) {
@@ -201,12 +215,12 @@ func syncOnce(ctx context.Context, opt Options) (Result, error) {
 		return Result{}, fmt.Errorf("upload: state dir is empty")
 	}
 
-	q, err := outbox.Open(outbox.File(opt.StateDir))
+	q, err := outbox.Open(outbox.File(opt.lakeState()))
 	if err != nil {
 		return Result{}, err
 	}
 	defer q.Close()
-	wm, err := watermark.Open(watermark.File(opt.StateDir))
+	wm, err := watermark.Open(watermark.File(opt.lakeState()))
 	if err != nil {
 		return Result{}, err
 	}
@@ -392,7 +406,7 @@ func saveLastSync(opt Options, res Result) error {
 	raw = append(raw, '\n')
 	// Rename a complete file over the stamp. A crash mid-write leaves the
 	// previous document in place; readers never see a truncated one.
-	if err := writeStateFile(opt.StateDir, LastSyncFile(opt.StateDir), raw); err != nil {
+	if err := writeStateFile(opt.lakeState(), LastSyncFile(opt.lakeState()), raw); err != nil {
 		return fmt.Errorf("upload: last sync: %w", err)
 	}
 	return nil
