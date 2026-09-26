@@ -202,6 +202,25 @@ func TestSyncPushesToEveryLakeAndKeepsGoingPastAFailure(t *testing.T) {
 	}
 }
 
+func TestSyncKeepsGoingPastALakeItCannotPrepare(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// The default lake's named token file is gone, so its options cannot
+	// be built. work is still pushed, and the exit names default.
+	if err := os.Remove(filepath.Join(f.cfg, "home.token")); err != nil {
+		t.Fatal(err)
+	}
+	err := f.run("sync")
+	if err == nil || !strings.Contains(err.Error(), "sync failed for 1 of 2 lakes: default") {
+		t.Fatalf("sync: %v\n%s\n%s", err, f.stdout, f.stderr)
+	}
+	if !strings.Contains(f.stderr.String(), "terva-lampi: lake default: ") {
+		t.Fatalf("the failure does not name its lake:\n%s", f.stderr)
+	}
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("work sessions %d\n%s", n.Sessions, f.stderr)
+	}
+}
+
 func TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther(t *testing.T) {
 	f := newTwoLakeFixture(t)
 	// Allow the session for both lakes, then make default refuse the
@@ -285,13 +304,18 @@ func TestSyncMigratesSingleLakeStateAndSendsNothingTwice(t *testing.T) {
 	}
 
 	// An agent from before this release holds agent.pid: sync refuses to
-	// move the files under it.
+	// move the files under it, names default as failed, and still pushes
+	// to work, whose state is its own.
 	release, err := writeAgentPID(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.run("sync"); err == nil || !strings.Contains(err.Error(), "stop that agent") {
-		t.Fatalf("sync beside an old agent: %v", err)
+	if err := f.run("sync"); err == nil || !strings.Contains(err.Error(), "sync failed for 1 of 2 lakes: default") ||
+		!strings.Contains(f.stderr.String(), "lake default: sync state in") || !strings.Contains(f.stderr.String(), "stop that agent") {
+		t.Fatalf("sync beside an old agent: %v\n%s", err, f.stderr)
+	}
+	if !strings.Contains(f.stdout.String(), "lake work: checked 1") {
+		t.Fatalf("work was not attempted beside an old agent:\n%s", f.stdout)
 	}
 	release()
 

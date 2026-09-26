@@ -85,7 +85,8 @@ pieces. No timeout covers a whole request; one that moves no bytes for
 sync pushes to every lake in turn, the lake named default first, and
 labels each line with its lake when there is more than one. A lake that
 fails does not stop the next, and sync exits non-zero naming the lakes
-that failed. --server and --token-file override one lake's values: the
+that failed. An interrupt stops the run, and the lakes it did not reach
+count as failed. --server and --token-file override one lake's values: the
 one --lake names, or the only one. Each lake keeps its own sync state in
 lakes/<name>/ in the state directory. The first sync on this release
 moves single-lake state there; it waits for no agent, and refuses while
@@ -99,6 +100,9 @@ from a file, never from an argument. It is sent over
 https, or over http only to localhost, 127.0.0.0/8, or ::1. Anything
 else is refused before the scan.
 `
+
+// syncLake pushes to one lake. Tests replace it.
+var syncLake = upload.Sync
 
 func runSync(env Env, args []string) error {
 	if len(args) > 0 && isHelp(args[0]) {
@@ -136,34 +140,45 @@ func runSync(env Env, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// Each lake is pushed in turn with its own state. One that fails does
-	// not stop the next; with several, each line names its lake.
+	// Each lake is pushed in turn with its own state. One that fails,
+	// including one that cannot be prepared, does not stop the next; with
+	// several, each line names its lake.
 	var failed []string
 	var last error
-	for _, lake := range lakes {
+	fail := func(lake config.Lake, label string, err error) {
+		last = err
+		failed = append(failed, lake.Name)
+		if len(lakes) > 1 {
+			fmt.Fprintf(env.stderr(), "terva-lampi: %s%v\n", label, err)
+		}
+	}
+	for i, lake := range lakes {
 		label := ""
 		if len(lakes) > 1 {
 			label = "lake " + lake.Name + ": "
 		}
 		if lake.Name == config.DefaultLake {
 			if err := migrateDefault(env, state, false); err != nil {
-				return err
+				fail(lake, label, err)
+				continue
 			}
 		}
 		opt, err := lakeOptions(env, file, state, src, lake)
 		if err != nil {
-			return err
+			fail(lake, label, err)
+			continue
 		}
-		res, err := upload.Sync(ctx, opt)
+		res, err := syncLake(ctx, opt)
 		printSync(env.stdout(), env.stderr(), label, res)
 		if err != nil {
-			last = err
-			failed = append(failed, lake.Name)
-			if len(lakes) > 1 {
-				fmt.Fprintf(env.stderr(), "terva-lampi: %s%v\n", label, err)
-			}
+			fail(lake, label, err)
 		}
+		// An interrupt ends the run. The lakes it did not reach are
+		// failures, so the exit says the fan-out is incomplete.
 		if ctx.Err() != nil {
+			for _, rest := range lakes[i+1:] {
+				fail(rest, "lake "+rest.Name+": ", fmt.Errorf("not attempted: %w", ctx.Err()))
+			}
 			break
 		}
 	}
