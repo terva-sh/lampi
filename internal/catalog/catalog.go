@@ -184,6 +184,7 @@ func dataSource(path string) (string, error) {
 // this binary writes.
 var migrations = []func(*sql.Tx) error{
 	migrate1,
+	migratePublished,
 }
 
 // upgrade runs each migration above the file's user_version, one
@@ -966,7 +967,9 @@ type SessionInfo struct {
 // The CAS blob is not touched.
 func (c *Catalog) SetNormalizeError(ctx context.Context, sessionUID, msg string) error {
 	res, err := c.db.ExecContext(ctx, `
-		UPDATE sessions SET normalize_error = NULLIF(?, '') WHERE session_uid = ?`, msg, sessionUID)
+		UPDATE sessions SET normalize_error = NULLIF(?, ''),
+		published_gen = CASE WHEN ? != '' THEN NULL ELSE published_gen END
+		WHERE session_uid = ?`, msg, msg, sessionUID)
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}

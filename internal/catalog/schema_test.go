@@ -139,6 +139,9 @@ func TestOpenMigratesUnversionedCatalog(t *testing.T) {
 		t.Fatalf("user_version %d, want %d", got, len(migrations))
 	}
 	list, err := c.ListSessions(t.Context())
+	if state, err := c.NormalizationState(t.Context(), "uid-1"); err != nil || state != "unknown" {
+		t.Fatalf("legacy state %q: %v", state, err)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

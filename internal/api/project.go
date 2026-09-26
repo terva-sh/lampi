@@ -248,6 +248,14 @@ func codexHistory(harness, rel string) bool {
 // returns is a failure to record the outcome, not nerr itself. Raw
 // blobs are not opened for write.
 func (s *Server) StoreEvents(ctx context.Context, sessionUID string, events []normalize.Event, nerr error) error {
+	gen, head, _, err := s.Catalog.NormalizeVersion(ctx, sessionUID)
+	if err != nil {
+		return err
+	}
+	return s.storeGeneration(ctx, sessionUID, gen, head, events, nerr)
+}
+
+func (s *Server) storeGeneration(ctx context.Context, sessionUID string, gen int64, head string, events []normalize.Event, nerr error) error {
 	path := filepath.Join(s.Normalized, sessionUID+".jsonl")
 	if nerr != nil {
 		if err := removeDerived(path, s.Parquet, sessionUID); err != nil {
@@ -269,7 +277,7 @@ func (s *Server) StoreEvents(ctx context.Context, sessionUID string, events []no
 		}
 		return nil
 	}
-	return s.Catalog.SetNormalizeError(ctx, sessionUID, "")
+	return s.Catalog.MarkPublished(ctx, sessionUID, gen, head)
 }
 
 func removeDerived(jsonl, parquetRoot, sessionUID string) error {
