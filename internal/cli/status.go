@@ -94,10 +94,11 @@ func runStatus(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), statusUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
 	}
-	file, err := config.LoadFile(env.getenv)
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
 		return err
 	}
+	file := cc.file
 	_, n, err := countSources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
@@ -106,10 +107,7 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
-	if err != nil {
-		return err
-	}
+	lakes := cc.lakes
 	for _, h := range harnessStatuses(env.getenv, file.Harnesses) {
 		fmt.Fprintln(env.stdout(), h.line())
 	}

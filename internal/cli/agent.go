@@ -176,7 +176,11 @@ sync now, and SIGHUP reads the lakes again: a lake that is gone or
 changed drains its outbox and stops, a changed or new one starts with
 a full pass, and one that did not change keeps running. With
 "lakes": {} and no server the agent has no lake: it watches, uploads
-nothing, and says so once. The filesystem watch is still the source of truth; the
+nothing, and says so once. A lake with a pinned key in config.json has
+its signed profile fetched at start and hourly; one that verifies is
+cached per lake, and one that does not is logged and ignored.
+config.json wins over every profile field. agent config prints where
+each value came from. The filesystem watch is still the source of truth; the
 signal only skips the wait. While the
 daemon runs it writes agent.pid in the state directory and holds a
 lock on it. A second agent on that directory exits and names the
@@ -303,7 +307,11 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	// lakeCtx ends on shutdown or a watch failure; each runner then
 	// drains its outbox and returns.
 	lakeCtx, stopLakes := context.WithCancel(ctx)
-	set := &lakeSet{env: env, ctx: lakeCtx, state: state, runners: map[string]*lakeRunner{}}
+	set := &lakeSet{
+		env: env, ctx: lakeCtx, state: state, runners: map[string]*lakeRunner{},
+		src: src, serverFlag: serverFlag, tokenFlag: tokenFlag,
+		machine: machineFields(env),
+	}
 	for _, l := range lakes {
 		if err := set.start(l); err != nil {
 			stopLakes()
@@ -318,7 +326,7 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	watchKick(ctx, func() { set.wakeAll(false) })
 	// SIGHUP reads the lakes again. The rest of config.json, the
 	// harnesses and the debounce, still wants a restart.
-	watchReload(ctx, func() { set.reload(src, serverFlag, tokenFlag) })
+	watchReload(ctx, set.reload)
 	// Growth waits for the watch to go quiet, so a burst of writes is
 	// one sync per lake.
 	settle := newDebouncer(window, longest, func() { set.wakeAll(true) })
@@ -502,20 +510,23 @@ func (r *lakeRunner) run(ctx context.Context) {
 	}
 }
 
-// agentWindows is the debounce from config.json.
+// agentWindows is the debounce from config.json, or from a lake's
+// profile where config.json leaves it unset.
 func agentWindows(env Env) (window, longest time.Duration, err error) {
-	file, err := config.LoadFile(env.getenv)
+	cc, err := loadClientConfig(env, io.Discard, config.LakeFlags{})
 	if err != nil {
 		return 0, 0, err
 	}
-	return file.Agent.Windows()
+	return cc.file.Agent.Windows()
 }
 
 // agentLake is one lake the agent pushes to: its options, the token
 // file named in the 401 line, and the label on its output lines, empty
 // when it is the only lake.
 type agentLake struct {
-	name      string
+	name string
+	// cfg is the resolved lake, with its pin, for the profile fetch.
+	cfg       config.Lake
 	opt       upload.Options
 	tokenPath string
 	label     string
@@ -539,14 +550,11 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 // harness roots, the debounce and the redaction override are the
 // machine's and the same for all.
 func loadAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, src []source, n int, err error) {
-	file, err := config.LoadFile(env.getenv)
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	resolved, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
-	if err != nil {
-		return nil, nil, 0, err
-	}
+	file, resolved := cc.file, cc.lakes
 	src, n, err = countSources(env.getenv, file.Harnesses)
 	if err != nil {
 		return nil, nil, 0, err
@@ -571,7 +579,7 @@ func agentLakes(env Env, file config.File, src []source, resolved []config.Lake)
 		if err != nil {
 			return nil, err
 		}
-		l := agentLake{name: lake.Name, opt: opt, tokenPath: lake.TokenFile.Value}
+		l := agentLake{name: lake.Name, cfg: lake, opt: opt, tokenPath: lake.TokenFile.Value}
 		if len(resolved) > 1 {
 			l.label = "lake " + lake.Name + ": "
 		}
@@ -736,7 +744,7 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 }
 
 func runAgentDiscover(env Env) error {
-	src, err := configuredSources(env.getenv)
+	src, err := configuredSources(env)
 	if err != nil {
 		return err
 	}
@@ -762,10 +770,11 @@ func runAgentConfig(env Env) error {
 	if err != nil {
 		return err
 	}
-	file, err := config.LoadFile(env.getenv)
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{})
 	if err != nil {
 		return err
 	}
+	file := cc.file
 	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
@@ -780,14 +789,12 @@ func runAgentConfig(env Env) error {
 	}
 	fmt.Fprintf(env.stdout(), "config_dir: %s\n", cfgDir)
 	fmt.Fprintf(env.stdout(), "state_dir: %s\n", state)
-	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{})
-	if err != nil {
-		return err
-	}
+	lakes := cc.lakes
 	if len(lakes) > 0 {
 		writeEndpoint(env.stdout(), lakes[0].Server, lakes[0].TokenFile)
 	}
 	writeLakes(env.stdout(), lakes)
+	writeProfiles(env.stdout(), lakes, cc)
 	for _, s := range src {
 		fmt.Fprintf(env.stdout(), "%s: %s\n", homeLabel(s.harness.Name()), s.home)
 	}

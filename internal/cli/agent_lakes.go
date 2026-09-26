@@ -2,14 +2,19 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakeprofile"
+	"terva.sh/lampi/internal/upload"
 )
 
 // lakeSet is the lakes a running agent pushes to. The watch and SIGUSR1
@@ -19,6 +24,17 @@ type lakeSet struct {
 	env   Env
 	ctx   context.Context // ends on shutdown; every runner's context derives from it
 	state string
+	// src, serverFlag and tokenFlag are what the agent started with. A
+	// reload keeps them: harness roots are watched from the start.
+	src                   []source
+	serverFlag, tokenFlag string
+	// machine is the harnesses and debounce in force, which a reload
+	// does not change. A reload that would change them says so.
+	machine string
+
+	// reloadMu serializes reloads: SIGHUP and each lake's profile fetch
+	// can ask for one.
+	reloadMu sync.Mutex
 
 	wg sync.WaitGroup
 	mu sync.Mutex
@@ -53,6 +69,16 @@ func (s *lakeSet) start(l agentLake) error {
 		defer cancel()
 		r.run(ctx)
 	}()
+	// A pinned lake's profile is fetched while the lake runs. Its loop
+	// is not part of done: a profile that changes asks for a reload,
+	// and that reload may stop this very lake.
+	if lakeprofile.Pinned(l.cfg) {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			watchProfile(ctx, s.env, r, profileEvery, s.reload)
+		}()
+	}
 	return nil
 }
 
@@ -105,14 +131,20 @@ func (s *lakeSet) anyReady() bool {
 // keeps running, its backoff and memo intact. A config that does not
 // resolve, or a token that would go in the clear, leaves the lakes as
 // they were.
-func (s *lakeSet) reload(src []source, serverFlag, tokenFlag string) {
+func (s *lakeSet) reload() {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
 	if s.ctx.Err() != nil {
 		return
 	}
-	next, err := s.resolve(src, serverFlag, tokenFlag)
+	next, cc, err := s.resolve()
 	if err != nil {
 		fmt.Fprintf(s.env.stderr(), "terva-lampi: reload: %v; the lakes are unchanged\n", err)
 		return
+	}
+	if m := machineOf(cc.file); m != s.machine {
+		s.machine = m
+		fmt.Fprintln(s.env.stderr(), "terva-lampi: reload: harnesses or debounce changed; restart the agent to apply them")
 	}
 	want := map[string]agentLake{}
 	for _, l := range next {
@@ -169,16 +201,96 @@ func (s *lakeSet) reload(src []source, serverFlag, tokenFlag string) {
 	fmt.Fprintln(s.env.stdout(), reloadLine(added, removed, changed, kept))
 }
 
-func (s *lakeSet) resolve(src []source, serverFlag, tokenFlag string) ([]agentLake, error) {
-	file, err := config.LoadFile(s.env.getenv)
+func (s *lakeSet) resolve() ([]agentLake, clientConfig, error) {
+	cc, err := loadClientConfig(s.env, s.env.stderr(), config.LakeFlags{Server: s.serverFlag, TokenFile: s.tokenFlag})
 	if err != nil {
-		return nil, err
+		return nil, clientConfig{}, err
 	}
-	resolved, err := config.ResolveLakes(file, s.env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
+	lakes, err := agentLakes(s.env, cc.file, s.src, cc.lakes)
+	return lakes, cc, err
+}
+
+// machineOf is the machine-wide fields a running agent cannot change,
+// as one comparable string.
+func machineOf(f config.File) string {
+	raw, _ := json.Marshal(struct {
+		H config.Harnesses
+		A config.AgentConfig
+	}{f.Harnesses, f.Agent})
+	return string(raw)
+}
+
+// machineFields is machineOf for the config the agent starts with.
+func machineFields(env Env) string {
+	cc, err := loadClientConfig(env, io.Discard, config.LakeFlags{})
 	if err != nil {
-		return nil, err
+		return ""
 	}
-	return agentLakes(s.env, file, src, resolved)
+	return machineOf(cc.file)
+}
+
+// profileEvery is how often a running agent fetches each pinned lake's
+// profile, after the fetch at start.
+const profileEvery = time.Hour
+
+// watchProfile fetches the lake's profile now and every interval until
+// ctx ends. A copy that verifies against the pin and has a new version
+// replaces the cached one, and changed asks for a reload so the lake's
+// project rules take effect. A failed fetch or a copy that does not
+// verify is said once per run of failures, and the cached copy stays.
+func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Duration, changed func()) {
+	l := r.lake
+	dir := l.opt.LakeStateDir
+	have := ""
+	if d, ok, err := lakeprofile.Load(dir, l.cfg); err == nil && ok {
+		have = d.Payload.Version
+	}
+	failing := false
+	fetch := func() {
+		fctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		signed, err := upload.FetchAgentConfig(fctx, l.opt)
+		var d lakeprofile.Doc
+		if err == nil {
+			d, err = lakeprofile.Verify(signed, l.cfg)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			if !failing {
+				kept := "no profile is cached"
+				if have != "" {
+					kept = "keeping cached profile " + have
+				}
+				r.errf("profile: %v; %s", err, kept)
+			}
+			failing = true
+			return
+		}
+		failing = false
+		if d.Payload.Version == have {
+			return
+		}
+		if err := lakeprofile.Save(dir, d); err != nil {
+			r.errf("profile: %v", err)
+			return
+		}
+		have = d.Payload.Version
+		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), d.Payload.Profile, have)
+		changed()
+	}
+	fetch()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			fetch()
+		}
+	}
 }
 
 // sameLake reports whether a running lake can keep running under the

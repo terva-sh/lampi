@@ -118,14 +118,11 @@ func runSync(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), syncUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
 	}
-	file, err := config.LoadFile(env.getenv)
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
 		return err
 	}
-	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
-	if err != nil {
-		return err
-	}
+	file, lakes := cc.file, cc.lakes
 	if len(lakes) == 0 {
 		return errNoLake
 	}

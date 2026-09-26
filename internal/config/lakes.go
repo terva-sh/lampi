@@ -43,6 +43,9 @@ type Lake struct {
 	PublicKey string
 	Projects  Projects
 	Legacy    bool
+	// AllowFrom is where Projects.Allow came from once ApplyLakeProfile
+	// ran: "local", or "lake NAME" for the lake's own profile.
+	AllowFrom string
 }
 
 // LakeFlags are the command-line inputs to ResolveLakes. Lake selects one
