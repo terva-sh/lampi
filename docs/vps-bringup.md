@@ -209,8 +209,11 @@ The agent, `sync`, and `status` read `--token-file`, then
 
 A lake can give its registered agents a base configuration.
 `deploy/profiles.json.example` is the shape; copy it to
-`/var/lib/terva-lampi/profiles.json` (or pass `--profiles`). A profile
-may set harnesses on or off, the debounce, and `projects.allow` and
+`/var/lib/terva-lampi/profiles.json` (or pass `--profiles`), then
+replace its placeholder `projects.allow` and `projects.deny` entries
+with your own projects. As copied, it allows only a placeholder
+remote, so an agent with no allow rules of its own uploads nothing.
+A profile may set harnesses on or off, the debounce, and `projects.allow` and
 `projects.deny` for uploads to this lake. It cannot set a harness root
 or `redaction.upload_hits`; a file that tries fails the load. A
 device gets the `default` profile unless its code named one or

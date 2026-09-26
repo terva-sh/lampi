@@ -38,7 +38,11 @@ restart the agent after registering to add the lake.
 `profiles.json.example` is the base configuration a lake gives the
 agents it registers. Copy it to `profiles.json` in the lake's data
 directory, or pass `serve --profiles`. It holds no hostname and no
-secret.
+secret. Its `projects` rules are placeholders: replace the `allow`
+and `deny` entries with your own projects before the lake serves the
+file. An agent whose `config.json` has no allow rules of its own
+uploads only what the profile allows, so the example as copied
+uploads nothing.
 
 
 `terva-lampi register --install-service` writes a unit like the ones
