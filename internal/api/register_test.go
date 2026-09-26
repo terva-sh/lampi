@@ -146,6 +146,62 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	}
 }
 
+func TestRegisterAuditsEveryMalformedAttemptWithoutTheSecret(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return now }
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	secret, _ := regcode.NewSecret()
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	send := func(body []byte) int {
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, protocol.RegisterPath, bytes.NewReader(body)))
+		return rr.Code
+	}
+	valid := func(req protocol.RegisterRequest) []byte {
+		body, _ := json.Marshal(req)
+		return body
+	}
+	for _, c := range []struct {
+		body   []byte
+		code   int
+		reason string
+	}{
+		{[]byte(`{"secret":"` + secret + `",`), http.StatusBadRequest, "reason=body is not a register request"},
+		{[]byte(`{"secret":"` + secret + `","name":"` + strings.Repeat("x", maxRegisterBytes) + `"}`), http.StatusRequestEntityTooLarge, "reason=body too large"},
+		{valid(protocol.RegisterRequest{Secret: secret, TokenSHA256: "NOTHEX", MachineID: "m"}), http.StatusBadRequest, "reason=malformed token_sha256"},
+		{valid(protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64)}), http.StatusBadRequest, "reason=malformed machine_id"},
+	} {
+		if got := send(c.body); got != c.code {
+			t.Fatalf("%s: %d, want %d", c.reason, got, c.code)
+		}
+		raw, _ := os.ReadFile(audit.Path(dir))
+		if !strings.Contains(string(raw), `"registration.refused"`) || !strings.Contains(string(raw), c.reason) {
+			t.Fatalf("audit lacks %s:\n%s", c.reason, raw)
+		}
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("audit holds the secret:\n%s", raw)
+		}
+	}
+	// None of those spent the code.
+	if rr := postRegister(t, s, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "m"}); rr.Code != http.StatusOK {
+		t.Fatalf("code after refused attempts: %d %s", rr.Code, rr.Body)
+	}
+
+	// A lake that cannot register devices audits the refusal too.
+	open, openDir := identityLake(t)
+	if rr := postRegister(t, open, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "m"}); rr.Code != http.StatusConflict {
+		t.Fatalf("open lake: %d", rr.Code)
+	}
+	if raw, _ := os.ReadFile(audit.Path(openDir)); !strings.Contains(string(raw), "reason=lake accepts requests without a token") {
+		t.Fatalf("open lake audit:\n%s", raw)
+	}
+}
+
 func identityLakeOpen(t *testing.T) *Server {
 	s, _ := identityLake(t)
 	return s

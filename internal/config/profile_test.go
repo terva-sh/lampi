@@ -37,6 +37,9 @@ func TestLoadProfiles(t *testing.T) {
 		{`{"profiles":{"default":{}},"extra":1}`, `unknown field "extra"`},
 		{`{"profiles":{"default":{"harnesses":{"codex":{"root":"/etc"}}}}}`, "cannot set a harness root"},
 		{`{"profiles":{"default":{"redaction":{"upload_hits":true}}}}`, "cannot upload flagged files"},
+		// upload_hits is redaction's only field, so a profile carries no
+		// redaction setting the merge could drop.
+		{`{"profiles":{"default":{"redaction":{"ruleset":"strict"}}}}`, `unknown field "ruleset"`},
 		{`{"profiles":{"default":{"agent":{"debounce":"soon"}}}}`, "agent.debounce"},
 		{`{"profiles":{"Bad":{}}}`, "a profile name"},
 		{`{"profiles":{}} {}`, "trailing data"},
