@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBFAYKEK0NAXVR91969G
 title: "Lake identity: ed25519 key list, published keys, signed hello"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ dependencies:
   - TKT-01M3FHHBDS7VCKK5AJ7T3H6DYX
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: onboarding/lake-identity
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 4a3744dafc4fae0345b675502a643ca6b5794948
-  session: null
-  claimed_at: 2026-09-26T20:23:22Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:31:13Z
+updated_at: 2026-09-26T20:47:26Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -82,3 +75,11 @@ Supersedes the startup rule as first filed ('a data directory with a catalog but
 **agent:claude-code/e4a47e8c** at 2026-09-26T20:31:13Z
 
 Criterion 2 as met: hello carries the lake id and a proof signed by every active key, whose key_id names the key. It does not repeat the public key itself; a client gets that from the key list, which is where it pins it. Rate limit is global rather than per address because behind Caddy every caller has the proxy's address. Evidence: internal/identity tests (Ensure's four cases, create refusing to replace, sign/verify with context separation and tamper), internal/api/identity_test.go (route open, signed, no catalog words, 404 without identity, 429, web bypass, old {} hello), internal/cli/identity_test.go (backup and restore keep it, restore without it refuses), and TestGoLiveRestore (tag golive), whose restored serve starts only because the backup carried identity.json. go test -race ./... green.
+
+**agent:claude-code/e4a47e8c** at 2026-09-26T20:47:26Z
+
+Review record on PR #8: four model reviews. 892 (adb178d): backup and fsck passed on a lost recorded identity, hello refused old bodies; fixed in a7a7ed9. 893: rate limiter drained on a backward clock step, because UTC() drops the monotonic reading; fixed in e8ff62e. 894: oversized hello dropped a nonce, identity.Load accepted trailing data; fixed in e25883b. Clean review run dbeb0369 at e25883b. CI run 67 failed once in internal/adapter TestProjectAtReadsDeltifiedPacks (git rev-list exit 128 in the container), untouched by this PR and green on rerun; if it recurs it deserves its own ticket.
+
+## Summary
+
+Lakes now have an identity: identity.json (lake id and ed25519 key list, mode 0600) made on first start and recorded in the catalog (schema 4, lake_meta). A pre-identity catalog gets one on upgrade; a catalog that recorded a lake id refuses to start, back up, or pass fsck without its matching file. GET /.well-known/terva-lampi/keys publishes the keys signed over a caller nonce, open and rate-limited; hello signs a nonce and returns the lake id. serve identity prints fingerprints. Landed in PR #8 after four review rounds.
