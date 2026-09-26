@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2PGDY06D7XE12NWQ9EZF4
 title: "Web: browse normalized transcripts with generation-safe paging"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/explore-store-ui-search
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
-  commit: 1c74bfb433e0975d08edd7d26848d57960e28cb5
-  session: null
-  claimed_at: 2026-09-26T20:36:18Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:42:51Z
-updated_at: 2026-09-26T20:46:19Z
+updated_at: 2026-09-26T20:46:32Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -59,7 +52,7 @@ Follow docs/web-ui-plan.md release B and its pinned sibling references. Use only
 
 ## Definition of done
 
-- [ ] Focused tests and relevant API/operator docs are complete; record evidence and decisions in the ticket.
+- [x] Focused tests and relevant API/operator docs are complete; record evidence and decisions in the ticket.
 
 ## Implementation plan
 
@@ -95,3 +88,7 @@ Pages hold 100 events by default and 200 at most, with a 1 MiB item budget. cont
 - TestPagesNeverMixGenerations republishes while reading. Each run served 50 pages across about 2,000 generation changes, and no page mixed generations.
 - `just ci` passes.
 - The browser smoke (e2e/web-smoke.mjs, extended) passed. It covers transcript paging, truncation and opaque hints, tool error badges, deep-link focus, 390px layout and no-JS paging.
+
+## Summary
+
+Landed on branch t3code/explore-store-ui-search in commit b3017a6. internal/recall.Reader serves generation-pinned, bounded event pages. The web layer exposes them at /api/web/v1/sessions/{uid}/events and /sessions/{uid}/transcript, with deep links (?gen&at). Docs: docs/web-api.md#transcript-events and docs/web-dashboard.md. Not yet merged to main or deployed.
