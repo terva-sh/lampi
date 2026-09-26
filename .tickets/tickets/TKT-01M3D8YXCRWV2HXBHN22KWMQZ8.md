@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3D8YXCRWV2HXBHN22KWMQZ8
 title: "Go-live: canary secrets in three places never reach the lake"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: high
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T21:53:49Z
-updated_at: 2026-09-25T21:53:49Z
+updated_at: 2026-09-26T01:17:17Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
