@@ -87,6 +87,26 @@ access-log format; those latter variables contain the callback authorization cod
 The application's access log already excludes query strings and headers carrying
 credentials. Auth failures add fixed reason messages, not provider error bodies.
 
+Traefik's default access-log format can include the query string. Before enabling
+OIDC, either configure a format that excludes sensitive request fields or disable
+access logging for the Lampi router. On Traefik 3.7.13, the following router option
+was verified with an isolated instance: a synthetic query on the Lampi route was
+absent from the log while an unrelated control request was still logged.
+
+```yaml
+http:
+  routers:
+    lampi:
+      # Keep the existing rule, entryPoints and service.
+      observability:
+        accessLogs: false
+```
+
+This disables proxy access logs for that router, not Lampi's credential-safe
+application logs. Verify support on the installed Traefik version and probe with
+a harmless query marker before the first real login. Never use an actual callback
+code or print existing credential-bearing log lines as test evidence.
+
 Production cookies are HttpOnly, Secure, SameSite=Lax, host-only and use a
 `__Host-lampi_` prefix. A session expires after one hour idle or twelve hours total.
 Polling counts as activity, but never extends the absolute expiry. Group membership
