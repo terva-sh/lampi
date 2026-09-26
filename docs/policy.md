@@ -50,9 +50,12 @@ to add a device, and it stays documented as the fallback afterwards.
 ### The model
 
 - **The lake has an identity.** `serve` holds an ed25519 key list and a
-  random lake id in its data directory. Backup and restore keep them.
-  A catalog with no key does not start with a new one, because agents
-  pin the key.
+  random lake id in its data directory, and records the lake id in the
+  catalog. Backup and restore keep them. A new lake, or one upgrading
+  from a release with no identity, gets one on its first start. A
+  catalog that has recorded a lake id but lost its key does not start
+  with a new one, because agents pin the key. Restore the key from a
+  backup.
 - **The lake publishes its keys.** `GET /.well-known/terva-lampi/keys`
   lists the lake id and each key with its status and validity window.
   The response is signed over a nonce the caller sends.
