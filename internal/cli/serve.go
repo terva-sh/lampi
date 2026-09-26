@@ -19,6 +19,7 @@ import (
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
 
@@ -136,8 +137,10 @@ func runServe(env Env, args []string) error {
 	if warn := plaintextTokenWarning(addr, devices); warn != "" {
 		fmt.Fprintln(env.stderr(), warn)
 	}
+	var webCfg *webconfig.Config
 	if webConfigFile != "" {
-		if _, err := webconfig.Load(webConfigFile); err != nil {
+		webCfg, err = webconfig.Load(webConfigFile)
+		if err != nil {
 			return err
 		}
 		if devices == nil || devices.Empty() {
@@ -156,6 +159,13 @@ func runServe(env Env, args []string) error {
 	sweepCAS(env, lake.CAS, time.Now())
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
+	if webCfg != nil {
+		lake.Web, err = web.New(*webCfg, lake.Catalog, nil)
+		if err != nil {
+			lake.Close()
+			return err
+		}
+	}
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
