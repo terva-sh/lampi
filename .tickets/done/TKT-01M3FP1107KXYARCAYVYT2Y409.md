@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FP1107KXYARCAYVYT2Y409
 title: "Client state: per-lake directories and one-time legacy migration"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3FHHBN7G90MR0BJ89DGPRQQ
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: onboarding/per-lake-state
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 6cc3707ab21413f7b17a9f542f83432c4a518ff5
-  session: null
-  claimed_at: 2026-09-26T20:55:01Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-26T20:55:01Z
+updated_at: 2026-09-26T22:55:13Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -65,3 +58,14 @@ New internal/lakestate: Dir(state, name) = state/lakes/<name>. Migrate(state, na
 **agent:claude-code/e4a47e8c** at 2026-09-26T20:55:01Z
 
 Deviation from the ticket text, which said lakes/<lake-id>/: the directory is keyed by the local lake name. A legacy lake's id is unknown until it is upgraded and answers hello, so an id-keyed directory needs a second rename later, and a name is already validated as one safe path segment. Cost: renaming a lake in config.json starts it with empty state, which re-checks files against the lake; blobs and manifests are idempotent there. machine ids live in the config dir, not state, because machine.json already does and losing it splits a machine's history. Rejected: moving the SQLite files with rename, because a crash between the .db and its -wal renames loses committed transactions; VACUUM INTO folds the WAL into the copy.
+
+## Summary
+
+Lands in PR #11. Client sync state is now per lake, under lakes/<name>/, and the single-lake files move there once, when the default lake is first prepared. internal/lakestate handles the move: VACUUM INTO for the SQLite files, a copy for the JSON, all built in a hidden directory, fsynced and renamed into place, and only then are the legacy files removed by name. Nothing else in a directory shared with a lake is touched.
+
+Review hardening, from terva-review 913, 916 and 918, all fixed:
+- the cleanup of an interrupted move takes agent.pid, so an older agent cannot be writing the files while they are deleted (5293d71);
+- the state directory is synced after lakes/ is created, before any removal, and directory sync errors are returned, except where the platform cannot sync a directory: Windows, EINVAL and ENOTSUP (b045746);
+- sidecars are removed before their database, so a partial cleanup is retried on the next start (d62f981).
+
+Tests: internal/lakestate/lakestate_test.go, TestMigrationCleanupWaitsForAnOldAgent in internal/cli/lakes_test.go. go test -race ./... is green.
