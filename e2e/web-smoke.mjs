@@ -77,6 +77,25 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile transcript overflows');
   await page.screenshot({path: join(artifacts, 'transcript-mobile.png'), fullPage: false});
   await page.setViewportSize({width: 1440, height: 1100});
+  // Search: literal text with punctuation, marked matches, a hit opens its event.
+  await page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Search', exact: true}).click();
+  await page.getByText(/Searching \d+ of \d+ ready sessions/).waitFor();
+  await page.getByRole('searchbox', {name: 'Text'}).fill('remote rejected <refs');
+  await page.getByRole('button', {name: 'Search', exact: true}).click();
+  assert.ok(await page.locator('.hit').count() > 0, 'no search hits');
+  assert.match(await page.locator('.hit mark').first().innerText(), /^remote rejected <refs$/i);
+  assert.equal(await page.evaluate(() => window.owned), undefined);
+  await page.screenshot({path: join(artifacts, 'search-desktop.png'), fullPage: false});
+  const hitPosition = (await page.locator('.hit .pos').first().innerText()).slice(1);
+  await page.locator('.hit .session-name').first().click();
+  await page.waitForFunction(id => document.activeElement && document.activeElement.id === 'e-' + id, hitPosition);
+  assert.match(await page.locator('.event.target .content').innerText(), /remote rejected/);
+  const searchURL = live.url + '/search?q=' + encodeURIComponent('git push --dry-run');
+  await page.goto(searchURL + '&harness=codex');
+  assert.ok(await page.locator('.hit').count() > 0, 'no filtered hits');
+  assert.equal(await page.locator('.hit .harness', {hasText: /^(terva|claude|opencode|cursor|cursor-cli)$/}).count(), 0);
+  await page.goto(live.url + '/search?q=ab');
+  await page.getByRole('heading', {name: 'That search cannot run'}).waitFor();
   await page.goto(live.url);
   await page.clock.install();
   let refreshes = 0;
@@ -133,6 +152,12 @@ try {
   await basic.getByLabel('Harness', {exact: true}).selectOption('claude');
   await basic.getByRole('button', {name: 'Apply filters'}).click();
   assert.equal(await basic.locator('tbody tr').count(), 21);
+  await basic.goto(live.url + '/search');
+  await basic.getByRole('searchbox', {name: 'Text'}).fill('git push --dry-run');
+  await basic.getByRole('button', {name: 'Search', exact: true}).click();
+  assert.equal(await basic.locator('.hit').count(), 50);
+  await basic.getByRole('link', {name: 'Next page →'}).click();
+  assert.ok(await basic.locator('.hit').count() > 0, 'no-JS search paging');
   await basic.goto(transcriptURL);
   assert.equal(await basic.locator('.event').count(), 100);
   await basic.getByRole('link', {name: 'Later events →'}).first().click();
@@ -144,7 +169,7 @@ try {
   const emptyPage = await context.newPage(); await emptyPage.goto(empty.url);
   await emptyPage.getByRole('heading', {name: 'No sessions to show'}).waitFor();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'search literal/marks/filters/deep link/invalid', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));

@@ -22,6 +22,7 @@ raw manifests never appear in these responses.
 | `/sessions/{uid}/conflicts` | Divergent artifact page |
 | `/conflicts` | Divergent artifacts across sessions |
 | `/sessions/{uid}/events` | One page of the session's published normalized events; see below |
+| `/search` | Literal text search over indexed events; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
 arrays. `limit` defaults to 50 and accepts 1–200. `cursor` is opaque, bound to the
@@ -52,7 +53,8 @@ integrity probe. Later content readers must still detect missing files.
 
 The overview counts catalog artifact versions, not unique blobs or disk bytes.
 Contributing machines are not online machines. Head update timestamps do not
-measure upload throughput. Only the events route below returns transcript text.
+measure upload throughput. Only the events and search routes below return
+transcript text.
 No endpoint initiates normalization, export, deletion, merge, or ingestion.
 
 ## Transcript events
@@ -107,3 +109,41 @@ session, generation, head and file identity. A restart invalidates them.
 
 The events route is an authenticated read of transcript text with the viewer role.
 Text is returned exactly as stored. The web page renders it as plain text.
+
+## Search
+
+`/search` matches text in the search index described in
+[web-dashboard.md](web-dashboard.md#search-index). It uses the same
+`internal/recall` query layer as the events route.
+
+| Parameter | Meaning |
+|---|---|
+| `q` | Required. 3 characters to 1024 bytes of UTF-8, no NUL. It matches as a case-insensitive substring of `content_text`. Quotes, `OR`, `NEAR`, `*` and `:` are literal text, not syntax. |
+| `harness`, `project`, `unlinked` | As on `/sessions`. An empty value means no filter. |
+| `since`, `until` | Recorded time in UTC, as RFC 3339 or `YYYY-MM-DD`. `since` is inclusive and `until` exclusive; a date-only `until` covers that whole day. With either set, events with no recorded time are left out. `since` must be before `until`. |
+| `limit` | 1–200, default 50. |
+| `cursor` | Continues from `next_cursor`. It is bound to the other parameters. |
+
+A page is `{items, next_cursor, as_of, coverage}`. Hits are ordered newest
+indexed first; a session that was re-normalized moves up. Each hit carries:
+
+- `session_uid`, `native_session_id`, `project_label`, `generation`, `position`
+  and `link`, the viewer URL of that event in that generation.
+- `harness`, `project_id`, `event_type`, `actor`, `tool_name`, `tool_error` and
+  `recorded_at`, which is null when the event has none.
+- `snippet`, plain text around the first match with line breaks flattened, and
+  `match_start`/`match_len`, byte offsets of the match within it. `match_len` is 0
+  when the match could not be placed.
+
+`coverage` is `{ready_sessions, indexed_sessions, behind_sessions,
+failed_sessions, last_reconcile}`. Only sessions whose normalization is ready
+are searchable. Every hit is re-checked against the catalog before it is
+returned, so a pending, failed, superseded or purged session never appears,
+even when the index has not caught up. A page can therefore hold fewer than
+`limit` hits while `next_cursor` is set. Only the first 256 KiB of an event's
+text is indexed.
+
+| Status | Error | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | Missing or short query, bad date, unknown or repeated parameter, bad cursor |
+| 503 | `search_unavailable` | The lake has no search index |

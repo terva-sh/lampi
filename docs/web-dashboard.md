@@ -144,8 +144,13 @@ link that names its generation and position; opening one shows the page around
 it and marks it. A link to a generation that is no longer published says so.
 It does not show whatever now sits at that position. Long text, large `extra`
 objects and encrypted values are reduced as the
-[browser API contract](web-api.md#transcript-events) describes. Raw blobs, export
-and administration are absent.
+[browser API contract](web-api.md#transcript-events) describes.
+
+`/search` finds literal text in every indexed transcript: `git push --force`,
+a path or an error message matches as written, ignoring case. Filters narrow by
+harness, project and recorded date. Each result names its session and event and
+links straight to that event in the transcript. The page states how many ready
+sessions the index covers. Raw blobs, export and administration are absent.
 
 ## Search index
 

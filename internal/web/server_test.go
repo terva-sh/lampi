@@ -43,12 +43,17 @@ func fixture(t *testing.T) (*api.Server, *testidp.Server, http.Handler, *bytes.B
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { index.Close() })
+	indexes[lake] = index
 	lake.Web, err = New(cfg, lake.Catalog, reader, index, idp.Client(), lake.Log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return lake, idp, lake.Handler(), logs
 }
+
+// indexes is each fixture's search index, for tests that run a pass.
+var indexes = map[*api.Server]*recall.Index{}
+
 func get(h http.Handler, path string, c *http.Cookie) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("GET", "https://lake.example"+path, nil)
 	if c != nil {

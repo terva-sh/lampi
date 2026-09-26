@@ -56,6 +56,7 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	},
 	"deref":    func(p *bool) bool { return p != nil && *p },
 	"derefInt": func(p *int64) int64 { return *p },
+	"int64":    func(n int) int64 { return int64(n) },
 	"kib":      func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
 	"collectionURL": func(uid, kind string) string {
 		return "/sessions/" + url.PathEscape(uid) + "?collection=" + url.QueryEscape(kind)
@@ -79,10 +80,38 @@ type pageData struct {
 	StaleGen    int64
 	Target      int64
 	HasTarget   bool
+	Search      searchView
+}
+
+// searchView is the search form and its results. Hits carry the
+// snippet split around the match so the template marks it without
+// building HTML.
+type searchView struct {
+	Enabled  bool
+	Asked    bool
+	Invalid  bool
+	Form     url.Values
+	Hits     []hitView
+	Coverage recall.Coverage
+}
+
+type hitView struct {
+	recall.Hit
+	Before, Match, After string
+}
+
+func splitHit(h recall.Hit) hitView {
+	v := hitView{Hit: h, Before: h.Snippet}
+	if h.MatchLen > 0 && h.MatchStart >= 0 && h.MatchStart+h.MatchLen <= len(h.Snippet) {
+		v.Before = h.Snippet[:h.MatchStart]
+		v.Match = h.Snippet[h.MatchStart : h.MatchStart+h.MatchLen]
+		v.After = h.Snippet[h.MatchStart+h.MatchLen:]
+	}
+	return v
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
@@ -239,3 +268,55 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 
 // targetLead is how many events a deep link shows before its target.
 const targetLead = 5
+
+// searchPage is the GET search form and its results. An empty query
+// shows the form only; it is not a way to list the corpus.
+func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	d := pageData{Title: "Search", View: "search"}
+	d.Search.Enabled = s.index != nil
+	d.Search.Form = q
+	d.Filters.Harness = q.Get("harness")
+	if !d.Search.Enabled {
+		renderStatus(w, r, d, http.StatusServiceUnavailable)
+		return
+	}
+	d.Search.Coverage = s.index.Coverage()
+	if q.Get("q") == "" {
+		for k := range q {
+			if k != "q" && q.Get(k) != "" {
+				d.Search.Invalid = true
+			}
+		}
+		if d.Search.Invalid {
+			renderStatus(w, r, d, http.StatusBadRequest)
+			return
+		}
+		render(w, r, d)
+		return
+	}
+	d.Search.Asked = true
+	req, err := parseSearch(q)
+	if err == nil {
+		ctx, cancel := readContext(r)
+		defer cancel()
+		var page recall.SearchPage
+		page, err = s.index.Search(ctx, req)
+		if err == nil {
+			for _, h := range page.Items {
+				d.Search.Hits = append(d.Search.Hits, splitHit(h))
+			}
+			d.Search.Coverage = page.Coverage
+			d.AsOf = page.AsOf
+			d.NextURL = nextURL(r, page.NextCursor)
+			render(w, r, d)
+			return
+		}
+	}
+	if errors.Is(err, recall.ErrInvalid) {
+		d.Search.Invalid = true
+		renderStatus(w, r, d, http.StatusBadRequest)
+		return
+	}
+	pageError(w, err)
+}

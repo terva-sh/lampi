@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"terva.sh/lampi/internal/catalog"
 )
 
 // Search limits.
@@ -47,20 +49,24 @@ type SearchRequest struct {
 // MatchStart and MatchLen are byte offsets of the match in it, or
 // MatchLen 0 when the match could not be placed.
 type Hit struct {
-	SessionUID string  `json:"session_uid"`
-	Generation int64   `json:"generation"`
-	Position   int64   `json:"position"`
-	Link       string  `json:"link"`
-	Harness    string  `json:"harness"`
-	ProjectID  string  `json:"project_id"`
-	EventType  string  `json:"event_type"`
-	Actor      string  `json:"actor"`
-	ToolName   *string `json:"tool_name"`
-	ToolError  *bool   `json:"tool_error"`
-	RecordedAt *string `json:"recorded_at"`
-	Snippet    string  `json:"snippet"`
-	MatchStart int     `json:"match_start"`
-	MatchLen   int     `json:"match_len"`
+	SessionUID string `json:"session_uid"`
+	// NativeID and ProjectLabel are bounded display labels from the
+	// catalog, as the session list shows them.
+	NativeID     string  `json:"native_session_id"`
+	ProjectLabel string  `json:"project_label"`
+	Generation   int64   `json:"generation"`
+	Position     int64   `json:"position"`
+	Link         string  `json:"link"`
+	Harness      string  `json:"harness"`
+	ProjectID    string  `json:"project_id"`
+	EventType    string  `json:"event_type"`
+	Actor        string  `json:"actor"`
+	ToolName     *string `json:"tool_name"`
+	ToolError    *bool   `json:"tool_error"`
+	RecordedAt   *string `json:"recorded_at"`
+	Snippet      string  `json:"snippet"`
+	MatchStart   int     `json:"match_start"`
+	MatchLen     int     `json:"match_len"`
 }
 
 // SearchPage is one page of hits, newest indexed first. A page can
@@ -205,6 +211,7 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 		hits = hits[:req.Limit]
 	}
 	current := map[string]int64{}
+	labels := map[string]catalog.SessionSummary{}
 	for _, f := range hits {
 		uid := f.hit.SessionUID
 		if _, seen := current[uid]; seen {
@@ -216,12 +223,20 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 			current[uid] = pub.Gen
 		case err == nil || errors.Is(err, ErrNotFound):
 			current[uid] = -1
+			continue
 		default:
 			return page, err
 		}
+		summary, err := x.reader.catalog.DashboardSession(ctx, uid)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return page, err
+		}
+		labels[uid] = summary
 	}
 	for _, f := range hits {
 		if current[f.hit.SessionUID] == f.hit.Generation {
+			l := labels[f.hit.SessionUID]
+			f.hit.NativeID, f.hit.ProjectLabel = l.NativeID, l.ProjectLabel
 			page.Items = append(page.Items, f.hit)
 		}
 	}

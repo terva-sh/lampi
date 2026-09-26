@@ -48,6 +48,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/sessions/{uid}/{collection}", s.records)
 	get("/api/web/v1/sessions/{uid}/events", s.sessionEvents)
 	get("/api/web/v1/conflicts", s.conflicts)
+	get("/api/web/v1/search", s.search)
 	s.pageRoutes(m)
 	return webauth.Headers(m), nil
 }
@@ -66,6 +67,8 @@ func fail(w http.ResponseWriter, err error) {
 	case errors.As(err, &unavailable):
 		status, code = 409, "transcript_unavailable"
 		body["state"] = unavailable.State
+	case errors.Is(err, errSearchOff):
+		status, code = 503, "search_unavailable"
 	case errors.Is(err, recall.ErrGenerationChanged):
 		status, code = 409, "generation_changed"
 	case errors.Is(err, recall.ErrInvalid):
@@ -279,6 +282,97 @@ func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.events.Events(ctx, r.PathValue("uid"), req)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, v)
+}
+
+// errSearchOff is a search request to a lake with no index.
+var errSearchOff = errors.New("web: search is not enabled")
+
+// parseSearch reads a search request. Empty filter values mean no
+// filter, so the plain HTML form can submit every field. Dates are
+// RFC 3339 or YYYY-MM-DD in UTC; a date-only until covers that whole
+// day.
+func parseSearch(q url.Values) (recall.SearchRequest, error) {
+	var req recall.SearchRequest
+	for k, v := range q {
+		if len(v) != 1 {
+			return req, recall.ErrInvalid
+		}
+		switch k {
+		case "q", "harness", "project", "unlinked", "since", "until", "limit", "cursor":
+		default:
+			return req, recall.ErrInvalid
+		}
+	}
+	req.Query = q.Get("q")
+	req.Harness = q.Get("harness")
+	req.Project = q.Get("project")
+	req.Cursor = q.Get("cursor")
+	if q.Has("unlinked") {
+		switch q.Get("unlinked") {
+		case "true":
+			req.Unlinked = true
+		case "false", "":
+		default:
+			return req, recall.ErrInvalid
+		}
+	}
+	if q.Has("limit") && q.Get("limit") != "" {
+		n, err := strconv.Atoi(q.Get("limit"))
+		if err != nil || n < 1 || n > recall.SearchMaxLimit {
+			return req, recall.ErrInvalid
+		}
+		req.Limit = n
+	}
+	for _, f := range []struct {
+		key  string
+		dest **time.Time
+		end  bool
+	}{{"since", &req.Since, false}, {"until", &req.Until, true}} {
+		raw := q.Get(f.key)
+		if raw == "" {
+			continue
+		}
+		t, err := parseWhen(raw, f.end)
+		if err != nil {
+			return req, recall.ErrInvalid
+		}
+		*f.dest = &t
+	}
+	return req, nil
+}
+
+func parseWhen(raw string, end bool) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t.UTC(), nil
+	}
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return t, err
+	}
+	if end {
+		t = t.AddDate(0, 0, 1)
+	}
+	return t, nil
+}
+
+func (s *Server) search(w http.ResponseWriter, r *http.Request) {
+	if s.index == nil {
+		fail(w, errSearchOff)
+		return
+	}
+	req, err := parseSearch(r.URL.Query())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ctx, cancel := readContext(r)
+	defer cancel()
+	v, err := s.index.Search(ctx, req)
 	if err != nil {
 		fail(w, err)
 		return
