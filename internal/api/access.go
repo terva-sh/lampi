@@ -70,6 +70,8 @@ func (d deadlines) budget(r *http.Request) time.Duration {
 type requestInfo struct {
 	body *countingBody
 	err  error
+	// device and deviceID name the device that authenticated, if any.
+	device, deviceID string
 }
 
 type requestInfoKey struct{}
@@ -127,6 +129,9 @@ func (s *Server) logRequest(r *http.Request, aw *accessWriter, info *requestInfo
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		attrs = append(attrs, slog.String("xff", xff))
+	}
+	if info.device != "" {
+		attrs = append(attrs, slog.String("device", info.device), slog.String("device_id", info.deviceID))
 	}
 	level := slog.LevelInfo
 	if status >= 500 {

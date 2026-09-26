@@ -28,6 +28,10 @@ const TokenSuffix = ".token"
 type Devices struct {
 	mu     sync.RWMutex
 	hashes [][32]byte
+	// names are the device names the token file gives each hash: the
+	// <name>.token file in a directory, or the # comment line just above
+	// the token in a file. A hash with no name there has none here.
+	names map[[32]byte]string
 	// Ignored lists files in a token directory that were not loaded
 	// because they do not end in TokenSuffix.
 	Ignored []string
@@ -70,10 +74,54 @@ func (d *Devices) Allow(token string) {
 func (d *Devices) Replace(next *Devices) {
 	next.mu.RLock()
 	hashes := append([][32]byte(nil), next.hashes...)
+	names := make(map[[32]byte]string, len(next.names))
+	for k, v := range next.names {
+		names[k] = v
+	}
 	next.mu.RUnlock()
 	d.mu.Lock()
 	d.hashes = hashes
+	d.names = names
 	d.mu.Unlock()
+}
+
+// Entry is one token in the set: its SHA-256 hex and the name the token
+// file gives it, or "" when it gives none.
+type Entry struct {
+	Hash string
+	Name string
+}
+
+// Entries lists the set in file order.
+func (d *Devices) Entries() []Entry {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	out := make([]Entry, 0, len(d.hashes))
+	for _, h := range d.hashes {
+		out = append(out, Entry{Hash: hex.EncodeToString(h[:]), Name: d.names[h]})
+	}
+	return out
+}
+
+// BearerHash is the SHA-256 hex of the token in an "Authorization:
+// Bearer <token>" header, or "" when the header is not one.
+func BearerHash(header string) string {
+	const prefix = "Bearer "
+	if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
+		return ""
+	}
+	return HashToken(header[len(prefix):])
+}
+
+// Lookup is Match that also says which token matched, by its hash.
+func (d *Devices) Lookup(header string) (string, bool) {
+	if !d.Match(header) {
+		return "", false
+	}
+	return BearerHash(header), true
 }
 
 // Match reports whether header is "Bearer <token>" for an enrolled
@@ -130,7 +178,7 @@ func LoadDevices(path string) (*Devices, error) {
 		return loadDeviceDir(path)
 	}
 	out := &Devices{}
-	if err := loadDeviceFile(path, out); err != nil {
+	if err := loadDeviceFile(path, out, ""); err != nil {
 		return nil, err
 	}
 	if out.Empty() {
@@ -153,7 +201,7 @@ func loadDeviceDir(dir string) (*Devices, error) {
 			out.Ignored = append(out.Ignored, e.Name())
 			continue
 		}
-		if err := loadDeviceFile(filepath.Join(dir, e.Name()), out); err != nil {
+		if err := loadDeviceFile(filepath.Join(dir, e.Name()), out, strings.TrimSuffix(e.Name(), TokenSuffix)); err != nil {
 			return nil, err
 		}
 	}
@@ -169,19 +217,25 @@ func loadDeviceDir(dir string) (*Devices, error) {
 
 // loadDeviceFile adds the tokens in path to out and rewrites the file
 // when a line changed. Blank and comment lines stay where they were.
-func loadDeviceFile(path string, out *Devices) error {
+func loadDeviceFile(path string, out *Devices, fileName string) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("auth: %w", err)
 	}
 	lines := strings.Split(string(b), "\n")
 	kept := make([]string, 0, len(lines))
+	comment := ""
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
 		var sum [32]byte
 		switch {
-		case line == "" || strings.HasPrefix(line, "#"):
+		case strings.HasPrefix(line, "#"):
 			kept = append(kept, line)
+			comment = strings.TrimSpace(strings.TrimPrefix(line, "#"))
+			continue
+		case line == "":
+			kept = append(kept, line)
+			comment = ""
 			continue
 		case strings.HasPrefix(line, hashPrefix):
 			h := strings.ToLower(strings.TrimPrefix(line, hashPrefix))
@@ -196,8 +250,21 @@ func loadDeviceFile(path string, out *Devices) error {
 			return fmt.Errorf("auth: %s line %d is not a device token; a token is 64 lowercase hex characters, as terva-lampi login writes, and a comment line starts with #", path, i+1)
 		}
 		kept = append(kept, hashPrefix+hex.EncodeToString(sum[:]))
+		name := fileName
+		if name == "" {
+			name = comment
+		}
+		comment = ""
 		out.mu.Lock()
 		out.addLocked(sum)
+		if name != "" {
+			if out.names == nil {
+				out.names = map[[32]byte]string{}
+			}
+			if _, ok := out.names[sum]; !ok {
+				out.names[sum] = name
+			}
+		}
 		out.mu.Unlock()
 	}
 	canonical := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"

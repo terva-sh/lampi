@@ -53,6 +53,9 @@ type Server struct {
 	// key route answering 404 and hello unsigned.
 	Identity *identity.Identity
 	Now      func() time.Time
+	// dataDir is the lake directory, where the audit log lives. Open
+	// sets it.
+	dataDir string
 	// Log gets one line per request and normalize failures. Nil discards.
 	Log *slog.Logger
 
@@ -185,6 +188,7 @@ func OpenIdle(dataDir string) (*Server, error) {
 		Normalized: norm,
 		Parquet:    parquetDir,
 		Now:        time.Now,
+		dataDir:    dataDir,
 	}
 	return s, nil
 }
@@ -273,9 +277,28 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 			next(w, r)
 			return
 		}
-		if !s.Devices.Match(r.Header.Get("Authorization")) {
+		hash, ok := s.Devices.Lookup(r.Header.Get("Authorization"))
+		if !ok {
 			s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
+		}
+		// Every token in the set has a device row once SyncDevices ran.
+		// A token enrolled without one (Allow, in tests) authenticates
+		// with no device, and nothing is bound for it.
+		d, found, err := s.Catalog.DeviceByHash(r.Context(), hash)
+		if err != nil {
+			s.fail(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		if found {
+			if !d.Revoked.IsZero() {
+				s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this device is revoked"))
+				return
+			}
+			if info := infoOf(r); info != nil {
+				info.device, info.deviceID = d.Name, d.ID
+			}
+			r = r.WithContext(context.WithValue(r.Context(), deviceKey{}, d))
 		}
 		next(w, r)
 	}
@@ -520,6 +543,9 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateManifest(&m); err != nil {
 		s.fail(w, r, http.StatusBadRequest, err)
+		return
+	}
+	if !s.bindDevice(w, r, m.MachineID) {
 		return
 	}
 	decisions, err := s.resolve(r.Context(), &m)

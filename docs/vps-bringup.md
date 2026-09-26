@@ -122,10 +122,28 @@ There is no TTL. Registration codes will replace this manual copy
 ([policy.md](policy.md#registration-and-many-lakes)). Until they land,
 this is how to add a device, and it stays the fallback after.
 
-To add or revoke a device, edit the file and send `serve` SIGHUP
+To add a device, add its token to the file and send `serve` SIGHUP
 (`sudo systemctl kill -s HUP terva-lampi-serve`). Requests in flight
 keep going. A file that does not load leaves the old tokens in place
 and says why on stderr.
+
+Each token is a named device in the catalog. The name is the
+`<name>.token` file in a directory, or the `#` comment line just above
+the token in a file, or `token-N`. A device binds to the first
+`machine_id` it uploads a manifest under. A manifest from another
+machine, or a `machine_id` another device holds, is refused with 403.
+
+```bash
+sudo -u terva-lampi terva-lampi serve devices --data /var/lib/terva-lampi
+sudo -u terva-lampi terva-lampi serve devices revoke laptop --data /var/lib/terva-lampi
+sudo -u terva-lampi terva-lampi serve devices unbind desktop --data /var/lib/terva-lampi
+```
+
+`revoke` takes effect on the lake's next request, with no signal, and
+is final. Remove the token from the file as well. A token removed
+from the file shows as `detached`. `unbind` lets a reinstalled machine
+with a new machine id bind again. Device changes are appended to
+`audit.jsonl` in the data directory, which `serve backup` copies.
 
 `serve` replaces the file in that directory, so the service user has
 to be able to write there. The example path is on the encrypted

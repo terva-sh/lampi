@@ -37,6 +37,8 @@ usage:
                                  remove one session and its blobs
   terva-lampi serve identity [--data DIR]
                                  print the lake id and key fingerprints
+  terva-lampi serve devices [list|revoke NAME|unbind NAME] [--data DIR]
+                                 list devices, or revoke or unbind one
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -68,6 +70,13 @@ file first; do not point this flag at the device's only copy. The
 token is not an argument. SIGHUP reads the token file again. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
+
+Each token is a named device in the catalog: the <name>.token file in
+a directory, or the # comment line just above the token in a file, or
+token-N. A device binds to the first machine_id it uploads a manifest
+under; a manifest from another machine is 403, and so is a machine_id
+another device holds. serve devices lists, revokes and unbinds them.
+Device changes go to audit.jsonl in the lake directory.
 
 The lake directory holds identity.json (the lake id and private
 signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
@@ -110,6 +119,8 @@ func runServe(env Env, args []string) error {
 			return runServePurge(env, args[1:])
 		case "identity":
 			return runServeIdentity(env, args[1:])
+		case "devices":
+			return runServeDevices(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, webConfigFile string
@@ -172,6 +183,12 @@ func runServe(env Env, args []string) error {
 	}
 	sweepCAS(env, lake.CAS, time.Now())
 	lake.Devices = devices
+	if devices != nil {
+		if err := lake.SyncDevices(context.Background()); err != nil {
+			lake.Close()
+			return err
+		}
+	}
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
 		lake.Web, err = web.New(*webCfg, lake.Catalog, nil, lake.Log)
@@ -204,7 +221,13 @@ func runServe(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if devices != nil {
-		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices) })
+		reloadOnHangup(ctx, func() {
+			if reloadDevices(env, tokenFile, devices) {
+				if err := lake.SyncDevices(ctx); err != nil {
+					fmt.Fprintf(env.stderr(), "terva-lampi serve: recording reloaded devices: %v\n", err)
+				}
+			}
+		})
 	}
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
@@ -213,15 +236,16 @@ func runServe(env Env, args []string) error {
 // A handler that has passed the check is not affected. A file that no
 // longer loads, or holds no token, keeps the old set: an empty set
 // would open a lake that serve refused to expose without one.
-func reloadDevices(env Env, path string, devices *auth.Devices) {
+func reloadDevices(env Env, path string, devices *auth.Devices) bool {
 	next, err := auth.LoadDevices(path)
 	if err != nil {
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: %v\n", devices.Len(), err)
-		return
+		return false
 	}
 	warnIgnored(env, path, next)
 	devices.Replace(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
+	return true
 }
 
 func warnIgnored(env Env, path string, d *auth.Devices) {
