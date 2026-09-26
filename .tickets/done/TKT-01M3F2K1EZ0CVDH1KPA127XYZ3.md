@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2K1EZ0CVDH1KPA127XYZ3
 title: "Web: add explicit server configuration and exposure guards"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -19,17 +19,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:codex/web-ui-release-a
-  branch: t3code/web-session-lake-ui
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8b6762d2
-  commit: 64f17dcb1453c1e1a3bf5427d9847f2d5150fc4e
-  session: null
-  claimed_at: 2026-09-26T14:53:07Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:40:58Z
-updated_at: 2026-09-26T14:53:07Z
+updated_at: 2026-09-26T14:54:27Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -51,15 +44,19 @@ Follow docs/web-ui-plan.md, including pinned sibling sources and release A defau
 
 ## Acceptance criteria
 
-- [ ] serve --web-config is explicit; absent config leaves all new web routes disabled and existing CLI behavior intact.
-- [ ] Invalid configuration and web-enabled empty device-token sets fail before listening, including loopback behind a proxy.
-- [ ] issuer/client_id/scopes/groups_claim/role_map and secret-file settings follow the design; secret values never appear in errors, help or examples.
-- [ ] Focused config and CLI tests pass; configured callbacks cannot be changed by Host or forwarded headers.
+- [x] serve --web-config is explicit; absent config leaves all new web routes disabled and existing CLI behavior intact.
+- [x] Invalid configuration and web-enabled empty device-token sets fail before listening, including loopback behind a proxy.
+- [x] issuer/client_id/scopes/groups_claim/role_map and secret-file settings follow the design; secret values never appear in errors, help or examples.
+- [x] Focused config and CLI tests pass; configured callbacks cannot be changed by Host or forwarded headers.
 
 ## Definition of done
 
-- [ ] Focused tests pass and behavior/contracts are documented; record validation and rationale in the ticket.
+- [x] Focused tests pass and behavior/contracts are documented; record validation and rationale in the ticket.
 
 ## Implementation plan
 
 Read internal/cli/serve.go, internal/config/config.go and serve tests. Add strict web configuration types in a separate server-owned file/package, validation, safe secret loading, help text and placeholder-only example. Introduce a composition option for a later web handler without exposing unfinished routes. Test web off, valid public/loopback origins, rejected origins/unknown keys/roles/empty mappings and empty device-token sets. Do not read the live agent configuration.
+
+## Summary
+
+Implemented explicit strict webconfig loading, private file-only client secrets, fixed callback origin, group/scope validation, web-enabled device-token requirement even on loopback, help/example and optional handler composition. No agent configuration is consulted. Focused webconfig and CLI serve tests pass via mise exec (Go 1.27.1 is installed through mise, not on the noninteractive PATH). Browser routes remain disabled until the later integration ticket attaches the handler. Chose bounded configuration/secret file reads and generic configuration errors so input cannot be echoed as credential material.

@@ -1,0 +1,11 @@
+{
+  "base_url": "https://lake.example",
+  "oidc": {
+    "issuer": "https://identity.example/application/o/lampi/",
+    "client_id": "lampi",
+    "client_secret_file": "/etc/terva-lampi/oidc-client-secret",
+    "scopes": ["profile", "email", "groups"],
+    "groups_claim": "groups",
+    "role_map": {"lake-viewers": "viewer"}
+  }
+}
