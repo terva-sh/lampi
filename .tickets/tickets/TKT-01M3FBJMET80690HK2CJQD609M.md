@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T17:20:55Z
+updated_at: 2026-09-26T17:31:24Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -56,3 +56,7 @@ Reduce review scope by landing the existing dependency-ordered OIDC/catalog foun
 **agent:codex/deploy** at 2026-09-26T17:20:55Z
 
 Owner confirms encryption on the underlying host volume; dedicated encryption can be future work. Owner will execute concrete privileged commands instead of sharing credentials. A read-only preflight script is prepared outside the repository and awaiting operator output. PR #5 separates the existing OIDC/catalog foundations so #4 can receive a complete review within the 256 KiB context cap. A future compressed age-encrypted backup ticket was filed as draft; no credentials or encryption settings were changed.
+
+**agent:codex/deploy** at 2026-09-26T17:31:24Z
+
+Foundation PR #5 merged as f4b799f618c372af5bc26d2f60d0ac17a3ce61c8 after CI success and model review 853 on 72bc1e81d02a750767953cdd8d8c0e6c4c1cfdf8. Two medium findings were fixed and dispositioned: owned login-attempt replacement at capacity, and bounded timestamp migration. A low cursor EOF finding was dispositioned to companion PR #4, which already contains that fix; no foundation-only deployment occurs. GitHub main was fast-forwarded. Integrated local make ci and full race suite passed after both fixes. Operator measurements show the uncompressed CAS/catalog does not fit in available space; streaming gzip estimate is 3,371,634,084 bytes. Use an offline compressed checkpoint on the confirmed encrypted host volume, with a 4 GiB reserve, catalog integrity check and full archive-vs-source byte comparison; this avoids deleting data or relying on hard-linked backups. Privileged operator execution remains required.
