@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWC9E15XG1GFS7886Z415
 title: "Recall: structured event filters shared by web search and MCP"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,14 +18,7 @@ dependencies:
   - TKT-01M3F2PGHM6VHQBNE5XKDXS407
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/explore-store-ui-search
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
-  commit: 0e8208c0a106fd4f01c4ed1595c0afacbe4f3d82
-  session: null
-  claimed_at: 2026-09-26T21:05:38Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:35:35Z
 updated_at: 2026-09-26T21:09:05Z
@@ -70,3 +63,7 @@ Plans:
 - tool_error: `SEARCH d USING INDEX docs_error`
 
 No mode sorts in a temp b-tree. recall TestStructuredFilters and web TestStructuredSearchThroughAPIAndPage pass. The browser smoke's "structured search without text" step (every failed Bash result, each with the tool error badge) passes. `just ci` passes.
+
+## Summary
+
+Landed in 0bab144 on t3code/explore-store-ui-search. Search takes event_type, actor, tool, tool_error and raw_type, with or without text, through recall.SearchRequest, /api/web/v1/search and the /search form. Not yet merged or deployed.
