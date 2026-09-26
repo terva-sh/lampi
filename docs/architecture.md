@@ -487,8 +487,11 @@ Copy the file to the lake host. `terva-lampi serve --token-file` hashes
 each line (or each `<name>.token` file, when the path is a directory)
 and rewrites the copy to `sha256:<hex>`. A token is 64 lowercase hex
 characters, and a `#` line is a comment kept through the rewrite.
-SIGHUP reloads the set in place. The client's file stays the secret. There is no
-enrolment API.
+SIGHUP reloads the set in place. The client's file stays the secret.
+Registration codes, named devices, a lake signing key and agents that
+report to several lakes replace the manual copy. They are planned under
+TKT-01M3FHHB, and [policy.md](policy.md#registration-and-many-lakes)
+records the model. The manual copy stays as the fallback.
 
 Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
 `--token-file` is an error. The data directory is the XDG state dir

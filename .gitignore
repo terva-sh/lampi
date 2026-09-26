@@ -29,3 +29,7 @@ go.work.sum
 *.swp
 *.swo
 *~
+
+# Decision trails from show-me-your-work, uncommitted while in flight
+.audit/
+decisions.tsv

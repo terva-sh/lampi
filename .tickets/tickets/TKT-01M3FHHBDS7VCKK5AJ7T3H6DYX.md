@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBDS7VCKK5AJ7T3H6DYX
 title: "Policy: allow registration codes, named devices and many lakes"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: t3code/review-tickets-agent-deployment
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: 3c5a73063f1ba1c4364904e44c8ae36d9eb25a3c
+  session: null
+  claimed_at: 2026-09-26T20:20:57Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:20:46Z
+updated_at: 2026-09-26T20:22:02Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -45,6 +52,10 @@ This child is docs only. The original decision is recorded as the owner's. They 
 
 ## Acceptance criteria
 
-- [ ] policy.md, architecture.md, protocol.md and vps-bringup.md no longer say there is no enrolment API, and they describe the registration model
-- [ ] policy.md states the threat model for leaked codes, stolen tokens and the key pin
+- [x] policy.md, architecture.md, protocol.md and vps-bringup.md no longer say there is no enrolment API, and they describe the registration model
+- [x] policy.md states the threat model for leaked codes, stolen tokens and the key pin
 - [ ] The owner has approved the policy text
+
+## Implementation plan
+
+Docs only. Add a 'Registration and many lakes' section to docs/policy.md with the model, the routes that need no token, a threat table, audit, upgrade order and Windows. Replace 'There is no enrolment API' in policy, architecture and vps-bringup with a pointer to it that keeps the manual token copy as the fallback. Add a short forward note in protocol.md; each route is documented there when it lands.

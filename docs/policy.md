@@ -23,8 +23,10 @@ agent reads `--token-file`, `LAMPI_TOKEN_FILE`, or `token_file` in
 `config.json`. `serve --token-file`
 hashes each token with SHA-256, rewrites that copy to `sha256:<hex>`,
 and requires `Authorization: Bearer` on `/v1`. Copy the client's file
-to the host before pointing `--token-file` at it. There is no
-enrolment API. `/healthz` stays open and returns no catalog data.
+to the host before pointing `--token-file` at it. That manual copy
+stays as the fallback once registration lands
+([Registration and many lakes](#registration-and-many-lakes)).
+`/healthz` stays open and returns no catalog data.
 
 The tenant is Drew's machines. Do not point `serve` at a network you
 do not control.
@@ -36,6 +38,100 @@ git. On a machine that should upload to the VPS, set `LAMPI_SERVER`, or
 [vps-bringup.md](vps-bringup.md) is the order: encrypted disk, the
 binary, the data directory, the device token, loopback `serve`, then
 TLS.
+
+## Registration and many lakes
+
+Phase 0 said there was no enrolment API. On 2026-09-27 Drew reversed
+that and locked the model in this section. The work is tracked under
+TKT-01M3FHHB (Agent onboarding: registration codes, lake config, many
+lakes). Until each part lands, the manual token copy above is the way
+to add a device, and it stays documented as the fallback afterwards.
+
+### The model
+
+- **The lake has an identity.** `serve` holds an ed25519 key list and a
+  random lake id in its data directory. Backup and restore keep them.
+  A catalog with no key does not start with a new one, because agents
+  pin the key.
+- **The lake publishes its keys.** `GET /.well-known/terva-lampi/keys`
+  lists the lake id and each key with its status and validity window.
+  The response is signed over a nonce the caller sends.
+- **Devices have names.** Each token belongs to a named device with an
+  id. The lake records which device made each request and can list and
+  revoke devices by name. A device binds to one `machine_id`. A token
+  from the old token file binds to the first `machine_id` it uploads
+  under after the upgrade, and `serve devices unbind` resets that.
+- **Registration codes.** The operator mints a code on the lake host.
+  The code holds the lake URL, the lake id, the key that signed it, a
+  one-time secret, an expiry (24 hours by default), and the signature.
+  It does not hold a device token. The agent makes its own token and
+  sends only its SHA-256 when it redeems the code at `/v1/register`.
+  A code redeems once.
+- **Base configuration.** A lake can publish a signed profile with
+  `harnesses`, debounce values, `redaction`, and `projects` rules. The
+  local `config.json` wins over every field. A local deny wins over a
+  lake's allow. A lake's rules apply only to uploads to that lake.
+- **Many lakes.** An agent can report to several lakes. Each lake has its
+  own token, allowlist, sync state and `machine_id`, so two lakes cannot
+  join their data by machine. Top-level deny rules and redaction apply to
+  every lake.
+- **Entry.** The code is a secret. It is read from stdin, a prompt, or a
+  file, and never from a command argument.
+
+### Routes without a token
+
+Three routes answer without a token, and none returns catalog data.
+
+| Route | Exposes |
+|------|---------|
+| `GET /healthz` | That `serve` is up |
+| `GET /.well-known/terva-lampi/keys` | The lake id and its public keys |
+| `POST /v1/register` | Whether a one-time secret is valid, and then the new device's id and base configuration |
+
+Rate-limit the last two at the proxy and in `serve`. A failed
+redemption is logged without the secret.
+
+### What each piece protects
+
+| If this leaks or is forged | The holder can | Bounded by |
+|------|---------|---------|
+| A registration code | Register one device, once, before it expires | Single use, the expiry, `serve register --revoke` |
+| A device token | Upload as that device | `serve devices revoke` |
+| A copied key list | Nothing new; it cannot sign a fresh nonce | The nonce signature |
+| A code with the lake's URL and another key | Nothing; `register` refuses it | The key list fetched over TLS from that URL |
+| A code signed by a retired key | Nothing; the lake and `register` refuse it | Key status |
+| A forged code with the attacker's own URL | Receive the sessions that machine's allowlist admits | Only the fingerprint check |
+
+The last row is the gap. Before it redeems a code, `register` shows the
+URL, the lake id, and the key fingerprint, and asks for confirmation.
+`serve identity` prints the same fingerprint on the lake host. Compare
+the two, as you would an SSH host key. A run with no terminal must be
+given the fingerprint.
+
+After registration, the agent checks the pinned key on every `hello` and
+on every base configuration it fetches. It refuses a lake at the same
+URL whose key does not chain to the pin.
+
+### Audit
+
+The lake appends to an audit log in its data directory for these events:
+creating, redeeming, expiring and revoking a code; creating, binding,
+unbinding and revoking a device; adding and retiring a key; and every
+refused redemption. Backup covers the log. It never holds a secret or a
+token.
+
+### Upgrade order
+
+Upgrade the lake before any agent. The new routes and `hello` fields are
+additive, so `capture_protocol` stays 1 and an old agent keeps working.
+A new agent that finds no key endpoint still syncs to a lake set by
+`server` and `token_file`. `register` refuses that lake and says to
+upgrade it.
+
+### Windows
+
+Windows has no SIGHUP. On Windows, adding or removing a lake takes
+effect when the agent restarts.
 
 ## Retention
 
@@ -127,4 +223,5 @@ These roles run `terva-lampi agent` for the multi-host proof:
 | remote/cloud box | `terva-lampi agent` |
 
 Names stay at the role. The lake they upload to is the VPS running
-`terva-lampi serve`.
+`terva-lampi serve`. An agent can also report to more lakes; see
+[Registration and many lakes](#registration-and-many-lakes).

@@ -111,7 +111,9 @@ rename device files to `.token` when you upgrade. A token is 64
 lowercase hex characters, as `login` writes. A line starting with `#`
 is a comment, such as the device's name, and stays through the
 rewrite. Any other line stops `serve` with the file and line number.
-There is no enrolment API and no TTL.
+There is no TTL. Registration codes will replace this manual copy
+([policy.md](policy.md#registration-and-many-lakes)). Until they land,
+this is how to add a device, and it stays the fallback after.
 
 To add or revoke a device, edit the file and send `serve` SIGHUP
 (`sudo systemctl kill -s HUP terva-lampi-serve`). Requests in flight
