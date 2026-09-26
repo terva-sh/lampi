@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ
 title: "Web retrieval: browse, search and export stored sessions"
 type: epic
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -23,13 +23,13 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:42:51Z
-updated_at: 2026-09-26T14:42:51Z
+updated_at: 2026-09-26T21:14:02Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
 updated_by:
-  id: agent:codex/web-ui-planning
-  name: ""
+  id: agent:claude-code/cd41c9ac
+  name: Claude Code local agent
 extensions: {}
 ---
 
@@ -45,6 +45,12 @@ Follow the linked design for generation pinning, index lag, limits, exporter rol
 
 ## Acceptance criteria
 
-- [ ] Viewer can read and search current normalized content without mixing generations or serving stale/purged results.
+- [x] Viewer can read and search current normalized content without mixing generations or serving stale/purged results.
 - [ ] Exporter can download an explicit bounded selection under server-side default-deny project policy.
 - [ ] CLI export compatibility, training redaction, raw provenance and integrated browser validation are preserved.
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T21:14:01Z
+
+Progress 2026-09-26: the viewer (TKT-01M3F2PGD), index (TKT-01M3F2PGH) and search screen (TKT-01M3F2PGM) are done on branch t3code/explore-store-ui-search, so AC1 is met. AC2 and AC3 belong to export (TKT-01M3F2PGR) and release validation (TKT-01M3F2PGW), both still draft. PGR also received the export-selection criterion moved from PGM.

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -71,8 +73,9 @@ in place.
 
 The lake directory holds identity.json (the lake id and private
 signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
-normalized/ (one JSONL file per session), and parquet/ (date and
-harness partitions). The default is the XDG state dir terva-lampi/,
+normalized/ (one JSONL file per session), parquet/ (date and
+harness partitions), and, with --web-config, search.db (the derived
+search index). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
 
 serve holds lake.lock in the lake directory while it runs. A second
@@ -174,8 +177,7 @@ func runServe(env Env, args []string) error {
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
-		lake.Web, err = web.New(*webCfg, lake.Catalog, nil, lake.Log)
-		if err != nil {
+		if err := startWeb(*webCfg, data, lake); err != nil {
 			lake.Close()
 			return err
 		}
@@ -384,4 +386,31 @@ func listenLoopback(addr string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// startWeb mounts the browser interface and runs the search index
+// behind it. The index follows publication through OnPublished and
+// stops in BeforeClose, before the catalog closes. Without web config
+// nothing reads the index, so it is neither built nor kept.
+func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
+	reader := recall.NewReader(lake.Catalog, lake.Normalized)
+	index, err := recall.OpenIndex(filepath.Join(data, recall.IndexFile), reader)
+	if err != nil {
+		return err
+	}
+	index.Log = lake.Log
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		index.Run(ctx)
+	}()
+	lake.OnPublished(index.Notify)
+	lake.BeforeClose = func() {
+		stop()
+		<-done
+		index.Close()
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, nil, lake.Log)
+	return err
 }

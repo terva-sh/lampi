@@ -42,3 +42,64 @@ func (c *Catalog) NormalizationState(ctx context.Context, uid string) (string, e
 	err := c.db.QueryRowContext(ctx, `SELECT `+normalizationStateSQL+` FROM sessions s WHERE s.session_uid=?`, uid).Scan(&state)
 	return state, err
 }
+
+// Publication is what a reader of the derived files needs: the
+// normalization state and, when ready, the generation and head that
+// the published JSONL holds.
+type Publication struct {
+	State string
+	Gen   int64
+	Head  string
+}
+
+// Publication reads the publication state of uid. An unknown uid is
+// sql.ErrNoRows. Gen and Head are zero unless State is ready.
+func (c *Catalog) Publication(ctx context.Context, uid string) (Publication, error) {
+	var p Publication
+	var gen sql.NullInt64
+	var head sql.NullString
+	err := c.db.QueryRowContext(ctx, `SELECT `+normalizationStateSQL+`,s.published_gen,s.published_head FROM sessions s WHERE s.session_uid=?`, uid).Scan(&p.State, &gen, &head)
+	if err != nil {
+		return Publication{}, err
+	}
+	if p.State == "ready" {
+		p.Gen, p.Head = gen.Int64, head.String
+	}
+	return p, nil
+}
+
+// PublishedSession is one session's publication, for a reader that
+// keeps its own derived view in step with the catalog.
+type PublishedSession struct {
+	UID       string
+	State     string
+	Gen       int64
+	Head      string
+	Harness   string
+	ProjectID string
+}
+
+// PublishedSessions lists every session with its publication state.
+// Gen and Head are set only when State is ready. The rows are read
+// into memory so the caller can use the catalog while it walks them.
+func (c *Catalog) PublishedSessions(ctx context.Context) ([]PublishedSession, error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid,`+normalizationStateSQL+`,s.published_gen,s.published_head,s.harness,s.project_id FROM sessions s ORDER BY s.session_uid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublishedSession
+	for rows.Next() {
+		var p PublishedSession
+		var gen sql.NullInt64
+		var head sql.NullString
+		if err := rows.Scan(&p.UID, &p.State, &gen, &head, &p.Harness, &p.ProjectID); err != nil {
+			return nil, err
+		}
+		if p.State == "ready" {
+			p.Gen, p.Head = gen.Int64, head.String
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}

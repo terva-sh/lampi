@@ -24,13 +24,13 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:42:52Z
-updated_at: 2026-09-26T14:42:52Z
+updated_at: 2026-09-26T21:03:10Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
 updated_by:
-  id: agent:codex/web-ui-planning
-  name: ""
+  id: agent:claude-code/cd41c9ac
+  name: Claude Code local agent
 extensions: {}
 ---
 
@@ -51,6 +51,7 @@ Follow docs/web-ui-plan.md release B and its pinned sibling references. Use only
 - [ ] Unavailable/forbidden/ineligible selections fail preflight as a whole; mixed generations and silent skipping are prevented.
 - [ ] Count/byte/concurrency/time limits and private temporary-file cleanup hold on success, error, cancellation and restart.
 - [ ] Downloads are safe attachments; audits identify actor/selection/outcome without content, codes, tokens or secrets.
+- [ ] Explicit session selection from search results is retained for export without selecting hidden or unbounded results (moved from TKT-01M3F2PGM, Web: add filtered transcript search and result navigation).
 
 ## Definition of done
 
@@ -59,3 +60,9 @@ Follow docs/web-ui-plan.md release B and its pinned sibling references. Use only
 ## Implementation plan
 
 Read internal/cli/export.go and internal/normalize/sharegpt.go. Extract reusable reader/projection functions without CLI output changes. Extend role config and add CSRF-protected /api/web/v1/exports. Limit 100 UIDs, 64 MiB prepared output, two concurrent jobs and two minutes; reject oversized requests and bound temp disk usage. Pin current generations and prepare the entire output in private temp files before attachment headers, then stream and clean on completion/cancel/restart. Recheck authorization/policy for each request. Retain raw_sha256, training plaintext stripping and opaque encrypted data. Events get no new redaction pass. Categorized audit records include issuer/subject, selected UIDs, format, result and bytes but no content/credentials. Test cancellation, cap excess, stale generations, no-turn training sessions and malicious download names.
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T21:03:10Z
+
+Received acceptance criterion from TKT-01M3F2PGM (Web: add filtered transcript search and result navigation): carry an explicit session selection from search results into export. The search page has no selection UI yet; add it together with the export screen.
