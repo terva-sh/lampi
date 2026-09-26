@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2K2B7QW5SJZ9F8G65RBN5
 title: "Web: validate OIDC dashboard and document hosted operation"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -21,17 +21,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:codex/web-ui-release-a
-  branch: t3code/web-session-lake-ui
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8b6762d2
-  commit: d91b804a7317664cc25dfba5f934a6e930882442
-  session: null
-  claimed_at: 2026-09-26T15:18:54Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:40:59Z
-updated_at: 2026-09-26T15:26:12Z
+updated_at: 2026-09-26T15:28:37Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -53,15 +46,15 @@ Follow docs/web-ui-plan.md, including pinned sibling sources and release A defau
 
 ## Acceptance criteria
 
-- [ ] Full fake-IdP flow and denied/expired/logout cases pass against the integrated server while agent ingestion remains functional.
-- [ ] 20k-session evidence records indexed bounded reads and responsive paging under concurrent ingest, without scanning all transcript files.
-- [ ] Browser smoke covers navigation, filters, refresh, empty/error states, keyboard and mobile layout with reproducible commands.
-- [ ] make ci and go test -race ./... pass; any new CI gate is consistent across local tasks and both forges.
-- [ ] Operator docs distinguish implemented behavior, deployment inputs and existing go-live gates; no live secret, endpoint or provisioning is required.
+- [x] Full fake-IdP flow and denied/expired/logout cases pass against the integrated server while agent ingestion remains functional.
+- [x] 20k-session evidence records indexed bounded reads and responsive paging under concurrent ingest, without scanning all transcript files.
+- [x] Browser smoke covers navigation, filters, refresh, empty/error states, keyboard and mobile layout with reproducible commands.
+- [x] make ci and go test -race ./... pass; any new CI gate is consistent across local tasks and both forges.
+- [x] Operator docs distinguish implemented behavior, deployment inputs and existing go-live gates; no live secret, endpoint or provisioning is required.
 
 ## Definition of done
 
-- [ ] Focused tests pass and behavior/contracts are documented; record validation and rationale in the ticket.
+- [x] Focused tests pass and behavior/contracts are documented; record validation and rationale in the ticket.
 
 ## Implementation plan
 
@@ -72,3 +65,7 @@ Add a documented smoke fixture/harness that drives the full login flow and exerc
 **agent:codex/web-ui-release-a** at 2026-09-26T15:26:12Z
 
 Release validation has exercised Chromium login, mapped/denied groups, 123-session pagination, filters, metadata/provenance/conflicts, hidden-tab polling, refresh failure/recovery/session expiry, mobile/keyboard, logout, no-JS and empty-lake states. Screenshots inspected. Full make ci and go test -race ./... passed before final review fixes. Review found and corrected two compatibility/security edges: catch-all web routing changed reserved-route 405 responses, and JSON null inside a groups array could be decoded as an empty string while retaining another grant. Added regression tests and strict malformed-query refusal. Added fixed auth-refusal log reasons without provider bodies/credentials. Concurrent synthetic tests show 30 reads plus 30 ingests against 20k sessions in ~68 ms; full browser reads coexist with actual device blob/manifest requests and all ten new sessions normalize ready. Operator docs and systemd opt-in setting are now written. Final full gates and browser smoke are being rerun against these final changes.
+
+## Summary
+
+Release A validation complete. make ci passed (vet, full tests, binary build and gofmt); full go test -race ./... passed. Final Chromium smoke passed mapped/denied OIDC login, pagination/filters, details/provenance/conflicts, hidden-tab polling, error recovery and expired-session refresh, mobile/keyboard, logout, no-JS and empty lake. Evidence screenshots were visually inspected; the final run wrote /tmp/lampi-browser-evidence-RSxytg (ephemeral evidence, not a durable dependency). e2e/web-smoke.mjs and its documented temporary Playwright setup reproduce the checks. Twenty-thousand-session tests verify index selection/bounded responses and 30 concurrent reads/ingests; integrated browser/device tests upload and normalize ten sessions while browsing. Final cursor parser review added rejection of trailing JSON, with a focused race test and catalog vet passing after the full gates. Operator instructions cover actual deployment inputs, IdP callback/group mapping, private secret file, TLS/proxy logging, opt-in systemd flag, session lifetime/restart, migration backup and rollback constraints. No production host, credentials or IdP were touched. Existing go-live gates remain independent. Browser smoke remains an explicit optional test dependency; default CI gates are unchanged and continue to include all new Go tests.

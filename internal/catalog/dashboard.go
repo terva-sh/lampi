@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -107,6 +108,10 @@ func (r *PageRequest) validate(kind string) (pageCursor, error) {
 		d := json.NewDecoder(strings.NewReader(string(b)))
 		d.DisallowUnknownFields()
 		if d.Decode(&got) != nil || got.Version != 1 || got.Kind != kind || got.Filter != cur.Filter || len(got.After) > 128 {
+			return cur, ErrPage
+		}
+		var trailing any
+		if d.Decode(&trailing) != io.EOF {
 			return cur, ErrPage
 		}
 		cur = got

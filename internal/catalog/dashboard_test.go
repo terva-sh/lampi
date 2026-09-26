@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -79,6 +80,11 @@ func TestDashboardPaginationAndFilters(t *testing.T) {
 	}
 	if len(p.Items) != 2 || p.NextCursor == "" {
 		t.Fatal("filter paging")
+	}
+	decoded, _ := base64.RawURLEncoding.DecodeString(p.NextCursor)
+	malformed := base64.RawURLEncoding.EncodeToString(append(decoded, []byte(" {}")...))
+	if _, err := c.DashboardSessions(t.Context(), PageRequest{Harness: "codex", Project: "repo", Limit: 2, Cursor: malformed}); err != ErrPage {
+		t.Fatal("trailing cursor JSON accepted")
 	}
 	if _, err := c.DashboardSessions(t.Context(), PageRequest{Harness: "terva", Limit: 2, Cursor: p.NextCursor}); err != ErrPage {
 		t.Fatal("cross-filter cursor accepted")

@@ -299,7 +299,7 @@ Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only 
 | [TKT-01M3F2K1ZDTPZRY5J6FKW451Q6](../.tickets/done/TKT-01M3F2K1ZDTPZRY5J6FKW451Q6.md) | Catalog: add bounded dashboard queries and stable pagination |
 | [TKT-01M3F2K241CAKSX5QM5NGP24RW](../.tickets/done/TKT-01M3F2K241CAKSX5QM5NGP24RW.md) | Web API: expose authorized metadata reads through the lake mux |
 | [TKT-01M3F2K27WTA90MB3K2M2AVZ6H](../.tickets/done/TKT-01M3F2K27WTA90MB3K2M2AVZ6H.md) | Web UI: build the lake overview and metadata browser |
-| [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/tickets/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
+| [TKT-01M3F2K2B7QW5SJZ9F8G65RBN5](../.tickets/done/TKT-01M3F2K2B7QW5SJZ9F8G65RBN5.md) | Web: validate OIDC dashboard and document hosted operation |
 
 
 ### Release B
