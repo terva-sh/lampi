@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T17:18:02Z
+updated_at: 2026-09-26T17:20:55Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -50,3 +50,9 @@ Land the dashboard release after successful CI and model review, then upgrade th
 ## Implementation plan
 
 Reduce review scope by landing the existing dependency-ordered OIDC/catalog foundation commits first, then review and land the remaining dashboard and operational changes through the original PR. Preserve history without force pushes. Read each published review and verify fixes before merging; synchronize both forges. Rebuild from the reviewed revision, then follow the external deployment runbook only after privileged execution and protected backup storage are available. Record actual verification separately from preparation.
+
+## Notes
+
+**agent:codex/deploy** at 2026-09-26T17:20:55Z
+
+Owner confirms encryption on the underlying host volume; dedicated encryption can be future work. Owner will execute concrete privileged commands instead of sharing credentials. A read-only preflight script is prepared outside the repository and awaiting operator output. PR #5 separates the existing OIDC/catalog foundations so #4 can receive a complete review within the 256 KiB context cap. A future compressed age-encrypted backup ticket was filed as draft; no credentials or encryption settings were changed.
