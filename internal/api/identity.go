@@ -110,10 +110,16 @@ func (s *Server) openLimit() *rateLimit {
 func (l *rateLimit) allow(now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// now is wall time, which can step back. A step back refills
+	// nothing; it must not take tokens away.
 	if !l.last.IsZero() {
-		l.tokens = min(l.burst, l.tokens+now.Sub(l.last).Seconds()*l.rate)
+		if elapsed := now.Sub(l.last); elapsed > 0 {
+			l.tokens = min(l.burst, l.tokens+elapsed.Seconds()*l.rate)
+		}
 	}
-	l.last = now
+	if now.After(l.last) || l.last.IsZero() {
+		l.last = now
+	}
 	if l.tokens < 1 {
 		return false
 	}

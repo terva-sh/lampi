@@ -192,3 +192,25 @@ func TestReopenedLakeKeepsItsIdentityAndRefusesALostOne(t *testing.T) {
 		t.Fatalf("lost identity: %v", err)
 	}
 }
+
+func TestRateLimitSurvivesTheClockSteppingBack(t *testing.T) {
+	l := &rateLimit{rate: openRate, burst: openBurst, tokens: openBurst}
+	t0 := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	if !l.allow(t0) {
+		t.Fatal("first request refused")
+	}
+	// An hour back: nothing refills, and nothing is taken away.
+	back := t0.Add(-time.Hour)
+	for i := range openBurst - 1 {
+		if !l.allow(back) {
+			t.Fatalf("request %d after a step back refused", i)
+		}
+	}
+	if l.allow(back) {
+		t.Fatal("burst exceeded")
+	}
+	// One second past the last time seen refills, not an hour later.
+	if !l.allow(t0.Add(time.Second)) {
+		t.Fatal("no refill a second after the last request")
+	}
+}
