@@ -293,7 +293,7 @@ Epic: [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W — Web dashboard with OIDC and read-only 
 | Ticket | Work |
 |---|---|
 | [TKT-01M3F2K1EZ0CVDH1KPA127XYZ3](../.tickets/done/TKT-01M3F2K1EZ0CVDH1KPA127XYZ3.md) | Web: add explicit server configuration and exposure guards |
-| [TKT-01M3F2K1J85QBJCBX9S462QG2V](../.tickets/tickets/TKT-01M3F2K1J85QBJCBX9S462QG2V.md) | OIDC: implement provider verification and group authorization |
+| [TKT-01M3F2K1J85QBJCBX9S462QG2V](../.tickets/done/TKT-01M3F2K1J85QBJCBX9S462QG2V.md) | OIDC: implement provider verification and group authorization |
 | [TKT-01M3F2K1NMEEXDZSA3J140B075](../.tickets/tickets/TKT-01M3F2K1NMEEXDZSA3J140B075.md) | OIDC: add browser sessions, login routes and request guards |
 | [TKT-01M3F2K1RTWH93KB9DSMWR21DQ](../.tickets/tickets/TKT-01M3F2K1RTWH93KB9DSMWR21DQ.md) | Catalog: track published normalization generations explicitly |
 | [TKT-01M3F2K1ZDTPZRY5J6FKW451Q6](../.tickets/tickets/TKT-01M3F2K1ZDTPZRY5J6FKW451Q6.md) | Catalog: add bounded dashboard queries and stable pagination |
