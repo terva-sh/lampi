@@ -41,13 +41,16 @@ func TestHangupReloadsTokensWithoutDroppingRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { lake.Close() })
+	if err := lake.RecordDevices(t.Context(), devices); err != nil {
+		t.Fatal(err)
+	}
 	lake.Devices = devices
 	ts := httptest.NewServer(lake.Handler())
 	t.Cleanup(ts.Close)
 
 	stderr := &lockedBuffer{}
 	env := Env{Stderr: stderr}
-	reloadOnHangup(t.Context(), func() { reloadDevices(env, path, devices) })
+	reloadOnHangup(t.Context(), func() { reloadDevices(env, path, devices, lake) })
 
 	body := []byte("in flight at SIGHUP\n")
 	sum := sha256.Sum256(body)
@@ -103,11 +106,16 @@ func TestHangupReloadsTokensWithoutDroppingRequests(t *testing.T) {
 		}
 	}
 
+	// The reloaded token was recorded as a device before it was used.
+	if d, err := lake.Catalog.DeviceByName(t.Context(), "desktop"); err != nil || d.TokenSHA256 != auth.HashToken(newTok) {
+		t.Fatalf("reloaded device %+v %v", d, err)
+	}
+
 	// A file that no longer loads keeps the set that did.
 	if err := os.WriteFile(path, []byte("desktop\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reloadDevices(env, path, devices)
+	reloadDevices(env, path, devices, lake)
 	if !devices.Match("Bearer "+newTok) || !strings.Contains(stderr.String(), "keeping 1 device tokens") {
 		t.Fatalf("bad reload replaced the set: %s", stderr.String())
 	}

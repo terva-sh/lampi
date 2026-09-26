@@ -116,10 +116,12 @@ func runServeDevices(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := audit.Append(data, audit.Event{Time: now, Kind: kind, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve devices " + sub}); err != nil {
-			return err
-		}
+		// The change is committed. Say so before anything else, so a
+		// failed audit write is not read as a revoke that did not happen.
 		fmt.Fprintf(env.stdout(), "%sd %s\n", sub, d.Name)
+		if err := audit.Append(data, audit.Event{Time: now, Kind: kind, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve devices " + sub}); err != nil {
+			return fmt.Errorf("%sd %s, but writing it to %s failed: %w; the change stands, and running the command again only retries the record", sub, d.Name, audit.FileName, err)
+		}
 		return nil
 	default:
 		fmt.Fprint(env.stdout(), devicesUsage)

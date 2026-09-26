@@ -182,13 +182,13 @@ func runServe(env Env, args []string) error {
 		return err
 	}
 	sweepCAS(env, lake.CAS, time.Now())
-	lake.Devices = devices
 	if devices != nil {
-		if err := lake.SyncDevices(context.Background()); err != nil {
+		if err := lake.RecordDevices(context.Background(), devices); err != nil {
 			lake.Close()
 			return err
 		}
 	}
+	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
 		lake.Web, err = web.New(*webCfg, lake.Catalog, nil, lake.Log)
@@ -221,13 +221,7 @@ func runServe(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if devices != nil {
-		reloadOnHangup(ctx, func() {
-			if reloadDevices(env, tokenFile, devices) {
-				if err := lake.SyncDevices(ctx); err != nil {
-					fmt.Fprintf(env.stderr(), "terva-lampi serve: recording reloaded devices: %v\n", err)
-				}
-			}
-		})
+		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices, lake) })
 	}
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
@@ -236,16 +230,25 @@ func runServe(env Env, args []string) error {
 // A handler that has passed the check is not affected. A file that no
 // longer loads, or holds no token, keeps the old set: an empty set
 // would open a lake that serve refused to expose without one.
-func reloadDevices(env Env, path string, devices *auth.Devices) bool {
+//
+// The new tokens are recorded as devices before they are published, so
+// a request never meets a token with no device. A record that fails
+// keeps the old set too.
+func reloadDevices(env Env, path string, devices *auth.Devices, lake *api.Server) {
 	next, err := auth.LoadDevices(path)
 	if err != nil {
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: %v\n", devices.Len(), err)
-		return false
+		return
 	}
 	warnIgnored(env, path, next)
+	if lake != nil {
+		if err := lake.RecordDevices(context.Background(), next); err != nil {
+			fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: recording devices: %v\n", devices.Len(), err)
+			return
+		}
+	}
 	devices.Replace(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
-	return true
 }
 
 func warnIgnored(env Env, path string, d *auth.Devices) {

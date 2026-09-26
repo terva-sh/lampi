@@ -189,3 +189,44 @@ func TestATokenThatLeavesTheFileIsDetached(t *testing.T) {
 		t.Fatal("no detach event")
 	}
 }
+
+func TestATokenWithNoDeviceRecordIsRefused(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tok := strings.Repeat("d4", 32)
+	// Publish a token without recording it, which serve never does.
+	s.Devices = &auth.Devices{}
+	s.Devices.Allow(tok)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "no device record") {
+		t.Fatalf("unrecorded token %d %s", rr.Code, rr.Body)
+	}
+	// Allow records it.
+	s.Allow(tok)
+	rr = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("after Allow %d %s", rr.Code, rr.Body)
+	}
+}
+
+func TestBindingIsReadFreshForEachManifest(t *testing.T) {
+	s, _, _, sum, size := devicesLake(t)
+	if rr := postAs(t, s, laptopToken, "machine-a", sum, size); rr.Code != http.StatusOK {
+		t.Fatalf("bind %d %s", rr.Code, rr.Body)
+	}
+	// An operator unbinds laptop and it binds to machine-b elsewhere.
+	d, _ := s.Catalog.UnbindDevice(t.Context(), "laptop")
+	if _, err := s.Catalog.BindMachine(t.Context(), d.ID, "machine-b"); err != nil {
+		t.Fatal(err)
+	}
+	if rr := postAs(t, s, laptopToken, "machine-a", sum, size); rr.Code != http.StatusForbidden {
+		t.Fatalf("stale machine %d %s", rr.Code, rr.Body)
+	}
+}

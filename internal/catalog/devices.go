@@ -38,6 +38,10 @@ func migrateDevices(tx *sql.Tx) error {
 const (
 	DeviceFromTokenFile    = "token-file"
 	DeviceFromRegistration = "registration"
+	// DeviceFromAllow is a token enrolled in code with api.Server.Allow,
+	// by tests and synthetic fixtures. serve never makes one. It is not
+	// bound to a machine, so a fixture can post as several machines.
+	DeviceFromAllow = "allow"
 )
 
 // Device is one row of devices. Detached is set on a token-file device
@@ -110,6 +114,16 @@ func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 // marked detached, and one that came back is not. A revoked device
 // stays revoked. It returns the devices it created.
 func (c *Catalog) SyncTokenFile(ctx context.Context, entries []TokenEntry, now time.Time) ([]Device, error) {
+	return c.syncTokens(ctx, entries, DeviceFromTokenFile, now)
+}
+
+// AllowTokens records entries as allow devices, for api.Server.Allow.
+// It detaches nothing.
+func (c *Catalog) AllowTokens(ctx context.Context, entries []TokenEntry, now time.Time) ([]Device, error) {
+	return c.syncTokens(ctx, entries, DeviceFromAllow, now)
+}
+
+func (c *Catalog) syncTokens(ctx context.Context, entries []TokenEntry, source string, now time.Time) ([]Device, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
@@ -134,7 +148,7 @@ func (c *Catalog) SyncTokenFile(ctx context.Context, entries []TokenEntry, now t
 		if base == "" {
 			base = fmt.Sprintf("token-%d", i+1)
 		}
-		d := Device{Source: DeviceFromTokenFile, TokenSHA256: e.Hash, Created: now.UTC()}
+		d := Device{Source: source, TokenSHA256: e.Hash, Created: now.UTC()}
 		if d.ID, err = newDeviceID(); err != nil {
 			return nil, err
 		}
@@ -146,6 +160,12 @@ func (c *Catalog) SyncTokenFile(ctx context.Context, entries []TokenEntry, now t
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
 		created = append(created, d)
+	}
+	if source != DeviceFromTokenFile {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		return created, nil
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id, token_sha256 FROM devices WHERE source=? AND detached_at IS NULL`, DeviceFromTokenFile)
 	if err != nil {

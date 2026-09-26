@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/catalog"
 )
 
@@ -19,12 +20,18 @@ func deviceOf(r *http.Request) (catalog.Device, bool) {
 	return d, ok
 }
 
-// SyncDevices records the tokens in s.Devices as devices in the catalog:
-// new tokens become named devices, and tokens that left the file are
-// marked detached. serve calls it at start and after each token reload.
+// SyncDevices records the tokens in s.Devices as devices in the catalog.
 func (s *Server) SyncDevices(ctx context.Context) error {
+	return s.RecordDevices(ctx, s.Devices)
+}
+
+// RecordDevices records the tokens in set as devices in the catalog: new
+// tokens become named devices, and tokens that left the file are marked
+// detached. serve calls it at start, and on a reload before it publishes
+// the new set, so no token is accepted before its device exists.
+func (s *Server) RecordDevices(ctx context.Context, set *auth.Devices) error {
 	var entries []catalog.TokenEntry
-	for _, e := range s.Devices.Entries() {
+	for _, e := range set.Entries() {
 		entries = append(entries, catalog.TokenEntry{Hash: e.Hash, Name: e.Name})
 	}
 	before, err := s.Catalog.Devices(ctx)
@@ -80,7 +87,20 @@ func (s *Server) bindDevice(w http.ResponseWriter, r *http.Request, machineID st
 	if !ok {
 		return true
 	}
-	if d.MachineID == machineID {
+	// The row read at authentication may be stale: an operator can
+	// unbind the device and another request bind it again in between.
+	// Read the binding now.
+	cur, found, err := s.Catalog.DeviceByHash(r.Context(), d.TokenSHA256)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return false
+	}
+	if !found || !cur.Revoked.IsZero() {
+		s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this device is revoked"))
+		return false
+	}
+	d = cur
+	if d.MachineID == machineID || d.Source == catalog.DeviceFromAllow {
 		return true
 	}
 	if d.MachineID != "" {
