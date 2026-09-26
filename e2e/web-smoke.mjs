@@ -67,6 +67,22 @@ try {
   assert.equal(await page.getByText('c3ludGhldGljLWNpcGhlcnRleHQ=').count(), 0);
   await page.screenshot({path: join(artifacts, 'transcript-desktop.png'), fullPage: false});
   const transcriptURL = page.url();
+  // Copy-out: select #2, shift-click #6, copy, and read the clipboard.
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {origin: live.url});
+  await page.getByRole('checkbox', {name: 'Select event 2', exact: true}).click();
+  await page.getByRole('checkbox', {name: 'Select event 6', exact: true}).click({modifiers: ['Shift']});
+  await page.getByText('Events #2 to #6 selected (5).').waitFor();
+  await page.getByRole('button', {name: 'Copy as text'}).click();
+  await page.getByText('Copied 5 events as text.').waitFor();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(copied, /^Excerpt from a stored /);
+  assert.match(copied, /Events #2 to #6 of generation \d+\. Source: http:\/\/127\.0\.0\.1:\d+\/sessions\//);
+  assert.ok(copied.indexOf('[#2 ') < copied.indexOf('[#6 ') && !copied.includes('[#7 '), 'copied span');
+  const openHref = await page.getByRole('link', {name: 'Open as text'}).getAttribute('href');
+  const plainText = await (await context.request.get(live.url + openHref)).text();
+  assert.equal(plainText, copied);
+  await page.screenshot({path: join(artifacts, 'transcript-copy.png'), fullPage: false});
+  await page.getByRole('button', {name: 'Clear', exact: true}).click();
   await page.getByRole('link', {name: 'Later events →'}).first().click();
   assert.equal(await page.locator('.event').first().getAttribute('id'), 'e-100');
   await page.getByRole('link', {name: 'Link to event 120'}).click();
@@ -168,6 +184,9 @@ try {
   assert.ok(await basic.locator('.hit').count() > 0, 'no-JS search paging');
   await basic.goto(transcriptURL);
   assert.equal(await basic.locator('.event').count(), 100);
+  assert.equal(await basic.locator('#excerpt-bar').isVisible(), false);
+  const pagePlain = await basic.getByRole('link', {name: 'This page as plain text'}).getAttribute('href');
+  assert.match(await (await noJS.request.get(live.url + pagePlain)).text(), /Events #0 to #99 of generation/);
   await basic.getByRole('link', {name: 'Later events →'}).first().click();
   assert.equal(await basic.locator('.event').first().getAttribute('id'), 'e-100');
   const denied = await fixture(['--deny']);
@@ -177,7 +196,7 @@ try {
   const emptyPage = await context.newPage(); await emptyPage.goto(empty.url);
   await emptyPage.getByRole('heading', {name: 'No sessions to show'}).waitFor();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));

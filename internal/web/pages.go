@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"errors"
@@ -44,6 +45,9 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	},
 	"cursorURL": func(uid, cursor string) string {
 		return "/sessions/" + url.PathEscape(uid) + "/transcript?cursor=" + url.QueryEscape(cursor)
+	},
+	"excerptURL": func(uid string, gen, from int64, count int) string {
+		return "/sessions/" + url.PathEscape(uid) + "/excerpt?gen=" + strconv.FormatInt(gen, 10) + "&from=" + strconv.FormatInt(from, 10) + "&count=" + strconv.Itoa(count)
 	},
 	"str": func(p *string) string {
 		if p == nil {
@@ -114,7 +118,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
@@ -327,4 +331,41 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pageError(w, err)
+}
+
+// excerptPage serves a copy-out span as plain text, for a browser
+// without JavaScript and for anyone who would rather select text
+// than press a button. text/plain with nosniff is never rendered as
+// HTML, whatever the transcript holds.
+func (s *Server) excerptPage(w http.ResponseWriter, r *http.Request) {
+	req, err := parseExcerpt(r.URL.Query())
+	if err == nil {
+		ctx, cancel := readContext(r)
+		defer cancel()
+		req.Origin = s.origin
+		var ex recall.Excerpt
+		ex, err = s.events.Excerpt(ctx, r.PathValue("uid"), req)
+		if err == nil {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte(ex.Text))
+			return
+		}
+	}
+	status, msg := http.StatusInternalServerError, "The excerpt could not be read."
+	var unavailable recall.UnavailableError
+	switch {
+	case errors.Is(err, recall.ErrInvalid):
+		status, msg = http.StatusBadRequest, "That span is not valid: from must be a position in the transcript and count 1 to 200."
+	case errors.Is(err, recall.ErrNotFound):
+		status, msg = http.StatusNotFound, "This session is not in the lake."
+	case errors.Is(err, recall.ErrGenerationChanged):
+		status, msg = http.StatusConflict, "This transcript has changed since the span was chosen. Open the current transcript and choose it again."
+	case errors.As(err, &unavailable):
+		status, msg = http.StatusConflict, "This transcript is not available: "+unavailable.State+"."
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		status, msg = http.StatusServiceUnavailable, "The excerpt took too long to read. Try a shorter span."
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(msg + "\n"))
 }

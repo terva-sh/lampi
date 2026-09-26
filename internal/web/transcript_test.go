@@ -189,3 +189,52 @@ func TestDeepLinksReportEveryUnavailableState(t *testing.T) {
 		t.Fatal("purged link", w.Code, w.Body.String())
 	}
 }
+
+func TestExcerptAPIAndPlainPage(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid := seedSession(t, lake.Catalog, "copy")
+	cookie, _ := signIn(t, idp, h)
+	gen := publishEvents(t, lake, uid, 20, func(i int) string {
+		if i == 5 {
+			return `<script>window.owned=1</script>`
+		}
+		return fmt.Sprint("event ", i)
+	})
+	api := fmt.Sprintf("/api/web/v1/sessions/%s/excerpt?gen=%d&from=4&count=3", uid, gen)
+	plain := fmt.Sprintf("/sessions/%s/excerpt?gen=%d&from=4&count=3", uid, gen)
+	if get(h, api, nil).Code != 401 || get(h, plain, nil).Code != 303 {
+		t.Fatal("unguarded excerpt")
+	}
+	w := get(h, api, cookie)
+	var ex struct {
+		Text   string `json:"text"`
+		Events int    `json:"events"`
+		Link   string `json:"link"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &ex) != nil || ex.Events != 3 || !strings.HasPrefix(ex.Link, "https://lake.example/sessions/") {
+		t.Fatal("api", w.Code, w.Body.String())
+	}
+	w = get(h, plain, cookie)
+	if w.Code != 200 || w.Header().Get("Content-Type") != "text/plain; charset=utf-8" || w.Header().Get("X-Content-Type-Options") != "nosniff" || w.Body.String() != ex.Text {
+		t.Fatal("plain page", w.Code, w.Header())
+	}
+	if !strings.Contains(w.Body.String(), "<script>window.owned=1</script>") {
+		t.Fatal("plain text should hold the literal text")
+	}
+	for _, bad := range []string{"?count=0", "?count=201", "?from=-1", "?from=500", "?x=1", "?gen=-1"} {
+		if w := get(h, "/api/web/v1/sessions/"+uid+"/excerpt"+bad, cookie); w.Code != 400 {
+			t.Fatal("api accepted", bad, w.Code)
+		}
+		if w := get(h, "/sessions/"+uid+"/excerpt"+bad, cookie); w.Code != 400 || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") {
+			t.Fatal("page accepted", bad, w.Code)
+		}
+	}
+	publishEvents(t, lake, uid, 2, func(int) string { return "newer" })
+	if w := get(h, plain, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "has changed") {
+		t.Fatal("stale plain", w.Code)
+	}
+	w = get(h, "/sessions/"+uid+"/transcript", cookie)
+	if !strings.Contains(w.Body.String(), "This page as plain text") || !strings.Contains(w.Body.String(), `id="excerpt-bar"`) {
+		t.Fatal("transcript copy controls")
+	}
+}

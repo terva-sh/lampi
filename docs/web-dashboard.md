@@ -149,6 +149,12 @@ view. Long text, large `extra`
 objects and encrypted values are reduced as the
 [browser API contract](web-api.md#transcript-events) describes.
 
+To reuse part of a transcript, tick the events you want, or tick one and
+shift-click another to take the run between them, and press Copy as text. The
+clipboard gets plain text with a header that names the session and links back
+to it. Open as text shows the same text as a page. Without JavaScript, each
+transcript page links its own plain text.
+
 `/search` finds literal text in every indexed transcript: `git push --force`,
 a path or an error message matches as written, ignoring case. Filters narrow by
 harness, project and recorded date. Each result names its session and event and

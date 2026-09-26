@@ -23,6 +23,7 @@ raw manifests never appear in these responses.
 | `/conflicts` | Divergent artifacts across sessions |
 | `/sessions/{uid}/events` | One page of the session's published normalized events; see below |
 | `/search` | Literal text search over indexed events; see below |
+| `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
 arrays. `limit` defaults to 50 and accepts 1–200. `cursor` is opaque, bound to the
@@ -53,8 +54,8 @@ integrity probe. Later content readers must still detect missing files.
 
 The overview counts catalog artifact versions, not unique blobs or disk bytes.
 Contributing machines are not online machines. Head update timestamps do not
-measure upload throughput. Only the events and search routes below return
-transcript text.
+measure upload throughput. Only the events, search and excerpt routes below
+return transcript text.
 No endpoint initiates normalization, export, deletion, merge, or ingestion.
 
 ## Transcript events
@@ -159,3 +160,27 @@ text is indexed.
 |---|---|---|
 | 400 | `invalid_request` | No text and no event filter, short query, unknown filter value, bad date, unknown or repeated parameter, bad cursor |
 | 503 | `search_unavailable` | The lake has no search index |
+
+## Excerpts
+
+`/sessions/{uid}/excerpt` renders a span of events as plain text, ready to paste
+into a new agent session. The viewer's Copy button and the plain page
+`/sessions/{uid}/excerpt` (outside `/api`, served as `text/plain`) return the same
+text. Parameters, each at most once: `from` (default 0), `count` (1–200, default
+200) and `gen` (pins the generation).
+
+The response is `{session_uid, generation, from, to, events, truncated, link,
+text}`. `to` is one past the last event included. `link` is the absolute viewer
+URL of the first event, built from the configured `base_url`. `text` opens with
+a header naming the harness, session, project, span and link. Each event follows
+as `[#position actor type tool (error) recorded_at]` and then its text. The
+excerpt keeps at most 64 KiB of one event's text and says where it cut. Encrypted
+values are replaced by a line saying they were omitted. When the text would pass
+512 KiB, the span stops early and `truncated` is true; the text says where it
+ended.
+
+Copy-out needs only the viewer role. It returns text the viewer can already read
+on the transcript page. Bulk downloads and training formats are the separate,
+unimplemented export feature (TKT-01M3F2PGR), which needs its own role and
+project policy. Errors match the events route; a span that starts past the end is
+`400 invalid_request`.

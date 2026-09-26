@@ -24,6 +24,9 @@ type Server struct {
 	// index is the search index. Nil turns search off.
 	index *recall.Index
 	auth  *webauth.Browser
+	// origin is the configured base URL, used to make copied links
+	// absolute.
+	origin string
 }
 
 // New builds a handler mounted inside api.Server's request accounting.
@@ -38,7 +41,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	if len(loggers) > 0 {
 		auth.Logger = loggers[0]
 	}
-	s := &Server{catalog: cat, events: reader, index: index, auth: auth}
+	s := &Server{catalog: cat, events: reader, index: index, auth: auth, origin: cfg.BaseURL}
 	m := http.NewServeMux()
 	auth.Routes(m)
 	get := func(path string, h http.HandlerFunc) { m.Handle("GET "+path, s.guardRead(h)) }
@@ -47,6 +50,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/sessions/{uid}", s.session)
 	get("/api/web/v1/sessions/{uid}/{collection}", s.records)
 	get("/api/web/v1/sessions/{uid}/events", s.sessionEvents)
+	get("/api/web/v1/sessions/{uid}/excerpt", s.sessionExcerpt)
 	get("/api/web/v1/conflicts", s.conflicts)
 	get("/api/web/v1/search", s.search)
 	s.pageRoutes(m)
@@ -385,6 +389,62 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.index.Search(ctx, req)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, v)
+}
+
+// parseExcerpt reads from, count and gen for a copy-out span.
+func parseExcerpt(q url.Values) (recall.ExcerptRequest, error) {
+	var req recall.ExcerptRequest
+	for k, v := range q {
+		if len(v) != 1 {
+			return req, recall.ErrInvalid
+		}
+		switch k {
+		case "from", "count", "gen":
+		default:
+			return req, recall.ErrInvalid
+		}
+	}
+	for _, f := range []struct {
+		key string
+		dst *int64
+	}{{"from", &req.From}, {"gen", &req.Gen}} {
+		if !q.Has(f.key) {
+			continue
+		}
+		n, err := strconv.ParseInt(q.Get(f.key), 10, 64)
+		if err != nil || n < 0 {
+			return req, recall.ErrInvalid
+		}
+		*f.dst = n
+	}
+	req.Pinned = q.Has("gen")
+	if q.Has("count") {
+		n, err := strconv.Atoi(q.Get("count"))
+		if err != nil || n < 1 || n > recall.ExcerptMaxEvents {
+			return req, recall.ErrInvalid
+		}
+		req.Count = n
+	} else {
+		req.Count = recall.ExcerptMaxEvents
+	}
+	return req, nil
+}
+
+func (s *Server) sessionExcerpt(w http.ResponseWriter, r *http.Request) {
+	req, err := parseExcerpt(r.URL.Query())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ctx, cancel := readContext(r)
+	defer cancel()
+	req.Origin = s.origin
+	v, err := s.events.Excerpt(ctx, r.PathValue("uid"), req)
 	if err != nil {
 		fail(w, err)
 		return
