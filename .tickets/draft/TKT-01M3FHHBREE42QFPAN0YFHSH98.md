@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T19:02:11Z
+updated_at: 2026-09-26T19:41:23Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -37,7 +37,13 @@ extensions: {}
 
 Part of the agent onboarding epic. Add the client commands for both onboarding paths.
 
-- `terva-lampi register` reads a code from stdin, from an interactive prompt, or from `--code-file`, never from argv. It verifies the signature against the embedded key and refuses an expired code. It refuses a plain `http://` URL that is not loopback, which is the rule the client already applies. It calls `hello` and checks that the lake id and key match the code. It generates the device token, redeems the code, writes the token file at 0600 and the lake entry into `config.json`, stores the verified base configuration, and signals a running agent to reload. It never prints the token.
+- `terva-lampi register` reads a code from stdin, from an interactive prompt, or from `--code-file`, never from argv. Before it redeems the code it checks, in order:
+  1. The code's signature verifies against the key it carries, and the code has not expired.
+  2. The URL is `https://`, or `http://` on loopback, which is the rule the client already applies.
+  3. `GET /.well-known/terva-lampi/keys` at that URL, with a fresh random nonce, lists the code's key as active under the code's lake id, and its signature over the nonce verifies against that key.
+  4. The operator confirms the URL, lake id and key fingerprint. Interactive use prompts. `--fingerprint SHA` checks non-interactively against the value `serve identity` prints. A run with no terminal and no `--fingerprint` refuses.
+
+  Any failure refuses the registration and names the check that failed. Then it generates the device token, redeems the code, writes the token file at 0600 and the lake entry into `config.json`, stores the verified base configuration, and signals a running agent to reload. It never prints the token.
 - **Path 1, a fresh machine:** `terva-lampi register` with no existing config creates the config directory, the state directory and the lake entry. `--install-service` optionally writes and enables the systemd user unit or the launchd agent from `deploy/`, and suggests `loginctl enable-linger` on Linux when the user has no lingering session.
 - **Path 2, a standalone agent:** the agent is already running with no lake, or with other lakes. `register` adds one lake and the running agent picks it up.
 - `terva-lampi lakes list` and `terva-lampi lakes remove NAME` manage the set. `remove` keeps that lake's state directory unless `--purge-state` is given.
@@ -50,3 +56,5 @@ Part of the agent onboarding epic. Add the client commands for both onboarding p
 - [ ] On a fresh machine register creates everything needed to sync, and --install-service enables the user unit
 - [ ] Against a running agent, register adds the lake live, and a duplicate lake id needs --replace
 - [ ] lakes list and lakes remove work, and remove keeps state unless --purge-state is given
+- [ ] register refuses when the published key list at the code's URL does not list the code's key as active or its nonce signature fails
+- [ ] register shows the URL, lake id and fingerprint and needs confirmation, or --fingerprint when there is no terminal
