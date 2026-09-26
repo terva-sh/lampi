@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
@@ -72,7 +75,7 @@ func run() error {
 			}
 			switch i % 4 {
 			case 0:
-				err = lake.StoreEvents(ctx, ack.SessionUID, []normalize.Event{{SchemaVersion: 1, EventID: fmt.Sprint(i), SessionID: native, Harness: harness, EventType: normalize.EventMeta, RecordedAt: "2026-09-26T12:00:00Z", IngestedAt: "2026-09-26T12:00:00Z"}}, nil)
+				err = lake.StoreEvents(ctx, ack.SessionUID, transcript(i, native, harness), nil)
 			case 1:
 				_, err = lake.Catalog.EnqueueNormalize(ctx, ack.SessionUID, time.Now())
 			case 2:
@@ -95,7 +98,16 @@ func run() error {
 	defer ln.Close()
 	origin := "http://" + ln.Addr().String()
 	cfg := webconfig.Config{BaseURL: origin, OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lampi-smoke", RoleMap: map[string]string{"readers": "viewer"}}}
-	lake.Web, err = web.New(cfg, lake.Catalog, idp.Client())
+	reader := recall.NewReader(lake.Catalog, lake.Normalized)
+	index, err := recall.OpenIndex(filepath.Join(dir, recall.IndexFile), reader)
+	if err != nil {
+		return err
+	}
+	defer index.Close()
+	if err := index.Pass(ctx); err != nil {
+		return err
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, idp.Client())
 	if err != nil {
 		return err
 	}
@@ -114,4 +126,51 @@ func run() error {
 	shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shut)
+}
+
+// transcript is a synthetic conversation with the event kinds the
+// viewer renders differently: messages, tool calls and results, a tool
+// error, usage with unknown counts, long text and opaque content.
+func transcript(n int, native, harness string) []normalize.Event {
+	str := func(s string) *string { return &s }
+	num := func(v int) *int { return &v }
+	yes, no := true, false
+	var out []normalize.Event
+	add := func(actor, kind, text string, edit func(*normalize.Event)) {
+		i := len(out)
+		ev := normalize.Event{SchemaVersion: 1, EventID: fmt.Sprintf("%d-%d", n, i), SessionID: native, Harness: harness, Actor: actor, EventType: kind,
+			RecordedAt: time.Date(2026, 9, 26, 12, 0, i, 0, time.UTC).Format(time.RFC3339), IngestedAt: "2026-09-26T13:00:00Z", Redaction: normalize.Redaction{Status: "none"}}
+		if text != "" {
+			ev.ContentText = str(text)
+		}
+		if edit != nil {
+			edit(&ev)
+		}
+		out = append(out, ev)
+	}
+	for turn := 0; turn < 40; turn++ {
+		add(normalize.ActorUser, normalize.EventMessage, fmt.Sprintf("Turn %d: please check the synthetic build and run git push --dry-run.", turn), nil)
+		add(normalize.ActorAssistant, normalize.EventMessage, "I will run the build first.\n\n```sh\ngo test ./...\n```", func(e *normalize.Event) { e.Model.ID = str("synthetic-model") })
+		call := fmt.Sprintf("call-%d", turn)
+		add(normalize.ActorAssistant, normalize.EventToolCall, `{"command":"git push --dry-run origin main"}`, func(e *normalize.Event) { e.Tool = normalize.Tool{Name: str("Bash"), CallID: str(call)} })
+		failed := turn%7 == 3
+		result := "Everything up-to-date"
+		if failed {
+			result = "fatal: synthetic remote rejected <refs/heads/main>"
+		}
+		add(normalize.ActorTool, normalize.EventToolResult, result, func(e *normalize.Event) {
+			e.Tool = normalize.Tool{Name: str("Bash"), CallID: str(call), IsError: map[bool]*bool{true: &yes, false: &no}[failed]}
+		})
+		add(normalize.ActorHarness, normalize.EventUsage, "", func(e *normalize.Event) {
+			e.Usage = normalize.Usage{Input: num(1200 + turn), Output: num(300), CacheRead: num(0)}
+		})
+		if turn == 5 {
+			add(normalize.ActorAssistant, normalize.EventMessage, strings.Repeat("A very long synthetic answer line. ", 2000), nil)
+			add(normalize.ActorAssistant, normalize.EventMessage, "Reasoning is stored encrypted.", func(e *normalize.Event) {
+				e.Extra = map[string]any{"encrypted_content": "c3ludGhldGljLWNpcGhlcnRleHQ="}
+			})
+			add(normalize.ActorHarness, normalize.EventCompaction, "Context compacted: synthetic summary of turns 0-5.", nil)
+		}
+	}
+	return out
 }

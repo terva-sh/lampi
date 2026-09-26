@@ -135,8 +135,56 @@ configuration bypass.
 Overview and the first session page refresh every 25 seconds while visible.
 Other pages stay still. Refresh pauses on failures, expired login, hidden tabs or
 keyboard focus inside the updated table. Manual refresh retries. Forms, navigation
-and tables also work without JavaScript. Raw transcripts, export and administration
-are absent from this release.
+and tables also work without JavaScript.
+
+A session whose normalization is ready links to its transcript at
+`/sessions/{uid}/transcript`. The page shows 100 normalized events at a time in
+recorded order, as plain text, with earlier and later pages. Every event has a
+link that names its generation and position; opening one shows the page around
+it, marks it and moves keyboard focus to it. A link never shows whatever now
+sits at that position in a different generation. Instead it says what happened:
+a newer generation replaced it, normalization is running or failed, the position
+is past the end, or the session was purged. Each case links back to the current
+view. Long text, large `extra`
+objects and encrypted values are reduced as the
+[browser API contract](web-api.md#transcript-events) describes.
+
+To reuse part of a transcript, tick the events you want, or tick one and
+shift-click another to take the run between them, and press Copy as text. The
+clipboard gets plain text with a header that names the session and links back
+to it. Open as text shows the same text as a page. Without JavaScript, each
+transcript page links its own plain text.
+
+`/search` finds literal text in every indexed transcript: `git push --force`,
+a path or an error message matches as written, ignoring case. Filters narrow by
+harness, project and recorded date. Each result names its session and event and
+links straight to that event in the transcript. The page states how many ready
+sessions the index covers. Raw blobs, export and administration are absent.
+
+## Search index
+
+With web configuration, serve keeps a full-text index of normalized event text
+in `search.db` in the data directory. It is derived from the published
+normalized JSONL and holds nothing else. A serve without web configuration
+neither builds nor updates it.
+
+- **Catch-up.** The index follows the catalog. Each finished normalization
+  wakes it, and it also checks every five minutes and at every start, so a crash
+  or restart loses no work. A new generation becomes searchable in one step, and
+  the old one stays searchable until then. A pending, failed or purged session
+  drops out of results at once, even before the index removes its rows.
+- **Coverage.** Search results report how many ready sessions are indexed, how
+  many are behind, and how many the index could not read. A session it could not
+  read is retried when a new generation is published.
+- **Size.** The trigram index takes roughly two to three times the indexed text
+  on disk. Only the first 256 KiB of one event's text is indexed; the full text
+  stays in the transcript.
+- **Rebuild.** Stop serve, delete `search.db`, `search.db-wal` and
+  `search.db-shm`, and start serve. The index is rebuilt in the background while
+  the lake keeps serving. A file with an unknown schema version is rebuilt the
+  same way on its own.
+- **Backup and purge.** `serve backup` does not copy the index; a restored lake
+  rebuilds it. `serve purge` removes the session's index rows first.
 
 ## Validation, backup and rollout
 

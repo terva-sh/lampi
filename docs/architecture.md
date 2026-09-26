@@ -13,12 +13,13 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve identity`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
+| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve identity`, `serve devices`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
-| Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata API; see [web-dashboard.md](web-dashboard.md) |
+| Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata, transcript, search and excerpt API; see [web-dashboard.md](web-dashboard.md) |
+| Recall | `internal/recall` | Query layer shared by the browser API and the planned MCP server: generation-pinned event pages, the `search.db` FTS5 index, deep links and excerpts; see [web-api.md](web-api.md) |
 | Browser identity | `internal/webauth`, `internal/webconfig` | Explicit server config, OIDC code + PKCE, mapped groups, bounded in-memory sessions; separate from device tokens |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
@@ -299,6 +300,7 @@ watermark commit and outbox ACK          terva-lampi serve
                                          ACK, then normalize workers
                                          normalized/*.jsonl
                                          parquet/date=*/harness=*/*.parquet
+                                         search.db (with --web-config)
                                          terva-lampi export → events JSONL
                                          or allowlisted ShareGPT JSONL
 ```

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -23,12 +24,13 @@ usage:
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
 
 Writes DIR/catalog.db, then DIR/cas/sha256 and DIR/cas/logical, then
-DIR/identity.json, then the token file. It runs while serve runs. The catalog is a VACUUM
+DIR/identity.json, then DIR/audit.jsonl, then the token file. It runs while serve runs. The catalog is a VACUUM
 INTO copy, one consistent snapshot. The CAS is copied after it, so
 the copy holds every object that snapshot names. Upload temp files
 and cas/partial are left out. An object already in DIR with the same
 size is not copied again, so a second backup into DIR copies only
-what is new. normalized/ and parquet/ are derived and are not copied.
+what is new. normalized/, parquet/ and search.db are derived and are
+not copied.
 
 identity.json holds the lake's private signing keys. Agents pin them,
 and serve refuses to start on a catalog whose identity.json is lost,
@@ -115,6 +117,12 @@ func runServeBackup(env Env, args []string) error {
 
 	if err := backupIdentity(env, data, out); err != nil {
 		return err
+	}
+	if _, err := os.Stat(audit.Path(data)); err == nil {
+		if err := copyFile(audit.Path(data), audit.Path(out)); err != nil {
+			return err
+		}
+		fmt.Fprintf(env.stdout(), "audit: %s\n", audit.Path(out))
 	}
 
 	if tokenFile != "" {

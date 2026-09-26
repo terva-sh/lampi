@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -37,6 +39,8 @@ usage:
                                  remove one session and its blobs
   terva-lampi serve identity [--data DIR]
                                  print the lake id and key fingerprints
+  terva-lampi serve devices [list|revoke NAME|unbind NAME] [--data DIR]
+                                 list devices, or revoke or unbind one
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -69,10 +73,18 @@ token is not an argument. SIGHUP reads the token file again. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
 
+Each token is a named device in the catalog: the <name>.token file in
+a directory, or the # comment line just above the token in a file, or
+token-N. A device binds to the first machine_id it uploads a manifest
+under; a manifest from another machine is 403, and so is a machine_id
+another device holds. serve devices lists, revokes and unbinds them.
+Device changes go to audit.jsonl in the lake directory.
+
 The lake directory holds identity.json (the lake id and private
 signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
-normalized/ (one JSONL file per session), and parquet/ (date and
-harness partitions). The default is the XDG state dir terva-lampi/,
+normalized/ (one JSONL file per session), parquet/ (date and
+harness partitions), and, with --web-config, search.db (the derived
+search index). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
 
 serve holds lake.lock in the lake directory while it runs. A second
@@ -110,6 +122,8 @@ func runServe(env Env, args []string) error {
 			return runServePurge(env, args[1:])
 		case "identity":
 			return runServeIdentity(env, args[1:])
+		case "devices":
+			return runServeDevices(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, webConfigFile string
@@ -171,11 +185,16 @@ func runServe(env Env, args []string) error {
 		return err
 	}
 	sweepCAS(env, lake.CAS, time.Now())
+	if devices != nil {
+		if err := lake.RecordDevices(context.Background(), devices); err != nil {
+			lake.Close()
+			return err
+		}
+	}
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
-		lake.Web, err = web.New(*webCfg, lake.Catalog, nil, lake.Log)
-		if err != nil {
+		if err := startWeb(*webCfg, data, lake); err != nil {
 			lake.Close()
 			return err
 		}
@@ -204,7 +223,7 @@ func runServe(env Env, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if devices != nil {
-		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices) })
+		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices, lake) })
 	}
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
@@ -213,13 +232,23 @@ func runServe(env Env, args []string) error {
 // A handler that has passed the check is not affected. A file that no
 // longer loads, or holds no token, keeps the old set: an empty set
 // would open a lake that serve refused to expose without one.
-func reloadDevices(env Env, path string, devices *auth.Devices) {
+//
+// The new tokens are recorded as devices before they are published, so
+// a request never meets a token with no device. A record that fails
+// keeps the old set too.
+func reloadDevices(env Env, path string, devices *auth.Devices, lake *api.Server) {
 	next, err := auth.LoadDevices(path)
 	if err != nil {
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: %v\n", devices.Len(), err)
 		return
 	}
 	warnIgnored(env, path, next)
+	if lake != nil {
+		if err := lake.RecordDevices(context.Background(), next); err != nil {
+			fmt.Fprintf(env.stderr(), "terva-lampi serve: token reload failed, keeping %d device tokens: recording devices: %v\n", devices.Len(), err)
+			return
+		}
+	}
 	devices.Replace(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
 }
@@ -384,4 +413,31 @@ func listenLoopback(addr string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// startWeb mounts the browser interface and runs the search index
+// behind it. The index follows publication through OnPublished and
+// stops in BeforeClose, before the catalog closes. Without web config
+// nothing reads the index, so it is neither built nor kept.
+func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
+	reader := recall.NewReader(lake.Catalog, lake.Normalized)
+	index, err := recall.OpenIndex(filepath.Join(data, recall.IndexFile), reader)
+	if err != nil {
+		return err
+	}
+	index.Log = lake.Log
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		index.Run(ctx)
+	}()
+	lake.OnPublished(index.Notify)
+	lake.BeforeClose = func() {
+		stop()
+		<-done
+		index.Close()
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, nil, lake.Log)
+	return err
 }

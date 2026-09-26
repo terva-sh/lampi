@@ -185,7 +185,9 @@ CLI roots, so set `harnesses` there to read them.
 ## Browser dashboard
 
 The optional read-only dashboard shows counts, harnesses, normalization status,
-sessions, provenance and conflicts. Enable it with `serve --web-config PATH` and
+sessions, provenance and conflicts. It also reads normalized transcripts, searches
+them by literal text or event kind, links to single events, and copies a span of
+events as text. Enable it with `serve --web-config PATH` and
 an OIDC provider/group mapping. Device tokens remain mandatory for ingestion,
 even when the server binds loopback behind a proxy. Browser sessions and device
 tokens cannot authorize each other's routes. Without web config the UI is disabled.
@@ -193,7 +195,7 @@ tokens cannot authorize each other's routes. Without web config the UI is disabl
 See [serving the dashboard](docs/web-dashboard.md) for IdP registration, the
 server config, TLS and session behavior. The dashboard uses embedded Go templates
 and assets, so `make build` produces everything; there is no frontend build.
-Transcript search and downloads are planned in later releases.
+Bulk export and ingestion charts are planned in later releases.
 
 ## Commands
 
@@ -202,6 +204,7 @@ Transcript search and downloads are planned in later releases.
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
 | `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. |
 | `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
+| `terva-lampi serve devices` | List the lake's devices, or `revoke` or `unbind` one by name. Runs while `serve` runs; a revoke takes effect on the next request. |
 | `terva-lampi serve identity` | Print the lake id and each signing key's fingerprint. Runs while `serve` runs. |
 | `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
