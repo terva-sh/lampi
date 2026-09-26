@@ -23,6 +23,7 @@ const conflictsUsage = `terva-lampi conflicts — list divergent_copy artifacts
 usage:
   terva-lampi conflicts [--data DIR]
   terva-lampi conflicts --server URL [--token-file PATH]
+  terva-lampi conflicts --lake NAME [--server URL] [--token-file PATH]
 
 Lists catalog artifacts whose relation is divergent_copy. The head
 that stayed is named beside the divergent digest. Provenance supplies
@@ -39,7 +40,10 @@ The token file is --token-file, then LAMPI_TOKEN_FILE, then token_file
 in config.json, then the token file in the config directory, the same
 order sync and status use. The token is not an argument. The lake is
 only the --server flag: LAMPI_SERVER and config.json do not turn this
-command into a remote read.
+command into a remote read. --lake does: it reads the lake of that name
+from config.json, with its server and token file, and --server and
+--token-file then override that lake's values. With more than one lake
+in config.json, --server needs --lake, so the token sent is that lake's.
 `
 
 func runConflicts(env Env, args []string) error {
@@ -47,9 +51,10 @@ func runConflicts(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), conflictsUsage)
 		return nil
 	}
-	var data, serverFlag, tokenFlag string
+	var data, serverFlag, tokenFlag, lakeFlag string
 	rest, err := parseFlags(env, args, conflictsUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
+		fs.StringVar(&lakeFlag, "lake", "", "lake name from config.json")
 		fs.StringVar(&serverFlag, "server", "", "lake base URL")
 		fs.StringVar(&tokenFlag, "token-file", "", "device token file")
 	})
@@ -60,12 +65,31 @@ func runConflicts(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), conflictsUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
 	}
-	if data != "" && serverFlag != "" {
+	if data != "" && (serverFlag != "" || lakeFlag != "") {
 		fmt.Fprint(env.stdout(), conflictsUsage)
-		return fmt.Errorf("pass --data or --server, not both")
+		return fmt.Errorf("pass --data or a lake, not both")
 	}
-	if serverFlag != "" {
-		return writeRemoteConflicts(env, serverFlag, tokenFlag)
+	// --server is resolved like --lake: with one lake it is that lake's
+	// URL, as before, and with several it needs --lake, so the token
+	// sent is the named lake's and not a guess.
+	if lakeFlag != "" || serverFlag != "" {
+		file, err := config.LoadFile(env.getenv)
+		if err != nil {
+			return err
+		}
+		lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Lake: lakeFlag, Server: serverFlag, TokenFile: tokenFlag})
+		if err != nil {
+			return err
+		}
+		token, err := lakeToken(lakes[0])
+		if err != nil {
+			return err
+		}
+		body, err := fetchConflicts(lakes[0].Server.Value, token)
+		if err != nil {
+			return err
+		}
+		return writeConflicts(env.stdout(), body.Conflicts)
 	}
 	if data == "" {
 		data, err = config.StateDir(env.getenv)
@@ -94,22 +118,6 @@ func writeLocalConflicts(w io.Writer, data string) error {
 		return err
 	}
 	return writeConflicts(w, asProtocolConflicts(rows))
-}
-
-func writeRemoteConflicts(env Env, server, tokenFlag string) error {
-	file, err := config.LoadFile(env.getenv)
-	if err != nil {
-		return err
-	}
-	token, err := resolveToken(env, tokenFlag, file)
-	if err != nil {
-		return err
-	}
-	body, err := fetchConflicts(server, token)
-	if err != nil {
-		return err
-	}
-	return writeConflicts(env.stdout(), body.Conflicts)
 }
 
 func fetchConflicts(server, token string) (protocol.ConflictsResponse, error) {
