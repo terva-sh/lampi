@@ -89,3 +89,41 @@ func TestServeDevicesRevokeStopsARunningLake(t *testing.T) {
 		t.Fatalf("audit not backed up: %v\n%s", err, out.String())
 	}
 }
+
+func TestServeDevicesAuditFailureAdvice(t *testing.T) {
+	dir := t.TempDir()
+	tokens := t.TempDir()
+	for _, n := range []string{"laptop", "desk"} {
+		if err := os.WriteFile(filepath.Join(tokens, n+".token"), []byte(strings.Repeat(map[string]string{"laptop": "c3", "desk": "d4"}[n], 32)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	devices, err := auth.LoadDevices(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Devices = devices
+	if err := lake.SyncDevices(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	lake.Close()
+	// audit.jsonl as a directory: every append fails.
+	if err := os.Remove(audit.Path(dir)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = Run([]string{"serve", "devices", "unbind", "laptop", "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(err.Error(), "Do not run unbind again") || strings.Contains(err.Error(), "only retries the record") {
+		t.Fatalf("unbind: %v", err)
+	}
+	err = Run([]string{"serve", "devices", "revoke", "desk", "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(err.Error(), "running revoke again only retries the record") {
+		t.Fatalf("revoke: %v", err)
+	}
+}

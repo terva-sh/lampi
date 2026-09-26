@@ -120,7 +120,13 @@ func runServeDevices(env Env, args []string) error {
 		// failed audit write is not read as a revoke that did not happen.
 		fmt.Fprintf(env.stdout(), "%sd %s\n", sub, d.Name)
 		if err := audit.Append(data, audit.Event{Time: now, Kind: kind, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve devices " + sub}); err != nil {
-			return fmt.Errorf("%sd %s, but writing it to %s failed: %w; the change stands, and running the command again only retries the record", sub, d.Name, audit.FileName, err)
+			// revoke is final, so running it again changes nothing but the
+			// record. unbind is not: the device may have bound again since,
+			// and a second unbind would clear that binding.
+			if sub == "revoke" {
+				return fmt.Errorf("revoked %s, but writing it to %s failed: %w; the change stands, and running revoke again only retries the record", d.Name, audit.FileName, err)
+			}
+			return fmt.Errorf("unbound %s (it was bound to machine %s), but writing it to %s failed: %w; the change stands. Do not run unbind again to retry the record: the device may have bound again since, and a second unbind would clear that", d.Name, d.MachineID, audit.FileName, err)
 		}
 		return nil
 	default:
