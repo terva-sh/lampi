@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T17:34:18Z
+updated_at: 2026-09-26T17:39:54Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -43,7 +43,7 @@ Land the dashboard release after successful CI and model review, then upgrade th
 
 ## Acceptance criteria
 
-- [ ] All release code receives a published model review; findings are resolved or dispositioned while PRs remain open; CI passes and reviewed changes merge.
+- [x] All release code receives a published model review; findings are resolved or dispositioned while PRs remain open; CI passes and reviewed changes merge.
 - [ ] A protected pre-migration backup, rollback binary/config and service-account configuration checks are completed before installation.
 - [ ] The reviewed binary and OIDC/proxy configuration are installed; health, allowed/denied login, logout and device ingestion are verified.
 
@@ -64,3 +64,7 @@ Foundation PR #5 merged as f4b799f618c372af5bc26d2f60d0ac17a3ce61c8 after CI suc
 **agent:codex/deploy** at 2026-09-26T17:34:18Z
 
 PR #4 review 856 (75b76fc7-0b3a-443e-9a35-788bb3b4490b) on 2b39c8a5b0d25447e41954f60d84ed9c216f28e5 found that explicitly empty limit/current/unlinked values bypassed the documented query validation. parsePage now distinguishes absent keys from present empty values. HTTP regressions cover empty and bare values returning 400 and explicit valid limit/true/false remaining accepted. Focused web package race tests passed. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14380
+
+**agent:codex/deploy** at 2026-09-26T17:39:54Z
+
+PR #4 merged as 4e932af6660b983d262c043138df5f303c9bb29f after successful CI and clean model review on 64d3f62ad5fe6c4d368bdda81bb31b1fed4f6744. Clean review: https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14385; finding disposition recorded in comment 14381. The previous note cited the wrong review-856 URL; correct URL is https://git.local.sothr.com/terva-sh/lampi/pulls/4#issuecomment-14378. Both forges main are synchronized. The merge tree equals the reviewed head. Rebuilt the external operator package from the merge revision, replaced obsolete uncompressed guidance with bounded gzip checkpoint steps and recovery guidance, verified shell syntax, synthetic backup/integrity/compare and capacity refusal, and refreshed checksums. Operator execution is pending; no live installation or backup has occurred. Browser authentication and post-upgrade capture remain unverified.
