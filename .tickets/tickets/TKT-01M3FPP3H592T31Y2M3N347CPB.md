@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-09-26T21:18:27Z
+updated_at: 2026-09-26T21:19:42Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -114,3 +114,7 @@ cli.startWeb shows how the index is started and stopped (OnPublished, BeforeClos
 **agent:claude-code/cd41c9ac** at 2026-09-26T21:18:27Z
 
 Pre-PR review, 2026-09-26: an independent read-only review of the branch diff by a second model (Sonnet) found no correctness or security defects. It traced generation pinning against the worker, cursor signing, index flip and read-time re-check, route guards, escaping, shutdown ordering and lake.js DOM use. It noted two low items. (1) Search looks up the session summary once per distinct session on a page: at most 200 small indexed queries, accepted. (2) strings.Title in the existing details page predates this branch and is untouched. The reviewer left EnqueueNormalize atomicity unverified. Checked: the generation bump and the job-row insert commit in one transaction (internal/catalog/normalize_queue.go), which the pinning argument relies on.
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T21:19:42Z
+
+Opened Forgejo PR #12 (https://git.local.sothr.com/terva-sh/lampi/pulls/12) from t3code/explore-store-ui-search. main (#9, client config) merged in with a normal merge, since the branch had been pushed; just ci passes on the merge. The terva-review dispatch (request-id ready-review, task 28244) failed on the runner, as did the two dispatches just before it from another session. Its logs are not reachable through the API; see the repository's Actions page. Re-dispatch after the workflow issue is understood.
