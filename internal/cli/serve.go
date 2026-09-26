@@ -73,8 +73,9 @@ in place.
 
 The lake directory holds identity.json (the lake id and private
 signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
-normalized/ (one JSONL file per session), and parquet/ (date and
-harness partitions). The default is the XDG state dir terva-lampi/,
+normalized/ (one JSONL file per session), parquet/ (date and
+harness partitions), and, with --web-config, search.db (the derived
+search index). The default is the XDG state dir terva-lampi/,
 not $TERVA_HOME. A manifest ACK returns before normalize finishes.
 
 serve holds lake.lock in the lake directory while it runs. A second

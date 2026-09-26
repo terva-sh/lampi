@@ -185,7 +185,9 @@ CLI roots, so set `harnesses` there to read them.
 ## Browser dashboard
 
 The optional read-only dashboard shows counts, harnesses, normalization status,
-sessions, provenance and conflicts. Enable it with `serve --web-config PATH` and
+sessions, provenance and conflicts. It also reads normalized transcripts, searches
+them by literal text or event kind, links to single events, and copies a span of
+events as text. Enable it with `serve --web-config PATH` and
 an OIDC provider/group mapping. Device tokens remain mandatory for ingestion,
 even when the server binds loopback behind a proxy. Browser sessions and device
 tokens cannot authorize each other's routes. Without web config the UI is disabled.
@@ -193,7 +195,7 @@ tokens cannot authorize each other's routes. Without web config the UI is disabl
 See [serving the dashboard](docs/web-dashboard.md) for IdP registration, the
 server config, TLS and session behavior. The dashboard uses embedded Go templates
 and assets, so `make build` produces everything; there is no frontend build.
-Transcript search and downloads are planned in later releases.
+Bulk export and ingestion charts are planned in later releases.
 
 ## Commands
 
