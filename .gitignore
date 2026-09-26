@@ -1,6 +1,9 @@
 bin/
 dist/
 
+# `just dev` and `make dev`: config, state, and lake for development runs.
+/.dev/
+
 # `go build ./cmd/terva-lampi` with no -o drops the binary at the repo root.
 /terva-lampi
 /lampi

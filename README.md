@@ -162,6 +162,26 @@ which carries the cwd, the remote, and the relpaths. A hit there is
 refused even with `redaction.upload_hits` set. A file that changed
 after it was hashed is not sent in that sync; the next one sends it.
 
+### Development on a machine that runs lampi
+
+On a machine that already runs a lake or an agent, use the `dev`
+recipes instead. With no flags, `serve` writes to the agent's state
+directory and binds the live lake's port. `sync` reads the real device
+token, machine id, server URL, and allowlist. The recipes put config
+and state under `.dev/` in the checkout, put the lake in `.dev/lake`,
+and bind `127.0.0.1:18787`. Set `LAMPI_DEV_ADDR` to change the address.
+
+```bash
+just dev-serve              # make dev-serve
+just dev status             # make dev ARGS=status
+just dev sync               # refuses every project until .dev/config allows one
+just dev-clean              # make dev-clean
+```
+
+The dev allowlist is `.dev/config/terva-lampi/config.json` and starts
+empty. `XDG_CONFIG_HOME` also moves the default Cursor IDE and Cursor
+CLI roots, so set `harnesses` there to read them.
+
 ## Commands
 
 | Command | What it does |
@@ -430,6 +450,7 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 | [docs/policy.md](docs/policy.md) | Phase 0: VPS host, retention, encryption, allowlist, machines |
 | [docs/vps-bringup.md](docs/vps-bringup.md) | Phase 0 operator checklist: disk, loopback serve, TLS, device token |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
+| [docs/pr-reviews.md](docs/pr-reviews.md) | Pull requests on Forgejo and GitHub, `terva-review`, keeping `main` equal |
 | [deploy/README.md](deploy/README.md) | Example units, Shape A `harnesses`, the optional `lampi` alias, the optional `post_tool_use` hook |
 | [.tickets/epics.md](.tickets/epics.md) | Open epics. Generated; `git ticket check --fix` rewrites it |
 

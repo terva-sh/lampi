@@ -1,0 +1,84 @@
+# Installed from terva-action-code-review examples/workflows/single-review.yml
+# at bf62a5d (image v0.3.0). Internal Forgejo PRs only; GitHub PRs from external
+# agents follow GitHub's process. docs/pr-reviews.md has both. TKT-01M3D7YX.
+name: terva-review
+on:
+  # A maintainer's `/terva review HEAD BASE` comment on a pull request.
+  issue_comment:
+    types: [created]
+  # Or a dispatch: tea actions workflows dispatch terva-review.yml --ref main
+  #   --input pr=12 --input request-id=ready-review
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Open same-repository PR number
+        required: true
+      request-id:
+        description: Stable request ID; reuse it to recover a delivery, change it for a fresh review
+        required: true
+        default: ready-review
+      carry:
+        description: true copies the last review's verdict to the head when later commits touch only carry-paths; no model runs
+        required: false
+        default: 'false'
+# Reviews of one pull request publish one at a time: they share its summary
+# comment, and Forgejo has no atomic way to create a review only once. Keep
+# every workflow that reviews pull requests in this one group.
+concurrency:
+  # Replace the maintainer list here AND in the job condition below, so an
+  # unlisted commenter never joins an authorized pull request's queue.
+  group: terva-review-${{ github.repository }}-${{ inputs.pr || (contains(fromJSON('["warricksothr"]'), github.actor) && github.event.issue.number) || format('ignored-{0}', github.run_id) }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  review:
+    # Parsing and authorization are repeated inside the reviewer.
+    if: ${{ github.event_name != 'issue_comment' || (contains(fromJSON('["warricksothr"]'), github.actor) && github.event.issue.pull_request && startsWith(github.event.comment.body, '/terva ')) }}
+    runs-on: docker
+    container:
+      # The reviewer is the published image: this action's source, its prompt
+      # templates, locked dependencies and a checksum-pinned Terva. Nothing is
+      # checked out or installed, so the job holding the credentials runs no
+      # code from your repository. This is the v0.3.0 release image, pinned by
+      # digest because a tag can move; docs/installation.md#adopting-a-new-pin
+      # says how to move it.
+      image: container.local.sothr.com/terva-sh/terva-action-code-review@sha256:35199d57112ea0048fe713a49c6087094c5bcbbeaa74d53d6dca89d9a8ba9cd7
+      # The runner prepares its workspace inside the job container; the image's
+      # own user is unprivileged, for local reviews of a read-only mount.
+      options: --user root
+    steps:
+      - name: Review PR
+        id: review
+        env:
+          REVIEW_SERVER: ${{ github.server_url }}
+          REVIEW_REPOSITORY: ${{ github.repository }}
+          REVIEW_PR: ${{ inputs.pr || github.event.issue.number }}
+          REVIEW_REQUEST_ID: ${{ inputs.request-id || 'automatic' }}
+          REVIEW_FORGEJO_TOKEN: ${{ secrets.BOT_TOKEN }}
+          REVIEW_PROVIDER_KEY: ${{ secrets.CPA_API_KEY }}
+          # No defaults: the organization chooses these once, as Actions
+          # variables. An unset one fails the run naming it.
+          REVIEW_PROVIDER: ${{ vars.TERVA_REVIEW_PROVIDER }}
+          REVIEW_BASE_URL: ${{ vars.TERVA_REVIEW_BASE_URL }}
+          REVIEW_MODEL: ${{ vars.TERVA_REVIEW_MODEL }}
+          REVIEW_THINKING: ${{ vars.TERVA_REVIEW_THINKING }}
+          # Findings at or above this fail the status.
+          REVIEW_FAIL_SEVERITY: medium
+          # Optional: a checklist, conventions and named reviewers kept in the
+          # repository, read at each pull request's base commit. Copy
+          # examples/terva/ to .terva/. See docs/running-reviews.md.
+          # REVIEW_CONFIG_FILE: .terva/review.yml
+          # Generated files the review should not read: a committed build, a
+          # lockfile, a generated catalog. They are the usual reason a pull
+          # request is too large to review (context_limit), and a model cannot
+          # judge them. See docs/running-reviews.md#keep-a-review-within-its-context.
+          # REVIEW_EXCLUDE_PATHS: web/dist/**, package-lock.json
+          # A dispatch with carry: true copies the last review's verdict to a
+          # head whose later commits touch only these paths or the excluded
+          # ones. See docs/running-reviews.md#carry-a-review-forward.
+          REVIEW_CARRY: ${{ inputs.carry }}
+          # A ticket store goes here rather than in REVIEW_EXCLUDE_PATHS, so the
+          # review still reads it and the commits that follow a review keep it.
+          REVIEW_CARRY_PATHS: .tickets/**
+        run: node /action/src/main.mjs

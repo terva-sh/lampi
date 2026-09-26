@@ -1,6 +1,9 @@
-# CI for terva-lampi. The gates match `just ci` / `make ci`: vet, gofmt,
-# test, and a build of the binary. The commands are inline because the
-# runner does not install just.
+# CI for terva-lampi on GitHub, the gate for external agents' pull
+# requests. Internal pull requests land on the internal Forgejo and are
+# gated by .forgejo/workflows/ci.yml; docs/pr-reviews.md has both. The
+# gates match `just ci` / `make ci`: vet, gofmt, test, and a
+# build of the binary. The commands are inline because the runner does
+# not install just.
 #
 # Go is pinned to 1.27.x, the same line as terva (go.mod says 1.27.0,
 # CI says 1.27.x). A floating "stable" drifted gofmt under terva once

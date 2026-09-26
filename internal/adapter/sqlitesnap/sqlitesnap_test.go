@@ -219,6 +219,101 @@ func TestTakeGivesUpOnADatabaseThatAlwaysMoves(t *testing.T) {
 	}
 }
 
+// A main file rewritten between the copies, with its size and mtime put
+// back, is what a commit and checkpoint inside one coarse clock tick
+// look like on disk. The copy must not be trusted.
+func TestTakeRetriesWhenMainChangesWithinOneTick(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.vscdb")
+	w := openWriter(t, path)
+	if err := commit(w, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	betweenCopies = func(src string) {
+		calls++
+		if calls > 1 {
+			return
+		}
+		st, err := os.Stat(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.OpenFile(src, os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Past the 100-byte header, inside a page SQLite owns. The copy
+		// is never opened, so the damage only has to differ.
+		if _, err := f.WriteAt([]byte("moved"), st.Size()-64); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(src, st.ModTime(), st.ModTime()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { betweenCopies = nil })
+
+	dir, stable, err := copyOnce(path, "lampi-test-snap-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.RemoveAll(dir)
+	if stable {
+		t.Fatal("copy of a main file that changed within one mtime tick was stable")
+	}
+	if calls != 1 {
+		t.Fatalf("copies %d want 1", calls)
+	}
+}
+
+// A commit and checkpoint after the live main file is hashed again, in
+// the window after the last content check, change the live files and
+// not the copy. The copy already made is the state before them: the old
+// main file with the WAL that still holds its pages, never the old main
+// file without them. It is opened here even when a later check rejects
+// the attempt, because that copy is the one in question.
+func TestTakeCopyBeforeALateCheckpointIsConsistent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.vscdb")
+	w := openWriter(t, path)
+	for id := 0; id < 2; id++ {
+		if err := commit(w, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	afterVerify = func(string) {
+		if err := commit(w, 2); err != nil {
+			t.Error(err)
+		}
+		if _, err := w.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterVerify = nil })
+
+	dir, _, err := copyOnce(path, "lampi-test-snap-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	db, err := openChecked(context.Background(), filepath.Join(dir, filepath.Base(path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if a, b := counts(t, db); a != 2 || b != 2 {
+		t.Fatalf("rows a=%d b=%d want the 2 committed before the late checkpoint", a, b)
+	}
+	if a, b := counts(t, w); a != 3 || b != 3 {
+		t.Fatalf("live rows a=%d b=%d want 3", a, b)
+	}
+}
+
 // A writer that commits and checkpoints while snapshots are taken never
 // yields a copy with a half-applied transaction.
 func TestTakeIsConsistentUnderAWriter(t *testing.T) {
