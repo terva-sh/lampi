@@ -7,3 +7,4 @@ tickets, and the next fix pass overwrites it.
 | Epic | Title | Status |
 |---|---|---|
 | [TKT-01M3B35JS8J2F83FG4J7ZC0199](tickets/TKT-01M3B35JS8J2F83FG4J7ZC0199.md) | Pre-deploy hardening pass | ready |
+| [TKT-01M3F2FSTF28GNEDGQ0XBSZ44W](draft/TKT-01M3F2FSTF28GNEDGQ0XBSZ44W.md) | Web dashboard with OIDC and read-only lake visibility | draft |

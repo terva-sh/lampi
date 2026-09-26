@@ -447,6 +447,7 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 | Doc | What's in it |
 |-----|----------------|
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
+| [docs/web-ui-plan.md](docs/web-ui-plan.md) | Planned OIDC dashboard, retrieval and analytics releases, with implementation tickets |
 | [docs/policy.md](docs/policy.md) | Phase 0: VPS host, retention, encryption, allowlist, machines |
 | [docs/vps-bringup.md](docs/vps-bringup.md) | Phase 0 operator checklist: disk, loopback serve, TLS, device token |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |
