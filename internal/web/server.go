@@ -303,7 +303,7 @@ func parseSearch(q url.Values) (recall.SearchRequest, error) {
 			return req, recall.ErrInvalid
 		}
 		switch k {
-		case "q", "harness", "project", "unlinked", "since", "until", "limit", "cursor":
+		case "q", "harness", "project", "unlinked", "since", "until", "limit", "cursor", "event_type", "actor", "tool", "tool_error", "raw_type":
 		default:
 			return req, recall.ErrInvalid
 		}
@@ -312,6 +312,18 @@ func parseSearch(q url.Values) (recall.SearchRequest, error) {
 	req.Harness = q.Get("harness")
 	req.Project = q.Get("project")
 	req.Cursor = q.Get("cursor")
+	req.EventType = q.Get("event_type")
+	req.Actor = q.Get("actor")
+	req.ToolName = q.Get("tool")
+	req.RawType = q.Get("raw_type")
+	switch q.Get("tool_error") {
+	case "":
+	case "true", "false":
+		v := q.Get("tool_error") == "true"
+		req.ToolError = &v
+	default:
+		return req, recall.ErrInvalid
+	}
 	if q.Has("unlinked") {
 		switch q.Get("unlinked") {
 		case "true":

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/normalize"
 )
 
 // Search limits.
@@ -29,11 +30,14 @@ const (
 	snippetRadius = 120
 )
 
-// SearchRequest is a literal text search. Query is matched as a
-// case-insensitive substring of content_text, never parsed as FTS or
-// SQL syntax. The session filters match the web session list. Since is
-// inclusive and Until exclusive, both on recorded time in UTC; an
-// event with no recorded time is left out when either is set.
+// SearchRequest finds events by literal text, by what kind of event
+// they are, or both. Query is matched as a case-insensitive substring
+// of content_text, never parsed as FTS or SQL syntax. The event
+// filters match exactly. A request needs text or at least one event
+// filter; the session filters alone would list the corpus. The session
+// filters match the web session list. Since is inclusive and Until
+// exclusive, both on recorded time in UTC; an event with no recorded
+// time is left out when either is set.
 type SearchRequest struct {
 	Query    string
 	Harness  string
@@ -41,8 +45,40 @@ type SearchRequest struct {
 	Unlinked bool
 	Since    *time.Time
 	Until    *time.Time
-	Limit    int
-	Cursor   string
+	// Event filters. ToolError matches the recorded flag exactly: a
+	// result whose harness did not say whether it failed matches
+	// neither true nor false.
+	EventType string
+	Actor     string
+	ToolName  string
+	ToolError *bool
+	RawType   string
+	Limit     int
+	Cursor    string
+}
+
+// EventTypes and Actors are the values the event filters accept: the
+// normalized schema's vocabulary, plus unreadable for a line the index
+// could not decode.
+var (
+	EventTypes = []string{normalize.EventMessage, normalize.EventToolCall, normalize.EventToolResult, normalize.EventUsage, normalize.EventCompaction, normalize.EventMeta, normalize.EventError, normalize.EventUnknown, "unreadable"}
+	Actors     = []string{normalize.ActorUser, normalize.ActorAssistant, normalize.ActorSystem, normalize.ActorTool, normalize.ActorHarness}
+)
+
+// filterMaxBytes caps a free-form exact filter value.
+const filterMaxBytes = 256
+
+func (req SearchRequest) hasEventFilter() bool {
+	return req.EventType != "" || req.Actor != "" || req.ToolName != "" || req.ToolError != nil || req.RawType != ""
+}
+
+func oneOf(v string, set []string) bool {
+	for _, s := range set {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // Hit is one matching event. Snippet is plain text around the match;
@@ -120,8 +156,14 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 	if req.Limit < 1 || req.Limit > SearchMaxLimit || len(req.Project) > 4096 || (req.Unlinked && req.Project != "") {
 		return page, ErrInvalid
 	}
-	if err := ValidateQuery(req.Query); err != nil {
-		return page, err
+	if req.Query != "" || !req.hasEventFilter() {
+		if err := ValidateQuery(req.Query); err != nil {
+			return page, err
+		}
+	}
+	if (req.EventType != "" && !oneOf(req.EventType, EventTypes)) || (req.Actor != "" && !oneOf(req.Actor, Actors)) ||
+		len(req.ToolName) > filterMaxBytes || len(req.RawType) > filterMaxBytes || !utf8.ValidString(req.ToolName) || !utf8.ValidString(req.RawType) {
+		return page, ErrInvalid
 	}
 	if !validHarness(req.Harness) {
 		return page, ErrInvalid
@@ -139,34 +181,7 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 		}
 		before = c.Before
 	}
-	where := []string{"fts MATCH ?"}
-	args := []any{ftsLiteral(req.Query)}
-	if before > 0 {
-		where = append(where, "fts.rowid<?")
-		args = append(args, before)
-	}
-	if req.Harness != "" {
-		where = append(where, "d.harness=?")
-		args = append(args, req.Harness)
-	}
-	if req.Project != "" {
-		where = append(where, "d.project_id=?")
-		args = append(args, req.Project)
-	} else if req.Unlinked {
-		where = append(where, "d.project_id=''")
-	}
-	if req.Since != nil {
-		where = append(where, "d.recorded_ns>=?")
-		args = append(args, req.Since.UnixNano())
-	}
-	if req.Until != nil {
-		where = append(where, "d.recorded_ns<?")
-		args = append(args, req.Until.UnixNano())
-	}
-	args = append(args, req.Limit+1)
-	q := `SELECT d.id,d.session_uid,d.gen,d.pos,d.harness,d.project_id,d.event_type,d.actor,d.tool_name,d.tool_error,d.recorded_ns,d.content
-		FROM fts JOIN docs d ON d.id=fts.rowid JOIN indexed i ON i.session_uid=d.session_uid AND i.gen=d.gen
-		WHERE ` + strings.Join(where, " AND ") + ` ORDER BY fts.rowid DESC LIMIT ?`
+	q, args := searchSQL(req, before)
 	rows, err := x.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return page, err
@@ -244,6 +259,62 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 		page.NextCursor = x.reader.signBody(searchCursor{V: 1, Filter: fp, Before: hits[len(hits)-1].id})
 	}
 	return page, nil
+}
+
+// searchSQL builds the page query. It is separate so tests can check
+// its plan.
+func searchSQL(req SearchRequest, before int64) (string, []any) {
+	// With text, FTS5 walks its rowids newest first. Without, the docs
+	// primary key does, through an event filter's index.
+	// The key must be the table SQLite walks, or it sorts every match.
+	from, key := `fts JOIN docs d ON d.id=fts.rowid`, "fts.rowid"
+	var where []string
+	var args []any
+	if req.Query != "" {
+		where = append(where, "fts MATCH ?")
+		args = append(args, ftsLiteral(req.Query))
+	} else {
+		from, key = `docs d`, "d.id"
+	}
+	if before > 0 {
+		where = append(where, key+"<?")
+		args = append(args, before)
+	}
+	for _, f := range []struct {
+		col, val string
+	}{{"d.event_type", req.EventType}, {"d.actor", req.Actor}, {"d.tool_name", req.ToolName}, {"d.raw_type", req.RawType}} {
+		if f.val != "" {
+			where = append(where, f.col+"=?")
+			args = append(args, f.val)
+		}
+	}
+	if req.ToolError != nil {
+		where = append(where, "d.tool_error=?")
+		args = append(args, *req.ToolError)
+	}
+	if req.Harness != "" {
+		where = append(where, "d.harness=?")
+		args = append(args, req.Harness)
+	}
+	if req.Project != "" {
+		where = append(where, "d.project_id=?")
+		args = append(args, req.Project)
+	} else if req.Unlinked {
+		where = append(where, "d.project_id=''")
+	}
+	if req.Since != nil {
+		where = append(where, "d.recorded_ns>=?")
+		args = append(args, req.Since.UnixNano())
+	}
+	if req.Until != nil {
+		where = append(where, "d.recorded_ns<?")
+		args = append(args, req.Until.UnixNano())
+	}
+	args = append(args, req.Limit+1)
+	q := `SELECT d.id,d.session_uid,d.gen,d.pos,d.harness,d.project_id,d.event_type,d.actor,d.tool_name,d.tool_error,d.recorded_ns,d.content
+		FROM ` + from + ` JOIN indexed i ON i.session_uid=d.session_uid AND i.gen=d.gen
+		WHERE ` + strings.Join(append(where, "1=1"), " AND ") + ` ORDER BY ` + key + ` DESC LIMIT ?`
+	return q, args
 }
 
 func validHarness(h string) bool {

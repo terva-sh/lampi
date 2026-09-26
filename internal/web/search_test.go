@@ -8,7 +8,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -123,5 +125,52 @@ func TestSearchOffWithoutIndex(t *testing.T) {
 	}
 	if w := get(h, "/search", cookie); w.Code != 503 || !strings.Contains(w.Body.String(), "Search is not enabled") {
 		t.Fatal("page", w.Code)
+	}
+}
+
+func TestStructuredSearchThroughAPIAndPage(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid := seedSession(t, lake.Catalog, "structured")
+	cookie, _ := signIn(t, idp, h)
+	gen, err := lake.Catalog.EnqueueNormalize(t.Context(), uid, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bash, yes := "Bash", true
+	evs := make([]normalize.Event, 6)
+	for i := range evs {
+		txt := fmt.Sprint("output ", i)
+		evs[i] = normalize.Event{SchemaVersion: 1, EventID: fmt.Sprint(i), SessionID: "s", Harness: "codex", RecordedAt: "2026-09-26T10:00:00Z", IngestedAt: "2026-09-26T10:00:01Z", Actor: normalize.ActorTool, EventType: normalize.EventToolResult, ContentText: &txt, Tool: normalize.Tool{Name: &bash}, RawType: "function_call_output", Redaction: normalize.Redaction{Status: "none"}}
+		if i == 4 {
+			evs[i].Tool.IsError = &yes
+		}
+	}
+	if err := lake.StoreEvents(t.Context(), uid, evs, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Catalog.DeleteNormalizeJob(t.Context(), uid, gen); err != nil {
+		t.Fatal(err)
+	}
+	if err := indexes[lake].Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for q, want := range map[string]int{
+		"event_type=tool_result": 6, "tool_error=true": 1, "tool=Bash&tool_error=true&actor=tool": 1,
+		"raw_type=function_call_output": 6, "q=output+4&tool=Bash": 1, "tool=bash": 0, "tool_error=false": 0,
+	} {
+		w := get(h, "/api/web/v1/search?"+q, cookie)
+		var p recall.SearchPage
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &p) != nil || len(p.Items) != want {
+			t.Fatal(q, w.Code, len(p.Items), w.Body.String())
+		}
+	}
+	for _, q := range []string{"event_type=nonsense", "actor=robot", "tool_error=maybe", "harness=codex", "tool_error="} {
+		if w := get(h, "/api/web/v1/search?"+q, cookie); w.Code != 400 {
+			t.Fatal("accepted", q, w.Code)
+		}
+	}
+	w := get(h, "/search?q=&event_type=&actor=&tool=Bash&raw_type=&tool_error=true&harness=&project=&since=&until=", cookie)
+	if w.Code != 200 || strings.Count(w.Body.String(), `<li class="hit">`) != 1 || !strings.Contains(w.Body.String(), "tool error") {
+		t.Fatal("structured page", w.Code)
 	}
 }

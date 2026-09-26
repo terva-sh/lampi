@@ -63,6 +63,9 @@ CREATE TABLE docs (
 	content TEXT
 );
 CREATE INDEX docs_session ON docs(session_uid, gen);
+CREATE INDEX docs_type ON docs(event_type, id);
+CREATE INDEX docs_tool ON docs(tool_name, id);
+CREATE INDEX docs_error ON docs(tool_error, id);
 CREATE VIRTUAL TABLE fts USING fts5(content, content='docs', content_rowid='id', tokenize='trigram');
 CREATE TRIGGER docs_ai AFTER INSERT ON docs BEGIN
 	INSERT INTO fts(rowid, content) VALUES (new.id, new.content);

@@ -118,11 +118,23 @@ Text is returned exactly as stored. The web page renders it as plain text.
 
 | Parameter | Meaning |
 |---|---|
-| `q` | Required. 3 characters to 1024 bytes of UTF-8, no NUL. It matches as a case-insensitive substring of `content_text`. Quotes, `OR`, `NEAR`, `*` and `:` are literal text, not syntax. |
+| `q` | 3 characters to 1024 bytes of UTF-8, no NUL. It matches as a case-insensitive substring of `content_text`. Quotes, `OR`, `NEAR`, `*` and `:` are literal text, not syntax. |
 | `harness`, `project`, `unlinked` | As on `/sessions`. An empty value means no filter. |
 | `since`, `until` | Recorded time in UTC, as RFC 3339 or `YYYY-MM-DD`. `since` is inclusive and `until` exclusive; a date-only `until` covers that whole day. With either set, events with no recorded time are left out. `since` must be before `until`. |
+| `event_type` | Exact: `message`, `tool_call`, `tool_result`, `usage`, `compaction`, `meta`, `error`, `unknown`, or `unreadable` for a line the index could not decode. |
+| `actor` | Exact: `user`, `assistant`, `system`, `tool`, `harness`. |
+| `tool` | Exact tool name, case-sensitive, up to 256 bytes. |
+| `tool_error` | `true` or `false`, matching the recorded flag. A result whose harness did not record it matches neither. |
+| `raw_type` | Exact harness record type, up to 256 bytes. |
 | `limit` | 1–200, default 50. |
 | `cursor` | Continues from `next_cursor`. It is bound to the other parameters. |
+
+`q` may be left out when at least one event filter (`event_type`, `actor`,
+`tool`, `tool_error`, `raw_type`) is set, for questions such as every failed
+tool call in one project. Session filters alone are refused: that would list
+the corpus, and `/sessions` already does. Without `q`, the snippet is the start
+of the event's text and `match_len` is 0. A filter on `actor` alone walks events
+newest first until the page fills; the other event filters use an index.
 
 A page is `{items, next_cursor, as_of, coverage}`. Hits are ordered newest
 indexed first; a session that was re-normalized moves up. Each hit carries:
@@ -145,5 +157,5 @@ text is indexed.
 
 | Status | Error | Meaning |
 |---|---|---|
-| 400 | `invalid_request` | Missing or short query, bad date, unknown or repeated parameter, bad cursor |
+| 400 | `invalid_request` | No text and no event filter, short query, unknown filter value, bad date, unknown or repeated parameter, bad cursor |
 | 503 | `search_unavailable` | The lake has no search index |

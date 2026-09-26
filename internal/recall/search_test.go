@@ -316,21 +316,33 @@ func TestSearchFiltersAndPaging(t *testing.T) {
 	if _, err := x.Search(t.Context(), SearchRequest{Query: "needle", Since: &until, Until: &backwards}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("empty range accepted", err)
 	}
-	var plan string
-	rows, err := x.db.Query(`EXPLAIN QUERY PLAN SELECT d.id FROM fts JOIN docs d ON d.id=fts.rowid JOIN indexed i ON i.session_uid=d.session_uid AND i.gen=d.gen WHERE fts MATCH '"needle"' ORDER BY fts.rowid DESC LIMIT 5`)
+	if plan := queryPlan(t, x, SearchRequest{Query: "needle", Limit: 5}); strings.Contains(plan, "TEMP B-TREE") {
+		t.Fatal("search sorts in a temp b-tree:", plan)
+	}
+}
+
+// queryPlan explains the query Search would run for req.
+func queryPlan(t *testing.T, x *Index, req SearchRequest) string {
+	t.Helper()
+	if req.Limit == 0 {
+		req.Limit = SearchDefaultLimit
+	}
+	q, args := searchSQL(req, 0)
+	rows, err := x.db.Query("EXPLAIN QUERY PLAN "+q, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
+	var plan string
 	for rows.Next() {
 		var id, parent, notused int
 		var detail string
-		rows.Scan(&id, &parent, &notused, &detail)
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
 		plan += detail + "; "
 	}
-	rows.Close()
-	if strings.Contains(plan, "TEMP B-TREE") {
-		t.Fatal("search sorts in a temp b-tree:", plan)
-	}
+	return plan
 }
 
 func TestRunNotifiesAndStops(t *testing.T) {
@@ -365,4 +377,84 @@ func TestSnippetOffsets(t *testing.T) {
 
 func removeFile(s *api.Server, uid string) error {
 	return os.Remove(filepath.Join(s.Normalized, uid+".jsonl"))
+}
+
+func TestStructuredFilters(t *testing.T) {
+	s := lake(t)
+	a := ingestAs(t, s, "codex", "a", "git@example.com:org/one.git")
+	b := ingestAs(t, s, "claude", "b", "")
+	str := func(v string) *string { return &v }
+	yes, no := true, false
+	build := func(prefix string) []normalize.Event {
+		evs := events(40, func(i int) string { return fmt.Sprint(prefix, " event ", i) })
+		for i := range evs {
+			switch i % 4 {
+			case 1:
+				evs[i].Actor, evs[i].EventType = normalize.ActorAssistant, normalize.EventToolCall
+				evs[i].Tool = normalize.Tool{Name: str("Bash")}
+				evs[i].RawType = "function_call"
+			case 2:
+				evs[i].Actor, evs[i].EventType = normalize.ActorTool, normalize.EventToolResult
+				evs[i].Tool = normalize.Tool{Name: str("Bash"), IsError: map[bool]*bool{true: &yes, false: &no}[i%8 == 2]}
+			case 3:
+				evs[i].Actor, evs[i].EventType, evs[i].ContentText = normalize.ActorHarness, normalize.EventUsage, nil
+			}
+		}
+		return evs
+	}
+	publish(t, s, a, build("alpha git push"))
+	publish(t, s, b, build("beta"))
+	x := openIndex(t, s)
+	pass(t, x)
+	yesErr := true
+	project := protocol.ProjectLinkID("git@example.com:org/one.git", root("x"))
+	count := func(req SearchRequest) int {
+		t.Helper()
+		n := 0
+		for {
+			p := search(t, x, req)
+			n += len(p.Items)
+			if p.NextCursor == "" {
+				return n
+			}
+			req.Cursor = p.NextCursor
+		}
+	}
+	for name, c := range map[string]struct {
+		req  SearchRequest
+		want int
+	}{
+		"type only":           {SearchRequest{EventType: "tool_call", Limit: 3}, 20},
+		"usage has no text":   {SearchRequest{EventType: "usage"}, 20},
+		"actor":               {SearchRequest{Actor: "user"}, 20},
+		"tool":                {SearchRequest{ToolName: "Bash"}, 40},
+		"tool is exact":       {SearchRequest{ToolName: "bash"}, 0},
+		"errors":              {SearchRequest{ToolError: &yesErr}, 10},
+		"errors in project":   {SearchRequest{ToolError: &yesErr, Project: project}, 5},
+		"raw type":            {SearchRequest{RawType: "function_call", Harness: "claude"}, 10},
+		"text and type":       {SearchRequest{Query: "git push", EventType: "tool_call"}, 10},
+		"text, type, project": {SearchRequest{Query: "event", ToolError: &yesErr, Unlinked: true}, 5},
+		"combined none":       {SearchRequest{Query: "beta", Project: project}, 0},
+	} {
+		if got := count(c.req); got != c.want {
+			t.Errorf("%s: %d hits, want %d", name, got, c.want)
+		}
+	}
+	p := search(t, x, SearchRequest{EventType: "tool_call", Limit: 1})
+	if h := p.Items[0]; h.MatchLen != 0 || !strings.Contains(h.Snippet, "event") || h.ToolName == nil || *h.ToolName != "Bash" {
+		t.Fatalf("structured hit %+v", h)
+	}
+	for _, req := range []SearchRequest{
+		{}, {Harness: "codex"}, {Project: project}, {EventType: "nonsense"}, {Actor: "robot"},
+		{ToolName: strings.Repeat("x", 257)}, {RawType: "\xff\xfe"}, {Query: "ab", EventType: "message"},
+	} {
+		if _, err := x.Search(t.Context(), req); !errors.Is(err, ErrInvalid) {
+			t.Errorf("accepted %+v: %v", req, err)
+		}
+	}
+	for _, req := range []SearchRequest{{EventType: "tool_call"}, {ToolName: "Bash"}, {ToolError: &yesErr}, {Query: "needle", ToolName: "Bash"}} {
+		if plan := queryPlan(t, x, req); strings.Contains(plan, "TEMP B-TREE") || strings.Contains(plan, "SCAN d") && !strings.Contains(plan, "USING") {
+			t.Errorf("%+v plan: %s", req, plan)
+		}
+	}
 }

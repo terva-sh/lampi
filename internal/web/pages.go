@@ -20,8 +20,10 @@ import (
 //go:embed templates/*.html assets/*
 var files embed.FS
 var pages = template.Must(template.New("page").Funcs(template.FuncMap{
-	"sliceHarnesses": func() []string { return []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli"} },
-	"sliceStates":    func() []string { return []string{"pending", "failed", "ready", "unknown"} },
+	"sliceHarnesses":  func() []string { return []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli"} },
+	"sliceStates":     func() []string { return []string{"pending", "failed", "ready", "unknown"} },
+	"sliceEventTypes": func() []string { return recall.EventTypes },
+	"sliceActors":     func() []string { return recall.Actors },
 	"short": func(s string) string {
 		if len(s) > 14 {
 			return s[:10] + "…"
@@ -289,16 +291,15 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Search.Coverage = s.index.Coverage()
-	if q.Get("q") == "" {
-		for k := range q {
-			if k != "q" && q.Get(k) != "" {
-				d.Search.Invalid = true
-			}
+	// Nothing filled in: show the form. Session filters alone are
+	// refused by Search, as a corpus listing.
+	blank := true
+	for k := range q {
+		if q.Get(k) != "" {
+			blank = false
 		}
-		if d.Search.Invalid {
-			renderStatus(w, r, d, http.StatusBadRequest)
-			return
-		}
+	}
+	if blank {
 		render(w, r, d)
 		return
 	}

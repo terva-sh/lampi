@@ -94,6 +94,14 @@ try {
   await page.goto(searchURL + '&harness=codex');
   assert.ok(await page.locator('.hit').count() > 0, 'no filtered hits');
   assert.equal(await page.locator('.hit .harness', {hasText: /^(terva|claude|opencode|cursor|cursor-cli)$/}).count(), 0);
+  // Structured search with no text: every failed Bash result.
+  await page.goto(live.url + '/search');
+  await page.getByLabel('Tool', {exact: true}).fill('Bash');
+  await page.getByLabel('Tool errors only').check();
+  await page.getByRole('button', {name: 'Search', exact: true}).click();
+  const failedHits = await page.locator('.hit').count();
+  assert.ok(failedHits > 0, 'no structured hits');
+  assert.equal(await page.locator('.hit .badge.failed').count(), failedHits);
   await page.goto(live.url + '/search?q=ab');
   await page.getByRole('heading', {name: 'That search cannot run'}).waitFor();
   await page.goto(live.url);
@@ -169,7 +177,7 @@ try {
   const emptyPage = await context.newPage(); await emptyPage.goto(empty.url);
   await emptyPage.getByRole('heading', {name: 'No sessions to show'}).waitFor();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'search literal/marks/filters/deep link/invalid', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));
