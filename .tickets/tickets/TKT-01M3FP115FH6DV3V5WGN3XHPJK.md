@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-26T21:24:33Z
+updated_at: 2026-09-26T21:57:53Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -49,7 +49,7 @@ Part of the agent onboarding epic. Let the agent run with no lake, and change it
 
 - [x] With no lake configured, the agent watches, uploads nothing and says so once
 - [x] On Unix, SIGHUP reloads the lake set without dropping in-flight work
-- [ ] On Windows the commands that change lakes say a restart is required
+- [x] On Windows the commands that change lakes say a restart is required
 
 ## Implementation plan
 
@@ -78,3 +78,7 @@ Evidence:
 - Full `-race` suite and the golive drills are green.
 
 AC3 is unticked. The commands that change lakes, register and lakes remove, arrive in TKT-01M3FHHBR. reloadAgent returns the Windows restart line they must print, and it is tested only by `go vet` on Windows. TKT-01M3FHHBR has to call it after it writes config.json.
+
+**agent:claude-code/e4a47e8c** at 2026-09-26T21:57:53Z
+
+Supersedes the AC3 part of the first note. register and lakes remove (TKT-01M3FHHBR) now print reloadAgent(state). On Windows that is 'restart the agent … it reads them only at start on this platform'. Evidence is the code path plus GOOS=windows vet; no test ran on Windows.

@@ -3,6 +3,7 @@ package upload
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -176,4 +177,38 @@ func FetchAgentConfig(ctx context.Context, opt Options) (*protocol.Signed, error
 		return nil, err
 	}
 	return &s, nil
+}
+
+// ErrNoKeyEndpoint is FetchKeys against a lake from before identities.
+var ErrNoKeyEndpoint = errors.New("the lake has no key endpoint; upgrade the lake before registering agents with it")
+
+// FetchKeys gets the lake's key list signed over nonce. It does not
+// verify the signature: the caller knows which key it expects.
+func FetchKeys(ctx context.Context, server, nonce string) (*protocol.Signed, protocol.KeysPayload, error) {
+	opt := Options{ServerURL: server}
+	var s protocol.Signed
+	p := protocol.KeysPath + "?" + url.Values{"nonce": {nonce}}.Encode()
+	if err := doJSON(ctx, NewClient(), opt, http.MethodGet, p, nil, &s); err != nil {
+		var se *StatusError
+		if errors.As(err, &se) && se.Code == http.StatusNotFound {
+			return nil, protocol.KeysPayload{}, ErrNoKeyEndpoint
+		}
+		return nil, protocol.KeysPayload{}, err
+	}
+	var payload protocol.KeysPayload
+	if err := json.Unmarshal(s.Payload, &payload); err != nil {
+		return nil, protocol.KeysPayload{}, fmt.Errorf("upload: key list: %w", err)
+	}
+	return &s, payload, nil
+}
+
+// Register redeems a registration code. It sends no token.
+func Register(ctx context.Context, server string, req protocol.RegisterRequest) (protocol.RegisterResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return protocol.RegisterResponse{}, err
+	}
+	var out protocol.RegisterResponse
+	err = doJSON(ctx, NewClient(), Options{ServerURL: server}, http.MethodPost, protocol.RegisterPath, body, &out)
+	return out, err
 }

@@ -91,7 +91,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, catalog.ErrMachineTaken):
 		s.audit(audit.Event{Kind: audit.RegistrationRefused, MachineID: req.MachineID, Detail: "registration=" + reg.ID + " reason=machine_id bound to another device"})
-		s.fail(w, r, http.StatusConflict, fmt.Errorf("machine_id %s is bound to another device; run serve devices unbind on the lake, or register from a new machine id", req.MachineID))
+		s.fail(w, r, http.StatusConflict, fmt.Errorf("machine_id %s is bound to another device; the lake operator revokes or unbinds that device with serve devices, then this code works", req.MachineID))
 		return
 	case err != nil:
 		s.fail(w, r, http.StatusInternalServerError, err)
