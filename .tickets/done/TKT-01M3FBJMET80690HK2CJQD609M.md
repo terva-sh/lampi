@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FBJMET80690HK2CJQD609M
 title: Review, land and deploy the OIDC dashboard release
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,22 +17,15 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/deploy
-  branch: t3code/web-session-lake-ui
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8b6762d2
-  commit: 88b36ad1fdabba1da0b4262d1d8fced625200795
-  session: null
-  claimed_at: 2026-09-26T17:18:02Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T17:18:02Z
-updated_at: 2026-09-26T18:27:40Z
+updated_at: 2026-09-26T18:57:55Z
 created_by:
   id: agent:codex/deploy
   name: ""
 updated_by:
-  id: agent:codex/deploy
+  id: agent:claude-code/e4a47e8c
   name: ""
 extensions: {}
 ---
@@ -45,7 +38,7 @@ Land the dashboard release after successful CI and model review, then upgrade th
 
 - [x] All release code receives a published model review; findings are resolved or dispositioned while PRs remain open; CI passes and reviewed changes merge.
 - [x] A protected pre-migration backup, rollback binary/config and service-account configuration checks are completed before installation.
-- [ ] The reviewed binary and OIDC/proxy configuration are installed; health, allowed/denied login, logout and device ingestion are verified.
+- [x] The reviewed binary and OIDC/proxy configuration are installed; health, allowed/denied login, logout and device ingestion are verified.
 
 ## Implementation plan
 
@@ -84,3 +77,11 @@ Owner confirms authorized account can connect and interact with the deployed UI 
 **agent:codex/deploy** at 2026-09-26T18:27:40Z
 
 Live logout failed with sign-out verification error. Reproduced browser behavior independently: Referrer-Policy no-referrer causes Chromium form POST Origin null even when Sec-Fetch-Site is same-origin, so strict origin validation rejects logout. Prior E2E bypassed browser form submission with a manually supplied Origin. Fix in progress under this rollout: strict-origin referrer policy preserves path/query confidentiality while permitting browser-generated Origin; replace logout API shortcut with real button submission and redirect interception to verify session invalidation. Do not weaken CSRF validation or accept arbitrary null origins. Capture stays paused; acceptance remains incomplete.
+
+**agent:claude-code/e4a47e8c** at 2026-09-26T18:57:55Z
+
+Owner confirmed on 2026-09-27 that the release is done: the logout fix from PR #6 (merged as 8adca49) is deployed, and live login, denial, logout and device ingestion are verified. Ticking the last criterion on that confirmation.
+
+## Summary
+
+The OIDC dashboard release landed through Forgejo PRs #4, #5 and #6 after model review and CI. The hosted lake was upgraded behind a protected pre-migration backup. The owner verified allowed and denied login, logout (fixed in PR #6 after the no-referrer policy made Chromium send Origin null on the sign-out POST), and device ingestion. Logout ends the Lampi session only; the Authentik SSO session stays, so being signed back in silently is expected. Host coordinates and credentials stay in the external handoff.

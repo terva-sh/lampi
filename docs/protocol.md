@@ -18,6 +18,12 @@ token and rewrites that file to `sha256:<hex>` lines. One tenant, many
 devices: each device has its own token. The client's copy stays the
 secret; point `serve` at a copy.
 
+Registration will add two routes that need no token,
+`GET /.well-known/terva-lampi/keys` and `POST /v1/register`, and new
+`hello` fields. All three are additive, so this stays protocol 1.
+[policy.md](policy.md#registration-and-many-lakes) records the model.
+Each route is documented here when it lands.
+
 The optional OIDC browser UI uses a separate [metadata API](web-api.md) under
 `/api/web/v1`. Browser cookies do not authenticate this capture protocol. Enabling
 web requires device tokens even on loopback; no capture response schema changes.

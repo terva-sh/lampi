@@ -9,3 +9,4 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3B35JS8J2F83FG4J7ZC0199](tickets/TKT-01M3B35JS8J2F83FG4J7ZC0199.md) | Pre-deploy hardening pass | ready |
 | [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ](draft/TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ.md) | Web retrieval: browse, search and export stored sessions | draft |
 | [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH](draft/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md) | Lake analytics: record and visualize accepted ingestion updates | draft |
+| [TKT-01M3FHHBCJ12FXKNTB6Z138F6N](tickets/TKT-01M3FHHBCJ12FXKNTB6Z138F6N.md) | Agent onboarding: registration codes, lake config, many lakes | ready |
