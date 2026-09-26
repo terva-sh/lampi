@@ -124,7 +124,7 @@ func TestStatusPrintsLastAttempt(t *testing.T) {
 	if err := Run([]string{"sync", "--server", "http://127.0.0.1:1"}, env); err == nil {
 		t.Fatal("sync to a down lake succeeded")
 	}
-	a, ok, err := upload.ReadAttempt(filepath.Join(state, "terva-lampi"))
+	a, ok, err := upload.ReadAttempt(filepath.Join(state, "terva-lampi", "lakes", "default"))
 	if err != nil || !ok {
 		t.Fatalf("attempt ok=%v err=%v", ok, err)
 	}

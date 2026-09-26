@@ -11,6 +11,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/config"
 )
 
 // twoLakeFixture is a machine whose config.json names a legacy default
@@ -88,7 +89,7 @@ func (f *twoLakeFixture) run(args ...string) error {
 	return Run(args, f.env)
 }
 
-func TestSyncPushesOnlyToTheDefaultLakeUntilStateIsPerLake(t *testing.T) {
+func TestSyncPushesToTheSelectedLakeWithItsOwnState(t *testing.T) {
 	f := newTwoLakeFixture(t)
 	// The session is allowed for work only, so the default lake refuses
 	// it, and the default lake's own allow does not leak to work.
@@ -99,16 +100,36 @@ func TestSyncPushesOnlyToTheDefaultLakeUntilStateIsPerLake(t *testing.T) {
 	if !strings.Contains(f.stderr.String(), "2 lakes configured; this release pushes to default only") {
 		t.Fatalf("no warning about the other lake:\n%s", f.stderr)
 	}
-	n, err := f.home.Catalog.Counts(t.Context())
-	if err != nil || n.Sessions != 0 {
+	if n, err := f.home.Catalog.Counts(t.Context()); err != nil || n.Sessions != 0 {
 		t.Fatalf("default lake got %d sessions (%v)", n.Sessions, err)
 	}
-	err = f.run("sync", "--lake", "work")
-	if err == nil || !strings.Contains(err.Error(), perLakeStateTicket) {
-		t.Fatalf("sync --lake work: %v", err)
+	if err := f.run("sync", "--lake", "work"); err != nil {
+		t.Fatalf("sync --lake work: %v\n%s", err, f.stderr)
 	}
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 0 {
-		t.Fatal("work lake got a session before it has its own state")
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 || n.Machines != 1 {
+		t.Fatalf("work lake counts %+v", n)
+	}
+	// A second sync to work finds its own watermarks and sends nothing.
+	if err := f.run("sync", "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.stdout.String(), "uploaded 0") {
+		t.Fatalf("second sync to work:\n%s", f.stdout)
+	}
+	state := f.env.Getenv("XDG_STATE_HOME")
+	for _, name := range []string{"default", "work"} {
+		if _, err := os.Stat(filepath.Join(state, "terva-lampi", "lakes", name, "last_attempt.json")); err != nil {
+			t.Fatalf("lake %s has no state of its own: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(state, "terva-lampi", "watermarks.db")); !os.IsNotExist(err) {
+		t.Fatal("a watermark store was written at the top of the state directory")
+	}
+	// Each lake has its own machine id for this machine.
+	def, _ := config.EnsureLakeMachine(f.env.Getenv, "default")
+	work, _ := config.EnsureLakeMachine(f.env.Getenv, "work")
+	if def.MachineID == "" || def.MachineID == work.MachineID {
+		t.Fatalf("machine ids default=%q work=%q", def.MachineID, work.MachineID)
 	}
 }
 
@@ -163,17 +184,94 @@ func TestAgentConfigListsEveryLake(t *testing.T) {
 	}
 }
 
-func TestAgentRefusesAConfigWithNoDefaultLakeYet(t *testing.T) {
+func TestAgentUsesTheFirstLakeOfAMapOnlyConfig(t *testing.T) {
 	cfg := t.TempDir()
+	state := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	conf := `{"lakes":{"work":{"server":"http://127.0.0.1:1"}}}`
+	conf := `{"lakes":{"work":{"server":"http://127.0.0.1:1"},"archive":{"server":"http://127.0.0.1:2"}}}`
 	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), []byte(conf), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := Env{Stdout: ioDiscard(), Stderr: ioDiscard(), Getenv: statusEnv(cfg, t.TempDir(), t.TempDir())}
-	if _, _, _, _, err := loadAgent(env, "", ""); err == nil || !strings.Contains(err.Error(), perLakeStateTicket) {
-		t.Fatalf("agent with only a lakes map: %v", err)
+	var stderr bytes.Buffer
+	env := Env{Stdout: ioDiscard(), Stderr: &stderr, Getenv: statusEnv(cfg, t.TempDir(), state)}
+	opt, _, _, _, err := loadAgent(env, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.ServerURL != "http://127.0.0.1:2" || opt.LakeStateDir != filepath.Join(state, "terva-lampi", "lakes", "archive") {
+		t.Fatalf("agent lake %s state %s", opt.ServerURL, opt.LakeStateDir)
+	}
+	if !strings.Contains(stderr.String(), "pushes to archive only") {
+		t.Fatalf("no warning:\n%s", stderr.String())
+	}
+}
+
+// legacyLayout moves a lake's state back to the top of the state
+// directory, the layout a machine had before lakes/.
+func legacyLayout(t *testing.T, state, lake string) {
+	t.Helper()
+	dir := filepath.Join(state, "lakes", lake)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.Rename(filepath.Join(dir, e.Name()), filepath.Join(state, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(state, "lakes")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncMigratesSingleLakeStateAndSendsNothingTwice(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// Make the session the default lake's, and sync it once.
+	conf := filepath.Join(f.cfg, "terva-lampi", "config.json")
+	raw, _ := os.ReadFile(conf)
+	if err := os.WriteFile(conf, []byte(strings.Replace(string(raw), "/home/app", "/work/app", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.run("sync"); err != nil {
+		t.Fatalf("first sync: %v\n%s", err, f.stderr)
+	}
+	state := filepath.Join(f.env.Getenv("XDG_STATE_HOME"), "terva-lampi")
+	legacyLayout(t, state, "default")
+
+	if err := f.run("status"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.stdout.String(), "state: single-lake layout in ") || !strings.Contains(f.stdout.String(), "last_sync: ") {
+		t.Fatalf("status before the move:\n%s", f.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(state, "lakes")); !os.IsNotExist(err) {
+		t.Fatal("status moved the state")
+	}
+
+	// An agent from before this release holds agent.pid: sync refuses to
+	// move the files under it.
+	release, err := writeAgentPID(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.run("sync"); err == nil || !strings.Contains(err.Error(), "stop that agent") {
+		t.Fatalf("sync beside an old agent: %v", err)
+	}
+	release()
+
+	if err := f.run("sync"); err != nil {
+		t.Fatalf("sync after upgrade: %v\n%s", err, f.stderr)
+	}
+	if !strings.Contains(f.stderr.String(), "moved sync state to "+filepath.Join(state, "lakes", "default")) {
+		t.Fatalf("no move reported:\n%s", f.stderr)
+	}
+	if !strings.Contains(f.stdout.String(), "uploaded 0") || !strings.Contains(f.stdout.String(), "manifests 0") {
+		t.Fatalf("sync after the move sent again:\n%s", f.stdout)
+	}
+	if n, _ := f.home.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("default lake sessions %d", n.Sessions)
 	}
 }

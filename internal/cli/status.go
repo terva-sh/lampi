@@ -61,9 +61,11 @@ The projects allow and deny rules are unchanged.
 
 status shows one lake: the one --lake names, or the default lake, or
 the first lake by name when there is no default. The lake line names
-it, and other_lakes counts the rest. The capture state lines (outbox,
-watermarks, last sync) are this machine's, shared by every lake until
-each lake has its own state.
+it, and other_lakes counts the rest. machine_id is this machine's id for
+that lake. The capture state lines (outbox, watermarks, last sync) are
+that lake's, from lakes/<name>/ in the state directory. Before the first
+sync on this release they are read from the single-lake files, and a
+state line says so.
 
 GET /healthz reports whether the lake process is up. It carries no
 catalog data and does not need the token. GET /v1/stats reports how
@@ -97,10 +99,6 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	m, err := config.EnsureMachine(env.getenv)
-	if err != nil {
-		return err
-	}
 	_, n, err := countSources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
@@ -122,6 +120,10 @@ func runStatus(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	m, err := config.EnsureLakeMachine(env.getenv, lake.Name)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(env.stdout(), "machine_id: %s\n", m.MachineID)
 	if m.Hostname != "" {
 		fmt.Fprintf(env.stdout(), "hostname: %s\n", m.Hostname)
@@ -130,7 +132,11 @@ func runStatus(env Env, args []string) error {
 		fmt.Fprintln(env.stdout(), h.line())
 	}
 	fmt.Fprintf(env.stdout(), "sessions: %d\n", n)
-	if err := writeCaptureState(env.stdout(), state); err != nil {
+	capture, legacy := captureDir(state, lake)
+	if legacy {
+		fmt.Fprintf(env.stdout(), "state: single-lake layout in %s; the next sync or agent start moves it to lakes/%s\n", state, lake.Name)
+	}
+	if err := writeCaptureState(env.stdout(), capture); err != nil {
 		return err
 	}
 	fmt.Fprintf(env.stdout(), "lake: %s\n", lake.Name)

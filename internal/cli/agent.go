@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakestate"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/upload"
 	"terva.sh/lampi/internal/watch"
@@ -266,6 +267,12 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	if err != nil {
 		return err
 	}
+	if opt.LakeStateDir == lakestate.Dir(opt.StateDir, config.DefaultLake) {
+		if err := migrateDefault(env, opt.StateDir, true); err != nil {
+			removePID()
+			return err
+		}
+	}
 	defer removePID()
 	// Banner and watch lines share a mutex so a change report and a
 	// sync summary do not split each other on the way out.
@@ -470,7 +477,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
-	m, err := config.EnsureMachine(env.getenv)
+	m, err := config.EnsureLakeMachine(env.getenv, lake.Name)
 	if err != nil {
 		return upload.Options{}, "", nil, 0, err
 	}
@@ -486,6 +493,7 @@ func loadAgent(env Env, serverFlag, tokenFlag string) (opt upload.Options, token
 		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
 		MachineID:     m.MachineID,
 		StateDir:      state,
+		LakeStateDir:  lakestate.Dir(state, lake.Name),
 		Projects:      lake.Projects,
 		UploadHits:    file.Redaction.UploadHits,
 	}, tokenPath, src, n, nil
@@ -681,7 +689,18 @@ func runAgentStatus(env Env) error {
 	if err != nil {
 		return err
 	}
-	m, err := config.LoadMachine(env.getenv)
+	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{})
+	if err != nil {
+		return err
+	}
+	if len(lakes) == 0 {
+		return fmt.Errorf("no lake is configured")
+	}
+	path, err := config.LakeMachinePath(env.getenv, lakes[0].Name)
+	if err != nil {
+		return err
+	}
+	m, err := config.LoadMachineFile(path)
 	if err != nil {
 		return err
 	}
@@ -707,7 +726,9 @@ func runAgentStatus(env Env) error {
 		return err
 	}
 	fmt.Fprintf(env.stdout(), "watch: %s\n", watch.Backend(poll))
-	return writeCaptureState(env.stdout(), state)
+	fmt.Fprintf(env.stdout(), "lake: %s\n", lakes[0].Name)
+	capture, _ := captureDir(state, lakes[0])
+	return writeCaptureState(env.stdout(), capture)
 }
 
 // writeAgentPID records this process in the state directory so a hook
