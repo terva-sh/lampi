@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWCDFXXCHD8F5PA0GGMWP
 title: "Recall: copy a selected event span out in paste-ready form"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,14 +17,7 @@ dependencies:
   - TKT-01M3F2PGDY06D7XE12NWQ9EZF4
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/explore-store-ui-search
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-946c2db7
-  commit: e99d2b9d578a335ad3f714f54dc3119eee787ede
-  session: null
-  claimed_at: 2026-09-26T21:09:13Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:35:35Z
 updated_at: 2026-09-26T21:13:15Z
@@ -67,3 +60,7 @@ recall.Reader.Excerpt renders a span [from, from+count) of one pinned generation
 - web TestExcerptAPIAndPlainPage covers the guard, JSON and plain text returning identical text, content type and nosniff, bad inputs on both routes, a stale generation, and the page controls.
 - The browser smoke selects #2, shift-clicks #6, copies, reads the clipboard, compares it with Open as text, and checks the no-JS plain link.
 - `just ci` passes; race runs of recall and web pass.
+
+## Summary
+
+Landed in feeddf1 on t3code/explore-store-ui-search. recall.Reader.Excerpt is shared by /api/web/v1/sessions/{uid}/excerpt, the plain page /sessions/{uid}/excerpt and the transcript Copy as text control. Not yet merged or deployed.
