@@ -69,8 +69,15 @@ contents when it starts. Those directories are mode 0700.
 /var/lib/terva-lampi/catalog.db       SQLite catalog, plus WAL sidecars
 /var/lib/terva-lampi/normalized/      one JSONL file per session
 /var/lib/terva-lampi/parquet/         date=…/harness=… partitions
+/var/lib/terva-lampi/identity.json    lake id and private signing keys
 /var/lib/terva-lampi/tokens           host copy of device tokens
 ```
+
+`serve` makes `identity.json` at mode 0600 on its first start and prints
+the lake id. Agents pin its key, so back it up with the catalog. A
+catalog that has recorded a lake id refuses to start without its
+`identity.json`. `terva-lampi serve identity` prints the lake id and each
+key's fingerprint.
 
 The default without `--data` is the XDG state dir `terva-lampi/`
 (`$XDG_STATE_HOME/terva-lampi`, or `~/.local/state/terva-lampi`).
@@ -271,8 +278,8 @@ them.
 ## Backup
 
 `terva-lampi serve backup --out DIR` copies the catalog, then
-`cas/sha256` and `cas/logical`, then the token file with
-`--token-file`. Run it as the service user. It runs while `serve`
+`cas/sha256` and `cas/logical`, then `identity.json`, then the token
+file with `--token-file`. Run it as the service user. It runs while `serve`
 runs. The catalog copy is `VACUUM INTO`, one consistent snapshot, and
 the CAS is copied after it. A second run into the same directory
 copies only new objects. Keep DIR on encrypted storage.
@@ -280,7 +287,8 @@ copies only new objects. Keep DIR on encrypted storage.
 when one is bad.
 
 Without the command, the order is the same: the catalog first, then
-`cas/sha256`, then `cas/logical`, then the token file.
+`cas/sha256`, then `cas/logical`, then `identity.json`, then the token
+file.
 
 Do not `cp` `catalog.db` while `serve` runs. The catalog is in WAL
 mode, and a plain copy can miss or tear the WAL. Use the SQLite

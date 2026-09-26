@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBDS7VCKK5AJ7T3H6DYX
 title: "Policy: allow registration codes, named devices and many lakes"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: t3code/review-tickets-agent-deployment
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 3c5a73063f1ba1c4364904e44c8ae36d9eb25a3c
-  session: null
-  claimed_at: 2026-09-26T20:20:57Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:22:02Z
+updated_at: 2026-09-26T20:28:11Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -59,3 +52,13 @@ This child is docs only. The original decision is recorded as the owner's. They 
 ## Implementation plan
 
 Docs only. Add a 'Registration and many lakes' section to docs/policy.md with the model, the routes that need no token, a threat table, audit, upgrade order and Windows. Replace 'There is no enrolment API' in policy, architecture and vps-bringup with a pointer to it that keeps the manual token copy as the fallback. Add a short forward note in protocol.md; each route is documented there when it lands.
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-26T20:28:11Z
+
+Landed in PR #7 (merged as 40ed2e0) after terva-review 891 found one high finding: the identity startup rule would have stopped existing lakes on upgrade. Fixed in 42e158a and the re-review (run a423967f) came back clean. The third criterion stays unticked: the owner confirmed the decisions in session on 2026-09-27 and authorized merging, but has not said they read the policy wording. Their review of docs/policy.md 'Registration and many lakes' is still owed.
+
+## Summary
+
+docs/policy.md has a new 'Registration and many lakes' section: the model, the three routes without a token, a threat table that names the forged-URL gap only the fingerprint check catches, audit, upgrade order and Windows scope. architecture.md, vps-bringup.md and protocol.md point to it, and the manual token copy stays as the fallback. Merged in PR #7 (40ed2e0). The owner has not yet signed off on the wording.

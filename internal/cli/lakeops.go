@@ -13,6 +13,7 @@ import (
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
 )
 
@@ -22,12 +23,16 @@ usage:
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
 
 Writes DIR/catalog.db, then DIR/cas/sha256 and DIR/cas/logical, then
-the token file. It runs while serve runs. The catalog is a VACUUM
+DIR/identity.json, then the token file. It runs while serve runs. The catalog is a VACUUM
 INTO copy, one consistent snapshot. The CAS is copied after it, so
 the copy holds every object that snapshot names. Upload temp files
 and cas/partial are left out. An object already in DIR with the same
 size is not copied again, so a second backup into DIR copies only
 what is new. normalized/ and parquet/ are derived and are not copied.
+
+identity.json holds the lake's private signing keys. Agents pin them,
+and serve refuses to start on a catalog whose identity.json is lost,
+so a restore needs this copy.
 
 --token-file is the file or directory serve reads. It is copied to
 DIR under its own name. The copy holds sha256 lines, not tokens,
@@ -42,7 +47,8 @@ usage:
   terva-lampi serve fsck [--data DIR] [--repair]
 
 Reads every object under cas/sha256 and checks that its bytes hash to
-its name. Reads every cas/logical index and checks that each chunk it
+its name. Reads identity.json, when there is one, and checks that each
+key matches its id. Reads every cas/logical index and checks that each chunk it
 names is stored. Each bad entry is named on stdout, and the command
 exits non-zero when there is one. It runs while serve runs.
 
@@ -104,6 +110,18 @@ func runServeBackup(env Env, args []string) error {
 		return err
 	}
 	fmt.Fprintf(env.stdout(), "cas: %d new entries copied\n", copied)
+
+	// The identity is made before its lake id is recorded, so a catalog
+	// snapshot that names a lake id always has the file to go with it.
+	idSrc := identity.Path(data)
+	if _, err := os.Stat(idSrc); err == nil {
+		if err := copyFile(idSrc, identity.Path(out)); err != nil {
+			return err
+		}
+		fmt.Fprintf(env.stdout(), "identity: %s\n", identity.Path(out))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 
 	if tokenFile != "" {
 		dst := filepath.Join(out, filepath.Base(filepath.Clean(tokenFile)))
@@ -288,11 +306,29 @@ func runServeFsck(env Env, args []string) error {
 		}
 	}
 	fmt.Fprintf(env.stdout(), "checked %d entries, %d bad\n", checked, len(bad))
+	idErr := fsckIdentity(env, data)
 	if len(bad) == 0 {
-		return nil
+		return idErr
 	}
 	if repair {
 		return fmt.Errorf("fsck: %d bad entries, %d removed", len(bad), removed)
 	}
 	return fmt.Errorf("fsck: %d bad entries; --repair removes them", len(bad))
+}
+
+// fsckIdentity loads identity.json. A missing file is reported and is
+// not an error: serve makes one on a lake that never recorded a lake id.
+// --repair never touches it.
+func fsckIdentity(env Env, data string) error {
+	id, err := identity.Load(data)
+	if errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(env.stdout(), "identity: none")
+		return nil
+	}
+	if err != nil {
+		fmt.Fprintf(env.stdout(), "bad identity: %v\n", err)
+		return fmt.Errorf("fsck: identity.json does not load; restore it from a backup")
+	}
+	fmt.Fprintf(env.stdout(), "identity: %s, %d keys\n", id.LakeID, len(id.Keys))
+	return nil
 }

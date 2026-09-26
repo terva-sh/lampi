@@ -186,6 +186,7 @@ var migrations = []func(*sql.Tx) error{
 	migrate1,
 	migratePublished,
 	migrateDashboard,
+	migrateLakeMeta,
 }
 
 // upgrade runs each migration above the file's user_version, one

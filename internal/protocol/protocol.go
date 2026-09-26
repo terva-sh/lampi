@@ -135,11 +135,66 @@ const (
 	RedactionOverride = "override"
 )
 
-// HelloResponse is the body of POST /v1/hello.
+// HelloRequest is the body of POST /v1/hello. An older client sends {}.
+// Nonce, when set, is signed back in HelloResponse.Proof.
+type HelloRequest struct {
+	Nonce string `json:"nonce,omitempty"`
+}
+
+// HelloResponse is the body of POST /v1/hello. LakeID and Proof are set
+// when the lake has an identity. Proof's payload is a HelloProof.
 type HelloResponse struct {
 	ServerTime       time.Time `json:"server_time"`
 	ProtocolVersions []int     `json:"protocol_versions"`
 	MaxBlobBytes     int64     `json:"max_blob_bytes"`
+	LakeID           string    `json:"lake_id,omitempty"`
+	Proof            *Signed   `json:"proof,omitempty"`
+}
+
+// HelloProof is the signed payload of HelloResponse.Proof.
+type HelloProof struct {
+	LakeID     string    `json:"lake_id"`
+	Nonce      string    `json:"nonce,omitempty"`
+	ServerTime time.Time `json:"server_time"`
+}
+
+// KeysPath is the lake's published key list. It needs no token.
+const KeysPath = "/.well-known/terva-lampi/keys"
+
+// Signed is a JSON payload and the lake's signatures over its exact
+// bytes. A verifier checks the bytes it received, then decodes them;
+// it does not re-encode the payload.
+type Signed struct {
+	Payload    json.RawMessage `json:"payload"`
+	Signatures []Signature     `json:"signatures"`
+}
+
+// Signature is one key's ed25519 signature over a Signed payload.
+// Sig is unpadded base64url.
+type Signature struct {
+	KeyID string `json:"key_id"`
+	Alg   string `json:"alg"`
+	Sig   string `json:"sig"`
+}
+
+// KeysPayload is the signed payload of GET KeysPath.
+type KeysPayload struct {
+	LakeID   string    `json:"lake_id"`
+	Nonce    string    `json:"nonce,omitempty"`
+	IssuedAt time.Time `json:"issued_at"`
+	Keys     []LakeKey `json:"keys"`
+}
+
+// LakeKey is one public key in the lake's key list. PublicKey is
+// unpadded base64url. Status is "active" or "retired". NotAfter is
+// omitted for a key with no end.
+type LakeKey struct {
+	ID        string     `json:"id"`
+	Alg       string     `json:"alg"`
+	PublicKey string     `json:"public_key"`
+	Status    string     `json:"status"`
+	Created   time.Time  `json:"created"`
+	NotAfter  *time.Time `json:"not_after,omitempty"`
 }
 
 // BlobCheckResponse is the body of POST /v1/blobs/check.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FHHBFAYKEK0NAXVR91969G
 title: "Lake identity: ed25519 key list, published keys, signed hello"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:25:04Z
+updated_at: 2026-09-26T20:31:13Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -62,15 +62,23 @@ Today `serve` has no keypair and no instance id. `HelloResponse` (`internal/prot
 
 ## Acceptance criteria
 
-- [ ] serve creates the key and lake id once and reloads them on every later start
-- [ ] hello returns the lake id and public key, plus a signature a client can verify
-- [ ] Backup and restore keep the lake's identity
-- [ ] GET /.well-known/terva-lampi/keys returns the lake id and key list without a token, signed over the caller's nonce, with no catalog data
-- [ ] serve identity prints the lake id and each key fingerprint
-- [ ] A pre-identity catalog gets an identity on first start, and a catalog that recorded a lake id refuses to start without its matching identity.json
+- [x] serve creates the key and lake id once and reloads them on every later start
+- [x] hello returns the lake id and public key, plus a signature a client can verify
+- [x] Backup and restore keep the lake's identity
+- [x] GET /.well-known/terva-lampi/keys returns the lake id and key list without a token, signed over the caller's nonce, with no catalog data
+- [x] serve identity prints the lake id and each key fingerprint
+- [x] A pre-identity catalog gets an identity on first start, and a catalog that recorded a lake id refuses to start without its matching identity.json
+
+## Implementation plan
+
+New internal/identity package: identity.json (0600) holds a lake id and a list of ed25519 keys with status and not_after; created by link-from-temp so a racing create cannot replace it. Catalog migration 4 adds lake_meta and records lake_id once. identity.Ensure: load and record, or make and record when no lake id is recorded, or refuse when one is recorded and the file is missing or different. Signed envelope {payload raw, signatures[]} over 'terva-lampi/<context>\0'+payload bytes, contexts keys/v1 and hello/v1. GET /.well-known/terva-lampi/keys?nonce= (open, global token-bucket 20 burst 5/s, no-store); hello takes an optional nonce and returns lake_id and a proof. serve ensures the identity at start and prints it; serve identity prints fingerprints; backup copies identity.json after the catalog; fsck loads it.
 
 ## Notes
 
 **agent:claude-code/e4a47e8c** at 2026-09-26T20:25:04Z
 
 Supersedes the startup rule as first filed ('a data directory with a catalog but no key is an error'). That rule would have stopped the hosted lake on its first upgrade, since every existing catalog lacks a key; terva-review 891 on PR #7 flagged the same. The catalog now records the lake id when an identity is first made, and only a recorded id with no matching identity.json refuses to start. Rejected: an explicit 'serve identity init' step before upgrade, because it adds an operator step that, if forgotten, leaves the lake without a key endpoint and blocks every registration.
+
+**agent:claude-code/e4a47e8c** at 2026-09-26T20:31:13Z
+
+Criterion 2 as met: hello carries the lake id and a proof signed by every active key, whose key_id names the key. It does not repeat the public key itself; a client gets that from the key list, which is where it pins it. Rate limit is global rather than per address because behind Caddy every caller has the proxy's address. Evidence: internal/identity tests (Ensure's four cases, create refusing to replace, sign/verify with context separation and tamper), internal/api/identity_test.go (route open, signed, no catalog words, 404 without identity, 429, web bypass, old {} hello), internal/cli/identity_test.go (backup and restore keep it, restore without it refuses), and TestGoLiveRestore (tag golive), whose restored serve starts only because the backup carried identity.json. go test -race ./... green.

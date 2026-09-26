@@ -18,11 +18,10 @@ token and rewrites that file to `sha256:<hex>` lines. One tenant, many
 devices: each device has its own token. The client's copy stays the
 secret; point `serve` at a copy.
 
-Registration will add two routes that need no token,
-`GET /.well-known/terva-lampi/keys` and `POST /v1/register`, and new
-`hello` fields. All three are additive, so this stays protocol 1.
+`GET /.well-known/terva-lampi/keys` also needs no token. It publishes the
+lake's identity. Registration will add `POST /v1/register`. These and the
+new `hello` fields are additive, so this stays protocol 1.
 [policy.md](policy.md#registration-and-many-lakes) records the model.
-Each route is documented here when it lands.
 
 The optional OIDC browser UI uses a separate [metadata API](web-api.md) under
 `/api/web/v1`. Browser cookies do not authenticate this capture protocol. Enabling
@@ -74,17 +73,91 @@ under different relpaths when a second machine posts the session.
 }
 ```
 
+## Signed documents
+
+The lake signs some answers with its identity keys. A signed answer is
+an envelope:
+
+```json
+{
+  "payload": {"lake_id": "lake_…", "…": "…"},
+  "signatures": [
+    {"key_id": "3f9a…", "alg": "ed25519", "sig": "<base64url>"}
+  ]
+}
+```
+
+Each active key signs. A signature covers the bytes
+`terva-lampi/<context>`, one zero byte, then `payload` exactly as it
+appears in the body. Verify those bytes before you decode them. Do not
+encode the payload again. The context is `keys/v1` for the key list and
+`hello/v1` for the hello proof, so a signature made for one does not
+verify as the other. `key_id` is the first 8 bytes of the public key's
+SHA-256, in hex. `sig` is unpadded base64url.
+
+## GET /.well-known/terva-lampi/keys
+
+This route needs no token. It returns the lake id and its public keys,
+and no catalog data. `nonce` is optional: up to 128 characters of
+base64url or hex, signed back so that a copied answer cannot pass for a
+fresh one.
+
+```text
+GET /.well-known/terva-lampi/keys?nonce=q3v…
+```
+
+```json
+{
+  "payload": {
+    "lake_id": "lake_…",
+    "nonce": "q3v…",
+    "issued_at": "2026-09-27T12:00:00Z",
+    "keys": [
+      {
+        "id": "3f9a…",
+        "alg": "ed25519",
+        "public_key": "<base64url>",
+        "status": "active",
+        "created": "2026-09-27T11:58:00Z"
+      }
+    ]
+  },
+  "signatures": [{"key_id": "3f9a…", "alg": "ed25519", "sig": "…"}]
+}
+```
+
+`status` is `active` or `retired`. A key with an end has `not_after`.
+The answer is `Cache-Control: no-store`. A lake with no identity answers
+404. A bad nonce is 400. This route and the other routes that need no
+token, except `/healthz`, share one rate limit: a burst of 20, refilled
+at 5 a second, then 429 with `Retry-After`. Behind a proxy every caller
+has the proxy's address, so the limit is for the whole lake.
+
+The lake makes its identity on its first start and keeps it in
+`identity.json` in the data directory. A lake upgrading from a release
+with no identity gets one the same way. The catalog records the lake id,
+so a lake that has recorded one and lost `identity.json` refuses to
+start rather than make a new identity that no agent has pinned.
+
 ## POST /v1/hello
 
-The client calls this first. The body is ignored.
+The client calls this first. The body is `{}`, or an object with an
+optional `nonce` in the same form as above.
 
 ```json
 {
   "server_time": "2026-09-22T16:10:00Z",
   "protocol_versions": [1],
-  "max_blob_bytes": 33554432
+  "max_blob_bytes": 33554432,
+  "lake_id": "lake_…",
+  "proof": {"payload": {"lake_id": "lake_…", "nonce": "…", "server_time": "…"}, "signatures": ["…"]}
 }
 ```
+
+`lake_id` and `proof` are there when the lake has an identity. `proof`
+is a signed document with the `hello/v1` context. Its payload repeats
+the lake id and `server_time`, and the nonce when one was sent. A client
+that pinned the lake's key checks it here on every connection.
 
 `server_time` is there so a client can notice clock skew. Manifest mtimes
 are hints. The catalog's `ingested_at` is the server clock. The client
@@ -404,8 +477,10 @@ detail, which can name a lake path, is in the server log.
 |--------|------|
 | 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, size mismatch, unsupported protocol, harness, or kind, tail combined with chunks, missing manifest fields, a request body that stopped short |
 | 401 | Bearer token missing or wrong |
+| 404 | The key list, on a lake with no identity |
 | 408 | The request body did not arrive before its deadline |
 | 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
-| 413 | A JSON body over its cap: 8 MiB or 100000 digests for `blobs/check`, 1 MiB for the others |
+| 413 | A JSON body over its cap: 8 MiB or 100000 digests for `blobs/check`, 4 KiB for `hello`, 1 MiB for the others |
+| 429 | Too many requests to a route that needs no token |
 | 500 | Storage or catalog failure on the lake |
-| 200 | Hello, check, put, manifest ACK, health, conflicts |
+| 200 | Hello, check, put, manifest ACK, health, conflicts, key list |

@@ -28,6 +28,7 @@ import (
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -47,7 +48,10 @@ type Server struct {
 	// Devices are SHA-256 hashes of bearer tokens. Nil or empty disables
 	// the check. The plaintext is not kept on the server.
 	Devices *auth.Devices
-	Now     func() time.Time
+	// Identity signs the published key list and hello. Nil leaves the
+	// key route answering 404 and hello unsigned.
+	Identity *identity.Identity
+	Now      func() time.Time
 	// Log gets one line per request and normalize failures. Nil discards.
 	Log *slog.Logger
 
@@ -72,6 +76,10 @@ type Server struct {
 	heavyOnce sync.Once
 	heavy     chan struct{}
 	heavyN    int
+
+	// open limits the routes that need no token, other than healthz.
+	openOnce sync.Once
+	open     *rateLimit
 }
 
 // maxHeavy is how many blob PUTs and manifest posts run at once. A put
@@ -237,6 +245,7 @@ func (s *Server) now() time.Time {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET "+protocol.KeysPath, s.keys)
 	mux.HandleFunc("GET /v1/stats", s.authed(s.stats))
 	mux.HandleFunc("GET /v1/conflicts", s.authed(s.conflicts))
 	mux.HandleFunc("POST /v1/hello", s.authed(s.hello))
@@ -247,7 +256,7 @@ func (s *Server) Handler() http.Handler {
 		// Dispatch reserved paths to the unchanged ingest mux. Registering a
 		// catch-all there would change its method-not-allowed answers.
 		return s.serveHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/healthz" || r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {
+			if r.URL.Path == "/healthz" || r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, wellKnownPrefix) {
 				mux.ServeHTTP(w, r)
 			} else {
 				s.Web.ServeHTTP(w, r)
@@ -318,11 +327,37 @@ func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 	return out
 }
 
+// wellKnownPrefix is this program's part of /.well-known. The web
+// handler does not see it.
+const wellKnownPrefix = "/.well-known/terva-lampi/"
+
+// maxHelloBytes bounds the hello body, which is at most a nonce.
+const maxHelloBytes = 4 << 10
+
 func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
+	var req protocol.HelloRequest
+	// An older client sends {}; an empty body is read as the same.
+	if r.ContentLength != 0 {
+		if !s.decodeJSON(w, r, &req, maxHelloBytes, "") {
+			return
+		}
+	}
+	if !identity.ValidNonce(req.Nonce) {
+		s.fail(w, r, http.StatusBadRequest, errors.New("nonce is at most 128 characters of base64url or hex"))
+		return
+	}
+	now := s.now().UTC()
+	lakeID, proof, err := s.helloProof(req.Nonce, now)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, protocol.HelloResponse{
-		ServerTime:       s.now().UTC(),
+		ServerTime:       now,
 		ProtocolVersions: []int{protocol.Version},
 		MaxBlobBytes:     protocol.MaxBlobBytes,
+		LakeID:           lakeID,
+		Proof:            proof,
 	})
 }
 
