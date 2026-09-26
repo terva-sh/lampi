@@ -274,3 +274,14 @@ seconds; this script returns immediately, so you do not need
 Start terva again after editing the file. Restart `terva-lampi agent`
 when you change the lake URL, the token path, the allowlist, or the
 harnesses map. The hook does not reload those.
+
+## Optional OIDC dashboard
+
+`web-config.json.example` is a separate server configuration, not agent config.
+Set `LAMPI_SERVE_WEB_CONFIG=/etc/terva-lampi/web.json` in the example system
+service environment to enable it. Empty leaves it disabled. Provide a private
+client-secret file if the IdP requires one; no secret belongs in the JSON or env
+example. Device tokens are required even on loopback when web is enabled.
+See [docs/web-dashboard.md](../docs/web-dashboard.md) for registration, group
+mapping, TLS, session expiration, backup and validation. No example is installed
+by the build.

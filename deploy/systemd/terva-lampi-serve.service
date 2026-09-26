@@ -34,8 +34,10 @@ Group=terva-lampi
 Environment=LAMPI_SERVE_ADDR=127.0.0.1:8787
 Environment=LAMPI_SERVE_DATA=/var/lib/terva-lampi
 Environment=LAMPI_SERVE_TOKEN_FILE=/var/lib/terva-lampi/tokens
+# Empty disables the optional browser UI. The value is a config path, not a secret.
+Environment=LAMPI_SERVE_WEB_CONFIG=
 EnvironmentFile=-/etc/terva-lampi/serve.env
-ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE}
+ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE} --web-config=${LAMPI_SERVE_WEB_CONFIG}
 Restart=on-failure
 # serve drains the normalize queue before it exits.
 TimeoutStopSec=120

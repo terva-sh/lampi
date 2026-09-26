@@ -182,6 +182,19 @@ The dev allowlist is `.dev/config/terva-lampi/config.json` and starts
 empty. `XDG_CONFIG_HOME` also moves the default Cursor IDE and Cursor
 CLI roots, so set `harnesses` there to read them.
 
+## Browser dashboard
+
+The optional read-only dashboard shows counts, harnesses, normalization status,
+sessions, provenance and conflicts. Enable it with `serve --web-config PATH` and
+an OIDC provider/group mapping. Device tokens remain mandatory for ingestion,
+even when the server binds loopback behind a proxy. Browser sessions and device
+tokens cannot authorize each other's routes. Without web config the UI is disabled.
+
+See [serving the dashboard](docs/web-dashboard.md) for IdP registration, the
+server config, TLS and session behavior. The dashboard uses embedded Go templates
+and assets, so `make build` produces everything; there is no frontend build.
+Transcript search and downloads are planned in later releases.
+
 ## Commands
 
 | Command | What it does |
@@ -447,7 +460,9 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 | Doc | What's in it |
 |-----|----------------|
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
-| [docs/web-ui-plan.md](docs/web-ui-plan.md) | Planned OIDC dashboard, retrieval and analytics releases, with implementation tickets |
+| [docs/web-dashboard.md](docs/web-dashboard.md) | OIDC dashboard configuration, deployment and validation |
+| [docs/web-api.md](docs/web-api.md) | Viewer metadata API, filtering, pagination and status meanings |
+| [docs/web-ui-plan.md](docs/web-ui-plan.md) | Dashboard design and future retrieval/analytics implementation tickets |
 | [docs/policy.md](docs/policy.md) | Phase 0: VPS host, retention, encryption, allowlist, machines |
 | [docs/vps-bringup.md](docs/vps-bringup.md) | Phase 0 operator checklist: disk, loopback serve, TLS, device token |
 | [docs/protocol.md](docs/protocol.md) | Capture protocol 1: hello, blob check, put, manifest |

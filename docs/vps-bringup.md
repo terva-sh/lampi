@@ -372,3 +372,15 @@ Do not commit the production hostname, a device token, a `sha256:`
 line from the host token file, or a TLS private key. Do not expose
 plain HTTP for `serve` on a public interface. Do not point `serve`
 at a network you do not control.
+
+## Optional browser dashboard
+
+After the base lake and proxy are configured, follow
+[web-dashboard.md](web-dashboard.md) to register an OIDC client, map viewer
+groups and enable `--web-config` (or the example unit's `LAMPI_SERVE_WEB_CONFIG`).
+Use the actual configured public origin for the callback. Keep device auth on
+`/v1`, preserve cookies and `no-store`, and omit callback query strings from
+proxy access logs. A web-enabled loopback backend refuses an empty device-token
+set. Verify a mapped viewer can browse metadata, an unmapped identity is refused,
+and agents can still sync with their device tokens. Do not treat this check as
+a replacement for the existing go-live/backup validation.

@@ -18,6 +18,10 @@ token and rewrites that file to `sha256:<hex>` lines. One tenant, many
 devices: each device has its own token. The client's copy stays the
 secret; point `serve` at a copy.
 
+The optional OIDC browser UI uses a separate [metadata API](web-api.md) under
+`/api/web/v1`. Browser cookies do not authenticate this capture protocol. Enabling
+web requires device tokens even on loopback; no capture response schema changes.
+
 ## GET /v1/stats
 
 Catalog counts for an operator. This is not healthz. It uses the same

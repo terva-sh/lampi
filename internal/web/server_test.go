@@ -3,7 +3,10 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +35,7 @@ func fixture(t *testing.T) (*api.Server, *testidp.Server, http.Handler, *bytes.B
 	logs := &bytes.Buffer{}
 	lake.Log = slog.New(slog.NewTextHandler(logs, nil))
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"readers": "viewer"}}}
-	lake.Web, err = New(cfg, lake.Catalog, idp.Client())
+	lake.Web, err = New(cfg, lake.Catalog, idp.Client(), lake.Log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,5 +194,72 @@ func TestPagesEscapeMetadataAndWorkWithoutScripts(t *testing.T) {
 		if get(h, path, nil).Code != 200 {
 			t.Fatal("asset", path)
 		}
+	}
+}
+
+func TestWebKeepsDeviceMethodContractsAndRejectsMalformedQuery(t *testing.T) {
+	_, idp, h, _ := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	if get(h, "/api/web/v1/sessions?cursor=%zz", cookie).Code != 400 {
+		t.Fatal("malformed query was silently discarded")
+	}
+	for _, target := range []string{"/v1/stats", "/v1/conflicts", "/healthz"} {
+		r := httptest.NewRequest("POST", "https://lake.example"+target, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 405 {
+			t.Fatal("changed device method contract", target, w.Code)
+		}
+	}
+}
+
+func TestBrowserReadsAlongsideDeviceIngestion(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	lake.Log = nil
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 10; i++ {
+			body := []byte(fmt.Sprintf("{\"type\":\"meta\",\"meta\":{\"id\":\"live-%d\",\"cwd\":\"/synthetic\"}}\n", i))
+			sum := sha256.Sum256(body)
+			digest := hex.EncodeToString(sum[:])
+			r := httptest.NewRequest("PUT", "https://lake.example/v1/blobs/"+digest, bytes.NewReader(body))
+			r.Header.Set("Authorization", "Bearer "+strings.Repeat("a", 64))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 200 {
+				done <- fmt.Errorf("blob status %d", w.Code)
+				return
+			}
+			m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "live-machine", Harness: "terva", NativeSessionID: fmt.Sprintf("live-%d", i), Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "session.jsonl", SHA256: digest, Size: int64(len(body))}}}
+			encoded, _ := json.Marshal(m)
+			r = httptest.NewRequest("POST", "https://lake.example/v1/manifests", bytes.NewReader(encoded))
+			r.Header.Set("Authorization", "Bearer "+strings.Repeat("a", 64))
+			w = httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 200 {
+				done <- fmt.Errorf("manifest status %d: %s", w.Code, w.Body.String())
+				return
+			}
+		}
+		done <- nil
+	}()
+	for i := 0; i < 20; i++ {
+		if w := get(h, "/api/web/v1/sessions", cookie); w.Code != 200 {
+			t.Fatal("read while ingesting", w.Code)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var result catalog.Overview
+	if err := json.Unmarshal(get(h, "/api/web/v1/overview", cookie).Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Sessions != 10 || result.Normalization["ready"] != 10 {
+		t.Fatalf("ingest result %+v", result)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,15 +24,18 @@ type Server struct {
 
 // New builds a handler mounted inside api.Server's request accounting. client
 // is nil in production; tests supply the trust pool of their synthetic HTTPS IdP.
-func New(cfg webconfig.Config, cat *catalog.Catalog, client *http.Client) (http.Handler, error) {
+func New(cfg webconfig.Config, cat *catalog.Catalog, client *http.Client, loggers ...*slog.Logger) (http.Handler, error) {
 	auth, err := webauth.New(cfg, client)
 	if err != nil {
 		return nil, err
 	}
+	if len(loggers) > 0 {
+		auth.Logger = loggers[0]
+	}
 	s := &Server{catalog: cat, auth: auth}
 	m := http.NewServeMux()
 	auth.Routes(m)
-	get := func(path string, h http.HandlerFunc) { m.Handle("GET "+path, auth.Guard(h)) }
+	get := func(path string, h http.HandlerFunc) { m.Handle("GET "+path, s.guardRead(h)) }
 	get("/api/web/v1/overview", s.overview)
 	get("/api/web/v1/sessions", s.sessions)
 	get("/api/web/v1/sessions/{uid}", s.session)
@@ -183,4 +187,15 @@ func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, v)
+}
+
+func (s *Server) guardRead(next http.HandlerFunc) http.Handler {
+	return s.auth.Guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil || len(r.URL.RawQuery) > 16384 {
+			fail(w, catalog.ErrPage)
+			return
+		}
+		next(w, r)
+	}))
 }

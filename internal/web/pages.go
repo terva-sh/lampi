@@ -50,7 +50,7 @@ type pageData struct {
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
 	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage} {
-		m.Handle("GET "+path, s.auth.Guard(h))
+		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
 	m.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(assets)))

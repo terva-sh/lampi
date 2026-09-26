@@ -181,3 +181,35 @@ func TestDashboard20KIndexedPages(t *testing.T) {
 	}
 	t.Logf("20k catalog: two filtered pages + overview %s; first page %d bytes; plan %v", time.Since(start), len(b), details)
 }
+
+func TestDashboard20KDuringIngest(t *testing.T) {
+	c := seedDashboard(t, 20000)
+	ctx := t.Context()
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 30; i++ {
+			m := sampleManifest()
+			m.NativeSessionID = fmt.Sprintf("concurrent-%d", i)
+			if _, err := c.Ingest(ctx, m, time.Now(), []Decision{{Relation: "head", Record: true, Head: true}}, nil); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	start := time.Now()
+	for i := 0; i < 30; i++ {
+		p, err := c.DashboardSessions(ctx, PageRequest{Limit: 50})
+		if err != nil || len(p.Items) != 50 {
+			t.Fatalf("read during ingest %v", err)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	o, err := c.DashboardOverview(ctx)
+	if err != nil || o.Sessions != 20030 {
+		t.Fatalf("after ingestion %+v %v", o, err)
+	}
+	t.Logf("20k catalog: 30 first-page reads and 30 ingests completed in %s", time.Since(start))
+}

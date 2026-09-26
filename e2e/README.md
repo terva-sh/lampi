@@ -38,3 +38,40 @@ config, tokens, homes, or session fixtures. The driver mounts:
 Harness environment variables are not set. Point `TERVA_HOME`,
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and the OpenCode data directory at
 those homes when the driver runs. Soft-link wiring is out of scope.
+
+## Browser dashboard smoke
+
+The browser fixture is separate from the production binary. It creates a temporary
+lake with 123 synthetic sessions, a fake HTTPS IdP and ephemeral loopback ports,
+and removes its lake on shutdown. No agent config or production token is read.
+
+Use Go 1.27 and Node 22 or newer. Install Playwright outside the repository; it is
+only a test dependency, and the dashboard itself has no Node build. On a machine
+with mise, prefix the final command with `mise exec --` so its child Go build sees
+the managed toolchain.
+
+```sh
+browser_tools_dir=$(mktemp -d)
+npm install --prefix "$browser_tools_dir" --no-audit --no-fund playwright@1.58.2
+"$browser_tools_dir/node_modules/.bin/playwright" install chromium
+node e2e/web-smoke.mjs "$browser_tools_dir/node_modules/playwright/index.mjs"
+```
+
+Chromium must have its normal OS runtime dependencies installed. The script builds
+`internal/web/smoketest` in a temporary directory, drives a real OIDC code/PKCE
+flow with the fake IdP, and prints a JSON result plus a temporary evidence directory
+containing desktop/mobile screenshots. `ignoreHTTPSErrors` applies only to this
+test browser and its synthetic self-signed IdP. Production issuer validation is
+unchanged. The fixture shuts down even when a browser assertion fails.
+
+The smoke covers viewer and denied-group login, pagination, filters, artifact and
+provenance views, conflicts, polling visibility/error/recovery/expiry, desktop and
+390px mobile layouts, keyboard focus, logout, no-JavaScript filtering and an empty
+lake. Unit/integration gates additionally verify state/nonce/replay, key rotation,
+algorithm refusal, idle/hard expiry, CSRF, device/browser separation and concurrent
+ingest. `go test ./internal/catalog -run TestDashboard20K -count=1 -v` records query
+plans, response sizes and timings for 20,000 sessions, including concurrent writes.
+
+For manual inspection, run `go run ./internal/web/smoketest` and open the printed
+`url` in a test browser that trusts the fixture's HTTPS IdP. Stop with Ctrl-C. Use
+`--deny` or `--empty` to inspect those states. Never use this fixture as a service.

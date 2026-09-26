@@ -1,6 +1,6 @@
 # Web dashboard and retrieval plan
 
-Status: release A promoted and implementation in progress; releases B/C remain draft. The owner approved a
+Status: release A implemented and under final validation; releases B/C remain draft. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -29,7 +29,7 @@ HTTPS identity provider without production credentials or a live host.
 ingestion. `internal/catalog` stores sessions, artifact versions, provenance,
 project links, normalization generations and queued jobs. Normalizers produce
 JSONL and Parquet for six harnesses. `internal/cli/export.go` implements local
-events and allowlisted ShareGPT/trajectory exports. No browser UI or OIDC exists.
+events and allowlisted ShareGPT/trajectory exports. At planning time no browser UI or OIDC existed; release A now implements them.
 
 The session `ingested_at` advances on a head change. Provenance records the
 first observation of a session/machine/digest tuple, not every upload attempt.
@@ -178,11 +178,11 @@ RFC3339Nano strings have different fractional precision. Lists are live views:
 rows can move on ingest; refresh restarts pagination. Detail returns `404` for
 an unknown UID. Every child collection must also be bounded.
 
-Add an explicit nullable published normalization generation. Existing rows start
+Record an explicit nullable published normalization generation and head digest. Existing rows start
 unknown unless safely reconciled; an empty error must never imply success.
 State precedence: queued job (including running/retrying) is `pending`; a
-recorded terminal failure is `failed`; published generation equal to current
-generation is `ready`; otherwise `unknown`. Publication records success only
+recorded terminal failure is `failed`; published generation and head equal to the current
+generation and head is `ready`; otherwise `unknown`. Publication records success only
 after the matching generation's derived files are published. A superseded worker
 must not mark a newer generation ready. Restart, failure, purge and migration
 must preserve these meanings. Later content reads still detect missing files.

@@ -18,6 +18,8 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
+| Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata API; see [web-dashboard.md](web-dashboard.md) |
+| Browser identity | `internal/webauth`, `internal/webconfig` | Explicit server config, OIDC code + PKCE, mapped groups, bounded in-memory sessions; separate from device tokens |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
 | terva discovery | `internal/discover`, `internal/adapter/terva` | `$TERVA_HOME/sessions/**/*.jsonl`, error sidecars, optional `raati/` records and `tasks/` archives |
@@ -79,6 +81,13 @@ generation is published, so a restart finishes it, including a job
 the drain did not reach. A panic in a worker is logged with its stack,
 sets `normalize_error`, and deletes the job row, so a restart does not
 replay it. The worker keeps running.
+
+The dashboard records a successful published generation and head digest only after
+derived files are written; old rows remain unknown until a verified publication.
+The head digest prevents a false ready state between ingest commit and normalization
+enqueue. Indexed numeric head timestamps preserve chronological ordering across
+legacy RFC3339Nano precision. Overview queries use a consistent catalog snapshot;
+list queries use bounded, filter-bound cursor pages and no transcript scan.
 
 The catalog records its schema in `PRAGMA user_version`. Open runs the
 numbered migrations above that version. A file from a newer binary is
