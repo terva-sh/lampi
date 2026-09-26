@@ -78,8 +78,14 @@ func TestManifestAckDoesNotWaitForNormalize(t *testing.T) {
 	}
 
 	letGo()
+	if state, err := s.Catalog.NormalizationState(t.Context(), ack.SessionUID); err != nil || (state != "pending" && state != "ready") {
+		t.Fatalf("publication state %q: %v", state, err)
+	}
 	if err := s.WaitNormalized(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+	if state, err := s.Catalog.NormalizationState(t.Context(), ack.SessionUID); err != nil || state != "ready" {
+		t.Fatalf("published state %q: %v", state, err)
 	}
 	path, err := normalize.ParquetPath(s.Parquet, "2026-09-22", protocol.HarnessTerva, ack.SessionUID)
 	if err != nil {

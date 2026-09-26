@@ -33,6 +33,9 @@ import (
 
 // Server is one lake process's HTTP API.
 type Server struct {
+	// Web is the optional browser handler. Nil leaves browser routes disabled.
+	// It runs inside the same deadlines, access log and shutdown accounting.
+	Web     http.Handler
 	CAS     *cas.Store
 	Catalog *catalog.Catalog
 	// Normalized is the directory of derived JSONL, one file per session.
@@ -240,6 +243,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))
 	mux.HandleFunc("POST /v1/manifests", s.authed(s.manifest))
+	if s.Web != nil {
+		mux.Handle("/", s.Web)
+	}
 	return s.serveHTTP(mux)
 }
 

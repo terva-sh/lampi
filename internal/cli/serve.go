@@ -19,12 +19,14 @@ import (
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/webconfig"
 )
 
 const serveUsage = `terva-lampi serve — run the lake
 
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
+                    [--web-config PATH]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
   terva-lampi serve fsck [--data DIR] [--repair]
@@ -39,6 +41,12 @@ same auth as the other /v1 routes. /v1/* requires
 a device token when --token-file is set. With no token file the
 process accepts unauthenticated requests only on a loopback address;
 any other --addr is an error. The default bind is 127.0.0.1:8787.
+
+--web-config explicitly enables the OIDC browser interface from a separate
+server JSON file. Device tokens are then required even on loopback. The agent's
+config.json is not read. The public base_url fixes the callback origin; web
+configuration changes require restart. Client secrets are read only from a
+private client_secret_file, never command arguments. See deploy/web-config.json.example.
 With --token-file, a non-loopback --addr is a stderr warning: serve
 speaks plain HTTP, so put TLS in front. Clients refuse to send a
 token to a non-loopback http:// URL.
@@ -94,11 +102,12 @@ func runServe(env Env, args []string) error {
 			return runServePurge(env, args[1:])
 		}
 	}
-	var addr, data, tokenFile string
+	var addr, data, tokenFile, webConfigFile string
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file")
+		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
 	})
 	if err != nil {
 		return err
@@ -126,6 +135,14 @@ func runServe(env Env, args []string) error {
 	}
 	if warn := plaintextTokenWarning(addr, devices); warn != "" {
 		fmt.Fprintln(env.stderr(), warn)
+	}
+	if webConfigFile != "" {
+		if _, err := webconfig.Load(webConfigFile); err != nil {
+			return err
+		}
+		if devices == nil || devices.Empty() {
+			return fmt.Errorf("web interface requires nonempty device tokens, including on loopback")
+		}
 	}
 	lock, err := lakelock.Acquire(data)
 	if err != nil {

@@ -216,7 +216,7 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 		s.beforeProject()
 	}
 	ctx := context.Background()
-	gen, ok, err := s.Catalog.NormalizeGen(ctx, job.SessionUID)
+	gen, head, ok, err := s.Catalog.NormalizeVersion(ctx, job.SessionUID)
 	if err != nil {
 		s.retryNormalize(job, "generation", err)
 		return
@@ -245,15 +245,15 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 	}
 	unlock := s.lockSession(job.SessionUID)
 	defer unlock()
-	gen, ok, err = s.Catalog.NormalizeGen(ctx, job.SessionUID)
+	gen, currentHead, ok, err := s.Catalog.NormalizeVersion(ctx, job.SessionUID)
 	if err != nil {
 		s.retryNormalize(job, "generation", err)
 		return
 	}
-	if !ok || gen != job.Gen {
+	if !ok || gen != job.Gen || currentHead != head {
 		return
 	}
-	if err := s.StoreEvents(ctx, job.SessionUID, events, nerr); err != nil {
+	if err := s.storeGeneration(ctx, job.SessionUID, job.Gen, head, events, nerr); err != nil {
 		s.retryNormalize(job, "store", err)
 		return
 	}

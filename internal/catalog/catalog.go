@@ -184,6 +184,8 @@ func dataSource(path string) (string, error) {
 // this binary writes.
 var migrations = []func(*sql.Tx) error{
 	migrate1,
+	migratePublished,
+	migrateDashboard,
 }
 
 // upgrade runs each migration above the file's user_version, one
@@ -490,16 +492,16 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 	ingested := now.UTC().Format(time.RFC3339Nano)
 	if !exists {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at, project_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID); err != nil {
+			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at, project_id, web_updated_ns)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID, now.UnixNano()); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
 	} else if newHead != head {
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE sessions SET head_sha256 = ?, manifest_json = ?, ingested_at = ?
+			UPDATE sessions SET head_sha256 = ?, manifest_json = ?, ingested_at = ?, web_updated_ns = ?
 			WHERE session_uid = ?`,
-			newHead, string(raw), ingested, uid); err != nil {
+			newHead, string(raw), ingested, now.UnixNano(), uid); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
 	}
@@ -966,7 +968,9 @@ type SessionInfo struct {
 // The CAS blob is not touched.
 func (c *Catalog) SetNormalizeError(ctx context.Context, sessionUID, msg string) error {
 	res, err := c.db.ExecContext(ctx, `
-		UPDATE sessions SET normalize_error = NULLIF(?, '') WHERE session_uid = ?`, msg, sessionUID)
+		UPDATE sessions SET normalize_error = NULLIF(?, ''),
+		published_gen = CASE WHEN ? != '' THEN NULL ELSE published_gen END
+		WHERE session_uid = ?`, msg, msg, sessionUID)
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}
