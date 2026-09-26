@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -13,10 +14,124 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/testharness"
 )
+
+func TestGoLiveServeProcess(t *testing.T) {
+	data := os.Getenv("LAMPI_GOLIVE_PROCESS_DATA")
+	if data == "" {
+		t.Skip("subprocess helper")
+	}
+	err := Run([]string{"serve", "--data", data, "--addr", "127.0.0.1:0"}, Env{Stdout: os.Stdout, Stderr: os.Stderr, Getenv: func(string) string { return "" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func goLiveServe(t *testing.T, data string) (string, *exec.Cmd) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestGoLiveServeProcess$", "-test.timeout=20m")
+	cmd.Env = []string{"LAMPI_GOLIVE_PROCESS_DATA=" + data}
+	pipe, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+	ready := make(chan string, 1)
+	go func() {
+		scan := bufio.NewScanner(pipe)
+		for scan.Scan() {
+			if addr, ok := strings.CutPrefix(scan.Text(), "terva-lampi serve: listening on "); ok {
+				ready <- "http://" + addr
+			}
+		}
+		close(ready)
+	}()
+	select {
+	case url := <-ready:
+		if url == "" {
+			t.Fatal("serve exited before listening")
+		}
+		return url, cmd
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve startup timeout")
+		return "", nil
+	}
+}
+
+func TestGoLiveRestore(t *testing.T) {
+	f := newGoLiveFixture(t)
+	source := filepath.Join(f.root, "source")
+	url, _ := goLiveServe(t, source)
+	for id, plant := range map[string]func(string, string, []testharness.SessionSpec) (testharness.PlantResult, error){"terva": testharness.PlantTerva, "claude": testharness.PlantClaude, "codex": testharness.PlantCodex, "opencode": testharness.PlantOpenCode} {
+		if _, err := plant(f.homes[id], filepath.Join(f.root, "allowed"), []testharness.SessionSpec{{ID: "restore-" + id}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := f.run("sync", "--server", url); err != nil {
+		t.Fatal(err)
+	}
+	// Export beside serve reports pending derived files. Wait for all four.
+	var original string
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		out, errs, err := f.run("export", "--data", source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if errs == "" && out != "" {
+			original = out
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("normalization did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	backup := filepath.Join(f.root, "backup")
+	if _, _, err := f.run("serve", "backup", "--data", source, "--out", backup); err != nil {
+		t.Fatal(err)
+	}
+	restored := filepath.Join(f.root, "restored")
+	if err := os.CopyFS(restored, os.DirFS(backup)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(restored, "normalized")); !os.IsNotExist(err) {
+		t.Fatal("backup unexpectedly contains derived data")
+	}
+	if _, _, err := f.run("serve", "fsck", "--data", restored); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, errs, err := f.run("export", "--data", restored)
+	if err != nil || errs != "" {
+		t.Fatalf("rebuild: %v %s", err, errs)
+	}
+	assertRestoredEvents(t, original, rebuilt)
+
+	restoredURL, _ := goLiveServe(t, restored)
+	for _, endpoint := range []string{url, restoredURL} {
+		out, errs, err := f.run("status", "--server", endpoint)
+		if err != nil || errs != "" || !strings.Contains(out, "health: ok") || !strings.Contains(out, "catalog_sessions: 4\ncatalog_artifacts: 4\ncatalog_machines: 1") {
+			t.Fatalf("status: %v %s %s", err, errs, out)
+		}
+	}
+	after, errs, err := f.run("export", "--data", restored)
+	if err != nil || errs != "" || after != rebuilt {
+		t.Fatal("export changed after restored serve started")
+	}
+	t.Logf("live backup restored to fresh directory; fsck clean; both status reports 4 sessions/4 artifacts/1 machine; export content matches (%d source bytes; regenerated event IDs and projection timestamps)", len(original))
+}
 
 // Explicit roots and a closed environment keep these drills away from real
 // harness homes, credentials, agent state and the workstation lake.
@@ -168,4 +283,41 @@ func TestGoLiveCanaries(t *testing.T) {
 		}
 	}
 	t.Logf("2 accepted controls; escaped canary quarantined; denied project refused; scanned files: %v", counts)
+}
+
+// Projection creates event IDs and ingestion timestamps anew. Preserve every
+// other field, including recorded timestamps supplied by the original harness.
+func assertRestoredEvents(t *testing.T, original, rebuilt string) {
+	t.Helper()
+	canonical := func(raw string) []byte {
+		events, err := decodeEvents([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) == 0 {
+			t.Fatal("empty export")
+		}
+		for i := range events {
+			ev := &events[i]
+			if ev.EventID == "" {
+				t.Fatal("missing event id")
+			}
+			if _, err := time.Parse(time.RFC3339Nano, ev.IngestedAt); err != nil {
+				t.Fatal(err)
+			}
+			if ev.RecordedAt == ev.IngestedAt {
+				ev.RecordedAt = "projection-time-fallback"
+			}
+			ev.EventID = ""
+			ev.IngestedAt = ""
+		}
+		b, err := json.Marshal(events)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if !bytes.Equal(canonical(original), canonical(rebuilt)) {
+		t.Fatal("restored event content differs")
+	}
 }

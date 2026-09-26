@@ -317,6 +317,47 @@ catalog and the CAS. `terva-lampi export` rebuilds a session whose
 JSONL is missing, and writes that session's parquet with it. Copy
 them too if a restore should need no rebuild.
 
+### Restore drill
+
+The isolated `TestGoLiveRestore` drill runs a real `serve` process, syncs
+synthetic Terva, Claude, Codex and OpenCode sessions, and takes a live backup.
+It copies that backup into a fresh directory, checks the CAS without repair,
+rebuilds the missing derived files while the restored lake is stopped, then
+starts another `serve` process on an ephemeral loopback port. Both report four
+sessions, four artifacts and one machine; event content and raw references match.
+
+Reproduce the drill without reading a live lake or agent configuration:
+
+```bash
+go test -tags golive ./internal/cli -run '^TestGoLiveRestore$' -count=1 -v
+```
+
+The command sequence exercised by the drill is below. The variables represent
+fresh, isolated directories and separate loopback listeners created by the test;
+do not point the restored process at the source directory.
+
+```bash
+terva-lampi serve backup --data "$source_dir" --out "$backup_dir"
+# Copy the complete backup to a fresh restore_dir, preserving private modes.
+terva-lampi serve fsck --data "$restore_dir"
+terva-lampi export --data "$restore_dir" --out "$rebuilt_events"
+terva-lampi serve --data "$restore_dir" --addr "$restore_addr"
+terva-lampi status --server "$source_url"
+terva-lampi status --server "$restore_url"
+terva-lampi export --data "$restore_dir" --out "$restored_events"
+```
+
+Export before starting the restored listener is necessary: export beside a live
+server does not rebuild missing derived files. Reprojection generates new
+`event_id` and `ingested_at` values, and a new `recorded_at` where the source
+had no timestamp and projection time was used as a fallback. The drill checks
+all other fields exactly, including recorded timestamps supplied by the harness.
+Export remains byte-identical before and after starting the restored listener.
+Copy the derived files as well if preserving generated event IDs is required.
+The synthetic drill does not validate a production token backup or encrypted
+backup storage; verify those and protect external web/OIDC configuration during
+the actual deployment backup.
+
 The backup holds the lake in plaintext. Keep it on encrypted
 storage, the same as the data disk.
 

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3D8YXBNVR3D95XFQ1RXMM3G
 title: "Go-live: 20k seeded sessions, second unchanged sync is fast and silent"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/rollout
+  branch: t3code/web-session-lake-ui
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8b6762d2
+  commit: b0dc724bf84f54cf29e2a50111081258710f8e3c
+  session: null
+  claimed_at: 2026-09-26T16:33:36Z
+  expires_at: null
 archive: null
 created_at: 2026-09-25T21:53:49Z
-updated_at: 2026-09-26T16:28:08Z
+updated_at: 2026-09-26T16:33:36Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -40,3 +47,7 @@ The 20k-session case. Seed about 20,000 sessions into the dev harness homes. `te
 
 - [ ] The first sync of about 20k seeded sessions succeeds against a dev lake
 - [ ] A second unchanged sync finishes in seconds and posts no manifest, with the timings recorded
+
+## Implementation plan
+
+Seed 5,000 sessions for each of Terva, Claude, Codex and OpenCode into explicit isolated roots. Run real CLI sync twice against a loopback lake with HTTP manifest counting. Verify 20,000 stored sessions/artifacts, no second-pass manifest or blob write, and record both wall times. Use the golive test tag to keep this operational-scale drill out of normal unit CI.
