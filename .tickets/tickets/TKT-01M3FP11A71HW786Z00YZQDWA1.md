@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-27T13:17:37Z
+updated_at: 2026-09-27T14:12:36Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -50,9 +50,9 @@ The owner authorized merging the children on 2026-09-27, not deploying them. Thi
 
 ## Acceptance criteria
 
-- [ ] A protected backup and rollback binary exist before the lake is upgraded
-- [ ] The lake is upgraded, and the existing agent keeps syncing before it is itself upgraded
-- [ ] The workstation agent migrates to the default lake with no re-upload
+- [x] A protected backup and rollback binary exist before the lake is upgraded
+- [x] The lake is upgraded, and the existing agent keeps syncing before it is itself upgraded
+- [x] The workstation agent migrates to the default lake with no re-upload
 - [ ] Every other machine is registered from a code and syncs its allowlisted projects
 
 ## Implementation plan
@@ -72,3 +72,14 @@ Rollback. The old binary refuses a schema-6 catalog, so a binary swap alone is n
 **agent:claude-code/e4a47e8c** at 2026-09-27T13:17:37Z
 
 Bundle prepared in the external handoff (onboarding-2026-09-27-*), built from main d9aa261 and stamped d9aa261: operator-onboarding.sh (root), README with the three steps and rollback, reused checkpoint-backup.py, copies of the installed unit, drop-in and route. Checked from the user account before handoff: the installed binary is 8adca49; the unit, drop-in and route match; Go's TLS trusts the proxy certificate for the public URL (status 200, chains verified); 79 GiB free. Rollback is a catalog restore from the checkpoint, not a binary swap: 8adca49 refuses a catalog above schema 3. With no profiles.json the lake serves an empty default profile, so new machines need allow rules locally or in a lake profile; the README says so. Code secrets go from the owner's terminal to each machine and never through the agent.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T14:12:36Z
+
+Lake upgraded by the owner on 2026-09-27 with the bundle's operator script (installed release d9aa261).
+
+- AC1: a verified checkpoint in /var/lib/terva-lampi-pre-onboarding-* (6.78 GB compressed; catalog schema 3 with 84 sessions and 3150 artifacts and provenance rows), holding the old 8adca49 binary for rollback.
+- The catalog migrated to schema 6 with integrity ok and counts preserved. serve created the lake identity (lake_u3cpc5lo4dwujlk5il3mpjepai, key 5f7fac541ec9bf33). set-url recorded the public URL after checking that it serves this lake. The key list and health answer through the TLS proxy.
+- AC2: the still-legacy agent (705a2b7) completed a sync against the upgraded lake (checked 1, uploaded 1). Its token-file device, token-1, bound to the workstation's machine id, the same id as in machine.json.
+- AC3: the workstation agent was upgraded in place. Before that, copies of its config, state and old binary were taken to a private directory under ~/.local/state (outside every repo) for rollback. On start it logged "moved sync state to .../lakes/default"; the machine id is unchanged; the legacy files are gone from the top level. Its first passes counted 83 files unchanged and uploaded only one: this session's own transcript, which is still growing. A later pass uploaded nothing (checked 0, unchanged 84). Nothing was re-uploaded.
+
+The refused count, 78, is the agent's allowlist refusals and was the same before the upgrade; quarantined stayed at 6. The workstation's entry stays a legacy one: there is no lake_id pin and no profile fetch. Moving it to a pinned, registered entry would take register --replace and is not needed for this ticket.
