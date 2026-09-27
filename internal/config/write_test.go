@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,5 +77,39 @@ func TestSetLakeOnANullConfigWritesTheLake(t *testing.T) {
 	f, err := LoadFile(env)
 	if err != nil || f.Lakes["work"].Server != "https://work.example" {
 		t.Fatalf("%+v %v", f, err)
+	}
+}
+
+func TestUpdateLakeEditsTheEntryAsReadAndWritesNothingOnError(t *testing.T) {
+	dir := t.TempDir()
+	env := envOf(map[string]string{"XDG_CONFIG_HOME": dir, "HOME": dir})
+	if err := UpdateLake(env, "work", func(*LakeConfig) error { return nil }); err == nil {
+		t.Fatal("updated a missing lake")
+	}
+	if err := SetLake(env, "work", LakeConfig{Server: "https://work.example", KeyID: "k1", PublicKey: "cDE"}); err != nil {
+		t.Fatal(err)
+	}
+	stop := errors.New("changed")
+	err := UpdateLake(env, "work", func(lc *LakeConfig) error {
+		if lc.KeyID != "k1" {
+			t.Fatalf("edit saw %+v", lc)
+		}
+		lc.KeyID = "k2"
+		return stop
+	})
+	if !errors.Is(err, stop) {
+		t.Fatalf("err %v", err)
+	}
+	if f, _ := LoadFile(env); f.Lakes["work"].KeyID != "k1" {
+		t.Fatalf("a refused edit was written: %+v", f.Lakes["work"])
+	}
+	if err := UpdateLake(env, "work", func(lc *LakeConfig) error { lc.PublicKey = ""; return nil }); err == nil {
+		t.Fatal("half a pin written")
+	}
+	if err := UpdateLake(env, "work", func(lc *LakeConfig) error { lc.KeyID, lc.PublicKey = "k2", "cDI"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := LoadFile(env); f.Lakes["work"].KeyID != "k2" || f.Lakes["work"].Server != "https://work.example" {
+		t.Fatalf("%+v", f.Lakes["work"])
 	}
 }

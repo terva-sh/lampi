@@ -93,16 +93,17 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	}
 	// From here a failure leaves the pin on the old key, which may not
 	// verify the profile just cached, so the old copy goes back.
-	file, err := config.LoadFile(env.getenv)
+	// The key list was checked against l, so the pin moves only in an
+	// entry that still pins what l does. One replaced or re-pointed
+	// while the list was fetched belongs to another identity.
+	err = config.UpdateLake(env.getenv, l.Name, func(lc *config.LakeConfig) error {
+		if lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey {
+			return fmt.Errorf("lake %s changed in config.json while its key list was fetched, so its pin does not move to key %s; the next refresh reads the new entry", l.Name, next.ID)
+		}
+		lc.KeyID, lc.PublicKey = next.ID, next.PublicKey
+		return nil
+	})
 	if err != nil {
-		return l, false, restore(err)
-	}
-	lc, ok := file.Lakes[l.Name]
-	if !ok {
-		return l, false, restore(fmt.Errorf("lake %s is not in the lakes map, so its pin cannot move", l.Name))
-	}
-	lc.KeyID, lc.PublicKey = next.ID, next.PublicKey
-	if err := config.SetLake(env.getenv, l.Name, lc); err != nil {
 		return l, false, restore(err)
 	}
 	return moved, true, nil
