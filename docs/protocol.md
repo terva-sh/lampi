@@ -249,8 +249,11 @@ kept in the audit log only.
 ```
 
 `config` is the same signed document `GET /v1/agent/config` returns.
-It is omitted when the device's profile cannot be signed; the client
-then fetches it later. The lake stores the hashes of the secret and of
+The lake signs it before the transaction commits. When it cannot, for
+a profile missing from its profiles file or no active key, the answer
+is 503, the code stays unused, no device is created, and the audit log
+records the refusal. The same code registers once the operator fixes
+the cause. The lake stores the hashes of the secret and of
 the token, never either one. Neither the access log nor the audit log
 holds the secret.
 

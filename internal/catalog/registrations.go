@@ -199,7 +199,11 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.T
 // profile, holds tokenSHA256, and is bound to machineID. The registration
 // is returned with every refusal it can be named for, so the audit line
 // can name it.
-func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, now time.Time) (Device, Registration, error) {
+//
+// finish, when not nil, runs on the new device before the transaction
+// commits. An error from it is returned as it is and rolls the redemption
+// back, so the code stays unspent and no device is left behind.
+func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, now time.Time, finish func(Device) error) (Device, Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Device{}, Registration{}, fmt.Errorf("catalog: %w", err)
@@ -258,6 +262,11 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE registrations SET used_at=?, device_id=? WHERE id=?`, stamp(now), d.ID, r.ID); err != nil {
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
+	}
+	if finish != nil {
+		if err := finish(d); err != nil {
+			return Device{}, r, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
