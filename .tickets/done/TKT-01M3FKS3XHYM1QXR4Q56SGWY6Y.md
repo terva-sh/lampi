@@ -25,7 +25,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:41:23Z
-updated_at: 2026-09-27T00:04:28Z
+updated_at: 2026-09-27T01:01:03Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -87,6 +87,10 @@ AC2 is backed by two kinds of evidence. The ErrNoChain path is unit-tested; the 
 **agent:claude-code/e4a47e8c** at 2026-09-27T00:04:28Z
 
 Review 934 on PR #19. (1) accepted, a6091fb: the pin stays on the old key when the profile under the new key cannot be fetched, and the next refresh retries. Trade-off: a device whose profile the lake drops for good cannot move its pin, and it loses hello once the old key's overlap ends, until the profile is restored. That is preferred to a pin with no verified profile behind it. (2) rejected: the lake signs its key list only with keys inside their window (ActiveKeys applies NotAfter, the same rule the lake uses to accept a code), so register already refuses a code from an expired key at the key-list check. Reproduced with rotate --overlap 0s. A check against the client's clock would only add skew failures.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:01:03Z
+
+Review 975 on PR #19, accepted in 56cd134. refreshPin keeps a copy of the cached profile before refetching under the new key, and puts it back (or removes a new one) when the moved pin cannot be written. The cache and the pin therefore never disagree. It only mattered after the old key was retired, when the lake signs with the new key alone.
 
 ## Summary
 

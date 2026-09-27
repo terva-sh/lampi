@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T00:04:01Z
+updated_at: 2026-09-27T01:01:02Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -91,6 +91,10 @@ The backup covers pending codes because they live in `catalog.db`, which the bac
 **agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
 
 Review 932 on PR #17, all accepted. 40b6fab: every refusal the limiter lets through writes registration.refused with a fixed lake-side reason, never request text. Rate-limited 429s are deliberately not audited: each audit line is a synced write, and the limiter is the only bound on writes an open route can cause. 698a449: revoke is one immediate transaction that only changes a still-pending code, so a revoke racing a redeem can no longer both succeed. c7b7547: serve register writes the mint to the audit log before printing; on a failed write the code is revoked and never shown.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
+
+Review 974 on PR #17, both accepted. 195a350: a second revoke of a code returns ErrRegistrationRevoked, and serve register --revoke says it was already revoked and writes no second audit event. e07eb3a: a body read error on /v1/register answers 400 through bodyStatus rather than an empty 200. The same gap in /v1/hello, from TKT-01M3FHHBF, is filed as TKT-01M3G44GC.
 
 ## Summary
 

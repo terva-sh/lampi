@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T00:04:01Z
+updated_at: 2026-09-27T01:01:02Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -95,6 +95,10 @@ Registration (TKT-01M3FHHBJ) should return the same signed document so a new age
 **agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
 
 Review 931 on PR #16. (1) accepted, a8931a8: a pinned lake does not push until the first profile fetch has answered, so the profile's deny rules apply to the first upload. Cost: a pinned lake that is down waits out the fetch timeout (up to a minute) before its first push, and a runner stopped before that leaves its outbox on disk for the next start. (2) rejected: the only redaction field is upload_hits, which a profile may not set, and strict decoding refuses any other key, so there was nothing being dropped; a TestLoadProfiles case pins that. Loosening what profiles may carry stays an owner decision. (3) accepted, a8931a8: the cache is keyed on profile name as well as version; a rename with the same content is saved without a reload.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
+
+Review 973 on PR #16, accepted in 1ecc3eb. A verified first profile with new rules that cannot be saved keeps the runner held, because the reload that applies the rules reads the saved copy. A later fetch that saves it releases the runner. A failed or unverified fetch still releases it on the cached copy. Cost: with a state directory that cannot be written, uploads wait for the hourly retry, which fails closed. Also on this layer: the fan-out fix's startAgentLakes had read config.json without the lake profile and built lakes without their config, so no lake was pinned. That surfaced only after the merge, as profile tests timing out. Start now goes through the same builder as reload.
 
 ## Summary
 

@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T00:04:28Z
+updated_at: 2026-09-27T01:01:02Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -102,6 +102,10 @@ Evidence:
 **agent:claude-code/e4a47e8c** at 2026-09-27T00:04:28Z
 
 Review 933 on PR #18, all four accepted in d874bdd. lakes remove --purge-state takes agent.pid before changing anything, and refuses with nothing removed while an agent runs. On that path it does not signal the agent, since it would find its own pid. --replace takes over only an entry pinned to the code's lake id, or an unpinned one on the same server (pre-pin entries), keeps the existing name, and refuses a different --lake. chooseLakeName shortens the base so -N stays within 32 characters.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
+
+Review 976 on PR #18, both accepted in 99c8a62. lakes remove refuses any name that fails ValidLakeName before it builds a path; before this, '..' with --purge-state removed the whole state directory. A config.json holding null is edited as an empty config, the way LoadFile already reads it.
 
 ## Summary
 
