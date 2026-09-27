@@ -110,6 +110,11 @@ func (r ProjectMatch) denies(id ProjectID, cwd string) bool {
 		}
 	}
 	if r.GitRemotePrefix != "" {
+		// A prefix that folds to nothing matches nothing, even here,
+		// where an unknown remote would otherwise count as a match.
+		if NormalizeRemote(r.GitRemotePrefix) == "" {
+			return false
+		}
 		if !unknown && !remoteHasPrefix(id.GitRemote, r.GitRemotePrefix) {
 			return false
 		}

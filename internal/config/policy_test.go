@@ -245,6 +245,17 @@ func TestGitRemotePrefixDeny(t *testing.T) {
 	}
 }
 
+func TestGitRemotePrefixDenyThatFoldsToNothingMatchesNothing(t *testing.T) {
+	for _, prefix := range []string{" ", "/", ".git"} {
+		p := Projects{Allow: []ProjectMatch{{CWDPrefix: "/work"}}, Deny: []ProjectMatch{{GitRemotePrefix: prefix}}}
+		for _, id := range []ProjectID{{CWD: "/work/a"}, {CWD: "/work/a", GitRemote: "https://git.example/team/app"}} {
+			if !p.Permitted(id) {
+				t.Errorf("deny prefix %q refused %+v; it folds to nothing and must match nothing", prefix, id)
+			}
+		}
+	}
+}
+
 func TestGitRemotePrefixLoadsFromJSON(t *testing.T) {
 	var p Projects
 	if err := json.Unmarshal([]byte(`{"allow":[{"git_remote_prefix":"git@git.example:team"}]}`), &p); err != nil {
