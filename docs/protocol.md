@@ -287,8 +287,13 @@ and so does a lake whose profiles file no longer holds the device's
 profile. The answer is `Cache-Control: no-store`.
 
 A client accepts the document only from a lake whose key it pinned at
-registration, and only when `lake_id` matches the pin. It keeps the last
-copy that verified and uses it when a fetch fails.
+registration, only when `lake_id` matches the pin, and only when
+`version` is the version of the `config` it carries. When the lake's
+entry in `config.json` holds a `device_id`, `device_id` must match it
+too; an entry without one, a device the client knows only by its token
+file, skips that check. It keeps the last copy that verified and uses it
+when a fetch fails. A cached copy is checked the same way each time it
+is read.
 
 ## POST /v1/blobs/check
 
