@@ -20,10 +20,17 @@ blocks_on: children
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim: null
+claim:
+  actor: agent:claude-code/e226d0e4
+  branch: catalog/head-updates
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
+  commit: c3b2a9b431228dd3fa96008932b0eaa7a6b845e4
+  session: null
+  claimed_at: 2026-09-27T22:13:03Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:09:04Z
+updated_at: 2026-09-27T22:13:03Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
