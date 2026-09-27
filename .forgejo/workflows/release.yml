@@ -85,8 +85,10 @@ jobs:
             '{tag_name: $tag, name: $tag, body: $body, draft: false, prerelease: $pre}')
           # A rerun after a partial upload finds the release the first run
           # created and resumes it, so the tag never needs deleting by hand.
-          id=$(curl -sS "${api}/releases/tags/${TAG}" \
-            -H "Authorization: token ${TOKEN}" | jq -r '.id // empty')
+          # -f makes a missing release empty output rather than an error
+          # body jq cannot parse, which is what the first v0.1.0 run hit.
+          id=$(curl -fsS "${api}/releases/tags/${TAG}" \
+            -H "Authorization: token ${TOKEN}" 2>/dev/null | jq -r '.id // empty')
           if [ -z "${id}" ]; then
             id=$(curl -sS -X POST "${api}/releases" \
               -H "Authorization: token ${TOKEN}" \

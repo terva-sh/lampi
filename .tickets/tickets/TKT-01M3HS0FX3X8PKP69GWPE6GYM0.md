@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T15:51:16Z
-updated_at: 2026-09-27T16:09:17Z
+updated_at: 2026-09-27T17:25:03Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -109,3 +109,19 @@ Copy git-ticket's release setup and adapt it to terva-lampi:
 **Round 3** (review for e30fa5ce): "verify before publishing on GitHub" was rejected. It is the org pattern, and a bad tag is now caught before tagging by `TestTaggedBuildReportsItsTag`.
 
 CI on 28930b8 failed once without a readable log: this Forgejo returns 404 for job logs over the API. The whole race suite passed in the CI image from a depth-1 clone of that commit.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T17:25:03Z
+
+### v0.1.0 tagged, not released
+
+v0.1.0 was tagged on 5a58468 and pushed to both forges. Both release jobs failed and nothing was published:
+
+- **GitHub.** `TestTaggedBuildReportsItsTag` failed in the Test step. At a real tag, HEAD carried both v0.1.0 and the test's own tag, and go build took the higher one. The test was wrong: the binary reported `terva-lampi v0.1.0 (5a58468ebd4a)`.
+- **Forgejo.** goreleaser built every archive and the version check passed. The publish step's new existing-release lookup got an HTML 404, which jq could not parse.
+
+Fixed on release/fix-first-release:
+
+- The test commits in its clone before tagging.
+- The lookup uses `curl -f`.
+
+The owner chose to leave v0.1.0 in place and release v0.1.1 rather than rewrite a pushed tag.
