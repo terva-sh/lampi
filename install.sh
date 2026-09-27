@@ -173,13 +173,15 @@ fi
 
 # Staged beside the target and renamed over it, so a running agent keeps
 # its open binary and a failed copy never leaves half a file on PATH.
+# The staged copy has to run before it replaces anything, so a binary
+# this machine cannot execute leaves the previous install in place.
 STAGE="$DEST/.terva-lampi.install.$$"
-cp "$TMP/unpack/terva-lampi" "$STAGE" || fail "copying into $DEST failed"
+cp "$TMP/unpack/terva-lampi" "$STAGE" || { rm -f "$STAGE"; fail "copying into $DEST failed"; }
 chmod 0755 "$STAGE" || { rm -f "$STAGE"; fail "chmod failed"; }
+GOT=$("$STAGE" --version 2>/dev/null) || { rm -f "$STAGE"; fail "the downloaded binary does not run here; nothing was replaced"; }
 mv -f "$STAGE" "$DEST/terva-lampi" || { rm -f "$STAGE"; fail "installing into $DEST failed"; }
 
 # --- report ------------------------------------------------------------
-GOT=$("$DEST/terva-lampi" --version 2>/dev/null) || fail "the installed binary did not run"
 echo "installed $DEST/terva-lampi"
 echo "  $GOT"
 

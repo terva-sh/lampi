@@ -34,10 +34,15 @@ type fakeRelease struct {
 
 func newFakeRelease(t *testing.T, tag string) *fakeRelease {
 	t.Helper()
+	return newFakeReleaseWith(t, tag, "#!/bin/sh\necho 'terva-lampi "+tag+" (0123456789ab)'\n")
+}
+
+func newFakeReleaseWith(t *testing.T, tag, script string) *fakeRelease {
+	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	body := []byte("#!/bin/sh\necho 'terva-lampi " + tag + " (0123456789ab)'\n")
+	body := []byte(script)
 	if err := tw.WriteHeader(&tar.Header{Name: "terva-lampi", Mode: 0o755, Size: int64(len(body))}); err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +91,9 @@ func runInstaller(t *testing.T, srv *httptest.Server, home string, args ...strin
 	case "amd64", "arm64":
 	default:
 		t.Skipf("install.sh has no release for %s", runtime.GOARCH)
+	}
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("install.sh downloads with curl, which is not on PATH")
 	}
 	script := filepath.Join(repoRoot(t), "install.sh")
 	cmd := exec.Command("sh", append([]string{script}, args...)...)
@@ -206,5 +214,33 @@ func TestInstallScriptRejectsLakeWithoutRegister(t *testing.T) {
 	out, err := runInstaller(t, srv, t.TempDir(), "--lake", "work")
 	if err == nil || !strings.Contains(out, "--lake only applies with --register") {
 		t.Fatalf("install.sh accepted --lake alone: %v\n%s", err, out)
+	}
+}
+
+// A binary that cannot run here must not replace one that can.
+func TestInstallScriptKeepsTheOldBinaryWhenTheNewOneFails(t *testing.T) {
+	srv := httptest.NewServer(newFakeReleaseWith(t, "v0.3.0", "#!/bin/sh\nexit 126\n"))
+	defer srv.Close()
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin", "terva-lampi")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := []byte("#!/bin/sh\necho 'terva-lampi v0.2.0 (old)'\n")
+	if err := os.WriteFile(bin, old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runInstaller(t, srv, home)
+	if err == nil || !strings.Contains(out, "nothing was replaced") {
+		t.Fatalf("install.sh did not refuse a binary that fails: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(bin)
+	if err != nil || !bytes.Equal(got, old) {
+		t.Fatalf("the previous binary changed: %v %q", err, got)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(bin))
+	if len(entries) != 1 {
+		t.Errorf("the prefix holds %d entries, want only the old binary", len(entries))
 	}
 }
