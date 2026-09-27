@@ -31,6 +31,8 @@ type Server struct {
 	// out.
 	reg   *Registrations
 	mints mintLimit
+	// attempts recognises a mint form sent twice.
+	attempts mintAttempts
 	// clock replaces time.Now in tests.
 	clock func() time.Time
 	log   *slog.Logger

@@ -1,9 +1,13 @@
 package web
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -18,7 +22,9 @@ type codesView struct {
 	FreshURL string
 	Profiles []string
 	// Form holds what the operator typed when a mint is refused.
-	Form    mintRequest
+	Form mintRequest
+	// Attempt names this form's mint, so a resubmission is recognised.
+	Attempt string
 	Problem string
 	Minted  *mintedView
 }
@@ -51,8 +57,13 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 	items, err := s.codes(r, now)
 	if err != nil {
 		s.logError(r, "listing registration codes failed", err)
-		fail(w, err)
-		return
+		// A minted code is shown however the list fares: it cannot be
+		// shown again.
+		if v.Minted == nil {
+			fail(w, err)
+			return
+		}
+		v.Problem = "The code was minted, but the list of codes could not be read. Operator logs hold the details."
 	}
 	for _, state := range codeStates {
 		g := codeGroup{State: state}
@@ -64,6 +75,7 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 		v.Groups = append(v.Groups, g)
 	}
 	v.Fresh = webauth.Fresh(r, now)
+	v.Attempt = newAttempt()
 	v.FreshURL = webauth.FreshLoginURL(adminRegistrationsPath)
 	v.Profiles = []string{config.DefaultProfile}
 	for name := range s.reg.Lake().Profiles {
@@ -114,11 +126,25 @@ func (s *Server) mintPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := mintRequest{Name: strings.TrimSpace(r.PostForm.Get("name")), Profile: r.PostForm.Get("profile"), Expires: r.PostForm.Get("expires")}
+	// A reload of the page that showed a code posts the same form again.
+	// It must not mint a second code, and it cannot show the first again,
+	// so it says what happened.
+	attempt := r.PostForm.Get("attempt")
+	if prior, ok := s.attempts.claim(attempt, s.now()); !ok {
+		problem := "This form was already sent, or is out of date. Mint again from the form below."
+		if prior != "" {
+			problem = "This form already minted " + prior + ", and its code was shown once. It is not shown again. If it was not copied, cancel " + prior + " below and mint another."
+		}
+		s.renderCodes(w, r, codesView{Form: mintRequest{Expires: codeLifetimes[0].Value}, Problem: problem}, http.StatusConflict)
+		return
+	}
 	if !slices.ContainsFunc(codeLifetimes, func(l struct{ Value, Label string }) bool { return l.Value == req.Expires }) {
 		req.Expires = "invalid"
 	}
 	v, err := s.mint(r, req)
 	if err != nil {
+		// A refused form can be corrected and sent again.
+		s.attempts.forget(attempt)
 		status, code := mintStatus(err)
 		if code == "fresh_login_required" {
 			http.Redirect(w, r, webauth.FreshLoginURL(adminRegistrationsPath), http.StatusSeeOther)
@@ -133,6 +159,7 @@ func (s *Server) mintPage(w http.ResponseWriter, r *http.Request) {
 		s.renderCodes(w, r, codesView{Form: req, Problem: mintProblems[code]}, status)
 		return
 	}
+	s.attempts.done(attempt, v.Registration.ID)
 	s.renderCodes(w, r, codesView{Form: mintRequest{Expires: codeLifetimes[0].Value}, Minted: &v}, http.StatusOK)
 }
 
@@ -158,4 +185,71 @@ func (s *Server) revokePage(w http.ResponseWriter, r *http.Request) {
 		"revoke_failed": "Cancelling failed. Operator logs hold the details.",
 	}[code]
 	s.renderCodes(w, r, codesView{Form: mintRequest{Expires: codeLifetimes[0].Value}, Problem: problem}, status)
+}
+
+func newAttempt() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// mintAttempts remembers which mint forms were sent, and the code each
+// minted, for attemptTTL. It holds no secret.
+type mintAttempts struct {
+	mu   sync.Mutex
+	seen map[string]mintAttempt
+}
+
+type mintAttempt struct {
+	id      string
+	expires time.Time
+}
+
+const (
+	attemptTTL  = time.Hour
+	maxAttempts = 1024
+)
+
+// claim records attempt as in flight. It fails for an attempt already
+// sent, and returns the code that attempt minted, if any. A form with
+// no attempt, or one that is not ours, is refused as sent.
+func (a *mintAttempts) claim(attempt string, now time.Time) (string, bool) {
+	if len(attempt) != 32 {
+		return "", false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.seen == nil {
+		a.seen = map[string]mintAttempt{}
+	}
+	if prior, ok := a.seen[attempt]; ok && now.Before(prior.expires) {
+		return prior.id, false
+	}
+	if len(a.seen) >= maxAttempts {
+		for k, v := range a.seen {
+			if !now.Before(v.expires) {
+				delete(a.seen, k)
+			}
+		}
+	}
+	if len(a.seen) >= maxAttempts {
+		return "", false
+	}
+	a.seen[attempt] = mintAttempt{expires: now.Add(attemptTTL)}
+	return "", true
+}
+
+func (a *mintAttempts) done(attempt, id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if e, ok := a.seen[attempt]; ok {
+		e.id = id
+		a.seen[attempt] = e
+	}
+}
+
+func (a *mintAttempts) forget(attempt string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.seen, attempt)
 }

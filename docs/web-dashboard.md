@@ -204,6 +204,8 @@ and writes the mint to `audit.jsonl` with the operator as actor before it shows
 the code.
 
 The code is shown once, on the page that answers the mint, and not again.
+Reloading that page does not mint a second code or show the first again: it
+names the code the form made, so it can be cancelled if it was not copied.
 Copy one of two things:
 
 - **The install line.** It installs terva-lampi and registers the machine with
