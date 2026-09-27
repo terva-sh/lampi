@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:12Z
-updated_at: 2026-09-26T22:17:37Z
+updated_at: 2026-09-27T00:04:28Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -75,6 +75,10 @@ Evidence:
 - `go test -tags golive ./internal/cli -run TestGoLive` is green, including the four `TestGoLiveOnboard*` drills.
 - `TestDeployProfilesExampleLoads`
 - The full `-race` suite and vet on Linux, golive and Windows are green.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T00:04:28Z
+
+Review 935 on PR #20, both accepted. 9acf70d: the legacy-upgrade drill now rolls the lake back to what the pre-devices release wrote (schema 4, no devices or registrations tables, no audit.jsonl) before restarting. It checks the upgrade, that the legacy device starts unbound, and that it binds on the next upload. The earlier check passed only because the binding from the first run was still there. f671890: the example profile stays restrictive, since an allow-all default would upload every project. The docs now say its project rules are placeholders to replace, and that copied as-is it uploads nothing.
 
 ## Summary
 
