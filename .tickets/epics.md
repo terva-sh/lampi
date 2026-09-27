@@ -7,6 +7,6 @@ tickets, and the next fix pass overwrites it.
 | Epic | Title | Status |
 |---|---|---|
 | [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ](tickets/TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ.md) | Web retrieval: browse, search and export stored sessions | ready |
-| [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH](draft/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md) | Lake analytics: record and visualize accepted ingestion updates | draft |
+| [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH](tickets/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md) | Lake analytics: record and visualize accepted ingestion updates | ready |
 | [TKT-01M3FHHBCJ12FXKNTB6Z138F6N](tickets/TKT-01M3FHHBCJ12FXKNTB6Z138F6N.md) | Agent onboarding: registration codes, lake config, many lakes | ready |
 | [TKT-01M3FPP3H592T31Y2M3N347CPB](tickets/TKT-01M3FPP3H592T31Y2M3N347CPB.md) | Session recall: one query surface for the web UI and an MCP server | ready |

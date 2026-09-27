@@ -7,7 +7,7 @@ ticket map for the web releases. To run the dashboard, read
 
 Status: release A implemented and validated. Release B's viewer, search and
 search screen are implemented on a branch, with the recall additions below;
-export and release C remain draft. The owner approved a
+export remains draft. Release C was groomed and promoted on 2026-09-28. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -279,17 +279,22 @@ never log transcript content. Raw blobs and Parquet downloads remain out of scop
 
 Record append-only catalog history for accepted head changes in the same
 transaction as the head update: session UID, machine ID, harness, UTC receipt
-time, prior/new head digest, new head logical size and relation. Idempotent
+time, prior/new head digest, prior/new head logical size and relation. The prior
+size is stored rather than looked up later because purge and later rewrites
+change the artifact rows it would be read from. Idempotent
 unchanged or stale reposts add no event. This measures accepted session updates,
 not network ingress bytes or user activity time. Keep a rollout coverage timestamp;
 do not backfill fake events from current session timestamps. Purge removes the
 session's history; backup/restore includes it. No retention TTL is introduced.
 
 Serve bounded UTC hourly/daily buckets for accepted updates and net logical head
-size change, with harness filters and a maximum 90-day range. Negative changes
+size change, with harness filters and a maximum range of 90 days for daily
+buckets and 14 days for hourly ones, since 2,160 hourly bars read as neither
+a chart nor a table. Negative changes
 remain negative; label them as logical changes, not storage savings. Show the
-coverage boundary, empty buckets, and purged-history limitations. Charts remain
-read-only viewer features. Physical storage, online agents, token/cost analytics
+coverage boundary, empty buckets, and purged-history limitations. Charts are
+server-rendered SVG beside an equivalent table, and remain read-only viewer
+features. Physical storage, online agents, token/cost analytics
 and complete network throughput require separate future requirements.
 
 ## Verification and delivery
@@ -365,9 +370,10 @@ Epic: [TKT-01M3FPP3H592T31Y2M3N347CPB — Session recall: one query surface for 
 
 ### Release C
 
-Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize accepted ingestion updates](../.tickets/draft/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md). Depends on release A; it can be scheduled independently of release B because it uses catalog metadata only.
+Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize accepted ingestion updates](../.tickets/tickets/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md). Depends on release A; it can be scheduled independently of release B because it uses catalog metadata only. The chart ticket was split in two during grooming so each pull request stays small enough for automated review.
 
 | Ticket | Work |
 |---|---|
-| [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/draft/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
-| [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/draft/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web analytics: add bounded ingestion charts and release validation |
+| [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/tickets/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
+| [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/tickets/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web API: serve bounded UTC buckets of accepted head updates |
+| [TKT-01M3JEKA6RBHK9WSGEZZKKQYHC](../.tickets/tickets/TKT-01M3JEKA6RBHK9WSGEZZKKQYHC.md) | Web UI: activity page with charts, tables and release C validation |
