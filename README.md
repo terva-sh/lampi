@@ -72,64 +72,17 @@ curl -sS http://127.0.0.1:8787/healthz
 ./bin/terva-lampi status
 ```
 
-`agent discover` lists files from four homes. terva is
-`$TERVA_HOME/sessions` (or terva's platform default when that variable
-is unset). Optional sidecars in that home are `raati/raati-<nanos>.json`
-and `tasks/tasks-<session-id>.json`. They upload with a session the
-allowlist already permits. A missing directory is skipped. Claude Code
-is `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl`, and
-when `CLAUDE_CONFIG_DIR` is unset the directory is `~/.claude` (on
-Windows, `%USERPROFILE%\.claude`). Codex is
-`$CODEX_HOME/sessions/**/rollout-*.jsonl`, and when `CODEX_HOME` is
-unset the directory is `~/.codex`. `history.jsonl` is Codex prompt
-history and is not a rollout. OpenCode is a scheduled `opencode export`
-at `$XDG_DATA_HOME/opencode/export/**/*.json`, and when `XDG_DATA_HOME`
-is unset the directory is `~/.local/share/opencode` (on Windows,
-`%USERPROFILE%\.local\share\opencode`). When `export/` has no JSON, the
-database file at that root is listed instead. `opencode.db-wal` is not
-read. An export uploads as `opencode_export_json`, and a re-export
-replaces the session head. The record shape for Claude, Codex, and OpenCode is internal to
-those adapters; each pins a reader version and keeps keys it does not
-interpret. `sync` pushes the files `config.json`
-allowlists. With no allow rule it refuses the project; the shape of
-that file is under [Off-box raw](#off-box-raw).
-A second `sync` of the same files uploads nothing and posts no
-manifest. `status` prints the
-machine id, one line per known harness
-(`harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>`),
-outbox depth, watermark summary, last finished sync, the last attempt
-(`ok` or `failed`) and the most recent error, the files that attempt
-skipped (`last_skipped`, with up to five named), whether `/healthz`
-answered, and catalog counts from `GET /v1/stats`.
-`source` is `config`, `env`, or `default`, naming which layer won.
+`agent discover` lists the files each harness would upload.
+[Harnesses](docs/harnesses.md) says where each one is read. `sync`
+pushes only the projects `config.json` allows, and refuses every
+project until you add an allow rule; see
+[Allowlist and redaction](docs/allowlist-and-redaction.md). A second
+`sync` of the same files uploads nothing. `status` prints the machine
+id, each harness, the outbox, the last sync, and the lake's health.
 
-`agent` with no subcommand prints the same discovery, pushes the
-allowlisted sessions once, then watches. Growth calls that same push
-once the watch has been quiet for 5s, and never more than 30s after
-the first change. `agent.debounce` and `agent.debounce_max` in
-`config.json` change those two, as Go durations; `"0s"` pushes on
-every change. SIGUSR1 does not wait. The agent does not open a file
-whose size, mtime, and inode have not moved since its last pass. The
-pass at start, and one every 6 hours, reads and hashes every file, so
-a rewrite that kept the size and mtime waits at most that long.
-A failed push is tried again without waiting for the file to grow. The
-first wait is 2s. Each further failure doubles the ceiling of a
-jittered wait, up to 5 minutes, and a success resets it. Growth during
-that wait does not start a push. A 401 or 403 is logged once, naming
-the token file, and waits the full 5 minutes. A refusal or a skip is
-logged the first pass it appears, not on every pass. A file that cannot be
-read, or whose session id would sit on a line too long to read, is
-skipped and named on stderr; the other files upload. A harness home
-that does not exist yet, terva included, is polled until it appears.
-A watcher that cannot use fsnotify, at the inotify watch limit or
-after a queue overflow, polls that tree and says so. On macOS the
-agent polls by default; `LAMPI_WATCH=fsnotify` or `LAMPI_WATCH=poll`
-overrides that. A second agent on the same state directory exits and
-names the first one's pid. SIGTERM drains the outbox and exits. On
-Unix, SIGHUP reads the lakes again: their servers, tokens and
-allowlists. The harnesses map and the debounce are read when the
-process starts, and so are the lakes on Windows; restart it to reload
-them. The one-shot command is still `sync`.
+`agent` with no subcommand pushes once, then watches and pushes as
+transcripts grow. [The agent](docs/agent.md) covers the debounce,
+retries, and signals. The one-shot command is still `sync`.
 
 To add another machine, register it with a one-time code from the
 lake. The lake needs a token file (one operator token is enough) and
@@ -148,42 +101,10 @@ and on the laptop:
 terva-lampi register --code-file laptop.code --install-service
 ```
 
-[Registering a machine](#registering-a-machine) explains the checks
-`register` makes and what it writes. On Windows, restart the agent
-after registering to add the lake.
-
-The manual path still works and stays the fallback. `login` writes a
-device token and does not print it:
-
-```bash
-./bin/terva-lampi login
-./bin/terva-lampi serve --token-file ~/.config/terva-lampi/token
-```
-
-Copy that file to the lake host and pass the copy to `serve`. With
-`--token-file`, `/v1` routes require `Authorization: Bearer`. `serve`
-stores a SHA-256 of each device token and rewrites that copy; keep the
-original as the client's secret. A token is 64 lowercase hex
-characters, which is what `login` writes. A line starting with `#` is
-a comment and stays through the rewrite. Any other line is an error.
-In a token directory, only `<name>.token` files are loaded, one device
-each. A file with another name, such as `laptop~` or
-`laptop.revoked`, is named on stderr and not loaded. Earlier releases
-loaded every file there, so rename device files to `.token` before
-you upgrade. `kill -HUP` reloads the tokens without dropping requests
-in flight. The token is not a command argument. Without a token file,
-`serve` accepts unauthenticated requests only on a loopback address and
-refuses any other `--addr`. With one, a non-loopback `--addr` is a
-stderr warning: `serve` speaks plain HTTP, so TLS belongs in front.
-Clients refuse to send a token to an `http://` URL unless the host is
-`localhost`, 127.0.0.0/8, or `::1`. `/healthz` stays open and returns no catalog
-data. Do not upload a project whose transcripts you would not copy onto
-that disk in the clear. Ruleset v2 scans for common tokens before the
-upload and quarantines a hit. It does not rewrite the file, and it is
-not a promise that every secret is caught. It also scans the manifest,
-which carries the cwd, the remote, and the relpaths. A hit there is
-refused even with `redaction.upload_hits` set. A file that changed
-after it was hashed is not sent in that sync; the next one sends it.
+[Registration and lakes](docs/registration-and-lakes.md) explains the
+checks `register` makes, what it writes, and the manual token-file
+fallback. On Windows, restart the agent after registering to add the
+lake.
 
 ### Development on a machine that runs lampi
 
@@ -222,354 +143,21 @@ Bulk export and ingestion charts are planned in later releases.
 
 ## Commands
 
-| Command | What it does |
-|---------|----------------|
-| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
-| `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. |
-| `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
-| `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind` or `set-profile` one by name. Runs while `serve` runs; a revoke takes effect on the next request. |
-| `terva-lampi serve identity` | Print the lake id, public URL and each signing key's fingerprint. `set-url URL` records the URL agents reach the lake at. Runs while `serve` runs. |
-| `terva-lampi serve register` | Mint a one-time registration code for a new machine (`--name`, `--expires`, `--profile`), or `--list` and `--revoke` them. |
-| `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
-| `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
-| `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
-| `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, last attempt, error, and skipped files, server and token file with their `source`, lake health and catalog counts. |
-| `terva-lampi register` | Join a lake with a registration code, read from stdin, a prompt or `--code-file`. Checks the code, the URL and the lake's keys, asks you to confirm the fingerprint, then writes the token and the lake entry. `--install-service` enables the user unit. |
-| `terva-lampi lakes` | List the lakes this machine reports to, or `remove` one. |
-| `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
-| `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
-| `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
-| `terva-lampi quarantine` | `list` the redaction hits held on this machine, or `allow` one digest to upload with an `override` stamp. |
-
-`terva-lampi export --format events` (the default) writes one
-normalized event per line. `--format sharegpt` and `--format
-trajectory` write one ShareGPT conversation per session that
-`config.json` allowlists and that has a training turn. A session
-with no training turn, and a session that is not permitted, are
-named on stderr and left out. Each training row carries
-`raw_sha256`, the current transcript blob. `encrypted_content` is
-copied onto the turn as stored and is not decrypted. Ruleset v2
-strips matches from the plaintext training fields (`value`, tool
-name, and call id). The command does not rewrite the CAS or the
-normalized events, and `--format events` is not stripped. While
-`serve` runs on the same `--data`, export reads the catalog
-read-only and starts no normalize worker. A session that `serve` has
-not normalized yet is named on stderr and left out.
-
-`terva-lampi --help` lists them. `terva-lampi <command> --help` prints flags.
-
-The machine id is a ULID created once in `~/.config/terva-lampi/machine.json`
-(`XDG_CONFIG_HOME` when that is set). It is not a fleet origin.
+[Command reference](docs/cli.md) lists every command, the export
+formats, and the order in which a flag, the environment, and
+`config.json` resolve a setting. `terva-lampi --help` lists the
+commands, and `terva-lampi <command> --help` prints the flags.
 
 ## Off-box raw
 
-Raw bytes leave the machine only for a project `config.json` allowlists.
-Phase 0 confirms that default-deny surface in
-[docs/policy.md](docs/policy.md).
-The default is to refuse every project. A rule matches the session's
-cwd (a path prefix, on a boundary), its terva cwd hash, or its git
-remote. Every field set on a rule has to match. `projects.deny` wins
-over allow. An empty rule matches nothing.
+Raw bytes leave the machine only for a project `config.json` allows,
+and ruleset v2 scans every file before it is sent. A hit is held in
+quarantine on the machine. [Allowlist and redaction](docs/allowlist-and-redaction.md)
+has the rule semantics and the scan. [Harnesses](docs/harnesses.md#cursor-sessions-with-an-empty-cwd)
+explains why some Cursor sessions are always refused.
 
-A deny rule reads a doubt as a match. Its `cwd_prefix` ignores case,
-and it is checked against the cwd and the prefix as written and with
-symlinks resolved. Its `cwd_hash` also matches the hash of the
-resolved cwd. Its `git_remote` also matches a session whose remote
-cannot be read: the cwd is gone, or the checkout has no readable
-origin. A cwd that exists outside any repository has no remote, and a
-`git_remote` deny does not match it. Add a `cwd_prefix` to a
-`git_remote` deny to limit it to one tree. An allow rule compares
-exactly, so a case or symlink variant of an allowed path is refused.
-
-The cwd is the one in the terva meta line, not the path of the JSONL
-file. Git remotes are folded before comparison, so
-`git@github.com:terva-sh/lampi.git` and
-`https://github.com/terva-sh/lampi` are the same remote. When the
-session cwd still has a `.git`, the manifest records the remote named
-origin. A URL remote loses its user part and password, except that an
-ssh URL keeps a bare login name such as `git`. Any other remote is
-ignored, so `git_remote` stays empty and a remote allow rule does not
-match. Allow those projects by cwd or cwd hash.
-
-The agent reads the remote, HEAD, and the root commit from files. It
-runs `git` only for a session the allowlist admitted, and only when
-the root commit is somewhere its reader does not follow. That call
-pins config so the checkout's own settings cannot start a transport,
-a hook, or another program.
-
-The lake's `project_id` is not the cwd hash. It is that same folded
-origin URL joined with the repository's root commit, so two machines
-with the same remote and root share a project even when the absolute
-paths differ. A shallow clone, or a checkout with no origin, has an
-empty id and is not linked. See [docs/protocol.md](docs/protocol.md).
-
-```json
-{
-  "server": "http://127.0.0.1:8787",
-  "projects": {
-    "allow": [
-      {"cwd_prefix": "/home/drew/src/foo"},
-      {"git_remote": "git@github.com:terva-sh/lampi.git"},
-      {"cwd_hash": "a1b2c3d4e5f60708"}
-    ],
-    "deny": [
-      {"cwd_prefix": "/home/drew/src/foo/private"}
-    ]
-  },
-  "redaction": {"upload_hits": false}
-}
-```
-
-`terva-lampi agent config` prints how many allow and deny rules are
-loaded. `sync` names each refused session and exits non-zero.
-
-### Registering a machine
-
-On the lake host, once:
-
-```bash
-terva-lampi serve identity set-url https://lake.example   # the URL agents use
-```
-
-Then one code per machine. The code is a secret: move it the way you
-would move a password, not in a chat log or a command line.
-
-```bash
-terva-lampi serve register --name laptop > laptop.code
-terva-lampi serve identity          # note the key fingerprint
-```
-
-On the machine, fresh or already running an agent:
-
-```bash
-terva-lampi register --code-file laptop.code --install-service
-```
-
-`register` checks the code's signature and expiry, that the URL is
-https, and that the key list at that URL holds the code's key. It then
-shows the lake's URL, id and key fingerprint. Compare the fingerprint
-with the one `serve identity` printed, as you would an SSH host key, and
-confirm. Without a terminal, pass `--fingerprint SHA256:…` instead. Then
-it makes a device token that never leaves the machine, redeems the code,
-and writes `tokens/<name>.token`, the lake entry in `config.json` with
-its pinned lake id and key, and the lake's base configuration. A running
-agent picks up the lake at once on Unix; on Windows restart it. On a
-fresh machine `--install-service` writes and starts the systemd user
-unit or launchd agent. Adding a second lake is the same command with a
-code from that lake.
-
-A code works once, for 24 hours unless `--expires` says otherwise.
-`serve register --list` shows each code's state and `--revoke` stops
-one. Copying a token file by hand (`login`, then `serve --token-file`)
-still works and stays the fallback.
-
-### Many lakes
-
-`config.json` can name more lakes under `lakes`, keyed by a short name:
-lowercase letters, digits, `-` and `_`, at most 32 characters. Each
-entry has its own `server`, `token_file` and `projects`. Registration
-also writes the lake's pinned `lake_id`, `key_id` and `public_key`.
-
-```json
-{
-  "server": "https://home.example",
-  "projects": {
-    "allow": [{"cwd_prefix": "/home/drew/src"}],
-    "deny": [{"cwd_prefix": "/home/drew/src/private"}]
-  },
-  "lakes": {
-    "work": {
-      "server": "https://work.example",
-      "token_file": "/home/drew/.config/terva-lampi/tokens/work.token",
-      "projects": {"allow": [{"git_remote": "git@git.example:work/app.git"}]}
-    }
-  }
-}
-```
-
-- The top-level `server` and `token_file`, `LAMPI_SERVER` and
-  `LAMPI_TOKEN_FILE` describe the lake named `default`, exactly as they
-  did before the map. A config with no `lakes` is that one lake.
-- A lake's `projects.allow` admits sessions to that lake only. The
-  top-level `projects.allow` belongs to the `default` lake. With only a
-  `lakes` map it is refused, so move each rule under its lake.
-- Top-level `projects.deny` applies to every lake, as well as each
-  lake's own deny rules. `redaction` applies to every lake.
-- `token_file` defaults to `tokens/<name>.token` in the config
-  directory, and to the usual `token` for an entry named `default`. An
-  entry named `default` beside a top-level `server` or `token_file` is
-  an error.
-- `--lake NAME` picks one lake on `sync`, `status` and `conflicts`.
-  `--server` and `--token-file` then override that lake's values. With
-  more than one lake they need `--lake`.
-- `terva-lampi agent config` prints one `lake` line per lake, with the
-  source of its server and token file.
-- `"lakes": {}` with no top-level `server`, `token_file` or
-  `LAMPI_SERVER` is no lake at all. The agent then discovers and
-  watches, uploads nothing, and says so once at start; `status` prints
-  `lakes: none configured`; `sync` fails and says why. This is the
-  standalone state a machine is in until it is registered. A
-  `config.json` with no `lakes` key still means the loopback lake.
-- A lake pinned in `config.json` (`lake_id`, `key_id`, `public_key`,
-  which registration writes) can publish a base configuration, its
-  profile. The agent fetches it at start and every hour, checks it
-  against the pinned key and lake id, and against the entry's
-  `device_id` when it has one, and keeps the last copy that
-  passed in `lakes/<name>/profile.json`. A fetch that fails or a copy
-  signed by another key is logged once and the cached copy stays in
-  use. `sync` uses the cached copy and does not fetch. A lake with no
-  pin gets no profile.
-- A profile can set harnesses on or off, the debounce, and the lake's
-  own `projects.allow` and `projects.deny`. It cannot set a harness
-  root or `redaction.upload_hits`, so a lake can narrow what a machine
-  sends but can only widen the allowlist for uploads to itself.
-  `config.json` wins over every field: a lake's allow rules apply only
-  when `config.json` gives that lake none, and its deny rules are added
-  to the local ones. For the machine-wide fields, the first lake in
-  order (`default`, then by name) that sets a field wins. A changed
-  profile restarts that lake's push loop; a change to harnesses or the
-  debounce is logged and waits for a restart. `agent config` prints a
-  `profile=` line per lake and `source=local`, `source=lake:NAME` or
-  `source=default` for each machine-wide value, and `allow_source=` on
-  each lake line.
-- On Unix, SIGHUP makes a running agent read its lakes again. A lake
-  that was removed, or whose server, token, machine id or rules
-  changed, drains its outbox before it stops, so nothing already
-  queued for it is dropped; a changed lake then starts again with a
-  full pass. A lake that did not change keeps running. A config that
-  does not resolve leaves the lakes as they were and says why. The
-  agent prints one `reload:` line naming what it added, removed,
-  restarted and kept. Commands that change the lakes send the signal
-  through `agent.pid`. Windows has no SIGHUP; restart the agent there.
-
-Each lake keeps its own sync state, in `lakes/<name>/` in the state
-directory: its outbox, its watermarks, and its last sync and attempt
-records. The quarantine records and `agent.pid` stay at the top and are
-shared. The first `sync` or agent start on this release moves the
-single-lake files into `lakes/default/`, and names the new place. The
-move copies the SQLite stores with `VACUUM INTO` into a hidden directory
-and renames it into place, then removes the old files by name. A lake
-sharing the directory (`serve` without `--data`) keeps its
-`catalog.db`, `cas/` and `identity.json`. `sync` refuses the move while
-an agent from an earlier release holds `agent.pid`; stop it first.
-
-Each lake also has its own machine id: the `default` lake keeps
-`machine.json`, and any other lake gets `machines/<name>.json` in the
-config directory, so two lakes cannot join their data by machine.
-
-`sync` pushes to every lake in turn, or to the one `--lake` names. The
-agent pushes to every lake. Each lake has its own outbox, backoff,
-debounce ceiling and 401 message, so a lake that is down or refuses the
-token waits out its own retry while the others keep receiving. With
-more than one lake, each output line starts with `lake <name>: `.
-`status` prints one block per lake. With more than one lake, a lake
-that cannot be prepared, such as one whose token file cannot be read,
-is named on stderr and the others still run: `sync` and `status` go on
-to the next lake and exit non-zero, and the agent starts without it.
-
-### Cursor sessions with an empty cwd
-
-The `projects` allow and deny rules are the same for every harness.
-An empty cwd matches no cwd prefix, no cwd hash, and no git remote,
-so default deny keeps the export on the machine.
-
-The Cursor IDE global database (`User/globalStorage/state.vscdb`) has
-an empty cwd, so that export is refused by design. Current Cursor
-builds keep chat bodies in the global database's `cursorDiskKV` table,
-so a read of the workspace database alone misses type 1 and type 2
-bubbles. The export copies the global database when
-`composer.composerHeaders` names at least one composer. One sync
-copies it at most once and shares that copy across workspaces. Each
-workspace selects, in SQL, only the `cursorDiskKV` rows of the
-composers it names. A snapshot copies the database and its WAL, not
-the `-shm` index. When a checkpoint moved the files during the copy,
-it copies again, up to five times. `PRAGMA quick_check` must pass on
-the copy, which is then opened read-only. The workspace database uses
-the same snapshot. The reader does not open a live database. The merge
-puts matching `cursorDiskKV` rows into the workspace document field
-`cursor_disk_kv`. Membership is `allComposers[].composerId` on the
-ItemTable key `composer.composerHeaders`. `composer.composerData` is
-the older workspace list and is not the registry. A composer listed
-only on `composer.composerData` is not merged. A missing global file
-adds nothing to the document. If the copy or the open fails, the
-workspace export fails. The global export itself still does not leave
-the machine. `sync` asks the allowlist before it builds an export, so
-the global database and a refused workspace are not copied or exported
-at all. `sync` still names them as refused. The Cursor IDE pinned
-reader `Version` is `2`, and the document field `harness_version` is
-that string. `confidence` is `low`. The native session id stays
-`workspace/<id>`. `terva-lampi export --format events` writes
-`session_id` as `cursor:workspace/<id>`. A workspace database takes
-its cwd from the folder URI in the sibling `workspace.json`. A URI
-with no local path, such as `vscode-remote`, is an empty cwd as well,
-and that workspace stays on the machine.
-
-Normalize promotes a bubble tool out of that document. A
-`toolFormerData` name and call id become a `tool_call`, and a result
-string becomes a `tool_result`. A missing name or call id stays on
-`extra`. On a `composerData:` row, `usageData` becomes a sibling
-usage event only when it has a numeric `costInCents` or a recognizable
-token count, and `latestConversationSummary` becomes a sibling
-compaction event only when a summary string is present. Bubble
-`usageData` and `tokenCount` stay on `extra`. The rules are in
-[docs/architecture.md](docs/architecture.md#flow). The adapter
-`Version` stays `2`. ShareGPT already includes that call.
-
-A Cursor CLI chat takes its cwd from the `cwd` field of the sibling
-`meta.json`, and only when that value is an absolute path. A missing
-file, a relative path, or a file URI leaves the cwd empty, and the
-allowlist refuses the export. The workspace directory name is a hash,
-not a path.
-
-When `sync` refuses a `cursor` or `cursor-cli` session whose cwd is
-empty, the stderr line names which of those cases it is.
-
-Before a request is sent, ruleset v2 scans the file. v2 is the
-high-signal shapes: AWS keys, GitHub, GitLab, Slack, Anthropic, OpenAI,
-Google, Stripe, npm, PyPI, Hugging Face, SendGrid, and DigitalOcean
-tokens with their fixed prefixes, and PEM or PGP private-key blocks
-from the BEGIN line through the END line. It does not flag JWTs or
-generic `password=` / `api_key=` lines. Those show up in ordinary
-transcripts, and a hit would quarantine the upload. A key
-that is exactly one of the AWS documentation example keys, or Slack's
-placeholder webhook, is not a hit. A key that only contains one is. The scan reads JSON string escapes as the text they stand for,
-so a key after an escaped line break, or a private key whose line
-breaks are `\n` escapes, is still found. A Cursor value that the
-export holds as base64 is scanned before it is encoded. The manifest
-stamps `redaction.ruleset` as `v2` and `redaction.status` as `scanned`
-when there are no hits. v1 missed keys inside JSON escapes. Manifests
-it stamped stay on the lake as they are. A hit is appended to `quarantine.jsonl` in the
-state directory (mode 0600) and is not uploaded. The log names the rule.
-It does not contain the matched text. A record is added once per
-relpath, digest, and rule set, not on every sync. `terva-lampi
-quarantine list` prints the log. `terva-lampi quarantine allow
-<relpath|sha256>` acknowledges one digest: a file with exactly those
-bytes uploads, and the manifest status is `override` with the hit
-count. A file that changes is scanned and held again. A hit in the
-manifest cannot be allowed. `redaction.upload_hits` is the override
-for every file. Leave it false.
-
-`sync` and `agent` share this path: allowlist, scan, watermark plan,
-outbox, upload, manifest ACK, then watermark commit and outbox ACK. A
-session whose files all match their watermarks is not read, scanned,
-or posted. An append uploads the new tail only; the lake assembles it
-onto the stored prefix. When the bytes before the tail scanned clean,
-only the tail and 64 KiB before it are scanned. That window reaches
-further back over a run a rule repeats, such as spaces before an AWS
-secret. A file larger than
-32 MiB is uploaded as chunks of at most that size. The lake keeps the
-chunks and does not assemble one object past the cap. The cursor does
-not move if the manifest POST fails. `agent` runs until SIGTERM, then
-tries the path once more so a push that was in flight can finish. On
-Unix, SIGUSR1 asks a running agent to sync. The process writes
-`agent.pid` in the state directory while it runs. The directory watch
-is still the source of truth.
-[hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh)
-is the optional terva `post_tool_use` acceleration that sends that
-signal. `make build` does not install it.
-[deploy/README.md](deploy/README.md) is how to wire it. If the hook
-never runs, the watch still uploads, and a down agent uploads on its
-next start.
+To add a machine to a lake, or to report to more than one lake, see
+[Registration and lakes](docs/registration-and-lakes.md).
 
 ## Packaging examples
 
@@ -590,17 +178,10 @@ machine that should upload there. Do not put that hostname in this tree.
 | [deploy/install-lampi-alias.sh](deploy/install-lampi-alias.sh) | Optional `lampi` symlink. Refuses to replace an existing `lampi`, and warns when that file looks like neurobin's LAMP installer |
 | [hooks/terva-post-tool-enqueue.sh](hooks/terva-post-tool-enqueue.sh) | Supported optional `post_tool_use` acceleration. Sends SIGUSR1 to a running `terva-lampi`. Not installed by `make build`. The watch still uploads if the hook never runs |
 
-`terva-lampi agent`, `sync`, `status`, and `agent config` read
-`LAMPI_SERVER` and `LAMPI_TOKEN_FILE` when the matching flags are
-unset. A flag wins, then the environment, then `config.json`, then the
-default. `status` and `agent config` print `source=flag`, `env`,
-`config`, or `default` on the `server` and `token_file` lines. The
-`conflicts` token file follows the same order. Harness `root` is a different order: flag, if any, then
-the `harnesses` entry in `config.json`, then the harness environment
-variable, then the adapter default. That variable is a debug override.
-Restart the agent after editing the map.
-[deploy/README.md](deploy/README.md) is the operator note, including
-the `status` line that names which layer won.
+The order in which a flag, the environment, and `config.json` set the
+server, the token file, and each harness root is in
+[Where a setting comes from](docs/cli.md#where-a-setting-comes-from).
+[deploy/README.md](deploy/README.md) is the operator note.
 
 ## Build
 
@@ -633,6 +214,12 @@ fixture prompt. See [docs/architecture.md](docs/architecture.md).
 
 | Doc | What's in it |
 |-----|----------------|
+| [docs/README.md](docs/README.md) | The documentation index, grouped by task |
+| [docs/harnesses.md](docs/harnesses.md) | Where each harness is read, and Cursor's empty-cwd cases |
+| [docs/allowlist-and-redaction.md](docs/allowlist-and-redaction.md) | Project allow and deny rules, the ruleset v2 scan, quarantine |
+| [docs/agent.md](docs/agent.md) | The upload path, the watch, retries, and signals |
+| [docs/registration-and-lakes.md](docs/registration-and-lakes.md) | Registering a machine, many lakes, lake profiles |
+| [docs/cli.md](docs/cli.md) | Every command, export formats, setting precedence |
 | [docs/architecture.md](docs/architecture.md) | What the lake is, what this tree implements, what is a stub |
 | [docs/web-dashboard.md](docs/web-dashboard.md) | OIDC dashboard configuration, deployment and validation |
 | [docs/web-api.md](docs/web-api.md) | Viewer metadata API, filtering, pagination and status meanings |

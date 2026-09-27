@@ -31,7 +31,7 @@ reload any of these, and to reload `harnesses`.
 A machine joins a lake with `terva-lampi register` and a one-time code
 from `terva-lampi serve register` on the lake host. That is the usual
 way, and the token copy described above is the fallback. See
-[Registering a machine](../README.md#registering-a-machine) and
+[Registering a machine](../docs/registration-and-lakes.md#registering-a-machine) and
 [docs/vps-bringup.md](../docs/vps-bringup.md#devices). On Windows,
 restart the agent after registering to add the lake.
 
@@ -49,14 +49,14 @@ uploads nothing.
 here, pointing at the binary that ran it, and enables it. It leaves an
 existing unit file alone. The unit it writes has `ExecReload`, so
 `systemctl --user reload terva-lampi-agent` reloads the lakes. See
-[Registering a machine](../README.md#registering-a-machine).
+[Registering a machine](../docs/registration-and-lakes.md#registering-a-machine).
 
 ## More than one lake
 
 `config.json` can name more lakes under `lakes`, each with its own
 server, token file and allowlist. The top-level `server` and
 `token_file` stay the lake named `default`, so these examples need no
-edit. See [Many lakes](../README.md#many-lakes) in the root README.
+edit. See [Many lakes](../docs/registration-and-lakes.md#many-lakes).
 
 ## Harnesses
 
@@ -72,7 +72,7 @@ Keys are the protocol harness ids: `terva`, `claude`, `codex`,
 `opencode`, `cursor`, `cursor-cli`. An unknown key fails the load.
 Each entry accepts `enabled` and `root` only. Allowlist rules and
 secrets are not fields of a harness entry. `projects` and `redaction`
-stay beside `harnesses`, as in the root README.
+stay beside `harnesses`; see [Allowlist and redaction](../docs/allowlist-and-redaction.md).
 
 `agent.debounce` is how long the watch must be quiet before the agent
 syncs, and `agent.debounce_max` is the longest a change waits for
