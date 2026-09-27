@@ -291,3 +291,60 @@ func TestAgentHoldsUploadsUntilTheFirstProfileFetchAnswers(t *testing.T) {
 		t.Fatalf("uploaded %d sessions before the profile's deny rule arrived:\n%s", n.Sessions, buf.String())
 	}
 }
+
+func TestAgentHoldsUploadsWhileTheFirstProfileCannotBeSaved(t *testing.T) {
+	lake, url := profileLake(t)
+	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
+	}})
+	home, cfg, state, _ := agentFixture(t, url)
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	var buf memBuf
+	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
+	lakes, _, _, err := loadAgentLakes(env, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory where the cache goes makes every save fail.
+	cache := filepath.Join(lakes[0].opt.LakeStateDir, lakeprofile.FileName)
+	if err := os.MkdirAll(cache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := newLakeRunner(env, lakes[0])
+	ctx, cancel := context.WithCancel(context.Background())
+	changed := make(chan struct{}, 4)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		watchProfile(ctx, env, r, 50*time.Millisecond, func() { changed <- struct{}{} })
+	}()
+	defer func() { cancel(); <-stopped }()
+	waitOut(t, &buf, func(s string) bool { return strings.Contains(s, "terva-lampi: profile: ") })
+	// Several more fetches fail to save; none releases the runner.
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-r.ready:
+		t.Fatalf("runner released without the profile's rules:\n%s", buf.String())
+	default:
+	}
+	if !strings.Contains(buf.String(), "uploads wait until profile default version sha256:") {
+		t.Fatalf("held runner not reported:\n%s", buf.String())
+	}
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-r.ready:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("runner still held after the profile was saved:\n%s", buf.String())
+	}
+	// The saved profile asked for the reload that applies its rules.
+	select {
+	case <-changed:
+	default:
+		t.Fatalf("no reload was asked for:\n%s", buf.String())
+	}
+	if _, err := os.Stat(cache); err != nil {
+		t.Fatal(err)
+	}
+}
