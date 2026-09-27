@@ -7,7 +7,8 @@ ticket map for the web releases. To run the dashboard, read
 
 Status: release A implemented and validated. Release B's viewer, search and
 search screen are implemented on a branch, with the recall additions below;
-export remains draft. Release C was groomed and promoted on 2026-09-28. The owner approved a
+export remains draft. Release C is implemented and its epic is done: head-update
+history, the activity API and the Activity page. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
@@ -370,10 +371,10 @@ Epic: [TKT-01M3FPP3H592T31Y2M3N347CPB — Session recall: one query surface for 
 
 ### Release C
 
-Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize accepted ingestion updates](../.tickets/tickets/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md). Depends on release A; it can be scheduled independently of release B because it uses catalog metadata only. The chart ticket was split in two during grooming so each pull request stays small enough for automated review.
+Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize accepted ingestion updates](../.tickets/done/TKT-01M3F2RKCZZNB6C1EGEG1FDCQH.md). Depends on release A; it can be scheduled independently of release B because it uses catalog metadata only. The chart ticket was split in two during grooming so each pull request stays small enough for automated review.
 
 | Ticket | Work |
 |---|---|
 | [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/done/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
 | [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/done/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web API: serve bounded UTC buckets of accepted head updates |
-| [TKT-01M3JEKA6RBHK9WSGEZZKKQYHC](../.tickets/tickets/TKT-01M3JEKA6RBHK9WSGEZZKKQYHC.md) | Web UI: activity page with charts, tables and release C validation |
+| [TKT-01M3JEKA6RBHK9WSGEZZKKQYHC](../.tickets/done/TKT-01M3JEKA6RBHK9WSGEZZKKQYHC.md) | Web UI: activity page with charts, tables and release C validation |

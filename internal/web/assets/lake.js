@@ -1,4 +1,9 @@
 // Progressive enhancement only: forms, navigation and tables work without JS.
+// A chart wider than a phone scrolls; start it at the newest bucket.
+function showLatest(root) {
+  root.querySelectorAll('.chart-scroll').forEach(el => { el.scrollLeft = el.scrollWidth; });
+}
+showLatest(document);
 (() => {
   const button = document.getElementById('refresh');
   const status = document.getElementById('refresh-status');
@@ -31,7 +36,10 @@
       const parsed = new DOMParser().parseFromString(await res.text(), 'text/html');
       const updated = parsed.querySelector('[data-live]');
       if (!updated) throw new Error('Refresh failed. Showing the last successful view.');
+      // Keep a table the reader opened open across the refresh.
+      live.querySelectorAll('details[id][open]').forEach(d => { const next = updated.querySelector('#' + d.id); if (next) next.open = true; });
       live.replaceWith(updated);
+      showLatest(updated);
       paused = false;
       status.textContent = polling ? 'Up to date. Refreshes every 25 seconds while this tab is visible.' : 'Up to date. This page stays still while you read.';
     } catch (error) {

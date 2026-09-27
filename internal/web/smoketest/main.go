@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -86,6 +87,11 @@ func run() error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	if !*empty {
+		if err := seedActivity(filepath.Join(dir, "catalog.db"), time.Now()); err != nil {
+			return err
 		}
 	}
 	idp := testidp.New()
@@ -192,4 +198,43 @@ func transcript(n int, native, harness string) []normalize.Event {
 		}
 	}
 	return out
+}
+
+// seedActivity gives the Activity page three weeks of synthetic history:
+// recording starts 21 days back, and each day has a varying number of
+// accepted updates, some of them snapshot rewrites that shrank. It
+// writes head_updates directly so the sessions, their states and every
+// count the rest of the smoke asserts stay as they are. A fixture only;
+// the lake records these rows itself at ingest.
+func seedActivity(path string, now time.Time) error {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	since := now.Add(-21 * 24 * time.Hour)
+	if _, err := db.Exec(`UPDATE lake_meta SET value = ? WHERE key = 'head_updates_since'`, since.UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	harnesses := []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli"}
+	for d := 0; d < 21; d++ {
+		n := 6 + (d*7)%11
+		if d%7 == 5 || d%7 == 6 {
+			n = d % 3
+		}
+		for k := 0; k < n; k++ {
+			at := since.Add(time.Duration(d)*24*time.Hour + time.Duration(k*97%1440)*time.Minute)
+			old, grown := int64(4096*(k+1)), int64(4096*(k+1)+1500*(d%5+1))
+			rel := protocol.RelationGrownFrom
+			if k == 0 && d%4 == 2 {
+				old, grown, rel = 90000, 30000, protocol.RelationHead
+			}
+			if _, err := db.Exec(`INSERT INTO head_updates (session_uid, machine_id, harness, received_ns, old_sha256, new_sha256, old_size, new_size, relation)
+				VALUES (?, ?, ?, ?, 'synthetic-old', 'synthetic-new', ?, ?, ?)`,
+				fmt.Sprintf("synthetic-activity-%d", k), fmt.Sprintf("synthetic-machine-%d", k%3), harnesses[(d+k)%6], at.UnixNano(), old, grown, rel); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

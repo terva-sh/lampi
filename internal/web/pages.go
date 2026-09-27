@@ -61,12 +61,14 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return fmt.Sprint(*p)
 	},
-	"deref":     func(p *bool) bool { return p != nil && *p },
-	"derefInt":  func(p *int64) int64 { return *p },
-	"int64":     func(n int) int64 { return int64(n) },
-	"kib":       func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
-	"lifetimes": func() []struct{ Value, Label string } { return codeLifetimes },
-	"revokeURL": func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
+	"deref":       func(p *bool) bool { return p != nil && *p },
+	"derefInt":    func(p *int64) int64 { return *p },
+	"int64":       func(n int) int64 { return int64(n) },
+	"sub":         func(a, b float64) float64 { return a - b },
+	"signedBytes": signedBytes,
+	"kib":         func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
+	"lifetimes":   func() []struct{ Value, Label string } { return codeLifetimes },
+	"revokeURL":   func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
 	"collectionURL": func(uid, kind string) string {
 		return "/sessions/" + url.PathEscape(uid) + "?collection=" + url.QueryEscape(kind)
 	},
@@ -90,6 +92,7 @@ type pageData struct {
 	Target      int64
 	HasTarget   bool
 	Search      searchView
+	Activity    activityView
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
 	Operator bool
@@ -124,7 +127,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")

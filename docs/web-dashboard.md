@@ -7,8 +7,8 @@ serves are in [web-api.md](web-api.md). Back to the
 The dashboard shows lake totals, a harness breakdown, normalization status,
 recent and filtered sessions, artifact metadata, provenance, and divergent
 copies. It reads normalized transcripts, searches them, and copies a span of
-events as text. It is read-only. Downloads and ingestion charts remain future
-releases in [web-ui-plan.md](web-ui-plan.md).
+events as text, and charts how often session heads changed. It is read-only.
+Downloads remain a future release in [web-ui-plan.md](web-ui-plan.md).
 
 ![The lampi dashboard overview with synthetic data](images/dashboard-overview.png)
 
@@ -227,6 +227,35 @@ Cancel stops a pending code. A used code made a device, and
 5 codes at once and one more every 12 seconds. The
 [browser API](web-api.md#registration-codes) has the same actions as JSON.
 
+## Activity
+
+`/activity` charts the updates the lake accepted, per UTC hour or day. The
+range is the last 24 hours or 7 days by the hour, or the last 7, 30 or 90 days
+by the day. A harness filter narrows it. Two charts sit side by side, each with
+a hover label on every bar, and "Show as a table" lists the same numbers. The
+page refreshes every 25 seconds while it is visible.
+
+- **Accepted head updates** counts each time a session head changed: a new
+  session, a transcript that grew, or a Cursor or OpenCode export rewritten.
+  An agent retrying an upload, a stale upload, a second machine uploading bytes
+  the lake already has, and a divergent copy change no head and are not counted.
+- **Net logical head-size change** adds up the new head's size minus the old
+  one's. A rewrite that shrank a session is negative and drawn below the axis.
+  This is not network traffic, and it is not disk growth: the CAS keeps every
+  blob it stored, and one blob can serve many sessions.
+- **Recording starts at the upgrade.** The catalog records updates from the
+  moment it reaches schema 8, and the page shows that time. Earlier activity
+  is not rebuilt from session timestamps, which only keep the latest head.
+  Buckets before recording began are hatched and read "not measured". They are
+  not zero. The bucket in which recording began is marked partial in the table.
+- **Purge and restore change history.** `serve purge` deletes a session's
+  updates, so past buckets lose them. Restoring a backup rewinds the history to
+  the moment of the backup. Agents that upload again afterwards are counted
+  when the lake accepts them, not when they first uploaded.
+
+The [browser API contract](web-api.md#activity) gives the JSON form, with the
+range limits: at most 14 days by the hour and 90 days by the day.
+
 ## Search index
 
 With web configuration, serve keeps a full-text index of normalized event text
@@ -255,7 +284,8 @@ neither builds nor updates it.
 ## Validation, backup and rollout
 
 The catalog upgrade adds published-generation/head markers and indexed numeric
-head-update timestamps. Take the normal lake backup before upgrading a deployed
+head-update timestamps. Schema 8 adds the head-update history the Activity page
+reads, and it records from the upgrade on. Take the normal lake backup before upgrading a deployed
 lake. An older binary refuses the newer schema; rollback requires a compatible
 binary or an appropriate pre-upgrade backup, not editing `user_version`.
 
@@ -274,8 +304,8 @@ go test ./internal/catalog -run TestDashboard20K -count=1 -v
 
 [e2e/README.md](../e2e/README.md#browser-dashboard-smoke) documents the automated
 Chromium smoke. It covers login, denied access, pagination, filters, metadata,
-conflicts, refresh failures/recovery, mobile/keyboard use, no-JS, empty lake and
-logout against temporary synthetic lakes. No live credentials are needed.
+conflicts, activity charts, refresh failures/recovery, mobile/keyboard use, no-JS,
+empty lake and logout against temporary synthetic lakes. No live credentials are needed.
 
 Before a real rollout, provide the actual origin/issuer/client/group/secret path,
 verify the IdP callback and claim mapping, and apply the existing VPS go-live gates.
