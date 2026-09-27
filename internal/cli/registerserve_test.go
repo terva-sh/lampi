@@ -90,7 +90,7 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.URL != url || c.LakeID != lake.Identity.LakeID || !strings.Contains(stderr, c.Fingerprint()) {
+	if c.URL != url || c.LakeID != lake.Identity().LakeID || !strings.Contains(stderr, c.Fingerprint()) {
 		t.Fatalf("code %+v stderr %s", c, stderr)
 	}
 	if strings.Contains(stderr, c.Secret) {
@@ -193,7 +193,7 @@ func TestServeRegisterAuditsACodeThatExpiredUnused(t *testing.T) {
 	dir, lake, _ := registerLake(t)
 	now := time.Now()
 	secret, _ := regcode.NewSecret()
-	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", now.Add(-2*time.Hour), now.Add(-time.Hour))
+	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", "", now.Add(-2*time.Hour), now.Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

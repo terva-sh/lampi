@@ -43,7 +43,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusTooManyRequests, errors.New("too many requests; try again"))
 		return
 	}
-	if s.Identity == nil {
+	id := s.Identity()
+	if id == nil {
 		s.auditRefusal("", "", "lake has no identity")
 		s.fail(w, r, http.StatusNotFound, errors.New("this lake has no identity"))
 		return
@@ -94,13 +95,25 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusBadRequest, errors.New("machine_id must not contain the registration secret; send the agent's own machine id"))
 		return
 	}
+	now := s.now()
+	// The key check and the profile signature both use id, the identity
+	// read at the start of this request, so a retirement that SIGHUP
+	// loads meanwhile applies to the next request, not half of this one.
+	keyActive := func(keyID string) bool {
+		for _, k := range id.ActiveKeys(now) {
+			if k.ID == keyID {
+				return true
+			}
+		}
+		return false
+	}
 	// The profile is signed before the redemption commits. A code whose
 	// profile the lake cannot sign stays unspent, and no device is made,
 	// so the agent can register again once the operator fixes the cause.
 	var signed *protocol.Signed
 	var signErr error
-	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, s.now(), func(d catalog.Device) error {
-		signed, signErr = s.signedProfile(d)
+	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device) error {
+		signed, signErr = s.signedProfileBy(id, d)
 		return signErr
 	})
 	switch {
@@ -128,6 +141,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, catalog.ErrRegistrationRevoked):
 		s.refuseRegistration(w, r, reg.ID, "revoked")
 		return
+	case errors.Is(err, catalog.ErrRegistrationKey):
+		s.refuseRegistration(w, r, reg.ID, "signing key retired")
+		return
 	case errors.Is(err, catalog.ErrTokenTaken):
 		// The agent makes a fresh token; a clash is a replay or a bug.
 		s.refuseRegistration(w, r, reg.ID, "token already belongs to a device")
@@ -150,7 +166,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if info := infoOf(r); info != nil {
 		info.device, info.deviceID = d.Name, d.ID
 	}
-	resp := protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, LakeID: s.Identity.LakeID, Config: signed}
+	resp := protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, LakeID: id.LakeID, Config: signed}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, resp)
 }

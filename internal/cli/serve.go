@@ -75,8 +75,8 @@ terva-lampi login writes. A line starting with # is a comment. Any
 other line is an error. Each plaintext token is hashed and the file is
 rewritten to sha256 lines, comments kept. Copy the device's token
 file first; do not point this flag at the device's only copy. The
-token is not an argument. SIGHUP reads the token file and the
-profiles file again. Requests
+token is not an argument. SIGHUP reads the token file, the profiles
+file and identity.json again. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
 
@@ -236,9 +236,9 @@ func runServe(env Env, args []string) error {
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: listening on %s\n", ln.Addr())
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: data %s\n", data)
 	if created {
-		fmt.Fprintf(env.stderr(), "terva-lampi serve: made identity %s; back up %s\n", lake.Identity.LakeID, identity.FileName)
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: made identity %s; back up %s\n", lake.Identity().LakeID, identity.FileName)
 	} else {
-		fmt.Fprintf(env.stderr(), "terva-lampi serve: identity %s\n", lake.Identity.LakeID)
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: identity %s\n", lake.Identity().LakeID)
 	}
 	if devices == nil || devices.Empty() {
 		fmt.Fprintln(env.stderr(), "terva-lampi serve: no device token configured; accepting unauthenticated requests")
@@ -255,6 +255,7 @@ func runServe(env Env, args []string) error {
 			reloadDevices(env, tokenFile, devices, lake)
 		}
 		reloadProfiles(env, profilesFile, lake)
+		reloadIdentity(env, data, lake)
 	})
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
@@ -282,6 +283,24 @@ func reloadDevices(env Env, path string, devices *auth.Devices, lake *api.Server
 	}
 	devices.Replace(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
+}
+
+// reloadIdentity reads identity.json again, so a key serve identity
+// rotate added or retire ended is published without a restart. A file
+// that does not load, or names another lake, keeps the keys in use.
+func reloadIdentity(env Env, data string, lake *api.Server) {
+	cur := lake.Identity()
+	next, err := identity.Load(data)
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: identity reload failed, keeping the keys in use: %v\n", err)
+		return
+	}
+	if cur != nil && next.LakeID != cur.LakeID {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: identity reload refused: identity.json is lake %s, this lake is %s\n", next.LakeID, cur.LakeID)
+		return
+	}
+	lake.SetIdentity(next)
+	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded identity, %d active keys\n", len(next.ActiveKeys(time.Now())))
 }
 
 // reloadProfiles reads the profiles file again. A file that no longer

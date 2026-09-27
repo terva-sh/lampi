@@ -54,7 +54,7 @@ func (f *regFixture) mint(name string) string {
 }
 
 func (f *regFixture) fingerprint() string {
-	return identity.Fingerprint(f.lake.Identity.Keys[0].Pub)
+	return identity.Fingerprint(f.lake.Identity().Keys[0].Pub)
 }
 
 func (f *regFixture) env(stdin string) Env {
@@ -93,7 +93,7 @@ func TestRegisterOnAFreshMachineThenSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := file.Lakes["default"]
-	if lc.Server != f.url || lc.LakeID != f.lake.Identity.LakeID || lc.KeyID == "" || lc.PublicKey == "" || lc.TokenFile != tokenPath {
+	if lc.Server != f.url || lc.LakeID != f.lake.Identity().LakeID || lc.KeyID == "" || lc.PublicKey == "" || lc.TokenFile != tokenPath {
 		t.Fatalf("lake entry %+v", lc)
 	}
 	// The entry names the device the lake made, so only profiles signed
@@ -164,8 +164,8 @@ func TestRegisterRefusesEachCheck(t *testing.T) {
 		want       string
 	}{
 		{"tampered", tampered, nil, "check 1"},
-		{"expired", encode(f.lake.Identity, regcode.Code{URL: f.url, Secret: c.Secret, Expires: now.Add(-time.Hour)}), nil, "check 1, the code: it expired"},
-		{"plain http", encode(f.lake.Identity, regcode.Code{URL: "http://lake.example", Secret: c.Secret, Expires: now.Add(time.Hour)}), nil, "check 2"},
+		{"expired", encode(f.lake.Identity(), regcode.Code{URL: f.url, Secret: c.Secret, Expires: now.Add(-time.Hour)}), nil, "check 1, the code: it expired"},
+		{"plain http", encode(f.lake.Identity(), regcode.Code{URL: "http://lake.example", Secret: c.Secret, Expires: now.Add(time.Hour)}), nil, "check 2"},
 		{"another key", encode(other, regcode.Code{URL: f.url, Secret: c.Secret, Expires: now.Add(time.Hour)}), nil, "check 3"},
 		{"wrong fingerprint", good, []string{"--fingerprint", identity.Fingerprint(other.Keys[0].Pub)}, "check 4, the fingerprint"},
 		{"no terminal", good, []string{}, "check 4, confirmation: stdin is not a terminal"},
@@ -219,7 +219,7 @@ func TestRegisterRefusesALakeWithNoKeyEndpoint(t *testing.T) {
 	f := newRegFixture(t)
 	code := f.mint("box")
 	fp := f.fingerprint()
-	f.lake.Identity = nil
+	f.lake.SetIdentity(nil)
 	if err := f.register(code+"\n", "--fingerprint", fp); err == nil || !strings.Contains(err.Error(), "upgrade the lake") {
 		t.Fatalf("%v", err)
 	}
@@ -413,7 +413,7 @@ func TestRegisterReplaceNeverTakesOverAnotherLakesEntry(t *testing.T) {
 	if err := Run([]string{"serve", "register", "--name", "box", "--data", dir}, Env{Stdout: &out, Stderr: ioDiscard()}); err != nil {
 		t.Fatal(err)
 	}
-	fp := identity.Fingerprint(other.Identity.Keys[0].Pub)
+	fp := identity.Fingerprint(other.Identity().Keys[0].Pub)
 	if err := f.register(strings.TrimSpace(out.String())+"\n", "--fingerprint", fp, "--lake", "work", "--replace"); err == nil || !strings.Contains(err.Error(), "configured for another lake") {
 		t.Fatalf("replace over another lake: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestRegisterReplaceLeavesTheReplacedEntrysTokenFileAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lc := file.Lakes["work"]; lc.TokenFile != tokenPath || lc.LakeID != f.lake.Identity.LakeID {
+	if lc := file.Lakes["work"]; lc.TokenFile != tokenPath || lc.LakeID != f.lake.Identity().LakeID {
 		t.Fatalf("lake entry %+v", lc)
 	}
 }

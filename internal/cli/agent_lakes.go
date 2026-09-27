@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -281,7 +282,7 @@ func machineFields(env Env) string {
 
 // profileEvery is how often a running agent fetches each pinned lake's
 // profile, after the fetch at start.
-const profileEvery = time.Hour
+var profileEvery = time.Hour
 
 // watchProfile fetches the lake's profile now and every interval until
 // ctx ends. A copy that verifies against the pin and has a new version
@@ -304,12 +305,15 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		have, haveName = d.Payload.Version, d.Payload.Profile
 	}
 	failing := false
+	keysFailing := false
 	// unsaved is set while the newest verified copy has rules the
 	// cache lacks.
 	unsaved := false
-	// pending is set while a saved copy's rules wait for a reload that
-	// has succeeded.
+	// pending is set while a saved copy's rules, or a moved pin, wait
+	// for a reload that has succeeded.
 	pending := false
+	// waitsOn names what a pending reload puts in force.
+	waitsOn := ""
 	released := false
 	release := func() {
 		if !released && !unsaved && !pending {
@@ -318,6 +322,32 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		}
 	}
 	fetch := func() {
+		// The key list first: a moved pin restarts this lake, and the
+		// profile is then fetched by the new runner under the new pin.
+		_, moved, err := refreshPin(ctx, env, l.cfg)
+		if ctx.Err() != nil {
+			return
+		}
+		switch {
+		case err != nil:
+			if !keysFailing {
+				r.errf("keys: %v", err)
+			}
+			keysFailing = true
+			var refused *pinRefused
+			if errors.As(err, &refused) {
+				return
+			}
+		case moved:
+			keysFailing = false
+			fmt.Fprintf(env.stdout(), "%skey list: pin moved along the lake's rotation\n", r.prefix())
+			// The reload that puts the new pin in force is retried, like a
+			// new profile's, until it succeeds.
+			pending, waitsOn = true, "the moved pin"
+			return
+		default:
+			keysFailing = false
+		}
 		fctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		signed, err := upload.FetchAgentConfig(fctx, l.opt)
@@ -358,7 +388,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		have, haveName = d.Payload.Version, d.Payload.Profile
 		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), haveName, have)
 		if newVersion {
-			pending = true
+			pending, waitsOn = true, fmt.Sprintf("profile %s version %s", haveName, have)
 		}
 	}
 	// step fetches, asks for the reload a saved copy still waits on, and
@@ -368,7 +398,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		if pending && ctx.Err() == nil {
 			pending = !changed()
 			if pending && !released {
-				r.errf("profile: reload failed; uploads wait until profile %s version %s is in force", haveName, have)
+				r.errf("reload failed; uploads wait until %s is in force", waitsOn)
 			}
 		}
 		release()
@@ -391,6 +421,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 func sameLake(a, b agentLake) bool {
 	x, y := a.opt, b.opt
 	return a.tokenPath == b.tokenPath &&
+		a.cfg.LakeID == b.cfg.LakeID && a.cfg.KeyID == b.cfg.KeyID && a.cfg.PublicKey == b.cfg.PublicKey &&
 		x.ServerURL == y.ServerURL && x.Token == y.Token &&
 		x.MachineID == y.MachineID && x.LakeStateDir == y.LakeStateDir &&
 		x.UploadHits == y.UploadHits && reflect.DeepEqual(x.Projects, y.Projects)

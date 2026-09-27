@@ -51,9 +51,10 @@ type Server struct {
 	// Devices are SHA-256 hashes of bearer tokens. Nil or empty disables
 	// the check. The plaintext is not kept on the server.
 	Devices *auth.Devices
-	// Identity signs the published key list and hello. Nil leaves the
-	// key route answering 404 and hello unsigned.
-	Identity *identity.Identity
+	// ident signs the published key list, hello, profiles and codes.
+	// Nil leaves the key route answering 404 and hello unsigned.
+	// SetIdentity replaces it, so serve can reload identity.json.
+	ident atomic.Pointer[identity.Identity]
 	// profiles are the base configurations agents fetch. SetProfiles
 	// replaces them; nil serves one empty default profile.
 	profiles atomic.Pointer[config.Profiles]

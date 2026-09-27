@@ -38,7 +38,7 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	}
 	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {Agent: config.AgentConfig{Debounce: "1s"}}})
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", now, now.Add(24*time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", now, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	token := strings.Repeat("e7", 32)
@@ -52,10 +52,10 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Name != "newbox" || resp.LakeID != s.Identity.LakeID || !strings.HasPrefix(resp.DeviceID, "dev_") || resp.Config == nil {
+	if resp.Name != "newbox" || resp.LakeID != s.Identity().LakeID || !strings.HasPrefix(resp.DeviceID, "dev_") || resp.Config == nil {
 		t.Fatalf("%+v", resp)
 	}
-	pub, _ := identity.ParsePublic(s.Identity.Public()[0])
+	pub, _ := identity.ParsePublic(s.Identity().Public()[0])
 	if err := identity.Verify(identity.ContextAgentConfig, resp.Config, pub); err != nil {
 		t.Fatal(err)
 	}
@@ -121,10 +121,10 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	}
 	expired, _ := regcode.NewSecret()
 	revoked, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "old", regcode.HashSecret(expired), "", now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "old", regcode.HashSecret(expired), "", "", now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", now); err != nil {
@@ -164,7 +164,7 @@ func TestRegisterAuditsEveryMalformedAttemptWithoutTheSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	send := func(body []byte) int {
@@ -232,7 +232,7 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	// The code was minted for a profile this server does not load.
 	s.SetProfiles(config.Profiles{config.DefaultProfile: {}})
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	before, err := s.Catalog.Devices(t.Context())
@@ -264,17 +264,11 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	}
 	unspent("missing profile")
 
-	// With the profile back but no key to sign with, it fails the same way.
+	// With the rotation layer, a lake with no active key refuses the code
+	// at the key check, before any signing, so the missing profile is the
+	// signing failure this test can force.
 	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {}})
-	keys := s.Identity.Keys
-	s.Identity.Keys = nil
-	if rr := postRegister(t, s, req); rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("no active key: %d %s", rr.Code, rr.Body)
-	}
-	unspent("no active key")
-
 	// Once the cause is fixed the same code redeems, with its profile.
-	s.Identity.Keys = keys
 	rr = postRegister(t, s, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("after the fix: %d %s", rr.Code, rr.Body)
@@ -285,7 +279,7 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	}
 
 	raw, _ := os.ReadFile(audit.Path(dir))
-	for _, reason := range []string{"reason=profile is not in the profiles file", "reason=profile could not be signed"} {
+	for _, reason := range []string{"reason=profile is not in the profiles file"} {
 		if !strings.Contains(string(raw), reason) {
 			t.Fatalf("audit lacks %s:\n%s", reason, raw)
 		}
@@ -306,7 +300,7 @@ func TestRegisterRefusesAMachineIDThatCarriesTheSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{secret, "host-" + secret, secret[:20], "x" + secret[10:18] + "y"} {

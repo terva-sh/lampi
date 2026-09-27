@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -161,6 +162,25 @@ func runSync(env Env, args []string) error {
 			if err := migrateDefault(env, state, false); err != nil {
 				fail(lake, label, err)
 				continue
+			}
+		}
+		// A registered lake's key list moves the pin along a rotation,
+		// or stops this lake when it cannot be trusted from the pin.
+		if uploadPin(lake) != nil {
+			next, moved, err := refreshPin(ctx, env, lake)
+			var refused *pinRefused
+			switch {
+			case errors.As(err, &refused):
+				fmt.Fprintf(env.stderr(), "terva-lampi: %skeys: %v\n", label, err)
+				failed = append(failed, lake.Name)
+				last = err
+				continue
+			case err != nil:
+				// The hello below still checks the pin.
+				fmt.Fprintf(env.stderr(), "terva-lampi: %skeys: %v\n", label, err)
+			case moved:
+				fmt.Fprintf(env.stderr(), "terva-lampi: %skey list: pin moved to key %s\n", label, next.KeyID)
+				lake = next
 			}
 		}
 		opt, err := lakeOptions(env, file, state, src, lake)

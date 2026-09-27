@@ -112,8 +112,47 @@ the two, as you would an SSH host key. A run with no terminal must be
 given the fingerprint.
 
 After registration, the agent checks the pinned key on every `hello` and
-on every base configuration it fetches. It refuses a lake at the same
-URL whose key does not chain to the pin.
+on every base configuration it fetches, and pushes nothing to a lake
+that does not prove it. It refuses a lake at the same URL whose key does
+not chain to the pin.
+
+### Rotating and retiring keys
+
+`serve identity rotate` adds a key endorsed by the current one. Both
+sign for an overlap, 14 days unless `--overlap` says otherwise. Each
+agent reads the key list at start and hourly, follows the endorsement
+from its pin, and moves the pin in `config.json` without registering
+again. A machine that is off for longer than the overlap still follows
+the chain when it comes back, because the retired key stays listed with
+its endorsement. `serve identity retire KEY-ID` ends a key's window
+early. SIGHUP, or a restart, publishes either change.
+
+A code records the key that signed it. Once that key is retired, the
+lake refuses the code, and so does `register` when it reads the key
+list.
+
+### If a key may have leaked
+
+1. On the lake host, run `serve identity rotate`, so there is a key the
+   leak did not touch.
+2. Run `serve identity retire KEY-ID --compromised` for the leaked key,
+   then send serve SIGHUP and take a backup.
+3. Every agent still pinned to that key stops pushing and says the lake
+   must be registered again. For each machine, revoke its old device
+   with `serve devices revoke`, mint a code with `serve register`, and
+   run `terva-lampi register --replace` there. The machine keeps its
+   machine id and sync state, so nothing is sent twice.
+4. Agents that had already moved to a newer key keep working. If the
+   leak may be older than the last rotation, retire those keys as
+   compromised too and re-register every machine.
+5. Revoke any pending codes the leaked key signed. The lake already
+   refuses them once the key is retired, and revoking them makes the
+   list say so.
+
+Someone holding the leaked key can still impersonate the lake to an
+agent that has not seen the compromised mark, for example by sitting
+between it and the lake. Registering again with a code checked against
+`serve identity` on the lake host ends that.
 
 ### Audit
 

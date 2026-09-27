@@ -55,7 +55,7 @@ func pinnedConfig(url string, id *identity.Identity) string {
 func TestAgentFetchesThePinnedProfileAndUploadsWhatItAllows(t *testing.T) {
 	lake, url := profileLake(t)
 	home, cfg, state, _ := agentFixture(t, url)
-	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	var buf memBuf
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -99,12 +99,12 @@ func TestAgentFetchesThePinnedProfileAndUploadsWhatItAllows(t *testing.T) {
 	}
 }
 
-func TestAgentRefusesAProfileSignedByAnotherKeyAndKeepsItsCache(t *testing.T) {
+func TestAgentRefusesALakeWithAnotherKeyAndKeepsItsCache(t *testing.T) {
 	lake, url := profileLake(t)
 	home, cfg, state, _ := agentFixture(t, url)
 	getenv := agentGetenv(home, cfg, state)
 	// Fetch once with the right pin, so a good copy is cached.
-	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	run := func(want ...string) string {
 		t.Helper()
 		var buf memBuf
@@ -138,8 +138,13 @@ func TestAgentRefusesAProfileSignedByAnotherKeyAndKeepsItsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lake.Identity = other
-	out := run("profile: identity: no signature by key", "keeping cached profile sha256:")
+	lake.SetIdentity(other)
+	// The key list and every hello now come from another lake: the pin
+	// refuses both, so nothing is pushed and no profile is taken.
+	out := run("keys: the key list is for lake", "did not prove pinned key")
+	if strings.Contains(out, "uploaded 1") {
+		t.Fatalf("pushed to a lake that did not prove the pin:\n%s", out)
+	}
 	if strings.Contains(out, "profile default version") {
 		t.Fatalf("a profile from another key was taken:\n%s", out)
 	}
@@ -157,19 +162,19 @@ func TestOneLakesProfileNeverAppliesToAnotherLake(t *testing.T) {
 	lake, url := profileLake(t)
 	home, cfg, state, _ := agentFixture(t, url)
 	getenv := agentGetenv(home, cfg, state)
-	k := lake.Identity.Public()[0]
+	k := lake.Identity().Public()[0]
 	writeAgentConfig(t, cfg, fmt.Sprintf(`{"projects":{"deny":[{"cwd_prefix":"/work/app/secret"}]},"lakes":{
 		"work":{"server":%q,"lake_id":%q,"key_id":%q,"public_key":%q},
-		"home":{"server":"http://127.0.0.1:9"}}}`, url, lake.Identity.LakeID, k.ID, k.PublicKey))
+		"home":{"server":"http://127.0.0.1:9"}}}`, url, lake.Identity().LakeID, k.ID, k.PublicKey))
 	allow := config.Profile{Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work"}}}}
-	signed, err := lake.Identity.Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
-		LakeID: lake.Identity.LakeID, Profile: "default", Version: allow.Version(),
+	signed, err := lake.Identity().Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
+		LakeID: lake.Identity().LakeID, Profile: "default", Version: allow.Version(),
 		Config: json.RawMessage(`{"projects":{"allow":[{"cwd_prefix":"/work"}]}}`),
 	}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	all, err := config.ResolveLakes(config.File{Lakes: map[string]config.LakeConfig{"work": {Server: url, LakeID: lake.Identity.LakeID, KeyID: k.ID, PublicKey: k.PublicKey}}}, getenv, config.LakeFlags{})
+	all, err := config.ResolveLakes(config.File{Lakes: map[string]config.LakeConfig{"work": {Server: url, LakeID: lake.Identity().LakeID, KeyID: k.ID, PublicKey: k.PublicKey}}}, getenv, config.LakeFlags{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +207,7 @@ func TestAgentCachesAProfileRenamedWithTheSameContent(t *testing.T) {
 	lake, url := profileLake(t)
 	home, cfg, state, _ := agentFixture(t, url)
 	getenv := agentGetenv(home, cfg, state)
-	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	// The cache holds profile ci with the content the lake now serves
 	// as default, as after serve devices set-profile moved the device.
 	p := lake.Profiles()[config.DefaultProfile]
@@ -210,8 +215,8 @@ func TestAgentCachesAProfileRenamedWithTheSameContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signed, err := lake.Identity.Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
-		LakeID: lake.Identity.LakeID, Profile: "ci", Version: p.Version(), Config: raw,
+	signed, err := lake.Identity().Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
+		LakeID: lake.Identity().LakeID, Profile: "ci", Version: p.Version(), Config: raw,
 	}, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -269,12 +274,12 @@ func TestAgentHoldsUploadsUntilTheFirstProfileFetchAnswers(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	home, cfg, state, _ := agentFixture(t, srv.URL)
-	k := lake.Identity.Public()[0]
+	k := lake.Identity().Public()[0]
 	// config.json allows the session's project for work; only the
 	// lake's profile denies it.
 	writeAgentConfig(t, cfg, fmt.Sprintf(`{"lakes":{"work":{"server":%q,"lake_id":%q,"key_id":%q,"public_key":%q,
 		"projects":{"allow":[{"cwd_prefix":"/work/app"}]}}},"agent":{"debounce":"100ms"}}`,
-		srv.URL, lake.Identity.LakeID, k.ID, k.PublicKey))
+		srv.URL, lake.Identity().LakeID, k.ID, k.PublicKey))
 	var buf memBuf
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -300,7 +305,7 @@ func TestAgentHoldsUploadsWhileTheFirstProfileCannotBeSaved(t *testing.T) {
 		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
 	}})
 	home, cfg, state, _ := agentFixture(t, url)
-	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	var buf memBuf
 	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
 	lakes, _, _, err := loadAgentLakes(env, "", "")
@@ -360,7 +365,7 @@ func TestAgentHoldsUploadsUntilTheReloadForANewProfileSucceeds(t *testing.T) {
 		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
 	}})
 	home, cfg, state, _ := agentFixture(t, url)
-	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	var buf memBuf
 	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
 	lakes, _, _, err := loadAgentLakes(env, "", "")

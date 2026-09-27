@@ -129,6 +129,19 @@ GET /.well-known/terva-lampi/keys?nonce=q3v…
 ```
 
 `status` is `active` or `retired`. A key with an end has `not_after`.
+A key added by `serve identity rotate` has `endorsed_by`, the key that
+was current then, and `endorsement`, that key's unpadded base64url
+ed25519 signature over `terva-lampi/key-endorse/v1`, a zero byte, then
+`{"lake_id":…,"key_id":…,"public_key":…}` for the new key. A key retired
+as possibly leaked has `"compromised": true`.
+
+A registered client follows endorsements from the key it pinned. It
+first checks that the list is signed by the pin or by a key the pin
+chains to, ignoring compromised marks for that check, because the marks
+are only as good as the signature. It then moves its pin to the newest
+active key it reaches without passing through a compromised key. A pin
+the list marks compromised, or a list with no chain from the pin, is
+refused, and the client stops pushing to that lake.
 The answer is `Cache-Control: no-store`. A lake with no identity answers
 404. A bad nonce is 400. This route and the other routes that need no
 token, except `/healthz`, share one rate limit: a burst of 20, refilled
@@ -159,7 +172,10 @@ because earlier releases ignored the body. A nonce that is not valid is
 }
 ```
 
-`lake_id` and `proof` are there when the lake has an identity. `proof`
+`lake_id` and `proof` are there when the lake has an identity. A
+registered client sends a nonce on every hello and pushes nothing
+unless `lake_id` is its pinned lake and `proof` verifies with its pinned
+key over that nonce. `proof`
 is a signed document with the `hello/v1` context. Its payload repeats
 the lake id and `server_time`, and the nonce when one was sent. A client
 that pinned the lake's key checks it here on every connection.

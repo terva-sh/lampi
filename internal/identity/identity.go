@@ -53,6 +53,7 @@ const (
 	ContextHello        = "hello/v1"
 	ContextAgentConfig  = "agent-config/v1"
 	ContextRegistration = "registration/v1"
+	ContextEndorse      = "key-endorse/v1"
 )
 
 // Key is one signing key. Priv is nil for a key parsed from a published
@@ -64,6 +65,11 @@ type Key struct {
 	NotAfter time.Time
 	Pub      ed25519.PublicKey
 	priv     ed25519.PrivateKey
+	// EndorsedBy and Endorsement are set on a key rotation added: the
+	// key that was current then, and its signature over this key.
+	EndorsedBy  string
+	Endorsement []byte
+	Compromised bool
 }
 
 // Active reports whether k may sign at now.
@@ -81,12 +87,15 @@ type Identity struct {
 }
 
 type fileKey struct {
-	ID       string     `json:"id"`
-	Alg      string     `json:"alg"`
-	Seed     string     `json:"seed"`
-	Status   string     `json:"status"`
-	Created  time.Time  `json:"created"`
-	NotAfter *time.Time `json:"not_after,omitempty"`
+	ID          string     `json:"id"`
+	Alg         string     `json:"alg"`
+	Seed        string     `json:"seed"`
+	Status      string     `json:"status"`
+	Created     time.Time  `json:"created"`
+	NotAfter    *time.Time `json:"not_after,omitempty"`
+	EndorsedBy  string     `json:"endorsed_by,omitempty"`
+	Endorsement string     `json:"endorsement,omitempty"`
+	Compromised bool       `json:"compromised,omitempty"`
 }
 
 type file struct {
@@ -158,9 +167,14 @@ func Load(dir string) (*Identity, error) {
 			return nil, fmt.Errorf("identity: %s: key %s listed twice", Path(dir), fk.ID)
 		}
 		seen[fk.ID] = true
-		k := Key{ID: fk.ID, Status: fk.Status, Created: fk.Created, Pub: pub, priv: priv}
+		k := Key{ID: fk.ID, Status: fk.Status, Created: fk.Created, Pub: pub, priv: priv, EndorsedBy: fk.EndorsedBy, Compromised: fk.Compromised}
 		if fk.NotAfter != nil {
 			k.NotAfter = *fk.NotAfter
+		}
+		if fk.Endorsement != "" {
+			if k.Endorsement, err = base64.RawURLEncoding.DecodeString(fk.Endorsement); err != nil {
+				return nil, fmt.Errorf("identity: %s: key %d: endorsement does not decode", Path(dir), i+1)
+			}
 		}
 		id.Keys = append(id.Keys, k)
 	}
@@ -215,14 +229,29 @@ func ValidLakeID(s string) bool { return validLakeID(s) }
 // file already exists, so two processes that race to make an identity
 // cannot both win: the loser's link fails.
 func create(dir string, id *Identity) error {
+	return write(dir, id, false)
+}
+
+// save replaces dir's identity.json with id. The file is written beside
+// it and renamed over it. Only Update calls it, holding the lock.
+func save(dir string, id *Identity) error {
+	return write(dir, id, true)
+}
+
+func encode(id *Identity) ([]byte, error) {
 	f := file{Version: fileVersion, LakeID: id.LakeID}
 	for _, k := range id.Keys {
 		fk := fileKey{
-			ID:      k.ID,
-			Alg:     AlgEd25519,
-			Seed:    base64.RawURLEncoding.EncodeToString(k.priv.Seed()),
-			Status:  k.Status,
-			Created: k.Created,
+			ID:          k.ID,
+			Alg:         AlgEd25519,
+			Seed:        base64.RawURLEncoding.EncodeToString(k.priv.Seed()),
+			Status:      k.Status,
+			Created:     k.Created,
+			EndorsedBy:  k.EndorsedBy,
+			Compromised: k.Compromised,
+		}
+		if len(k.Endorsement) > 0 {
+			fk.Endorsement = base64.RawURLEncoding.EncodeToString(k.Endorsement)
 		}
 		if !k.NotAfter.IsZero() {
 			t := k.NotAfter
@@ -232,9 +261,24 @@ func create(dir string, id *Identity) error {
 	}
 	raw, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
+		return nil, err
+	}
+	return append(raw, '\n'), nil
+}
+
+// write puts id in dir. A new identity is linked into place, so two
+// processes racing to make one cannot both win; a replacement is
+// renamed over the old file.
+func write(dir string, id *Identity, replace bool) error {
+	for _, k := range id.Keys {
+		if k.priv == nil {
+			return errors.New("identity: a key has no private half; only a loaded or new identity can be written")
+		}
+	}
+	raw, err := encode(id)
+	if err != nil {
 		return err
 	}
-	raw = append(raw, '\n')
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("identity: %w", err)
 	}
@@ -258,6 +302,12 @@ func create(dir string, id *Identity) error {
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("identity: %w", err)
+	}
+	if replace {
+		if err := os.Rename(name, Path(dir)); err != nil {
+			return fmt.Errorf("identity: %w", err)
+		}
+		return syncDir(dir)
 	}
 	if err := os.Link(name, Path(dir)); err != nil {
 		return fmt.Errorf("identity: %w", err)
@@ -345,11 +395,16 @@ func (id *Identity) Public() []protocol.LakeKey {
 	out := make([]protocol.LakeKey, 0, len(id.Keys))
 	for _, k := range id.Keys {
 		lk := protocol.LakeKey{
-			ID:        k.ID,
-			Alg:       AlgEd25519,
-			PublicKey: base64.RawURLEncoding.EncodeToString(k.Pub),
-			Status:    k.Status,
-			Created:   k.Created,
+			ID:          k.ID,
+			Alg:         AlgEd25519,
+			PublicKey:   base64.RawURLEncoding.EncodeToString(k.Pub),
+			Status:      k.Status,
+			Created:     k.Created,
+			EndorsedBy:  k.EndorsedBy,
+			Compromised: k.Compromised,
+		}
+		if len(k.Endorsement) > 0 {
+			lk.Endorsement = base64.RawURLEncoding.EncodeToString(k.Endorsement)
 		}
 		if !k.NotAfter.IsZero() {
 			t := k.NotAfter
@@ -390,14 +445,27 @@ func (id *Identity) Sign(context string, payload any, now time.Time) (*protocol.
 	return s, nil
 }
 
-// SignRaw signs payload for context with the first key active at now,
-// for a document too small to carry an envelope, and returns that key.
+// Current is the newest key active at now: the one a code is signed
+// with and the one a rotation endorses from.
+func (id *Identity) Current(now time.Time) (Key, bool) {
+	var cur Key
+	found := false
+	for _, k := range id.ActiveKeys(now) {
+		if !found || k.Created.After(cur.Created) {
+			cur, found = k, true
+		}
+	}
+	return cur, found
+}
+
+// SignRaw signs payload for context with the current key, for a
+// document too small to carry an envelope, and returns that key.
 func (id *Identity) SignRaw(context string, payload []byte, now time.Time) (Key, []byte, error) {
-	keys := id.ActiveKeys(now)
-	if len(keys) == 0 {
+	k, ok := id.Current(now)
+	if !ok {
 		return Key{}, nil, errors.New("identity: no active key")
 	}
-	return keys[0], ed25519.Sign(keys[0].priv, message(context, payload)), nil
+	return k, ed25519.Sign(k.priv, message(context, payload)), nil
 }
 
 // VerifyRaw checks a SignRaw signature.

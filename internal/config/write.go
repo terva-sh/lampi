@@ -35,6 +35,34 @@ func SetLake(getenv func(string) string, name string, lc LakeConfig) error {
 	})
 }
 
+// UpdateLake rewrites lakes.<name> in config.json with what edit makes
+// of the entry as it is read for this write, so a check edit makes
+// holds for the entry it replaces. An error from edit writes nothing.
+func UpdateLake(getenv func(string) string, name string, edit func(*LakeConfig) error) error {
+	return editConfig(getenv, func(top map[string]json.RawMessage, lakes map[string]json.RawMessage) error {
+		raw, ok := lakes[name]
+		if !ok {
+			return fmt.Errorf("config: no lake named %s in the lakes map", name)
+		}
+		var lc LakeConfig
+		if err := json.Unmarshal(raw, &lc); err != nil {
+			return fmt.Errorf("config: lakes.%s: %w", name, err)
+		}
+		if err := edit(&lc); err != nil {
+			return err
+		}
+		if err := checkLakeEntry(name, lc); err != nil {
+			return err
+		}
+		out, err := json.Marshal(lc)
+		if err != nil {
+			return err
+		}
+		lakes[name] = out
+		return nil
+	})
+}
+
 // RemoveLake deletes lakes.<name> from config.json. Removing the last
 // lake leaves an empty lakes map, which is the standalone state, not
 // the loopback default a missing map means.

@@ -234,6 +234,14 @@ type LakeKey struct {
 	Status    string     `json:"status"`
 	Created   time.Time  `json:"created"`
 	NotAfter  *time.Time `json:"not_after,omitempty"`
+	// EndorsedBy is the key that vouched for this one when it was added
+	// by rotation, and Endorsement that key's signature. A client
+	// pinned to EndorsedBy may move its pin to this key.
+	EndorsedBy  string `json:"endorsed_by,omitempty"`
+	Endorsement string `json:"endorsement,omitempty"`
+	// Compromised is set on a key retired because it may have leaked.
+	// Nothing it endorsed or signed is trusted.
+	Compromised bool `json:"compromised,omitempty"`
 }
 
 // BlobCheckResponse is the body of POST /v1/blobs/check.

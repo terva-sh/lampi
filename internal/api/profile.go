@@ -30,7 +30,7 @@ func (s *Server) Profiles() config.Profiles {
 // profile has left the profiles file gets 404, and the agent keeps the
 // copy it has.
 func (s *Server) agentConfig(w http.ResponseWriter, r *http.Request) {
-	if s.Identity == nil {
+	if s.Identity() == nil {
 		s.fail(w, r, http.StatusNotFound, fmt.Errorf("this lake has no identity"))
 		return
 	}
@@ -52,6 +52,12 @@ var errNoProfile = errors.New("profile is not in the lake's profiles file")
 
 // signedProfile is device d's profile signed for the agent.
 func (s *Server) signedProfile(d catalog.Device) (*protocol.Signed, error) {
+	return s.signedProfileBy(s.Identity(), d)
+}
+
+// signedProfileBy is signedProfile under the identity id, for a caller
+// that must sign with the same identity it checked a key against.
+func (s *Server) signedProfileBy(id *identity.Identity, d catalog.Device) (*protocol.Signed, error) {
 	name := d.Profile
 	if name == "" {
 		name = config.DefaultProfile
@@ -65,8 +71,11 @@ func (s *Server) signedProfile(d catalog.Device) (*protocol.Signed, error) {
 		return nil, err
 	}
 	now := s.now()
-	return s.Identity.Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
-		LakeID:   s.Identity.LakeID,
+	if id == nil {
+		return nil, errors.New("this lake has no identity")
+	}
+	return id.Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
+		LakeID:   id.LakeID,
 		DeviceID: d.ID,
 		Profile:  name,
 		Version:  p.Version(),

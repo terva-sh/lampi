@@ -35,6 +35,9 @@ const (
 	RegistrationExpired  = "registration.expired"
 	RegistrationRevoked  = "registration.revoked"
 	RegistrationRefused  = "registration.refused"
+
+	KeyAdded   = "key.added"
+	KeyRetired = "key.retired"
 )
 
 // Event is one line. Device is the device name. Actor is where the
