@@ -23,7 +23,7 @@ golangci-lint. When you change a gate in the justfile, change it in
 both workflow files and in the Makefile too.
 
 The module is `terva.sh/lampi`, the same vanity prefix as
-`terva.sh/terva`. Install from a checkout until a release is tagged:
+`terva.sh/terva`. To build by hand:
 
 ```bash
 go build -o bin/terva-lampi ./cmd/terva-lampi
@@ -54,6 +54,32 @@ See [Architecture](architecture.md#mvp-acceptance-gate).
 
 The Playwright dashboard smoke, the synthetic container image, and the
 opt-in go-live drills are in [e2e/README.md](../e2e/README.md).
+
+## Releases
+
+A release follows the other terva-sh repositories. Pushing a `v*` tag
+runs goreleaser on each forge: `.github/workflows/release.yml` publishes
+the archives and `checksums.txt` as a GitHub release, and
+`.forgejo/workflows/release.yml` uploads the same files to Forgejo with
+the `BOT_TOKEN` secret. `install.sh` at the repository root installs
+from the GitHub release. Its tests are `TestInstallScript*` in
+`internal/cli`.
+
+Tag a commit that is already on both mains, so run `just sync-github
+--yes` first, then:
+
+```bash
+git tag -a v0.1.0 -m v0.1.0
+git push origin v0.1.0
+git push github v0.1.0
+```
+
+A tag with a hyphen, such as `v0.2.0-rc1`, publishes as a prerelease.
+Nothing is linked in with `-X` for a release: `go build` in a checkout
+at the tag records the version and commit, and `--version` reads them
+back. Both workflows fail when the built binary does not name its tag.
+`just release-check` validates `.goreleaser.yaml`, and `just
+release-snapshot` builds every archive into `dist/` without a tag.
 
 ## Develop on a machine that runs lampi
 

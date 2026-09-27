@@ -33,7 +33,8 @@ jobs:
       - name: Install dependencies
         # git for the checkout. gcc and musl-dev are cgo, which -race
         # needs on alpine; without them the race step fails to link.
-        run: apk add --no-cache git gcc musl-dev
+        # curl is what install.sh downloads with, for TestInstallScript*.
+        run: apk add --no-cache git gcc musl-dev curl
 
       - name: Checkout Code
         uses: Actions-Mirrors/forgejo-actions-checkout@v6

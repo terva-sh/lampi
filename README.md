@@ -47,6 +47,20 @@ Agents dial the lake. Nothing dials into your laptop.
 Each path moves with the harness's own environment variable, and you
 can turn a harness off. See [Harnesses](docs/harnesses.md).
 
+## Install
+
+On Linux or macOS, install the latest release into `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh
+```
+
+The script checks the archive against the release's `checksums.txt`
+and never uses sudo. `--version v0.1.0` pins a release and `--prefix
+DIR` picks another directory. On Windows, take the zip from the
+[releases page](https://github.com/terva-sh/lampi/releases). To build
+from source instead, see [Developing lampi](docs/development.md).
+
 ## Quickstart
 
 You need Go 1.27. From a checkout:
@@ -105,6 +119,13 @@ confirm its fingerprint, and installs the agent as a user service:
 
 ```bash
 terva-lampi register --code-file laptop.code --install-service
+```
+
+On a machine with no binary yet, the installer does both steps and asks
+for the code on the terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh -s -- --register
 ```
 
 [Registration and lakes](docs/registration-and-lakes.md) covers the

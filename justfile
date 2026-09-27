@@ -86,6 +86,15 @@ dev-serve *args: build
 dev *args: build
     env {{dev_env}} bin/terva-lampi "$@"
 
+# Validate .goreleaser.yaml without building anything. Needs goreleaser.
+release-check:
+    goreleaser check
+
+# dist/ is gitignored. docs/development.md#releases.
+# Build every release archive into dist/ with no tag and no publish.
+release-snapshot:
+    goreleaser release --snapshot --clean --skip=validate
+
 # Remove .dev/: the dev lake, machine id, token, and agent state.
 dev-clean:
     rm -rf {{quote(dev_dir)}}
