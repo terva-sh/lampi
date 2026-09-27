@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T21:47:34Z
+updated_at: 2026-09-27T00:04:01Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -87,6 +87,10 @@ Evidence:
 - The full `-race` suite, the golive drills, and the `GOOS=windows` vet are green.
 
 The backup covers pending codes because they live in `catalog.db`, which the backup already copies with VACUUM INTO. There is no separate test for that.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
+
+Review 932 on PR #17, all accepted. 40b6fab: every refusal the limiter lets through writes registration.refused with a fixed lake-side reason, never request text. Rate-limited 429s are deliberately not audited: each audit line is a synced write, and the limiter is the only bound on writes an open route can cause. 698a449: revoke is one immediate transaction that only changes a still-pending code, so a revoke racing a redeem can no longer both succeed. c7b7547: serve register writes the mint to the audit log before printing; on a failed write the code is revoked and never shown.
 
 ## Summary
 
