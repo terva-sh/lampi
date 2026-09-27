@@ -1,5 +1,9 @@
 # Architecture
 
+Read this to understand how lampi is built: what each package does, how a
+transcript flows from a machine into the lake, and what is not built yet.
+Back to the [documentation index](README.md).
+
 lampi is the session lake for the terva-sh org. One Go module, one binary,
 `terva-lampi`, with the client and the server as subcommands. It is not
 part of the terva harness repo: the release cadence and the set of
@@ -13,7 +17,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 
 | Piece | Package | State |
 |-------|---------|--------|
-| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve identity`, `serve devices`), `agent`, `sync`, `status`, `login`, `export`, `conflicts` |
+| CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve identity`, `serve devices`, `serve register`), `agent`, `sync`, `status`, `register`, `lakes`, `login`, `export`, `conflicts`, `quarantine`. See [cli.md](cli.md) |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |

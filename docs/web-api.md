@@ -1,5 +1,9 @@
 # Browser API
 
+Reference for the routes behind the browser dashboard. To turn the dashboard on,
+see [web-dashboard.md](web-dashboard.md). Back to the
+[documentation index](README.md).
+
 The optional browser interface is enabled by `serve --web-config PATH`. It
 requires OIDC viewer membership and a browser session. Device bearer tokens
 cannot authorize it; browser cookies cannot authorize `/v1`. Without web config,
