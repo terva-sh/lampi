@@ -14,8 +14,9 @@ releases in [web-ui-plan.md](web-ui-plan.md).
 
 ![A transcript in the lampi dashboard, with events selectable for copying](images/dashboard-transcript.png)
 
-The screenshots come from the synthetic fixture. `node e2e/readme-screenshots.mjs`
-regenerates them; see [e2e/README.md](../e2e/README.md#readme-screenshots).
+The screenshots come from the synthetic fixture, not a real lake. To regenerate
+them, follow [README screenshots](../e2e/README.md#readme-screenshots). The
+script needs the path to a Playwright install.
 
 ## Register the application
 
