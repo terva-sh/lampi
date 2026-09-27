@@ -221,6 +221,69 @@ func TestSyncKeepsGoingPastALakeItCannotPrepare(t *testing.T) {
 	}
 }
 
+func TestStatusReportsTheOtherLakesPastOneItCannotPrepare(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// default's token file is gone, so its block cannot be written.
+	// work's block is still printed, and the exit names default.
+	if err := os.Remove(filepath.Join(f.cfg, "home.token")); err != nil {
+		t.Fatal(err)
+	}
+	err := f.run("status")
+	if err == nil || !strings.Contains(err.Error(), "status failed for 1 of 2 lakes: default") {
+		t.Fatalf("status: %v\n%s\n%s", err, f.stdout, f.stderr)
+	}
+	if !strings.Contains(f.stderr.String(), "terva-lampi: lake default: ") {
+		t.Fatalf("the failure does not name its lake:\n%s", f.stderr)
+	}
+	out := f.stdout.String()
+	if !strings.Contains(out, "lake: work\n") || !strings.Contains(out, "health: ok") || !strings.Contains(out, "catalog_sessions: 0") {
+		t.Fatalf("status did not print the work lake:\n%s", out)
+	}
+}
+
+func TestAgentStartsTheOtherLakesPastOneItCannotPrepare(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// default's token file is gone, so its options cannot be built. The
+	// agent names it and still pushes to work.
+	if err := os.Remove(filepath.Join(f.cfg, "home.token")); err != nil {
+		t.Fatal(err)
+	}
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{Stdout: &buf, Stderr: &buf, Getenv: f.env.Getenv}, "", "")
+	}()
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "lake work: checked 1, missing 1, uploaded 1")
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "terva-lampi: lake default: ") || !strings.Contains(out, "the other lakes still start") {
+		t.Fatalf("the skipped lake is not named:\n%s", out)
+	}
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("work sessions %d\n%s", n.Sessions, out)
+	}
+}
+
+func TestAgentDoesNotStartWhenNoLakeCanBePrepared(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	for _, name := range []string{"home.token", "work.token"} {
+		if err := os.Remove(filepath.Join(f.cfg, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := runAgentLoop(t.Context(), f.env, "", "")
+	if err == nil || !strings.Contains(err.Error(), "no lake could be prepared: default, work") {
+		t.Fatalf("agent: %v\n%s", err, f.stderr)
+	}
+}
+
 func TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther(t *testing.T) {
 	f := newTwoLakeFixture(t)
 	// Allow the session for both lakes, then make default refuse the
