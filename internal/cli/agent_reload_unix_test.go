@@ -197,6 +197,37 @@ func TestShutdownWaitsForAReloadInProgress(t *testing.T) {
 	}
 }
 
+func TestAReloadComparesMachineWideSettingsWithTheOnesTheAgentStartedWith(t *testing.T) {
+	home, cfg, state, _ := agentFixture(t, "http://127.0.0.1:9")
+	writeAgentConfig(t, cfg, standaloneConfig)
+	var buf memBuf
+	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	set := &lakeSet{
+		env: env, ctx: ctx, state: filepath.Join(state, "terva-lampi"), runners: map[string]*lakeRunner{},
+		machine: machineFields(env),
+	}
+	const warning = "harnesses or debounce changed; restart the agent to apply them"
+	reload := func(raw string, warns bool) {
+		t.Helper()
+		writeAgentConfig(t, cfg, raw)
+		before := len(buf.String())
+		if !set.reload() {
+			t.Fatalf("reload failed:\n%s", buf.String())
+		}
+		if got := strings.Contains(buf.String()[before:], warning); got != warns {
+			t.Fatalf("warned %v, want %v:\n%s", got, warns, buf.String()[before:])
+		}
+	}
+	slower := `{"lakes":{},"agent":{"debounce":"200ms","debounce_max":"1s"}}`
+	// A change still waiting for a restart is said at every reload, and
+	// going back to what the agent runs with is not a change.
+	reload(slower, true)
+	reload(slower, true)
+	reload(standaloneConfig, false)
+}
+
 func TestReloadAgentSignalsOnlyAHeldPIDFile(t *testing.T) {
 	state := t.TempDir()
 	if line := reloadAgent(state); !strings.Contains(line, "no agent is running") {
