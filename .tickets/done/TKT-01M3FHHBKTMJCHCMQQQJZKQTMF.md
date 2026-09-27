@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:01:02Z
+updated_at: 2026-09-27T01:40:48Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -99,6 +99,10 @@ Review 931 on PR #16. (1) accepted, a8931a8: a pinned lake does not push until t
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
 
 Review 973 on PR #16, accepted in 1ecc3eb. A verified first profile with new rules that cannot be saved keeps the runner held, because the reload that applies the rules reads the saved copy. A later fetch that saves it releases the runner. A failed or unverified fetch still releases it on the cached copy. Cost: with a state directory that cannot be written, uploads wait for the hourly retry, which fails closed. Also on this layer: the fan-out fix's startAgentLakes had read config.json without the lake profile and built lakes without their config, so no lake was pinned. That surfaced only after the merge, as profile tests timing out. Start now goes through the same builder as reload.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:40:48Z
+
+Review 984 on PR #16, both accepted in aae2992. reload now returns whether the config it read is in force. A saved new profile stays pending and its reload is retried on every tick, and the first upload waits until one succeeds, so a profile deny can no longer be bypassed by a failed reload. Once the runner is released it is not held again; a later failed reload is only retried. The machine-wide settings a reload compares against are now the ones the agent started with, not the last config read.
 
 ## Summary
 
