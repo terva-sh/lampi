@@ -1,0 +1,149 @@
+# Allowlist and redaction
+
+Read this before you allow a project. It covers the two gates every
+file passes before it leaves the machine: the project allowlist in
+`config.json`, and the ruleset v2 secret scan. Back to the
+[documentation index](README.md).
+
+Do not upload a project whose transcripts you would not copy onto the
+lake's disk in the clear. The scan catches common token shapes. It is
+not a promise that every secret is caught.
+
+## The project allowlist
+
+Raw bytes leave the machine only for a project that `config.json`
+allows. The default is to refuse every project. The Phase 0 decision
+behind that default is in [policy.md](policy.md#off-box-raw).
+
+```json
+{
+  "server": "http://127.0.0.1:8787",
+  "projects": {
+    "allow": [
+      {"cwd_prefix": "/home/you/src/foo"},
+      {"git_remote": "git@github.com:terva-sh/lampi.git"},
+      {"cwd_hash": "a1b2c3d4e5f60708"}
+    ],
+    "deny": [
+      {"cwd_prefix": "/home/you/src/foo/private"}
+    ]
+  },
+  "redaction": {"upload_hits": false}
+}
+```
+
+`terva-lampi agent config` prints how many allow and deny rules are
+loaded. `sync` names each refused session and exits non-zero.
+
+### How a rule matches
+
+A rule matches the session's cwd (a path prefix, on a boundary), its
+terva cwd hash, or its git remote. Every field set on a rule has to
+match. `projects.deny` wins over allow. An empty rule matches nothing.
+
+The cwd is the one the harness recorded, such as the terva meta line.
+It is not the path of the transcript file.
+
+An allow rule compares exactly, so a case or symlink variant of an
+allowed path is refused.
+
+A deny rule reads a doubt as a match:
+
+- Its `cwd_prefix` ignores case, and it is checked against the cwd and
+  the prefix as written and with symlinks resolved.
+- Its `cwd_hash` also matches the hash of the resolved cwd.
+- Its `git_remote` also matches a session whose remote cannot be read:
+  the cwd is gone, or the checkout has no readable origin. A cwd that
+  exists outside any repository has no remote, and a `git_remote` deny
+  does not match it. Add a `cwd_prefix` to a `git_remote` deny to limit
+  it to one tree.
+
+### Git remotes
+
+Git remotes are folded before comparison, so
+`git@github.com:terva-sh/lampi.git` and
+`https://github.com/terva-sh/lampi` are the same remote.
+
+When the session cwd still has a `.git`, the manifest records the
+remote named origin. A URL remote loses its user part and password,
+except that an ssh URL keeps a bare login name such as `git`. Any
+other remote is ignored, so `git_remote` stays empty and a remote allow
+rule does not match. Allow those projects by cwd or cwd hash.
+
+The agent reads the remote, HEAD, and the root commit from files. It
+runs `git` only for a session the allowlist admitted, and only when the
+root commit is somewhere its reader does not follow. That call pins
+config so the checkout's own settings cannot start a transport, a hook,
+or another program.
+
+### Project ids on the lake
+
+The lake's `project_id` is not the cwd hash. It is the folded origin
+URL joined with the repository's root commit. Two machines with the
+same remote and root therefore share a project even when the absolute
+paths differ. A shallow clone, or a checkout with no origin, has an
+empty id and is not linked. See [protocol.md](protocol.md).
+
+### Sessions with no cwd
+
+An empty cwd matches no rule, so it is refused. The Cursor IDE global
+database and some Cursor workspaces have one by design. See
+[Cursor sessions with an empty cwd](harnesses.md#cursor-sessions-with-an-empty-cwd).
+
+With more than one lake, each lake has its own allow rules and every
+lake shares the top-level deny rules. See
+[Registration and lakes](registration-and-lakes.md#many-lakes).
+
+## The secret scan (ruleset v2)
+
+Before a request is sent, ruleset v2 scans the file. v2 is the
+high-signal shapes:
+
+- AWS keys;
+- GitHub, GitLab, Slack, Anthropic, OpenAI, Google, Stripe, npm, PyPI,
+  Hugging Face, SendGrid, and DigitalOcean tokens with their fixed
+  prefixes;
+- PEM or PGP private-key blocks, from the BEGIN line through the END
+  line.
+
+It does not flag JWTs or generic `password=` or `api_key=` lines. Those
+show up in ordinary transcripts, and a hit would quarantine the upload.
+A key that is exactly one of the AWS documentation example keys, or
+Slack's placeholder webhook, is not a hit. A key that only contains one
+is.
+
+The scan reads JSON string escapes as the text they stand for. A key
+after an escaped line break, or a private key whose line breaks are
+`\n` escapes, is still found. A Cursor value that the export holds as
+base64 is scanned before it is encoded.
+
+The scan also reads the manifest, which carries the cwd, the remote,
+and the relpaths. A hit there is refused even with
+`redaction.upload_hits` set, and cannot be allowed.
+
+The manifest stamps `redaction.ruleset` as `v2` and `redaction.status`
+as `scanned` when there are no hits. v1 missed keys inside JSON
+escapes. Manifests it stamped stay on the lake as they are.
+
+Neither the allowlist nor the scan rewrites the raw file.
+
+## Quarantine
+
+A hit is appended to `quarantine.jsonl` in the state directory (mode
+0600) and is not uploaded. The log names the rule. It does not contain
+the matched text. A record is added once per relpath, digest, and rule
+set, not on every sync.
+
+- `terva-lampi quarantine list` prints the log.
+- `terva-lampi quarantine allow <relpath|sha256>` acknowledges one
+  digest. A file with exactly those bytes uploads, and the manifest
+  status is `override` with the hit count. A file that changes is
+  scanned and held again.
+
+`redaction.upload_hits` is the override for every file. Leave it false.
+
+## Training export
+
+`terva-lampi export --format sharegpt` strips ruleset v2 matches from
+the plaintext training fields. The CAS and `--format events` are not
+rewritten. See [the export command](cli.md#export).
