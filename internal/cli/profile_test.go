@@ -364,7 +364,7 @@ func TestAgentHoldsUploadsUntilTheReloadForANewProfileSucceeds(t *testing.T) {
 		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
 	}})
 	home, cfg, state, _ := agentFixture(t, url)
-	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	var buf memBuf
 	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
 	lakes, _, _, err := loadAgentLakes(env, "", "")

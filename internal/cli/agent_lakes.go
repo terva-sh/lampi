@@ -309,9 +309,11 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 	// unsaved is set while the newest verified copy has rules the
 	// cache lacks.
 	unsaved := false
-	// pending is set while a saved copy's rules wait for a reload that
-	// has succeeded.
+	// pending is set while a saved copy's rules, or a moved pin, wait
+	// for a reload that has succeeded.
 	pending := false
+	// waitsOn names what a pending reload puts in force.
+	waitsOn := ""
 	released := false
 	release := func() {
 		if !released && !unsaved && !pending {
@@ -339,7 +341,9 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		case moved:
 			keysFailing = false
 			fmt.Fprintf(env.stdout(), "%skey list: pin moved along the lake's rotation\n", r.prefix())
-			changed()
+			// The reload that puts the new pin in force is retried, like a
+			// new profile's, until it succeeds.
+			pending, waitsOn = true, "the moved pin"
 			return
 		default:
 			keysFailing = false
@@ -384,7 +388,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		have, haveName = d.Payload.Version, d.Payload.Profile
 		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), haveName, have)
 		if newVersion {
-			pending = true
+			pending, waitsOn = true, fmt.Sprintf("profile %s version %s", haveName, have)
 		}
 	}
 	// step fetches, asks for the reload a saved copy still waits on, and
@@ -394,7 +398,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		if pending && ctx.Err() == nil {
 			pending = !changed()
 			if pending && !released {
-				r.errf("profile: reload failed; uploads wait until profile %s version %s is in force", haveName, have)
+				r.errf("reload failed; uploads wait until %s is in force", waitsOn)
 			}
 		}
 		release()
