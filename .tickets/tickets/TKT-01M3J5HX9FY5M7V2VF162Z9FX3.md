@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T22:00:25Z
+updated_at: 2026-09-27T22:03:47Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -82,11 +82,12 @@ With this change a stolen operator browser session can add a device to the lake,
 
 ## Implementation plan
 
-Three PRs, to stay under the review size limit.
+Four PRs, to stay under the review size limit (revised from three: the mint path moved into its own package first).
 
-1. Auth (this PR): an operator role in role_map (it implies viewer). webauth.OperatorOnly answers 404 to non-operators. Fresh sign-in: /auth/oidc/start?fresh=1 sends max_age=600, and the callback requires auth_time within 10 minutes (1 minute of skew). Identity carries Operator and AuthTime. The test IdP models max_age and single sign-on auth_time.
-2. Catalog schema 7: registrations.created_by and revoked_by, set to 'cli' by serve register and to the OIDC subject and display name by the dashboard, and carried into audit.jsonl.
-3. Dashboard: /admin/registrations (list by state, mint form, cancel) and operator-only /api/web/v1/registrations. Mint requires Fresh and otherwise redirects to FreshLoginURL. The minted code shows once with no-store, with copy buttons for the one-liner (install.sh pinned to the lake's release tag, TERVA_LAMPI_CODE, --fingerprint) and for the code alone.
+1. Auth (#36, merged): an operator role in role_map (it implies viewer). webauth.OperatorOnly answers 404 to non-operators. Fresh sign-in: /auth/oidc/start?fresh=1 sends max_age=600, and the callback requires auth_time within 10 minutes (1 minute of skew). Identity carries Operator and AuthTime.
+2. Catalog schema 7 (#37, merged): registrations.created_by and revoked_by. serve register records 'cli'.
+3. internal/registrar: Mint, Revoke, List and AuditExpiries, moved out of cli/registerserve.go so serve register and the dashboard share one path (public URL self-check, CreateRegistration, regcode.Encode, audit before the code is returned). Actor{Catalog, Audit} names who acted in the catalog and in audit.jsonl.
+4. Dashboard: /admin/registrations (list by state, mint form, cancel) and operator-only /api/web/v1/registrations, calling registrar with Actor web:<subject>. Mint requires Fresh and otherwise redirects to FreshLoginURL. The minted code shows once with no-store, with copy buttons for the one-liner (install.sh pinned to the lake's release tag, TERVA_LAMPI_CODE, --fingerprint) and for the code alone. Docs.
 
 ## Notes
 

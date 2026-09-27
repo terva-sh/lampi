@@ -11,12 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
-	"terva.sh/lampi/internal/protocol"
-	"terva.sh/lampi/internal/regcode"
+	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/upload"
 )
 
@@ -52,9 +50,6 @@ audit.jsonl in the lake directory. An expiry is written once, the first
 time serve register runs or the code is presented after it expired.
 Codes live in the catalog, so a backup keeps them.
 `
-
-// maxCodeLifetime bounds --expires.
-const maxCodeLifetime = 30 * 24 * time.Hour
 
 func runServeRegister(env Env, args []string) error {
 	if len(args) > 0 && isHelp(args[0]) {
@@ -104,14 +99,12 @@ func runServeRegister(env Env, args []string) error {
 		return err
 	}
 	defer cat.Close()
+	lake := registrar.Lake{Catalog: cat, Dir: data}
 	// The lake is the authority on expiry, and nothing runs in the
 	// background to notice it, so every serve register records the codes
-	// that expired since the last look.
-	if err := auditExpiries(ctx, cat, data, now); err != nil {
-		return err
-	}
+	// that expired since the last look; List does that too.
 	if list {
-		regs, err := cat.Registrations(ctx)
+		regs, err := registrar.List(ctx, lake, "serve register", now)
 		if err != nil {
 			return err
 		}
@@ -137,8 +130,11 @@ func runServeRegister(env Env, args []string) error {
 		}
 		return nil
 	}
+	if err := registrar.AuditExpiries(ctx, lake, "serve register", now); err != nil {
+		return err
+	}
 	if revoke != "" {
-		r, err := cat.RevokeRegistration(ctx, revoke, catalog.ActorCLI, now)
+		r, err := registrar.Revoke(ctx, lake, revoke, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register --revoke"}, now)
 		if errors.Is(err, catalog.ErrNoRegistration) {
 			return fmt.Errorf("no pending code for %s; serve register --list shows them", revoke)
 		}
@@ -147,18 +143,14 @@ func runServeRegister(env Env, args []string) error {
 			fmt.Fprintf(env.stdout(), "%s (%s) was already revoked\n", r.ID, r.Name)
 			return nil
 		}
-		if err != nil {
-			return err
+		if r.ID != "" {
+			fmt.Fprintf(env.stdout(), "revoked %s (%s)\n", r.ID, r.Name)
 		}
-		fmt.Fprintf(env.stdout(), "revoked %s (%s)\n", r.ID, r.Name)
-		if err := audit.Append(data, audit.Event{Time: now, Kind: audit.RegistrationRevoked, Device: r.Name, Actor: "serve register --revoke", Detail: "registration=" + r.ID}); err != nil {
-			return fmt.Errorf("revoked %s, but writing it to %s failed: %w; the change stands", r.ID, audit.FileName, err)
-		}
-		return nil
+		return err
 	}
 
-	if expires <= 0 || expires > maxCodeLifetime {
-		return fmt.Errorf("--expires %s: a code lives more than 0 and at most %s", expires, maxCodeLifetime)
+	if expires <= 0 || expires > registrar.MaxLifetime {
+		return fmt.Errorf("--expires %s: a code lives more than 0 and at most %s", expires, registrar.MaxLifetime)
 	}
 	if profile != "" && profile != config.DefaultProfile {
 		if profilesFile == "" {
@@ -171,147 +163,22 @@ func runServeRegister(env Env, args []string) error {
 		if _, ok := profiles[profile]; !ok {
 			return fmt.Errorf("no profile named %s in %s", profile, profilesFile)
 		}
-	} else {
-		profile = ""
+		lake.Profiles = profiles
 	}
-	id, err := identity.Load(data)
+	lake.Identity, err = identity.Load(data)
 	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%s has no identity yet; serve makes one on its next start", data)
 	}
 	if err != nil {
 		return err
 	}
-	public, err := cat.PublicURL(ctx)
+	m, err := registrar.Mint(ctx, lake, name, profile, expires, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register"}, now)
 	if err != nil {
 		return err
 	}
-	if public == "" {
-		return errors.New("the lake has no public URL; set it with serve identity set-url URL")
-	}
-	if err := checkPublicURL(ctx, public, id, now); err != nil {
-		return fmt.Errorf("the public URL %s does not reach this lake: %w; check serve identity set-url, and that the proxy forwards %s", public, err, protocol.KeysPath)
-	}
-	secret, err := regcode.NewSecret()
-	if err != nil {
-		return err
-	}
-	cur, _ := id.Current(now)
-	reg, err := cat.CreateRegistration(ctx, name, regcode.HashSecret(secret), profile, cur.ID, catalog.ActorCLI, now, now.Add(expires))
-	if err != nil {
-		return err
-	}
-	code, err := regcode.Encode(id, regcode.Code{URL: public, Secret: secret, Expires: reg.Expires}, now)
-	if err != nil {
-		return err
-	}
-	prof := profile
-	if prof == "" {
-		prof = config.DefaultProfile
-	}
-	// The mint is recorded before the code is printed. A code whose mint
-	// the audit log does not hold is revoked and never shown.
-	if err := audit.Append(data, audit.Event{Time: now, Kind: audit.RegistrationCreated, Device: reg.Name, Actor: "serve register",
-		Detail: fmt.Sprintf("registration=%s profile=%s expires=%s", reg.ID, prof, reg.Expires.Format(time.RFC3339))}); err != nil {
-		if _, rerr := cat.RevokeRegistration(ctx, reg.ID, catalog.ActorCLI, now); rerr != nil {
-			return fmt.Errorf("writing the mint of %s to %s failed: %w; the code was not printed, but revoking it also failed: %v; run serve register --revoke %s", reg.ID, audit.FileName, err, rerr, reg.ID)
-		}
-		return fmt.Errorf("writing the mint of %s to %s failed: %w; the code was revoked and not printed; fix the audit log and mint again", reg.ID, audit.FileName, err)
-	}
-	fmt.Fprintln(env.stdout(), code)
+	fmt.Fprintln(env.stdout(), m.Code)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve register: code %s for %s expires %s; lake %s key fingerprint %s\n",
-		reg.ID, reg.Name, reg.Expires.Format(time.RFC3339), id.LakeID, currentFingerprint(id, now))
-	return nil
-}
-
-// auditExpiries writes a registration.expired line for each code the
-// catalog has not recorded as expired yet. serve writes the same line
-// when an expired code is presented; the catalog hands each code to one
-// of them.
-func auditExpiries(ctx context.Context, cat *catalog.Catalog, data string, now time.Time) error {
-	regs, err := cat.RecordExpiries(ctx, now)
-	if err != nil {
-		return err
-	}
-	// Each code is marked already, so one failed line does not stop the
-	// rest from being written.
-	var failed []string
-	var first error
-	for _, r := range regs {
-		if err := audit.Append(data, audit.Event{Time: now, Kind: audit.RegistrationExpired, Device: r.Name, Actor: "serve register",
-			Detail: "registration=" + r.ID + " expires=" + r.Expires.Format(time.RFC3339)}); err != nil {
-			failed = append(failed, r.ID)
-			if first == nil {
-				first = err
-			}
-		}
-	}
-	if first != nil {
-		return fmt.Errorf("writing the expiry of %s to %s failed: %w; the codes are expired either way, but these lines will not be written again; fix the audit log", strings.Join(failed, ", "), audit.FileName, first)
-	}
-	return nil
-}
-
-// checkPublicURL fetches the key list through public and checks that it
-// is this lake's, signed over a fresh nonce.
-func checkPublicURL(ctx context.Context, public string, id *identity.Identity, now time.Time) error {
-	cur, ok := id.Current(now)
-	if !ok {
-		return errors.New("this lake has no active key")
-	}
-	pub := id.Public()
-	for _, k := range pub {
-		if k.ID == cur.ID {
-			return verifyKeyList(ctx, public, id.LakeID, k)
-		}
-	}
-	return errors.New("this lake's active key is not in its key list")
-}
-
-// verifyKeyList fetches the key list at server over a fresh nonce and
-// checks that it is lake lakeID's, that key is listed there as active,
-// and that key signed it over the nonce. register runs the same check
-// against the key a code names.
-func verifyKeyList(ctx context.Context, server, lakeID string, key protocol.LakeKey) error {
-	pub, err := identity.ParsePublic(key)
-	if err != nil {
-		return err
-	}
-	nonce, err := identity.NewNonce()
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	signed, p, err := upload.FetchKeys(ctx, server, nonce)
-	if err != nil {
-		return err
-	}
-	// The key's place in the list first, for a precise reason. A list
-	// that lies about it can only make this refuse.
-	listed := false
-	for _, k := range p.Keys {
-		if k.ID == key.ID && k.PublicKey == key.PublicKey {
-			listed = true
-			if k.Compromised {
-				return fmt.Errorf("key %s is marked compromised there", key.ID)
-			}
-			if k.Status != identity.StatusActive {
-				return fmt.Errorf("key %s is %s there, not active", key.ID, k.Status)
-			}
-		}
-	}
-	if !listed {
-		return fmt.Errorf("key %s is not in the key list there", key.ID)
-	}
-	if err := identity.Verify(identity.ContextKeys, signed, pub); err != nil {
-		return fmt.Errorf("the key list there is not signed by key %s: %w", key.ID, err)
-	}
-	if p.Nonce != nonce {
-		return errors.New("the key list there does not carry the nonce sent: it is a replay or a cache")
-	}
-	if p.LakeID != lakeID {
-		return fmt.Errorf("the key list there is for lake %s, not %s", p.LakeID, lakeID)
-	}
+		m.Registration.ID, m.Registration.Name, m.Registration.Expires.Format(time.RFC3339), m.LakeID, m.Fingerprint)
 	return nil
 }
 
@@ -360,12 +227,4 @@ func runServeIdentitySetURL(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stdout(), "public_url %s\n", raw)
 	return nil
-}
-
-func currentFingerprint(id *identity.Identity, now time.Time) string {
-	k, ok := id.Current(now)
-	if !ok {
-		return "(no active key)"
-	}
-	return identity.Fingerprint(k.Pub)
 }
