@@ -200,7 +200,9 @@ sends, but can only widen the allowlist for uploads to itself.
 
 `agent config` prints a `profile=` line per lake, `source=local`,
 `source=lake:NAME`, or `source=default` for each machine-wide value, and
-`allow_source=` on each lake line. The lake operator's side is
+`allow_source=` and `deny_source=` on each lake line. `deny_source` is
+`local`, `lake:NAME`, `local+lake:NAME` when both added deny rules, or
+`none`. The lake operator's side is
 [Profiles](vps-bringup.md#profiles).
 
 ### Reloading

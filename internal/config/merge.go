@@ -76,9 +76,10 @@ func pickProfile(local, key string, order []string, profiles map[string]Profile,
 // are added to the local ones; a deny can only narrow, and a local deny
 // wins over any allow because deny is checked first. The result applies
 // to uploads to this lake only. AllowFrom records which allowlist is in
-// force.
+// force, and DenyLocal and DenyLake where the deny rules came from.
 func ApplyLakeProfile(l Lake, p Profile, ok bool) Lake {
 	l.AllowFrom = OriginLocal
+	l.DenyLocal, l.DenyLake = len(l.Projects.Deny), 0
 	if !ok {
 		return l
 	}
@@ -87,5 +88,6 @@ func ApplyLakeProfile(l Lake, p Profile, ok bool) Lake {
 		l.AllowFrom = OriginLake(l.Name)
 	}
 	l.Projects.Deny = append(append([]ProjectMatch(nil), l.Projects.Deny...), p.Projects.Deny...)
+	l.DenyLake = len(p.Projects.Deny)
 	return l
 }

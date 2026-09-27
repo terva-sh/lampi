@@ -52,6 +52,11 @@ func ValidProfileName(name string) bool { return ValidLakeName(name) }
 // ParseProfile decodes one profile strictly: a field outside the
 // allowed set is an error, as is trailing data.
 func ParseProfile(raw []byte) (Profile, error) {
+	// Forbidden keys first, so the refusal names the rule rather than
+	// what the harness decoder thinks of the value.
+	if err := forbiddenKeys(raw); err != nil {
+		return Profile{}, err
+	}
 	var p Profile
 	if err := decodeStrict(raw, &p); err != nil {
 		return Profile{}, err
@@ -60,6 +65,34 @@ func ParseProfile(raw []byte) (Profile, error) {
 		return Profile{}, err
 	}
 	return p, nil
+}
+
+// forbiddenKeys refuses a profile that names a field it may not set,
+// whatever the value. Validate sees only the decoded struct, where
+// "upload_hits": false and "root": "" look like fields left out.
+func forbiddenKeys(raw []byte) error {
+	var keys struct {
+		Harnesses map[string]map[string]json.RawMessage `json:"harnesses"`
+		Redaction map[string]json.RawMessage            `json:"redaction"`
+	}
+	// A body this cannot read is left to decodeStrict to refuse.
+	if json.Unmarshal(raw, &keys) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(keys.Harnesses))
+	for id := range keys.Harnesses {
+		names = append(names, id)
+	}
+	sort.Strings(names)
+	for _, id := range names {
+		if _, ok := keys.Harnesses[id]["root"]; ok {
+			return fmt.Errorf("harnesses.%s.root: a profile cannot set a harness root; the machine's config.json sets it", id)
+		}
+	}
+	if _, ok := keys.Redaction["upload_hits"]; ok {
+		return errors.New("redaction.upload_hits: a profile cannot upload flagged files; the machine's config.json sets it")
+	}
+	return nil
 }
 
 // Validate refuses what a profile may not set and checks the debounce.

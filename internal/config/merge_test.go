@@ -35,8 +35,8 @@ func TestApplyLakeProfileNeverWidensALocalAllowAndDenyWins(t *testing.T) {
 	// No local allow: the lake's allow applies, beneath a local deny.
 	l := Lake{Name: "work", Projects: Projects{Deny: []ProjectMatch{{CWDPrefix: "/work/app/secret"}}}}
 	got := ApplyLakeProfile(l, p, true)
-	if got.AllowFrom != "lake work" || len(got.Projects.Deny) != 2 {
-		t.Fatalf("%+v", got)
+	if got.AllowFrom != "lake work" || len(got.Projects.Deny) != 2 || got.DenyFrom() != "local+lake work" {
+		t.Fatalf("%+v %s", got, got.DenyFrom())
 	}
 	if got.Projects.Permitted(id) {
 		t.Fatal("a lake allow beat a local deny")
@@ -50,6 +50,20 @@ func TestApplyLakeProfileNeverWidensALocalAllowAndDenyWins(t *testing.T) {
 	got = ApplyLakeProfile(l, p, true)
 	if got.AllowFrom != "local" || len(got.Projects.Allow) != 1 || got.Projects.Allow[0].CWDPrefix != "/home" {
 		t.Fatalf("local allow widened: %+v", got)
+	}
+	// Deny rules name where they came from.
+	if from := got.DenyFrom(); from != "lake work" {
+		t.Fatalf("deny from the profile only: %s", from)
+	}
+	if from := ApplyLakeProfile(l, Profile{}, true).DenyFrom(); from != "none" {
+		t.Fatalf("no deny rules: %s", from)
+	}
+	local := Lake{Name: "work", Projects: Projects{Deny: []ProjectMatch{{CWDPrefix: "/tmp"}}}}
+	if from := ApplyLakeProfile(local, Profile{}, false).DenyFrom(); from != "local" {
+		t.Fatalf("local deny, no profile: %s", from)
+	}
+	if from := local.DenyFrom(); from != "local" {
+		t.Fatalf("before ApplyLakeProfile: %s", from)
 	}
 	// The input lake is not changed underneath the caller.
 	if len(l.Projects.Deny) != 0 {
