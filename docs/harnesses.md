@@ -13,7 +13,7 @@ every enabled harness. A missing directory is skipped.
 
 | Harness id | What is read | Default root when the variable is unset |
 |------------|--------------|------------------------------------------|
-| `terva` | `$TERVA_HOME/sessions`, plus optional sidecars `raati/raati-<nanos>.json` and `tasks/tasks-<session-id>.json` | terva's platform default |
+| `terva` | `$TERVA_HOME/sessions`, plus optional sidecars `raati/raati-<nanos>.json` and `tasks/tasks-<session-id>.json` | `$XDG_STATE_HOME/terva` or `~/.local/state/terva` on Linux, `~/Library/Application Support/terva` on macOS, `%LOCALAPPDATA%\terva` on Windows. `ZOT_HOME` is the legacy name |
 | `claude` | `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl` | `~/.claude` (on Windows, `%USERPROFILE%\.claude`) |
 | `codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl` | `~/.codex` |
 | `opencode` | A scheduled `opencode export` at `$XDG_DATA_HOME/opencode/export/**/*.json` | `~/.local/share/opencode` (on Windows, `%USERPROFILE%\.local\share\opencode`) |
