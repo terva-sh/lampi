@@ -50,31 +50,28 @@ func installService(env Env, state string) error {
 }
 
 // systemdUserDir is the directory the running user manager searches for
-// a user's own units: the entry of its UnitPath property that ends in
-// /systemd/user and is not under /run, /etc or /usr. That is its
-// $XDG_CONFIG_HOME/systemd/user as it was when the manager built the
-// path, which neither this process's XDG_CONFIG_HOME (register may run
-// with it set elsewhere, TKT-01M3GAHSQ) nor show-environment (which
-// set-environment changes later) reliably reports. The unit's
-// Environment= lines carry this process's directories to the agent.
-// When the property cannot be read, ~/.config/systemd/user is used and
-// enable reports any problem. systemd separates UnitPath entries with
-// spaces, so a directory with a space in it is not found there and the
-// fallback applies.
+// a user's own units: its $XDG_CONFIG_HOME/systemd/user as it was when
+// it built its UnitPath. Neither this process's XDG_CONFIG_HOME
+// (register may run with it set elsewhere, TKT-01M3GAHSQ) nor
+// show-environment (set-environment changes it later) reliably says
+// where that is. systemd lists the persistent control directory,
+// <that directory>.control, first in UnitPath, so the directory is the
+// output up to the first "/systemd/user.control", without ".control".
+// Reading from the start keeps a path with a space whole, since systemd
+// separates entries with spaces and does not quote them; an entry that
+// is not a single absolute path is refused. When UnitPath cannot be
+// read or does not start that way, ~/.config/systemd/user is used and
+// enable reports any problem. The unit's Environment= lines carry this
+// process's directories to the agent either way.
 func systemdUserDir(env Env) (string, error) {
+	const control = "/systemd/user.control"
 	if out, err := runCommand("systemctl", "--user", "show", "--property=UnitPath", "--value"); err == nil {
-		for _, dir := range strings.Fields(string(out)) {
-			if !filepath.IsAbs(dir) || filepath.Base(dir) != "user" || filepath.Base(filepath.Dir(dir)) != "systemd" {
-				continue
-			}
-			system := false
-			for _, root := range []string{"/run/", "/etc/", "/usr/"} {
-				if strings.HasPrefix(dir, root) {
-					system = true
-				}
-			}
-			if !system {
-				return dir, nil
+		list := strings.TrimRight(string(out), "\r\n")
+		if i := strings.Index(list, control); i > 0 {
+			first := list[:i+len(control)]
+			rest := list[i+len(control):]
+			if filepath.IsAbs(first) && !strings.Contains(first, " /") && (rest == "" || rest[0] == ' ') {
+				return strings.TrimSuffix(first, ".control"), nil
 			}
 		}
 	}

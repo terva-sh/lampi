@@ -732,8 +732,10 @@ func TestSystemdUserDirFollowsTheManager(t *testing.T) {
 	}{
 		{"manager at the default", unitPath("/home/me"), nil, "/home/me/.config/systemd/user"},
 		{"manager with its own config dir", strings.ReplaceAll(unitPath("/home/me"), "/home/me/.config", "/srv/cfg"), nil, "/srv/cfg/systemd/user"},
-		{"only system directories", "/etc/systemd/user /run/user/1000/systemd/user /usr/lib/systemd/user", nil, "/home/me/.config/systemd/user"},
-		{"a path split at a space", "/home/my name/.config/systemd/user.control /home/my name/.config/systemd/user /etc/systemd/user", nil, "/home/me/.config/systemd/user"},
+		{"config dir under /run", strings.ReplaceAll(unitPath("/home/me"), "/home/me/.config", "/run/cfg"), nil, "/run/cfg/systemd/user"},
+		{"config dir with a space", strings.ReplaceAll(unitPath("/home/me"), "/home/me/.config", "/srv/my config"), nil, "/srv/my config/systemd/user"},
+		{"SYSTEMD_UNIT_PATH first", "/opt/units " + unitPath("/home/me"), nil, "/home/me/.config/systemd/user"},
+		{"no control directory", "/etc/systemd/user /usr/lib/systemd/user", nil, "/home/me/.config/systemd/user"},
 		{"manager unreachable", "", errors.New("no bus"), "/home/me/.config/systemd/user"},
 	}
 	for _, c := range cases {
