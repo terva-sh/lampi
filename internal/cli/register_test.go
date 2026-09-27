@@ -305,10 +305,10 @@ func TestRegisterInstallsTheUserService(t *testing.T) {
 		switch {
 		case name == "loginctl":
 			return []byte("Linger=no\n"), nil
-		case len(args) > 1 && args[1] == "show-environment":
-			// The user manager runs with the default config directory,
+		case len(args) > 1 && args[1] == "show":
+			// The user manager searches the default config directory,
 			// while register runs with f.cfg (TKT-01M3GAHSQ).
-			return []byte("HOME=" + f.home + "\nLANG=C.UTF-8\n"), nil
+			return []byte(unitPath(f.home) + "\n"), nil
 		}
 		return nil, nil
 	}
@@ -337,7 +337,7 @@ func TestRegisterInstallsTheUserService(t *testing.T) {
 		!strings.Contains(string(unit), "Environment=\"XDG_CONFIG_HOME="+f.cfg+"\"") {
 		t.Fatalf("unit:\n%s", unit)
 	}
-	want := []string{"systemctl --user show-environment", "systemctl --user daemon-reload", "systemctl --user enable --now terva-lampi-agent.service", "loginctl show-user drew --property=Linger"}
+	want := []string{"systemctl --user show --property=UnitPath --value", "systemctl --user daemon-reload", "systemctl --user enable --now terva-lampi-agent.service", "loginctl show-user drew --property=Linger"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("calls %q", calls)
 	}
@@ -633,8 +633,8 @@ func TestInstalledServicesKeepCustomXDGDirectories(t *testing.T) {
 	oldRun := runCommand
 	home := t.TempDir()
 	runCommand = func(name string, args ...string) ([]byte, error) {
-		if len(args) > 1 && args[1] == "show-environment" {
-			return []byte("HOME=" + home + "\n"), nil
+		if len(args) > 1 && args[1] == "show" {
+			return []byte(unitPath(home) + "\n"), nil
 		}
 		return nil, nil
 	}
@@ -707,6 +707,16 @@ func TestInstalledServicesKeepCustomXDGDirectories(t *testing.T) {
 	}
 }
 
+// unitPath is a user manager's UnitPath with its config directory under
+// home, in the order systemd lists it.
+func unitPath(home string) string {
+	return strings.Join([]string{
+		home + "/.config/systemd/user.control", "/run/user/1000/systemd/user.control",
+		"/run/user/1000/systemd/transient", home + "/.config/systemd/user", "/etc/systemd/user",
+		"/run/user/1000/systemd/user", home + "/.local/share/systemd/user", "/usr/lib/systemd/user",
+	}, " ")
+}
+
 // TKT-01M3GAHSQ: the unit goes where the running user manager looks.
 func TestSystemdUserDirFollowsTheManager(t *testing.T) {
 	oldRun := runCommand
@@ -720,9 +730,10 @@ func TestSystemdUserDirFollowsTheManager(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"manager with its own config dir", "HOME=/home/me\nXDG_CONFIG_HOME=/srv/cfg\n", nil, "/srv/cfg/systemd/user"},
-		{"manager at the default", "HOME=/home/me\n", nil, "/home/me/.config/systemd/user"},
-		{"relative config dir ignored", "HOME=/home/me\nXDG_CONFIG_HOME=cfg\n", nil, "/home/me/.config/systemd/user"},
+		{"manager at the default", unitPath("/home/me"), nil, "/home/me/.config/systemd/user"},
+		{"manager with its own config dir", strings.ReplaceAll(unitPath("/home/me"), "/home/me/.config", "/srv/cfg"), nil, "/srv/cfg/systemd/user"},
+		{"only system directories", "/etc/systemd/user /run/user/1000/systemd/user /usr/lib/systemd/user", nil, "/home/me/.config/systemd/user"},
+		{"a path split at a space", "/home/my name/.config/systemd/user.control /home/my name/.config/systemd/user /etc/systemd/user", nil, "/home/me/.config/systemd/user"},
 		{"manager unreachable", "", errors.New("no bus"), "/home/me/.config/systemd/user"},
 	}
 	for _, c := range cases {

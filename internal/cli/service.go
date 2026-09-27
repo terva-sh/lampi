@@ -49,36 +49,36 @@ func installService(env Env, state string) error {
 	}
 }
 
-// systemdUserDir is where the running user manager looks for units:
-// its own $XDG_CONFIG_HOME/systemd/user, or ~/.config/systemd/user. It
-// asks the manager with show-environment rather than reading this
-// process's XDG_CONFIG_HOME, which register may run with set elsewhere
-// (TKT-01M3GAHSQ). The unit's Environment= lines carry this process's
-// directories to the agent either way. When the manager cannot be
-// asked, the default path is used and enable reports any problem.
+// systemdUserDir is the directory the running user manager searches for
+// a user's own units: the entry of its UnitPath property that ends in
+// /systemd/user and is not under /run, /etc or /usr. That is its
+// $XDG_CONFIG_HOME/systemd/user as it was when the manager built the
+// path, which neither this process's XDG_CONFIG_HOME (register may run
+// with it set elsewhere, TKT-01M3GAHSQ) nor show-environment (which
+// set-environment changes later) reliably reports. The unit's
+// Environment= lines carry this process's directories to the agent.
+// When the property cannot be read, ~/.config/systemd/user is used and
+// enable reports any problem. systemd separates UnitPath entries with
+// spaces, so a directory with a space in it is not found there and the
+// fallback applies.
 func systemdUserDir(env Env) (string, error) {
-	home := env.getenv("HOME")
-	if out, err := runCommand("systemctl", "--user", "show-environment"); err == nil {
-		var mgrCfg, mgrHome string
-		for _, line := range strings.Split(string(out), "\n") {
-			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
-			if !ok {
+	if out, err := runCommand("systemctl", "--user", "show", "--property=UnitPath", "--value"); err == nil {
+		for _, dir := range strings.Fields(string(out)) {
+			if !filepath.IsAbs(dir) || filepath.Base(dir) != "user" || filepath.Base(filepath.Dir(dir)) != "systemd" {
 				continue
 			}
-			switch k {
-			case "XDG_CONFIG_HOME":
-				mgrCfg = v
-			case "HOME":
-				mgrHome = v
+			system := false
+			for _, root := range []string{"/run/", "/etc/", "/usr/"} {
+				if strings.HasPrefix(dir, root) {
+					system = true
+				}
+			}
+			if !system {
+				return dir, nil
 			}
 		}
-		if filepath.IsAbs(mgrCfg) {
-			return filepath.Join(mgrCfg, "systemd", "user"), nil
-		}
-		if filepath.IsAbs(mgrHome) {
-			home = mgrHome
-		}
 	}
+	home := env.getenv("HOME")
 	if home == "" {
 		return "", errors.New("--install-service: HOME is not set")
 	}

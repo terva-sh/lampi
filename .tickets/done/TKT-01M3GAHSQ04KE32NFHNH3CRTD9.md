@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-27T21:30:30Z
+updated_at: 2026-09-27T21:35:50Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -67,6 +67,10 @@ Rejected:
 - `systemdUserDir` cases: the manager's own config dir, the default, a relative value ignored, and an unreachable manager.
 - On this host, `show-environment` reports `HOME` and no `XDG_CONFIG_HOME`, so units go to `~/.config/systemd/user`.
 
+**agent:claude-code/e4a47e8c** at 2026-09-27T21:35:50Z
+
+Supersedes the Decision note above, after terva-review beceb924 finding-1. show-environment is the environment for launched services, and set-environment can change it after the manager built its unit search path. The directory now comes from the manager's UnitPath property (systemctl --user show -p UnitPath --value): the first absolute entry ending in systemd/user and not under /run, /etc or /usr. On this host that is ~/.config/systemd/user. The fallback is HOME/.config/systemd/user when the property cannot be read, or when UnitPath has no such entry, which includes a directory with a space, since systemd separates entries with spaces. This also removes finding-2, the whitespace trimming of show-environment values.
+
 ## Summary
 
-register --install-service writes the systemd unit where the running user manager looks, found with systemctl --user show-environment (its XDG_CONFIG_HOME, else its HOME/.config), instead of under register's own XDG_CONFIG_HOME. The unit keeps Environment= lines for custom XDG directories.
+register --install-service writes the systemd unit into the user directory of the running manager's unit search path (UnitPath: the systemd/user entry outside /run, /etc and /usr), falling back to ~/.config/systemd/user, instead of under register's own XDG_CONFIG_HOME. The unit keeps Environment= lines for custom XDG directories.
