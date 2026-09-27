@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T00:04:01Z
+updated_at: 2026-09-27T01:01:02Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -58,6 +58,10 @@ Rejected: one loop that pushes to each lake in sequence on each kick, because a 
 **agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
 
 Review 929 on PR #14, both findings fixed in 5667596. (1) sync stopped at a lake it could not prepare; now that lake is recorded as failed and the next one runs, which is safe because each lake has its own state directory. (2) an interrupt between lakes returned success; now the lakes not reached count as failed. The per-lake push goes through var syncLake so a test can land the interrupt between lakes.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
+
+Review 972 on PR #14, both accepted in 5d45590. With several lakes, the agent's start skips a lake whose options cannot be built (for example an unreadable token file), names it, and starts the others; with one lake, or when none can be prepared, it still refuses to start. The skip is at start only, so a reload stays all-or-nothing. status does the same as sync: it prints every block it can and exits non-zero naming the lakes it could not prepare.
 
 ## Summary
 
