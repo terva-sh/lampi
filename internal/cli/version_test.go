@@ -60,8 +60,12 @@ func TestTaggedBuildReportsItsTag(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	run("", nil, "git", "clone", "--quiet", "--no-local", "--depth", "1", "file://"+root, clone)
-	// An unlikely tag, so it cannot collide with a real one.
-	run(clone, nil, "git", "tag", "v0.0.99-buildinfo")
+	// A commit of its own, so the tag is the only one at HEAD. When CI
+	// runs at a release tag, go build would otherwise pick the higher
+	// of the two tags. The tag is unlikely so it cannot collide.
+	run(clone, nil, "git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+		"-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "buildinfo test")
+	run(clone, nil, "git", "-c", "tag.gpgsign=false", "tag", "v0.0.99-buildinfo")
 	bin := filepath.Join(t.TempDir(), "terva-lampi")
 	env := []string{"CGO_ENABLED=0", "GOFLAGS=-buildvcs=true", "GOWORK=off"}
 	run(clone, env, "go", "build", "-trimpath", "-o", bin, "./cmd/terva-lampi")

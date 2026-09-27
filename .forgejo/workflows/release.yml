@@ -85,8 +85,19 @@ jobs:
             '{tag_name: $tag, name: $tag, body: $body, draft: false, prerelease: $pre}')
           # A rerun after a partial upload finds the release the first run
           # created and resumes it, so the tag never needs deleting by hand.
-          id=$(curl -sS "${api}/releases/tags/${TAG}" \
-            -H "Authorization: token ${TOKEN}" | jq -r '.id // empty')
+          # Decided by status, not body: a 404 here is an HTML page jq cannot
+          # parse, which is what the first v0.1.0 run hit. Only a 404 means
+          # there is no release to resume; anything else stops the job.
+          code=$(curl -sS -o lookup.json -w '%{http_code}' \
+            "${api}/releases/tags/${TAG}" -H "Authorization: token ${TOKEN}")
+          case "${code}" in
+            200) id=$(jq -r '.id // empty' lookup.json) ;;
+            404) id="" ;;
+            *)
+              echo "::error::looking up the release for ${TAG} answered HTTP ${code}"
+              exit 1
+              ;;
+          esac
           if [ -z "${id}" ]; then
             id=$(curl -sS -X POST "${api}/releases" \
               -H "Authorization: token ${TOKEN}" \
