@@ -7,6 +7,7 @@ first run. The pages below are grouped by what you are trying to do.
 
 | Page | Read it when |
 |------|--------------|
+| [Getting started](getting-started.md) | You want a lake on one machine with one project in it |
 | [Harnesses](harnesses.md) | You want to know which transcripts are read, and from where |
 | [Allowlist and redaction](allowlist-and-redaction.md) | You are about to allow a project, or a file was quarantined |
 | [The agent](agent.md) | You want to know when the agent pushes, how it retries, or which signals it answers |
@@ -34,6 +35,8 @@ first run. The pages below are grouped by what you are trying to do.
 
 | Page | What it covers |
 |------|----------------|
+| [Developing lampi](development.md) | Build, tests, dev recipes on a machine that runs lampi, and git-ticket |
 | [Pull requests and reviews](pr-reviews.md) | Forgejo and GitHub, `terva-review`, and keeping `main` equal |
 | [Dashboard and retrieval plan](web-ui-plan.md) | The design record for the web releases |
 | [e2e/README.md](../e2e/README.md) | The synthetic container, the browser smoke, and the go-live drills |
+| [Why the command is terva-lampi](naming.md) | The name collision with a LAMP installer, and the optional `lampi` shortcut |
