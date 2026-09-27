@@ -579,17 +579,28 @@ func loadAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, s
 }
 
 // agentLakes is the options of each resolved lake, labelled when there
-// are several.
+// are several. A lake that cannot be prepared fails the whole set.
 func agentLakes(env Env, file config.File, src []source, resolved []config.Lake) ([]agentLake, error) {
+	lakes, _, err := buildAgentLakes(env, file, src, resolved, false)
+	return lakes, err
+}
+
+// buildAgentLakes is agentLakes. With skip, a lake that cannot be
+// prepared is left out and named in skipped instead of failing the set.
+func buildAgentLakes(env Env, file config.File, src []source, resolved []config.Lake, skip bool) (lakes []agentLake, skipped []string, err error) {
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var lakes []agentLake
 	for _, lake := range resolved {
 		opt, err := lakeOptions(env, file, state, src, lake)
 		if err != nil {
-			return nil, err
+			if !skip {
+				return nil, nil, err
+			}
+			fmt.Fprintf(env.stderr(), "terva-lampi: lake %s: %v; the other lakes still start\n", lake.Name, err)
+			skipped = append(skipped, lake.Name)
+			continue
 		}
 		l := agentLake{name: lake.Name, cfg: lake, opt: opt, tokenPath: lake.TokenFile.Value}
 		if len(resolved) > 1 {
@@ -597,7 +608,7 @@ func agentLakes(env Env, file config.File, src []source, resolved []config.Lake)
 		}
 		lakes = append(lakes, l)
 	}
-	return lakes, nil
+	return lakes, skipped, nil
 }
 
 // lakeOptions is one lake's upload options. A token that would cross
@@ -638,38 +649,18 @@ func lakeOptions(env Env, file config.File, state string, src []source, lake con
 // token file is unreadable, is named and skipped so the others still
 // start. The agent does not start when no lake can be prepared.
 func startAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, src []source, n int, err error) {
-	file, err := config.LoadFile(env.getenv)
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	resolved, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
+	src, n, err = countSources(env.getenv, cc.file.Harnesses)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	src, n, err = countSources(env.getenv, file.Harnesses)
+	// One lake is the agent: it does not start without it.
+	lakes, skipped, err := buildAgentLakes(env, cc.file, src, cc.lakes, len(cc.lakes) > 1)
 	if err != nil {
 		return nil, nil, 0, err
-	}
-	state, err := config.StateDir(env.getenv)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	var skipped []string
-	for _, lake := range resolved {
-		opt, err := lakeOptions(env, file, state, src, lake)
-		if err != nil {
-			if len(resolved) == 1 {
-				return nil, nil, 0, err
-			}
-			fmt.Fprintf(env.stderr(), "terva-lampi: lake %s: %v; the other lakes still start\n", lake.Name, err)
-			skipped = append(skipped, lake.Name)
-			continue
-		}
-		l := agentLake{name: lake.Name, opt: opt, tokenPath: lake.TokenFile.Value}
-		if len(resolved) > 1 {
-			l.label = "lake " + lake.Name + ": "
-		}
-		lakes = append(lakes, l)
 	}
 	if len(lakes) == 0 && len(skipped) > 0 {
 		return nil, nil, 0, fmt.Errorf("no lake could be prepared: %s", strings.Join(skipped, ", "))
