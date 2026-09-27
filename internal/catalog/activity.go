@@ -69,6 +69,10 @@ type Activity struct {
 	Buckets       []ActivityBucket  `json:"buckets"`
 }
 
+// activityLatest bounds a requested time well inside what Unix
+// nanoseconds can hold.
+var activityLatest = time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC)
+
 var activityUnits = map[string]string{
 	"updates":           "accepted session head updates",
 	"net_logical_bytes": "sum of new minus old logical head size, in bytes; not network or disk bytes",
@@ -114,6 +118,19 @@ func (r ActivityRequest) Resolve(now time.Time) (ActivityRequest, error) {
 	w, max, ok := bucketWidth(r.Bucket)
 	if !ok || !validHarness(r.Harness) {
 		return r, ErrPage
+	}
+	// Rounding would turn a reversed or empty pair inside one bucket
+	// into that bucket, so the instants are checked as given.
+	if !r.From.IsZero() && !r.Until.IsZero() && !r.From.Before(r.Until) {
+		return r, ErrPage
+	}
+	// Alignment works in Unix nanoseconds, which hold 1678 to 2262. The
+	// lake has nothing before 1970, and a time past activityLatest is
+	// refused rather than wrapped.
+	for _, t := range []time.Time{r.From, r.Until} {
+		if !t.IsZero() && (t.Before(time.Unix(0, 0)) || t.After(activityLatest)) {
+			return r, ErrPage
+		}
 	}
 	span := 7 * 24 * time.Hour
 	if r.Bucket == BucketHour {
