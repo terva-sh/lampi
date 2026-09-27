@@ -1,7 +1,7 @@
 ---
 schema: 3
 id: TKT-01M3GAHSNWKB00S1RMSF0K693W
-title: "Registration codes: keep expiry eligible until its audit line lands"
+title: "Registration codes: audit events after a commit can be lost"
 type: bug
 status: draft
 status_reason: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-27T02:19:41Z
+updated_at: 2026-09-27T02:31:13Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -36,3 +36,11 @@ Finding-1 from terva-review 992 on PR #17 (TKT-01M3FHHBJ, Registration codes), d
 `RecordExpiries` in internal/catalog/registrations.go sets `expiry_recorded_at` and commits before either caller appends the `registration.expired` line. If that append then fails, for example because the audit file cannot be opened, the code is never returned again, so its expiry line is lost for good. `/v1/register` only logs the failure; `serve register` reports it and says the line will not be retried. That was a known cost when the fix landed, but it breaks the "every expiry reaches the audit log once" guarantee.
 
 Fix: keep the event eligible until the append succeeds. For example, select the rows, append the lines, then mark them, and accept a possible duplicate line after a crash in between: a duplicate is better than a lost event. Alternatively, a two-phase marker (claimed, then recorded) can be reclaimed after a timeout. Test with an audit file that cannot be written: the expiry must be recorded once it can be.
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T02:31:13Z
+
+Widened by terva-review 996 on PR #17 (finding-2), deferred with this ticket at the owner's direction. The redemption itself has the same gap. `/v1/register` commits the device and the spent code, and only then appends `registration.redeemed` and the device-binding events. If that append fails, the handler still returns success, and nothing can recreate those events later, since the code cannot be replayed.
+
+So the general problem is that every audit event written after its catalog commit can be lost when the append fails: expiry, redemption, and binding. The fix should cover all of them. One option is an outbox of pending audit events kept in the catalog and written in the same transaction, then appended and cleared, and retried on the next write or at serve start. That gives at-least-once delivery, where a duplicate line is acceptable and a lost one is not.
