@@ -103,7 +103,7 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	if _, err := c.CreateRegistration(ctx, "tab-new", back, "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	d2, _, err := c.Redeem(ctx, back, strings.Repeat("8", 64), "m9", now)
+	d2, _, err := c.Redeem(ctx, back, strings.Repeat("8", 64), "m9", now, nil)
 	if err != nil || d2.MachineID != "m9" {
 		t.Fatalf("re-register after revoke: %+v %v", d2, err)
 	}
