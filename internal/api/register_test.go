@@ -38,7 +38,7 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	}
 	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {Agent: config.AgentConfig{Debounce: "1s"}}})
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", now, now.Add(24*time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", "", now, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	token := strings.Repeat("e7", 32)
@@ -121,13 +121,13 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	}
 	expired, _ := regcode.NewSecret()
 	revoked, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "old", regcode.HashSecret(expired), "", "", now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "old", regcode.HashSecret(expired), "", "", "", now.Add(-48*time.Hour), now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", now); err != nil {
+	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", "", now); err != nil {
 		t.Fatal(err)
 	}
 	for _, secret := range []string{expired, revoked, expired} {
@@ -164,7 +164,7 @@ func TestRegisterAuditsEveryMalformedAttemptWithoutTheSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	send := func(body []byte) int {
@@ -232,7 +232,7 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	// The code was minted for a profile this server does not load.
 	s.SetProfiles(config.Profiles{config.DefaultProfile: {}})
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	before, err := s.Catalog.Devices(t.Context())
@@ -300,7 +300,7 @@ func TestRegisterRefusesAMachineIDThatCarriesTheSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret, _ := regcode.NewSecret()
-	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", now, now.Add(time.Hour)); err != nil {
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{secret, "host-" + secret, secret[:20], "x" + secret[10:18] + "y"} {
