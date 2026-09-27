@@ -130,6 +130,9 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(lakes) == 0 {
+		return errNoLake
+	}
 	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err

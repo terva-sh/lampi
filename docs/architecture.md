@@ -181,7 +181,8 @@ watermarks. The outbox is the durable count that status reports. The agent is th
 then a sync when the watcher reports growth (after 5s of quiet, at
 most 30s after the first change) or a previous push failed,
 then one more sync on SIGTERM. On Unix, SIGUSR1 asks for a sync without
-waiting for the next filesystem event. The agent writes `agent.pid` in
+waiting for the next filesystem event, and SIGHUP reads the lakes
+again; a lake that goes or changes drains before it stops. The agent writes `agent.pid` in
 the state directory while it runs. Example units live under
 `deploy/`. They are not installed by this tree. The agent unit is a
 user service. The serve unit is a system service and binds loopback.
@@ -192,7 +193,7 @@ rest, the allowlist, and which machines run the agent.
 examples set no URL, so the agent falls back to loopback. On a
 machine that should upload, set `LAMPI_SERVER` or `server` in
 `config.json` to the VPS HTTPS URL. Restart the agent to reload
-config.
+config; on Unix, SIGHUP reloads the lakes alone.
 
 `hooks/terva-post-tool-enqueue.sh` is a supported optional acceleration
 for terva `post_tool_use`. `make build` does not install it. On Unix

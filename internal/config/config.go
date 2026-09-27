@@ -37,8 +37,9 @@ type File struct {
 	Redaction RedactionConfig `json:"redaction,omitempty"`
 	Harnesses Harnesses       `json:"harnesses,omitempty"`
 	Agent     AgentConfig     `json:"agent,omitempty"`
-	// Lakes names more lakes than the one server describes. See
-	// ResolveLakes.
+	// Lakes names more lakes than the one server describes. A map that
+	// is present and empty means no lake; a missing one means the
+	// legacy default lake. See ResolveLakes.
 	Lakes map[string]LakeConfig `json:"lakes,omitempty"`
 }
 

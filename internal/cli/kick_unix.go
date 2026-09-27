@@ -29,3 +29,25 @@ func watchKick(ctx context.Context, wake func()) {
 		}
 	}()
 }
+
+// reloadHint is what the agent says a new lake needs.
+const reloadHint = "Add a lake, then send SIGHUP or restart the agent."
+
+// watchReload turns SIGHUP into a lake reload. reload runs on this
+// goroutine, so reloads happen one at a time. Cancelling ctx stops
+// listening.
+func watchReload(ctx context.Context, reload func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGHUP)
+	go func() {
+		defer signal.Stop(ch)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ch:
+				reload()
+			}
+		}
+	}()
+}
