@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:40:49Z
+updated_at: 2026-09-27T01:40:57Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -110,6 +110,10 @@ Review 976 on PR #18, both accepted in 99c8a62. lakes remove refuses any name th
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:40:49Z
 
 Review 987 on PR #18, both accepted in d52087c. register --replace always writes the new token to this lake's own tokens/<name>.token and leaves the replaced entry's token file alone, since that file may be hand-placed or shared. lakes remove reports a token it could not delete, after finishing the rest of the removal. Not fixed: another lake's entry naming this lake's tokens/<name>.token would still be overwritten. Filed with the config-lock gap as TKT-01M3G (see the draft about config.json locking).
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:40:57Z
+
+Supersedes the ticket reference in the previous note: the config.json lock gap and the shared tokens/<name>.token case are filed as TKT-01M3G8B82 (Client config: lock config.json across processes for read-edit-write).
 
 ## Summary
 
