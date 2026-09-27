@@ -234,3 +234,22 @@ func TestChartEdges(t *testing.T) {
 		}
 	}
 }
+
+// A range with nothing in it still draws both charts, so measured zero
+// and not measured stay visibly different, and the form sits outside
+// the region a refresh replaces.
+func TestActivityPageEmptyRangeKeepsCharts(t *testing.T) {
+	_, idp, h, _ := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	w := get(h, "/activity", cookie)
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, "No accepted updates in this range") || strings.Count(body, `<figure class="panel chart">`) != 2 {
+		t.Fatalf("empty range page: %d", w.Code)
+	}
+	if form, live := strings.Index(body, `action="/activity"`), strings.Index(body, "data-live"); form < 0 || form > live {
+		t.Fatal("activity form is inside the refreshed region")
+	}
+	if w := get(h, "/activity?range=week", cookie); w.Code != 400 {
+		t.Fatalf("unknown range: %d", w.Code)
+	}
+}

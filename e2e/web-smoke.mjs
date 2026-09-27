@@ -131,6 +131,12 @@ try {
   assert.equal(await page.locator('.activity-table tbody tr').count(), 30);
   assert.match(await page.locator('.activity-table tbody').innerText(), /not measured/);
   await page.screenshot({path: join(artifacts, 'activity-desktop.png'), fullPage: true});
+  // A refresh keeps the open table and an unsubmitted choice.
+  await page.getByLabel('Harness', {exact: true}).selectOption('claude');
+  await page.getByRole('button', {name: 'Refresh now'}).click();
+  await page.waitForFunction(() => document.querySelector('#refresh-status').textContent.startsWith('Up to date'));
+  assert.equal(await page.locator('#activity-table').evaluate(d => d.open), true, 'refresh closed the table');
+  assert.equal(await page.getByLabel('Harness', {exact: true}).inputValue(), 'claude', 'refresh reset the form');
   await page.getByLabel('Harness', {exact: true}).selectOption('codex');
   await page.getByRole('button', {name: 'Show', exact: true}).click();
   await page.waitForURL(/harness=codex/);
@@ -229,6 +235,7 @@ try {
   await emptyPage.getByRole('heading', {name: 'No sessions to show'}).waitFor();
   await emptyPage.goto(empty.url + '/activity');
   await emptyPage.getByRole('heading', {name: 'No accepted updates in this range'}).waitFor();
+  assert.equal(await emptyPage.locator('figure.chart').count(), 2, 'empty range dropped the charts');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake', 'activity charts/table/filters/mobile/keyboard/no-JS/empty']}));
 } finally {

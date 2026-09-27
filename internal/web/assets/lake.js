@@ -36,6 +36,8 @@ showLatest(document);
       const parsed = new DOMParser().parseFromString(await res.text(), 'text/html');
       const updated = parsed.querySelector('[data-live]');
       if (!updated) throw new Error('Refresh failed. Showing the last successful view.');
+      // Keep a table the reader opened open across the refresh.
+      live.querySelectorAll('details[id][open]').forEach(d => { const next = updated.querySelector('#' + d.id); if (next) next.open = true; });
       live.replaceWith(updated);
       showLatest(updated);
       paused = false;
