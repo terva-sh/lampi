@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
@@ -185,5 +186,32 @@ func TestServeRegisterPrintsNoCodeWhoseMintIsNotAudited(t *testing.T) {
 	}
 	if out, err := run("register", "--name", "newbox"); err != nil || !strings.HasPrefix(out, regcode.Prefix) {
 		t.Fatalf("mint after repair: %q %v", out, err)
+	}
+}
+
+func TestServeRegisterAuditsACodeThatExpiredUnused(t *testing.T) {
+	dir, lake, _ := registerLake(t)
+	now := time.Now()
+	secret, _ := regcode.NewSecret()
+	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", now.Add(-2*time.Hour), now.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Nobody presents the code. Listing twice records its expiry once.
+	for range 2 {
+		var out bytes.Buffer
+		if err := Run([]string{"serve", "register", "--list", "--data", dir}, Env{Stdout: &out, Stderr: &bytes.Buffer{}}); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), reg.ID+" idle expired ") {
+			t.Fatalf("list:\n%s", out.String())
+		}
+	}
+	raw, _ := os.ReadFile(audit.Path(dir))
+	if n := strings.Count(string(raw), `"kind":"registration.expired","device":"idle"`); n != 1 {
+		t.Fatalf("%d registration.expired lines, want 1:\n%s", n, raw)
+	}
+	if !strings.Contains(string(raw), "registration="+reg.ID+" expires=") || strings.Contains(string(raw), secret) {
+		t.Fatalf("audit:\n%s", raw)
 	}
 }

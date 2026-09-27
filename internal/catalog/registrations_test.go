@@ -170,3 +170,67 @@ func TestRevokeNeverSucceedsOnACodeThatWasRedeemed(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	serve, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serve.Close()
+	operator, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operator.Close()
+	ctx := t.Context()
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	mint := func(name string, secret string, expires time.Time) Registration {
+		t.Helper()
+		r, err := serve.CreateRegistration(ctx, name, strings.Repeat(secret, 64), "", now.Add(-72*time.Hour), expires)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	old := mint("old", "a", now.Add(-time.Hour))
+	// Expires on a whole second, seen half a second later: as text the
+	// later stamp sorts first.
+	edge := mint("edge", "b", now)
+	live := mint("live", "c", now.Add(time.Hour))
+	gone := mint("gone", "d", now.Add(-time.Hour))
+	if _, err := serve.RevokeRegistration(ctx, gone.ID, now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	mint("used", "e", now.Add(-time.Hour))
+	if _, _, err := serve.Redeem(ctx, strings.Repeat("e", 64), strings.Repeat("f", 64), "m1", now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	// With ids, only those codes are looked at.
+	got, err := serve.RecordExpiries(ctx, now.Add(500*time.Millisecond), live.ID, edge.ID)
+	if err != nil || len(got) != 1 || got[0].ID != edge.ID {
+		t.Fatalf("by id: %+v %v", got, err)
+	}
+	// serve and the operator race; each code goes to one of them.
+	var a, b []Registration
+	var aErr, bErr error
+	var wg sync.WaitGroup
+	wg.Go(func() { a, aErr = serve.RecordExpiries(ctx, now) })
+	wg.Go(func() { b, bErr = operator.RecordExpiries(ctx, now) })
+	wg.Wait()
+	if aErr != nil || bErr != nil {
+		t.Fatal(aErr, bErr)
+	}
+	if all := append(a, b...); len(all) != 1 || all[0].ID != old.ID {
+		t.Fatalf("sweep: %+v", all)
+	}
+	// A recorded expiry is not handed out again; a code that expires
+	// later is, once.
+	if got, err := operator.RecordExpiries(ctx, now); err != nil || len(got) != 0 {
+		t.Fatalf("second sweep: %+v %v", got, err)
+	}
+	if got, err := operator.RecordExpiries(ctx, now.Add(2*time.Hour)); err != nil || len(got) != 1 || got[0].ID != live.ID {
+		t.Fatalf("later sweep: %+v %v", got, err)
+	}
+}

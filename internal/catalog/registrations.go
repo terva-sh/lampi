@@ -12,7 +12,8 @@ import (
 // migrateRegistrations adds registrations, the pending codes an operator
 // minted. Only the SHA-256 of a code's secret is stored. A code redeems
 // once: used_at and device_id are set in the same transaction that
-// creates the device.
+// creates the device. expiry_recorded_at is when the lake first saw the
+// code expired and wrote that to the audit log, so it is written once.
 func migrateRegistrations(tx *sql.Tx) error {
 	_, err := tx.Exec(`CREATE TABLE registrations (
 		id TEXT PRIMARY KEY,
@@ -23,7 +24,8 @@ func migrateRegistrations(tx *sql.Tx) error {
 		expires_at TEXT NOT NULL,
 		used_at TEXT,
 		device_id TEXT,
-		revoked_at TEXT
+		revoked_at TEXT,
+		expiry_recorded_at TEXT
 	)`)
 	return err
 }
@@ -248,6 +250,64 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 	}
 	r.Used, r.DeviceID = now.UTC(), d.ID
 	return d, r, nil
+}
+
+// RecordExpiries marks each code that is expired at now and whose
+// expiry was not recorded yet, and returns them for the caller to audit.
+// With ids it looks only at those codes. A code is returned once across
+// every caller, so the expiry has one audit line however often it is
+// seen, and an open route that calls this writes at most once per code.
+func (c *Catalog) RecordExpiries(ctx context.Context, now time.Time, ids ...string) ([]Registration, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	q := `SELECT ` + registrationCols + ` FROM registrations WHERE used_at IS NULL AND revoked_at IS NULL AND expiry_recorded_at IS NULL`
+	var args []any
+	if len(ids) > 0 {
+		q += ` AND id IN (?` + strings.Repeat(`,?`, len(ids)-1) + `)`
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	rows, err := tx.QueryContext(ctx, q+` ORDER BY expires_at, id`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	var expired []Registration
+	for rows.Next() {
+		r, err := scanRegistration(rows)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		// Compared as times: stamps drop trailing zeros, so their text
+		// does not sort.
+		if r.State(now) == "expired" {
+			expired = append(expired, r)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	var out []Registration
+	for _, r := range expired {
+		res, err := tx.ExecContext(ctx, `UPDATE registrations SET expiry_recorded_at=? WHERE id=? AND expiry_recorded_at IS NULL`, stamp(now), r.ID)
+		if err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		} else if n == 1 {
+			out = append(out, r)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return out, nil
 }
 
 // PublicURL is the lake's public base URL, set by serve identity

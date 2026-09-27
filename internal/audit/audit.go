@@ -32,6 +32,7 @@ const (
 
 	RegistrationCreated  = "registration.created"
 	RegistrationRedeemed = "registration.redeemed"
+	RegistrationExpired  = "registration.expired"
 	RegistrationRevoked  = "registration.revoked"
 	RegistrationRefused  = "registration.refused"
 )

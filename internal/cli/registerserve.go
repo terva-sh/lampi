@@ -47,9 +47,10 @@ is logged. --name is the device's name, --expires its lifetime (at most
 expired or revoked), profile and expiry. --revoke stops a pending code;
 a used code made a device, which serve devices revoke stops.
 
-Every mint, redemption, revocation and refused attempt goes to
-audit.jsonl in the lake directory. Codes live in the catalog, so a
-backup keeps them.
+Every mint, redemption, expiry, revocation and refused attempt goes to
+audit.jsonl in the lake directory. An expiry is written once, the first
+time serve register runs or the code is presented after it expired.
+Codes live in the catalog, so a backup keeps them.
 `
 
 // maxCodeLifetime bounds --expires.
@@ -98,12 +99,18 @@ func runServeRegister(env Env, args []string) error {
 	}
 	ctx := context.Background()
 	now := time.Now()
+	cat, err := catalog.Open(path)
+	if err != nil {
+		return err
+	}
+	defer cat.Close()
+	// The lake is the authority on expiry, and nothing runs in the
+	// background to notice it, so every serve register records the codes
+	// that expired since the last look.
+	if err := auditExpiries(ctx, cat, data, now); err != nil {
+		return err
+	}
 	if list {
-		cat, err := catalog.OpenReadOnly(path)
-		if err != nil {
-			return err
-		}
-		defer cat.Close()
 		regs, err := cat.Registrations(ctx)
 		if err != nil {
 			return err
@@ -124,11 +131,6 @@ func runServeRegister(env Env, args []string) error {
 		}
 		return nil
 	}
-	cat, err := catalog.Open(path)
-	if err != nil {
-		return err
-	}
-	defer cat.Close()
 	if revoke != "" {
 		r, err := cat.RevokeRegistration(ctx, revoke, now)
 		if errors.Is(err, catalog.ErrNoRegistration) {
@@ -211,6 +213,34 @@ func runServeRegister(env Env, args []string) error {
 	fmt.Fprintln(env.stdout(), code)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve register: code %s for %s expires %s; lake %s key fingerprint %s\n",
 		reg.ID, reg.Name, reg.Expires.Format(time.RFC3339), id.LakeID, identity.Fingerprint(id.ActiveKeys(now)[0].Pub))
+	return nil
+}
+
+// auditExpiries writes a registration.expired line for each code the
+// catalog has not recorded as expired yet. serve writes the same line
+// when an expired code is presented; the catalog hands each code to one
+// of them.
+func auditExpiries(ctx context.Context, cat *catalog.Catalog, data string, now time.Time) error {
+	regs, err := cat.RecordExpiries(ctx, now)
+	if err != nil {
+		return err
+	}
+	// Each code is marked already, so one failed line does not stop the
+	// rest from being written.
+	var failed []string
+	var first error
+	for _, r := range regs {
+		if err := audit.Append(data, audit.Event{Time: now, Kind: audit.RegistrationExpired, Device: r.Name, Actor: "serve register",
+			Detail: "registration=" + r.ID + " expires=" + r.Expires.Format(time.RFC3339)}); err != nil {
+			failed = append(failed, r.ID)
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	if first != nil {
+		return fmt.Errorf("writing the expiry of %s to %s failed: %w; the codes are expired either way, but these lines will not be written again; fix the audit log", strings.Join(failed, ", "), audit.FileName, first)
+	}
 	return nil
 }
 

@@ -225,7 +225,9 @@ its body is at most 4 KiB.
 The lake looks up the SHA-256 of `secret`. A code that is unknown,
 used, expired or revoked is 403 with one message for all four, so a
 caller learns nothing about which codes exist. The audit log records
-the reason. A malformed `token_sha256` or `machine_id` is 400. A
+the reason. The first time the lake sees a code expired, here or in
+`serve register`, it also writes one `registration.expired` line for
+it. A malformed `token_sha256` or `machine_id` is 400. A
 `machine_id` another device is bound to is 409, and the code stays
 unused. A lake started without `--token-file` answers 409, because its
 first registered device would close it to every client using it
