@@ -3,11 +3,14 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
@@ -186,6 +189,16 @@ func TestRegisterAuditsEveryMalformedAttemptWithoutTheSecret(t *testing.T) {
 		if strings.Contains(string(raw), secret) {
 			t.Fatalf("audit holds the secret:\n%s", raw)
 		}
+	}
+	// A body that breaks off mid-read gets an error answer, not an empty 200.
+	rr := httptest.NewRecorder()
+	broken := io.MultiReader(strings.NewReader(`{"secret":"`+secret), iotest.ErrReader(errors.New("connection reset")))
+	s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, protocol.RegisterPath, broken))
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "request body could not be read") {
+		t.Fatalf("broken body: %d %s", rr.Code, rr.Body)
+	}
+	if raw, _ := os.ReadFile(audit.Path(dir)); !strings.Contains(string(raw), "reason=body could not be read") || strings.Contains(string(raw), secret) {
+		t.Fatalf("audit after a broken body:\n%s", raw)
 	}
 	// None of those spent the code.
 	if rr := postRegister(t, s, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "m"}); rr.Code != http.StatusOK {

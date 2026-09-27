@@ -56,7 +56,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxRegisterBytes+1))
 	if err != nil {
 		s.auditRefusal("", "", "body could not be read")
+		code, berr := bodyStatus(err)
 		note(r, err)
+		writeJSON(w, code, protocol.ErrorBody{Error: berr.Error()})
 		return
 	}
 	if len(raw) > maxRegisterBytes {
