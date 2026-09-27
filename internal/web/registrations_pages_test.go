@@ -23,7 +23,7 @@ func postForm(h http.Handler, path string, form url.Values, c *http.Cookie) *htt
 	return w
 }
 
-var attemptField = regexp.MustCompile(`name="attempt" value="([0-9a-f]{32})"`)
+var attemptField = regexp.MustCompile(`name="attempt" value="([^"]+)"`)
 
 // attemptOf reads a fresh attempt token from the mint form. A stale
 // sign-in has no form, so it makes one up.
@@ -32,7 +32,41 @@ func attemptOf(t *testing.T, h http.Handler, c *http.Cookie) string {
 	if m := attemptField.FindStringSubmatch(get(h, "/admin/registrations", c).Body.String()); m != nil {
 		return m[1]
 	}
-	return newAttempt()
+	return "none"
+}
+
+func TestMintAttemptTokens(t *testing.T) {
+	var a, other mintAttempts
+	now := time.Now()
+	tok := a.issue(now)
+	if _, ok := a.claim(tok, now); !ok {
+		t.Fatal("fresh token refused")
+	}
+	a.done(tok, "reg_1")
+	if id, ok := a.claim(tok, now.Add(time.Minute)); ok || id != "reg_1" {
+		t.Fatalf("resent token: %q %v", id, ok)
+	}
+	// Past its lifetime, or from another process, a token is out of
+	// date, never new.
+	old := a.issue(now)
+	if _, ok := a.claim(old, now.Add(attemptTTL)); ok {
+		t.Fatal("expired token accepted")
+	}
+	if _, ok := other.claim(a.issue(now), now); ok {
+		t.Fatal("another process's token accepted")
+	}
+	for _, bad := range []string{"", "none", a.issue(now.Add(time.Hour)), "x.1.y"} {
+		if _, ok := a.claim(bad, now); ok {
+			t.Fatalf("token %q accepted", bad)
+		}
+	}
+	// A refused mint can be sent again.
+	retry := a.issue(now)
+	a.claim(retry, now)
+	a.forget(retry)
+	if _, ok := a.claim(retry, now); !ok {
+		t.Fatal("forgotten token refused")
+	}
 }
 
 func TestRegistrationPagesAreOperatorOnly(t *testing.T) {

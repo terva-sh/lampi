@@ -205,7 +205,9 @@ the code.
 
 The code is shown once, on the page that answers the mint, and not again.
 Reloading that page does not mint a second code or show the first again: it
-names the code the form made, so it can be cancelled if it was not copied.
+names the code the form made, so it can be cancelled if it was not copied. A
+mint form is good for an hour, and until serve restarts; after that it is out
+of date and mints nothing.
 Copy one of two things:
 
 - **The install line.** It installs terva-lampi and registers the machine with

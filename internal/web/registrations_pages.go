@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +76,7 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 		v.Groups = append(v.Groups, g)
 	}
 	v.Fresh = webauth.Fresh(r, now)
-	v.Attempt = newAttempt()
+	v.Attempt = s.attempts.issue(now)
 	v.FreshURL = webauth.FreshLoginURL(adminRegistrationsPath)
 	v.Profiles = []string{config.DefaultProfile}
 	for name := range s.reg.Lake().Profiles {
@@ -129,6 +130,10 @@ func (s *Server) mintPage(w http.ResponseWriter, r *http.Request) {
 	// A reload of the page that showed a code posts the same form again.
 	// It must not mint a second code, and it cannot show the first again,
 	// so it says what happened.
+	if !webauth.Fresh(r, s.now()) {
+		http.Redirect(w, r, webauth.FreshLoginURL(adminRegistrationsPath), http.StatusSeeOther)
+		return
+	}
 	attempt := r.PostForm.Get("attempt")
 	if prior, ok := s.attempts.claim(attempt, s.now()); !ok {
 		problem := "This form was already sent, or is out of date. Mint again from the form below."
@@ -187,15 +192,14 @@ func (s *Server) revokePage(w http.ResponseWriter, r *http.Request) {
 	s.renderCodes(w, r, codesView{Form: mintRequest{Expires: codeLifetimes[0].Value}, Problem: problem}, status)
 }
 
-func newAttempt() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
-}
-
-// mintAttempts remembers which mint forms were sent, and the code each
-// minted, for attemptTTL. It holds no secret.
+// mintAttempts issues a token for each mint form and remembers which
+// were sent, and the code each minted. A token names the process that
+// issued it and when, and is refused once it is older than attemptTTL or
+// from another process, so a form reloaded after its record is gone is
+// out of date rather than new. It holds no secret.
 type mintAttempts struct {
+	once sync.Once
+	boot string
 	mu   sync.Mutex
 	seen map[string]mintAttempt
 }
@@ -210,11 +214,35 @@ const (
 	maxAttempts = 1024
 )
 
-// claim records attempt as in flight. It fails for an attempt already
-// sent, and returns the code that attempt minted, if any. A form with
-// no attempt, or one that is not ours, is refused as sent.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func (a *mintAttempts) init() { a.once.Do(func() { a.boot = randomHex(8) }) }
+
+// issue makes the token for one mint form.
+func (a *mintAttempts) issue(now time.Time) string {
+	a.init()
+	return a.boot + "." + strconv.FormatInt(now.Unix(), 10) + "." + randomHex(16)
+}
+
+// claim records attempt as in flight. It fails for a token already
+// sent, returning the code it minted if any, and for a token that is
+// malformed, expired or from another process.
 func (a *mintAttempts) claim(attempt string, now time.Time) (string, bool) {
-	if len(attempt) != 32 {
+	a.init()
+	parts := strings.Split(attempt, ".")
+	if len(parts) != 3 || parts[0] != a.boot || len(parts[2]) != 32 {
+		return "", false
+	}
+	unix, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", false
+	}
+	expires := time.Unix(unix, 0).Add(attemptTTL)
+	if !now.Before(expires) || time.Unix(unix, 0).After(now.Add(time.Minute)) {
 		return "", false
 	}
 	a.mu.Lock()
@@ -222,7 +250,7 @@ func (a *mintAttempts) claim(attempt string, now time.Time) (string, bool) {
 	if a.seen == nil {
 		a.seen = map[string]mintAttempt{}
 	}
-	if prior, ok := a.seen[attempt]; ok && now.Before(prior.expires) {
+	if prior, ok := a.seen[attempt]; ok {
 		return prior.id, false
 	}
 	if len(a.seen) >= maxAttempts {
@@ -235,7 +263,9 @@ func (a *mintAttempts) claim(attempt string, now time.Time) (string, bool) {
 	if len(a.seen) >= maxAttempts {
 		return "", false
 	}
-	a.seen[attempt] = mintAttempt{expires: now.Add(attemptTTL)}
+	// The record lives as long as the token is valid, so a token is
+	// never both unrecorded and accepted twice.
+	a.seen[attempt] = mintAttempt{expires: expires}
 	return "", true
 }
 
