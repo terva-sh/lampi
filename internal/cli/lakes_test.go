@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -93,12 +94,9 @@ func TestSyncPushesToTheSelectedLakeWithItsOwnState(t *testing.T) {
 	f := newTwoLakeFixture(t)
 	// The session is allowed for work only, so the default lake refuses
 	// it, and the default lake's own allow does not leak to work.
-	err := f.run("sync")
+	err := f.run("sync", "--lake", "default")
 	if err == nil || !strings.Contains(f.stdout.String()+f.stderr.String(), "refused") {
 		t.Fatalf("sync to default: %v\nstdout:\n%s\nstderr:\n%s", err, f.stdout, f.stderr)
-	}
-	if !strings.Contains(f.stderr.String(), "2 lakes configured; this release pushes to default only") {
-		t.Fatalf("no warning about the other lake:\n%s", f.stderr)
 	}
 	if n, err := f.home.Catalog.Counts(t.Context()); err != nil || n.Sessions != 0 {
 		t.Fatalf("default lake got %d sessions (%v)", n.Sessions, err)
@@ -138,14 +136,18 @@ func TestStatusAndConflictsSelectALake(t *testing.T) {
 	if err := f.run("status"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(f.stdout.String(), "lake: default\nother_lakes: 1 (pass --lake to show one)\n") {
-		t.Fatalf("status:\n%s", f.stdout)
+	all := f.stdout.String()
+	if i, j := strings.Index(all, "lake: default\n"), strings.Index(all, "lake: work\n"); i < 0 || j < i {
+		t.Fatalf("status has no block per lake:\n%s", all)
+	}
+	if strings.Count(all, "machine_id: ") != 2 || strings.Count(all, "health: ok") != 2 {
+		t.Fatalf("status blocks:\n%s", all)
 	}
 	if err := f.run("status", "--lake", "work"); err != nil {
 		t.Fatal(err)
 	}
 	out := f.stdout.String()
-	if !strings.Contains(out, "lake: work\n") || strings.Contains(out, "other_lakes") || !strings.Contains(out, "source=config") {
+	if !strings.Contains(out, "lake: work\n") || strings.Contains(out, "lake: default") || !strings.Contains(out, "source=config") {
 		t.Fatalf("status --lake work:\n%s", out)
 	}
 	if !strings.Contains(out, "catalog_sessions: 0") {
@@ -184,27 +186,140 @@ func TestAgentConfigListsEveryLake(t *testing.T) {
 	}
 }
 
-func TestAgentUsesTheFirstLakeOfAMapOnlyConfig(t *testing.T) {
-	cfg := t.TempDir()
-	state := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(cfg, "terva-lampi"), 0o700); err != nil {
+func TestSyncPushesToEveryLakeAndKeepsGoingPastAFailure(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// default refuses the work-only session; work takes it. The failure
+	// of one does not stop the other, and each line names its lake.
+	err := f.run("sync")
+	if err == nil || !strings.Contains(err.Error(), "sync failed for 1 of 2 lakes: default") {
+		t.Fatalf("sync: %v\n%s\n%s", err, f.stdout, f.stderr)
+	}
+	if !strings.Contains(f.stdout.String(), "lake default: checked") || !strings.Contains(f.stdout.String(), "lake work: checked 1") {
+		t.Fatalf("labels:\n%s", f.stdout)
+	}
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("work sessions %d", n.Sessions)
+	}
+}
+
+func TestSyncKeepsGoingPastALakeItCannotPrepare(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// The default lake's named token file is gone, so its options cannot
+	// be built. work is still pushed, and the exit names default.
+	if err := os.Remove(filepath.Join(f.cfg, "home.token")); err != nil {
 		t.Fatal(err)
 	}
-	conf := `{"lakes":{"work":{"server":"http://127.0.0.1:1"},"archive":{"server":"http://127.0.0.1:2"}}}`
-	if err := os.WriteFile(filepath.Join(cfg, "terva-lampi", "config.json"), []byte(conf), 0o600); err != nil {
+	err := f.run("sync")
+	if err == nil || !strings.Contains(err.Error(), "sync failed for 1 of 2 lakes: default") {
+		t.Fatalf("sync: %v\n%s\n%s", err, f.stdout, f.stderr)
+	}
+	if !strings.Contains(f.stderr.String(), "terva-lampi: lake default: ") {
+		t.Fatalf("the failure does not name its lake:\n%s", f.stderr)
+	}
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("work sessions %d\n%s", n.Sessions, f.stderr)
+	}
+}
+
+func TestStatusReportsTheOtherLakesPastOneItCannotPrepare(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// default's token file is gone, so its block cannot be written.
+	// work's block is still printed, and the exit names default.
+	if err := os.Remove(filepath.Join(f.cfg, "home.token")); err != nil {
 		t.Fatal(err)
 	}
-	var stderr bytes.Buffer
-	env := Env{Stdout: ioDiscard(), Stderr: &stderr, Getenv: statusEnv(cfg, t.TempDir(), state)}
-	opt, _, _, _, err := loadAgent(env, "", "")
-	if err != nil {
+	err := f.run("status")
+	if err == nil || !strings.Contains(err.Error(), "status failed for 1 of 2 lakes: default") {
+		t.Fatalf("status: %v\n%s\n%s", err, f.stdout, f.stderr)
+	}
+	if !strings.Contains(f.stderr.String(), "terva-lampi: lake default: ") {
+		t.Fatalf("the failure does not name its lake:\n%s", f.stderr)
+	}
+	out := f.stdout.String()
+	if !strings.Contains(out, "lake: work\n") || !strings.Contains(out, "health: ok") || !strings.Contains(out, "catalog_sessions: 0") {
+		t.Fatalf("status did not print the work lake:\n%s", out)
+	}
+}
+
+func TestAgentStartsTheOtherLakesPastOneItCannotPrepare(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// default's token file is gone, so its options cannot be built. The
+	// agent names it and still pushes to work.
+	if err := os.Remove(filepath.Join(f.cfg, "home.token")); err != nil {
 		t.Fatal(err)
 	}
-	if opt.ServerURL != "http://127.0.0.1:2" || opt.LakeStateDir != filepath.Join(state, "terva-lampi", "lakes", "archive") {
-		t.Fatalf("agent lake %s state %s", opt.ServerURL, opt.LakeStateDir)
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{Stdout: &buf, Stderr: &buf, Getenv: f.env.Getenv}, "", "")
+	}()
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "lake work: checked 1, missing 1, uploaded 1")
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), "pushes to archive only") {
-		t.Fatalf("no warning:\n%s", stderr.String())
+	out := buf.String()
+	if !strings.Contains(out, "terva-lampi: lake default: ") || !strings.Contains(out, "the other lakes still start") {
+		t.Fatalf("the skipped lake is not named:\n%s", out)
+	}
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("work sessions %d\n%s", n.Sessions, out)
+	}
+}
+
+func TestAgentDoesNotStartWhenNoLakeCanBePrepared(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	for _, name := range []string{"home.token", "work.token"} {
+		if err := os.Remove(filepath.Join(f.cfg, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := runAgentLoop(t.Context(), f.env, "", "")
+	if err == nil || !strings.Contains(err.Error(), "no lake could be prepared: default, work") {
+		t.Fatalf("agent: %v\n%s", err, f.stderr)
+	}
+}
+
+func TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	// Allow the session for both lakes, then make default refuse the
+	// token: it waits out its backoff while work receives the session.
+	conf := filepath.Join(f.cfg, "terva-lampi", "config.json")
+	raw, _ := os.ReadFile(conf)
+	if err := os.WriteFile(conf, []byte(strings.Replace(string(raw), "/home/app", "/work/app", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Write(filepath.Join(f.cfg, "home.token"), strings.Repeat("0", 64)); err != nil {
+		t.Fatal(err)
+	}
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{Stdout: &buf, Stderr: &buf, Getenv: f.env.Getenv}, "", "")
+	}()
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "lake work: checked 1, missing 1, uploaded 1") &&
+			strings.Contains(s, "lake default: lake answered 401")
+	})
+	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+		t.Fatalf("work sessions %d\n%s", n.Sessions, buf.String())
+	}
+	if n, _ := f.home.Catalog.Counts(t.Context()); n.Sessions != 0 {
+		t.Fatal("default accepted a refused token")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "lake default: server=") || !strings.Contains(out, "lake work: draining outbox") {
+		t.Fatalf("agent output:\n%s", out)
 	}
 }
 
@@ -252,13 +367,18 @@ func TestSyncMigratesSingleLakeStateAndSendsNothingTwice(t *testing.T) {
 	}
 
 	// An agent from before this release holds agent.pid: sync refuses to
-	// move the files under it.
+	// move the files under it, names default as failed, and still pushes
+	// to work, whose state is its own.
 	release, err := writeAgentPID(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.run("sync"); err == nil || !strings.Contains(err.Error(), "stop that agent") {
-		t.Fatalf("sync beside an old agent: %v", err)
+	if err := f.run("sync"); err == nil || !strings.Contains(err.Error(), "sync failed for 1 of 2 lakes: default") ||
+		!strings.Contains(f.stderr.String(), "lake default: sync state in") || !strings.Contains(f.stderr.String(), "stop that agent") {
+		t.Fatalf("sync beside an old agent: %v\n%s", err, f.stderr)
+	}
+	if !strings.Contains(f.stdout.String(), "lake work: checked 1") {
+		t.Fatalf("work was not attempted beside an old agent:\n%s", f.stdout)
 	}
 	release()
 

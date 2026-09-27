@@ -7,10 +7,10 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"terva.sh/lampi/internal/config"
-	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/upload"
 )
 
@@ -82,10 +82,12 @@ pieces. No timeout covers a whole request; one that moves no bytes for
 60s is cancelled.
 
 --lake names a lake from the lakes map in config.json. Without it,
-sync pushes to the lake named default (the one the top-level server,
-LAMPI_SERVER, or nothing describes), or to the first lake by name when
-there is none, and names the others. --server and --token-file
-override that lake's values. Each lake keeps its own sync state in
+sync pushes to every lake in turn, the lake named default first, and
+labels each line with its lake when there is more than one. A lake that
+fails does not stop the next, and sync exits non-zero naming the lakes
+that failed. An interrupt stops the run, and the lakes it did not reach
+count as failed. --server and --token-file override one lake's values: the
+one --lake names, or the only one. Each lake keeps its own sync state in
 lakes/<name>/ in the state directory. The first sync on this release
 moves single-lake state there; it waits for no agent, and refuses while
 an older agent holds it.
@@ -98,6 +100,9 @@ from a file, never from an argument. It is sent over
 https, or over http only to localhost, 127.0.0.0/8, or ::1. Anything
 else is refused before the scan.
 `
+
+// syncLake pushes to one lake. Tests replace it.
+var syncLake = upload.Sync
 
 func runSync(env Env, args []string) error {
 	if len(args) > 0 && isHelp(args[0]) {
@@ -125,14 +130,6 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	lake, err := pushLake(lakes, lakeFlag, env.stderr(), "sync")
-	if err != nil {
-		return err
-	}
-	token, err := lakeToken(lake)
-	if err != nil {
-		return err
-	}
 	src, err := sources(env.getenv, file.Harnesses)
 	if err != nil {
 		return err
@@ -141,30 +138,58 @@ func runSync(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	lakeDir, m, err := prepareLake(env, state, lake, false)
-	if err != nil {
-		return err
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	res, err := upload.Sync(ctx, upload.Options{
-		ServerURL:     lake.Server.Value,
-		Token:         token,
-		PieceBytes:    upload.DefaultPieceBytes,
-		TervaHome:     homeOf(src, protocol.HarnessTerva),
-		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
-		CodexHome:     homeOf(src, protocol.HarnessCodex),
-		OpenCodeHome:  homeOf(src, protocol.HarnessOpenCode),
-		CursorHome:    homeOf(src, protocol.HarnessCursor),
-		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
-		MachineID:     m.MachineID,
-		StateDir:      state,
-		LakeStateDir:  lakeDir,
-		Projects:      lake.Projects,
-		UploadHits:    file.Redaction.UploadHits,
-	})
-	printSync(env.stdout(), env.stderr(), "", res)
-	return err
+	// Each lake is pushed in turn with its own state. One that fails,
+	// including one that cannot be prepared, does not stop the next; with
+	// several, each line names its lake.
+	var failed []string
+	var last error
+	fail := func(lake config.Lake, label string, err error) {
+		last = err
+		failed = append(failed, lake.Name)
+		if len(lakes) > 1 {
+			fmt.Fprintf(env.stderr(), "terva-lampi: %s%v\n", label, err)
+		}
+	}
+	for i, lake := range lakes {
+		label := ""
+		if len(lakes) > 1 {
+			label = "lake " + lake.Name + ": "
+		}
+		if lake.Name == config.DefaultLake {
+			if err := migrateDefault(env, state, false); err != nil {
+				fail(lake, label, err)
+				continue
+			}
+		}
+		opt, err := lakeOptions(env, file, state, src, lake)
+		if err != nil {
+			fail(lake, label, err)
+			continue
+		}
+		res, err := syncLake(ctx, opt)
+		printSync(env.stdout(), env.stderr(), label, res)
+		if err != nil {
+			fail(lake, label, err)
+		}
+		// An interrupt ends the run. The lakes it did not reach are
+		// failures, so the exit says the fan-out is incomplete.
+		if ctx.Err() != nil {
+			for _, rest := range lakes[i+1:] {
+				fail(rest, "lake "+rest.Name+": ", fmt.Errorf("not attempted: %w", ctx.Err()))
+			}
+			break
+		}
+	}
+	switch {
+	case len(failed) == 0:
+		return nil
+	case len(lakes) == 1:
+		return last
+	default:
+		return fmt.Errorf("sync failed for %d of %d lakes: %s", len(failed), len(lakes), strings.Join(failed, ", "))
+	}
 }
 
 func printSync(stdout, stderr io.Writer, prefix string, res upload.Result) {
