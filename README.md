@@ -359,7 +359,10 @@ agent pushes to every lake. Each lake has its own outbox, backoff,
 debounce ceiling and 401 message, so a lake that is down or refuses the
 token waits out its own retry while the others keep receiving. With
 more than one lake, each output line starts with `lake <name>: `.
-`status` prints one block per lake.
+`status` prints one block per lake. With more than one lake, a lake
+that cannot be prepared, such as one whose token file cannot be read,
+is named on stderr and the others still run: `sync` and `status` go on
+to the next lake and exit non-zero, and the agent starts without it.
 
 ### Cursor sessions with an empty cwd
 
