@@ -65,14 +65,14 @@ Documentation=https://github.com/terva-sh/lampi/blob/main/deploy/README.md
 
 [Service]
 Type=simple
-EnvironmentFile=-%%h/.config/terva-lampi/agent.env
+%sEnvironmentFile=-%%h/.config/terva-lampi/agent.env
 ExecStart=%s agent
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 
 [Install]
 WantedBy=default.target
-`, systemdQuote(exe))
+`, systemdEnv(serviceEnv(env)), systemdQuote(exe))
 	if err := writeUnit(env, path, unit); err != nil {
 		return err
 	}
@@ -123,9 +123,9 @@ func installLaunchd(env Env, exe string, running bool) error {
 		<string>%s</string>
 		<string>agent</string>
 	</array>
-</dict>
+%s</dict>
 </plist>
-`, launchdLabel, xmlEscape(exe))
+`, launchdLabel, xmlEscape(exe), launchdEnv(serviceEnv(env)))
 	if err := writeUnit(env, path, plist); err != nil {
 		return err
 	}
@@ -166,6 +166,60 @@ func agentRunning(state string) bool {
 	}
 	release()
 	return false
+}
+
+// serviceEnv is each XDG directory this process has set away from its
+// default, made absolute. register wrote the config, token and state
+// there, and the agent reads XDG_DATA_HOME for OpenCode's sessions, so
+// the service gets the same values. One unset or at its default is
+// left out, and the unit stays as it was.
+func serviceEnv(env Env) [][2]string {
+	home := env.getenv("HOME")
+	var vars [][2]string
+	for _, v := range []struct{ key, def string }{
+		{"XDG_CONFIG_HOME", ".config"},
+		{"XDG_STATE_HOME", filepath.Join(".local", "state")},
+		{"XDG_DATA_HOME", filepath.Join(".local", "share")},
+	} {
+		val := env.getenv(v.key)
+		if val == "" {
+			continue
+		}
+		if abs, err := filepath.Abs(val); err == nil {
+			val = abs
+		}
+		if home != "" && val == filepath.Join(home, v.def) {
+			continue
+		}
+		vars = append(vars, [2]string{v.key, val})
+	}
+	return vars
+}
+
+// systemdEnv is one quoted Environment= line per variable. systemd
+// expands specifiers and C escapes there, so % is doubled and \, " and
+// newlines are escaped.
+func systemdEnv(vars [][2]string) string {
+	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%", "\n", `\n`)
+	var b strings.Builder
+	for _, v := range vars {
+		fmt.Fprintf(&b, "Environment=\"%s\"\n", esc.Replace(v[0]+"="+v[1]))
+	}
+	return b.String()
+}
+
+// launchdEnv is the plist's EnvironmentVariables dict, or nothing.
+func launchdEnv(vars [][2]string) string {
+	if len(vars) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\t<key>EnvironmentVariables</key>\n\t<dict>\n")
+	for _, v := range vars {
+		fmt.Fprintf(&b, "\t\t<key>%s</key>\n\t\t<string>%s</string>\n", v[0], xmlEscape(v[1]))
+	}
+	b.WriteString("\t</dict>\n")
+	return b.String()
 }
 
 // systemdQuote quotes a path for ExecStart when it holds a space.

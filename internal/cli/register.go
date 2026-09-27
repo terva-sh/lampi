@@ -54,10 +54,13 @@ restarted.
 default lake is configured, else the first label of the URL's host. A
 lake with the code's lake id is already configured: register refuses
 and names it, unless --replace, which re-registers that entry under
-its name. --replace never takes over an entry for another lake.
+its name. --replace never takes over an entry for another lake, or a
+token file another lake names as its token_file.
 
 --install-service writes and enables the agent's systemd user unit or
-launchd agent, running this binary. On Linux it suggests loginctl
+launchd agent, running this binary. XDG_CONFIG_HOME, XDG_STATE_HOME
+and XDG_DATA_HOME, when set away from their defaults, are set in it
+too, so the agent reads what register wrote. On Linux it suggests loginctl
 enable-linger when the user has no lingering session.
 
 A lake from before key lists cannot be registered with; upgrade it
@@ -198,6 +201,11 @@ func runRegister(env Env, args []string) error {
 		return err
 	}
 	tokenPath := tokensPath(dir, lakeName)
+	// Another lake can name this file as its token_file. Writing it
+	// would lock that lake out, or hand it this lake's token.
+	if sharers := tokenSharers(lakes, lakeName, tokenPath); len(sharers) > 0 {
+		return fmt.Errorf("%s is the token_file of lake %s in config.json, so register does not overwrite it; pass --lake for another name, or give that lake its own token_file", tokenPath, strings.Join(sharers, ", "))
+	}
 	if _, err := os.Stat(tokenPath); err == nil && !replace {
 		return fmt.Errorf("%s exists; pass --replace to overwrite it, or --lake for another name", tokenPath)
 	}
@@ -228,7 +236,10 @@ func runRegister(env Env, args []string) error {
 	}
 
 	entry.Server, entry.LakeID, entry.KeyID, entry.PublicKey, entry.TokenFile = c.URL, c.LakeID, c.KeyID, c.PublicKey, tokenPath
-	pinned := config.Lake{Name: lakeName, LakeID: c.LakeID, KeyID: c.KeyID, PublicKey: c.PublicKey}
+	// The device id binds the lake's profiles to this device: one signed
+	// for another device on the same lake does not verify here.
+	entry.DeviceID = resp.DeviceID
+	pinned := config.Lake{Name: lakeName, LakeID: c.LakeID, KeyID: c.KeyID, PublicKey: c.PublicKey, DeviceID: resp.DeviceID}
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
 		return err

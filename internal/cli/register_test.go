@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/xml"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -93,6 +95,11 @@ func TestRegisterOnAFreshMachineThenSync(t *testing.T) {
 	lc := file.Lakes["default"]
 	if lc.Server != f.url || lc.LakeID != f.lake.Identity().LakeID || lc.KeyID == "" || lc.PublicKey == "" || lc.TokenFile != tokenPath {
 		t.Fatalf("lake entry %+v", lc)
+	}
+	// The entry names the device the lake made, so only profiles signed
+	// for it verify; the sync below reads the cached one that way.
+	if !strings.HasPrefix(lc.DeviceID, "dev_") || !strings.Contains(f.stdout.String(), "("+lc.DeviceID+")") {
+		t.Fatalf("device id %q, output:\n%s", lc.DeviceID, f.stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(f.state, "terva-lampi", "lakes", "default", "profile.json")); err != nil {
 		t.Fatalf("base configuration not stored: %v", err)
@@ -528,5 +535,158 @@ func TestChosenLakeNamesStayValidWithASuffix(t *testing.T) {
 			t.Fatalf("chose %q, which is taken", name)
 		}
 		file.Lakes[name] = config.LakeConfig{}
+	}
+}
+
+func TestRegisterRefusesATokenFileAnotherLakeNames(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	tokens := filepath.Join(f.cfg, "terva-lampi", "tokens")
+	tokenPath := filepath.Join(tokens, "work.token")
+	token, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another lake names the same file, spelled so that only a cleaned
+	// path matches it.
+	sep := string(filepath.Separator)
+	unclean := tokens + sep + ".." + sep + "tokens" + sep + "work.token"
+	if err := config.SetLake(getenv, "home", config.LakeConfig{Server: "https://home.invalid", TokenFile: unclean}); err != nil {
+		t.Fatal(err)
+	}
+	err = f.register(f.mint("box-2")+"\n", "--fingerprint", f.fingerprint(), "--replace")
+	if err == nil || !strings.Contains(err.Error(), "token_file of lake home") {
+		t.Fatalf("replace over a shared token: %v", err)
+	}
+	if now, _ := os.ReadFile(tokenPath); string(now) != string(token) {
+		t.Fatal("--replace overwrote a token another lake names")
+	}
+	regs, _ := f.lake.Catalog.Registrations(t.Context())
+	used := 0
+	for _, r := range regs {
+		if r.State(time.Now()) == "used" {
+			used++
+		}
+	}
+	if used != 1 {
+		t.Fatalf("%d codes redeemed; the refused one must not be", used)
+	}
+}
+
+func TestLakesRemoveKeepsATokenAnotherLakeNames(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	tokens := filepath.Join(f.cfg, "terva-lampi", "tokens")
+	sep := string(filepath.Separator)
+	if err := config.SetLake(getenv, "home", config.LakeConfig{Server: "https://home.invalid", TokenFile: tokens + sep + "." + sep + "work.token"}); err != nil {
+		t.Fatal(err)
+	}
+	f.stdout.Reset()
+	if err := Run([]string{"lakes", "remove", "work"}, f.env("")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(tokens, "work.token")); err != nil {
+		t.Fatalf("remove deleted a token another lake names: %v", err)
+	}
+	if !strings.Contains(f.stdout.String(), "which lake home also names as its token_file") {
+		t.Fatalf("remove output:\n%s", f.stdout.String())
+	}
+
+	// An entry with no token_file uses tokens/<name>.token, which
+	// another lake can name too.
+	spare := filepath.Join(tokens, "spare.token")
+	if err := os.WriteFile(spare, []byte("spare\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetLake(getenv, "spare", config.LakeConfig{Server: "https://spare.invalid"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetLake(getenv, "home", config.LakeConfig{Server: "https://home.invalid", TokenFile: spare}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"lakes", "remove", "spare"}, f.env("")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(spare); err != nil {
+		t.Fatalf("remove deleted a token another lake names: %v", err)
+	}
+}
+
+func TestInstalledServicesKeepCustomXDGDirectories(t *testing.T) {
+	oldRun := runCommand
+	runCommand = func(string, ...string) ([]byte, error) { return nil, nil }
+	defer func() { runCommand = oldRun }()
+	home := t.TempDir()
+	cfg := t.TempDir()
+	// A state directory whose name needs quoting in both files.
+	state := filepath.Join(t.TempDir(), `50% "odd" \ & <dir>`)
+	vars := map[string]string{
+		"HOME":            home,
+		"XDG_CONFIG_HOME": cfg,
+		"XDG_STATE_HOME":  state,
+		// At its default, so left out.
+		"XDG_DATA_HOME": filepath.Join(home, ".local", "share"),
+	}
+	env := Env{Stdout: ioDiscard(), Stderr: ioDiscard(), Getenv: func(k string) string { return vars[k] }}
+	if err := installSystemd(env, "/opt/terva-lampi", true); err != nil {
+		t.Fatal(err)
+	}
+	unit, err := os.ReadFile(filepath.Join(cfg, "systemd", "user", systemdUnitName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"\nEnvironment=\"XDG_CONFIG_HOME=" + cfg + "\"\n",
+		"\nEnvironment=\"XDG_STATE_HOME=" + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%").Replace(state) + "\"\n",
+	} {
+		if !strings.Contains(string(unit), want) {
+			t.Fatalf("unit lacks %q:\n%s", want, unit)
+		}
+	}
+	if strings.Contains(string(unit), "XDG_DATA_HOME") {
+		t.Fatalf("unit sets a directory at its default:\n%s", unit)
+	}
+	if err := installLaunchd(env, "/opt/terva-lampi", true); err != nil {
+		t.Fatal(err)
+	}
+	plist, err := os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>XDG_CONFIG_HOME</key>\n\t\t<string>" + cfg + "</string>\n\t\t<key>XDG_STATE_HOME</key>\n\t\t<string>" + xmlEscape(state) + "</string>\n\t</dict>\n"
+	if !strings.Contains(string(plist), want) {
+		t.Fatalf("plist lacks the environment:\n%s", plist)
+	}
+	dec := xml.NewDecoder(bytes.NewReader(plist))
+	for {
+		if _, err := dec.Token(); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatalf("plist is not well-formed: %v\n%s", err, plist)
+		}
+	}
+
+	// With the directories unset, neither file sets any.
+	home = t.TempDir()
+	vars = map[string]string{"HOME": home}
+	if err := installSystemd(env, "/opt/terva-lampi", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := installLaunchd(env, "/opt/terva-lampi", true); err != nil {
+		t.Fatal(err)
+	}
+	unit, _ = os.ReadFile(filepath.Join(home, ".config", "systemd", "user", systemdUnitName))
+	plist, _ = os.ReadFile(filepath.Join(home, "Library", "LaunchAgents", launchdLabel+".plist"))
+	if !strings.Contains(string(unit), "ExecStart=") || strings.Contains(string(unit), "\nEnvironment=") {
+		t.Fatalf("unit:\n%s", unit)
+	}
+	if !strings.Contains(string(plist), "ProgramArguments") || strings.Contains(string(plist), "EnvironmentVariables") {
+		t.Fatalf("plist:\n%s", plist)
 	}
 }

@@ -222,6 +222,38 @@ func TestRegisterAuditsEveryMalformedAttemptWithoutTheSecret(t *testing.T) {
 	}
 }
 
+func TestRegisterRefusesAMachineIDThatCarriesTheSecret(t *testing.T) {
+	s, dir, logs, _, _ := devicesLake(t)
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return now }
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	secret, _ := regcode.NewSecret()
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{secret, "host-" + secret, secret[:20], "x" + secret[10:18] + "y"} {
+		rr := postRegister(t, s, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: id})
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("machine_id %d characters from the secret: %d %s", len(id), rr.Code, rr.Body)
+		}
+	}
+	// Refused before redemption: the code is still pending.
+	if rr := postRegister(t, s, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "machine-new"}); rr.Code != http.StatusOK {
+		t.Fatalf("code after refused attempts: %d %s", rr.Code, rr.Body)
+	}
+	raw, _ := os.ReadFile(audit.Path(dir))
+	if strings.Count(string(raw), "reason=machine_id holds part of the secret") != 4 {
+		t.Fatalf("audit lacks the refusals:\n%s", raw)
+	}
+	for _, log := range []string{string(raw), logs.String()} {
+		if strings.Contains(log, secret[10:18]) {
+			t.Fatalf("a log holds part of the secret:\n%s", log)
+		}
+	}
+}
+
 func identityLakeOpen(t *testing.T) *Server {
 	s, _ := identityLake(t)
 	return s

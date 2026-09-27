@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/lakestate"
@@ -24,7 +25,7 @@ file, pinned lake id and allowlist counts, then its base configuration.
 remove deletes lakes.NAME from config.json and the token file register
 wrote for it, and tells a running agent to reload, which drains that
 lake's outbox and stops pushing to it. On Windows the agent must be
-restarted. The lake still lists the device; its operator revokes it
+restarted. A token file another lake names as its token_file is kept. The lake still lists the device; its operator revokes it
 with serve devices revoke. Removing the last lake leaves the agent
 running with no lake.
 
@@ -134,13 +135,23 @@ func removeLake(env Env, name string, purge bool) error {
 		if err != nil {
 			return err
 		}
-		if lc.TokenFile == "" || lc.TokenFile == tokensPath(dir, name) {
-			err := os.Remove(tokensPath(dir, name))
-			switch {
-			case err == nil:
-				fmt.Fprintf(env.stdout(), "removed %s\n", tokensPath(dir, name))
-			case !errors.Is(err, fs.ErrNotExist):
-				tokenErr = fmt.Errorf("lake %s is removed from config.json, but its token is still in %s: %w; delete that file by hand", name, tokensPath(dir, name), err)
+		tokenPath := tokensPath(dir, name)
+		if lc.TokenFile == "" || cleanTokenPath(lc.TokenFile) == cleanTokenPath(tokenPath) {
+			// Another lake may still name the file as its token_file.
+			// Deleting it would lock that lake out, so it is kept.
+			sharers, err := remainingTokenSharers(env, name, tokenPath)
+			if err != nil {
+				fmt.Fprintf(env.stdout(), "kept %s, since whether another lake names it cannot be checked: %v\n", tokenPath, err)
+			} else if len(sharers) > 0 {
+				fmt.Fprintf(env.stdout(), "kept %s, which lake %s also names as its token_file\n", tokenPath, strings.Join(sharers, ", "))
+			} else {
+				err := os.Remove(tokenPath)
+				switch {
+				case err == nil:
+					fmt.Fprintf(env.stdout(), "removed %s\n", tokenPath)
+				case !errors.Is(err, fs.ErrNotExist):
+					tokenErr = fmt.Errorf("lake %s is removed from config.json, but its token is still in %s: %w; delete that file by hand", name, tokenPath, err)
+				}
 			}
 		} else {
 			fmt.Fprintf(env.stdout(), "kept %s, which config.json named\n", lc.TokenFile)
@@ -169,4 +180,39 @@ func removeLake(env Env, name string, purge bool) error {
 
 func tokensPath(configDir, name string) string {
 	return filepath.Join(configDir, "tokens", name+".token")
+}
+
+// remainingTokenSharers names the lakes other than name that config.json
+// now resolves to the token file path.
+func remainingTokenSharers(env Env, name, path string) ([]string, error) {
+	file, err := config.LoadFile(env.getenv)
+	if err != nil {
+		return nil, err
+	}
+	lakes, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{})
+	if err != nil {
+		return nil, err
+	}
+	return tokenSharers(lakes, name, path), nil
+}
+
+// tokenSharers names the lakes other than name whose token file is path,
+// after each resolved the way the agent reads it.
+func tokenSharers(lakes []config.Lake, name, path string) []string {
+	var names []string
+	for _, l := range lakes {
+		if l.Name != name && l.TokenFile.Value != "" && cleanTokenPath(l.TokenFile.Value) == cleanTokenPath(path) {
+			names = append(names, l.Name)
+		}
+	}
+	return names
+}
+
+// cleanTokenPath makes token paths comparable. A relative one is opened
+// from the working directory, so it is made absolute from there.
+func cleanTokenPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return filepath.Clean(p)
 }

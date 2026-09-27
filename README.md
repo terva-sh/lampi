@@ -413,7 +413,8 @@ also writes the lake's pinned `lake_id`, `key_id` and `public_key`.
 - A lake pinned in `config.json` (`lake_id`, `key_id`, `public_key`,
   which registration writes) can publish a base configuration, its
   profile. The agent fetches it at start and every hour, checks it
-  against the pinned key and lake id, and keeps the last copy that
+  against the pinned key and lake id, and against the entry's
+  `device_id` when it has one, and keeps the last copy that
   passed in `lakes/<name>/profile.json`. A fetch that fails or a copy
   signed by another key is logged once and the cached copy stays in
   use. `sync` uses the cached copy and does not fetch. A lake with no

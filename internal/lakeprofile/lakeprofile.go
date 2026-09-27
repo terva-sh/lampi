@@ -3,8 +3,10 @@
 //
 // A profile is accepted only from a lake the agent pinned at
 // registration: the lake id and one key. The signature is checked
-// against that key, the payload's lake id against the pinned one, and
-// the profile is decoded strictly, so a field a lake may not set is
+// against that key, the payload's lake id against the pinned one, its
+// device id against the machine's when the lake entry names one, its
+// version against the profile it carries, and the profile is decoded
+// strictly, so a field a lake may not set is
 // refused here even if the lake would publish it. The last copy that
 // passed is kept in the lake's state directory and used when a fetch
 // fails or returns a copy that does not pass.
@@ -61,9 +63,19 @@ func Verify(s *protocol.Signed, l config.Lake) (Doc, error) {
 	if p.LakeID != l.LakeID {
 		return Doc{}, fmt.Errorf("profile is for lake %s, pinned lake is %s", p.LakeID, l.LakeID)
 	}
+	// A lake entry without a device id is a token-file device the
+	// client has no id for, and accepts the profile as before.
+	if l.DeviceID != "" && p.DeviceID != l.DeviceID {
+		return Doc{}, fmt.Errorf("profile is for device %q, this machine is device %s on lake %s", p.DeviceID, l.DeviceID, l.Name)
+	}
 	prof, err := config.ParseProfile(p.Config)
 	if err != nil {
 		return Doc{}, fmt.Errorf("profile %s: %w", p.Profile, err)
+	}
+	// The agent treats an unchanged version as unchanged rules, so the
+	// version must name the rules carried.
+	if v := prof.Version(); p.Version != v {
+		return Doc{}, fmt.Errorf("profile %s: version %s does not match its configuration, which is version %s", p.Profile, p.Version, v)
 	}
 	return Doc{Signed: s, Payload: p, Profile: prof}, nil
 }

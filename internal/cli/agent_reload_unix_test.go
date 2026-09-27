@@ -130,7 +130,11 @@ func TestAReloadThatCannotPrepareALakeKeepsTheOldOneRunning(t *testing.T) {
 	}
 	before = len(buf.String())
 	reloadAgent(stateDir)
-	waitOut(t, &buf, func(s string) bool { return strings.Contains(s[before:], "reload: ") })
+	// The debounce differs from the agent's start, so each reload also
+	// warns about that; wait for the lake's own line.
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s[before:], "reload: restarted") || strings.Contains(s[before:], "unchanged")
+	})
 	if !strings.Contains(buf.String()[before:], "reload: restarted default") {
 		t.Fatalf("agent output:\n%s", buf.String())
 	}
