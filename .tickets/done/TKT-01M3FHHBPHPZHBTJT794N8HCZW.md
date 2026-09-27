@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T23:08:14Z
+updated_at: 2026-09-27T00:04:01Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -54,6 +54,10 @@ loadAgentLakes resolves every lake into options (own token, allowlist, state dir
 **agent:claude-code/e4a47e8c** at 2026-09-26T21:14:15Z
 
 Rejected: one loop that pushes to each lake in sequence on each kick, because a lake timing out would delay every other lake by its stall timeout. Rejected: one shared memo, because a file the memo marks as seen after pushing to one lake would be skipped for the next. Cost: each lake hashes the files it admits, so CPU scales with lake count. Evidence: TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther (work receives while default answers 401), TestSyncPushesToEveryLakeAndKeepsGoingPastAFailure, status block test; go test -race ./... and the golive drills green.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
+
+Review 929 on PR #14, both findings fixed in 5667596. (1) sync stopped at a lake it could not prepare; now that lake is recorded as failed and the next one runs, which is safe because each lake has its own state directory. (2) an interrupt between lakes returned success; now the lakes not reached count as failed. The per-lake push goes through var syncLake so a test can land the interrupt between lakes.
 
 ## Summary
 
