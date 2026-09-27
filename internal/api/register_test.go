@@ -222,6 +222,76 @@ func TestRegisterAuditsEveryMalformedAttemptWithoutTheSecret(t *testing.T) {
 	}
 }
 
+func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return now }
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	// The code was minted for a profile this server does not load.
+	s.SetProfiles(config.Profiles{config.DefaultProfile: {}})
+	secret, _ := regcode.NewSecret()
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Catalog.Devices(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "machine-new"}
+	unspent := func(cause string) {
+		t.Helper()
+		devs, err := s.Catalog.Devices(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(devs) != len(before) {
+			t.Fatalf("%s: %d devices after a failed redemption, want %d", cause, len(devs), len(before))
+		}
+		regs, err := s.Catalog.Registrations(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(regs) != 1 || regs[0].State(now) != "pending" {
+			t.Fatalf("%s: registration %+v, want it pending", cause, regs)
+		}
+	}
+
+	rr := postRegister(t, s, req)
+	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "the code is still valid") {
+		t.Fatalf("missing profile: %d %s", rr.Code, rr.Body)
+	}
+	unspent("missing profile")
+
+	// With the rotation layer, a lake with no active key refuses the code
+	// at the key check, before any signing, so the missing profile is the
+	// signing failure this test can force.
+	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {}})
+	// Once the cause is fixed the same code redeems, with its profile.
+	rr = postRegister(t, s, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("after the fix: %d %s", rr.Code, rr.Body)
+	}
+	var resp protocol.RegisterResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil || resp.Config == nil {
+		t.Fatalf("after the fix: %+v %v", resp, err)
+	}
+
+	raw, _ := os.ReadFile(audit.Path(dir))
+	for _, reason := range []string{"reason=profile is not in the profiles file"} {
+		if !strings.Contains(string(raw), reason) {
+			t.Fatalf("audit lacks %s:\n%s", reason, raw)
+		}
+	}
+	if n := strings.Count(string(raw), `"kind":"registration.redeemed"`); n != 1 {
+		t.Fatalf("%d registration.redeemed lines, want 1:\n%s", n, raw)
+	}
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("audit holds the secret:\n%s", raw)
+	}
+}
+
 func TestRegisterRefusesAMachineIDThatCarriesTheSecret(t *testing.T) {
 	s, dir, logs, _, _ := devicesLake(t)
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)

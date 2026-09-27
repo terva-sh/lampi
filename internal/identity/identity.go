@@ -232,9 +232,9 @@ func create(dir string, id *Identity) error {
 	return write(dir, id, false)
 }
 
-// Save replaces dir's identity.json with id, for rotation and retiring.
-// The file is written beside it and renamed over it.
-func Save(dir string, id *Identity) error {
+// save replaces dir's identity.json with id. The file is written beside
+// it and renamed over it. Only Update calls it, holding the lock.
+func save(dir string, id *Identity) error {
 	return write(dir, id, true)
 }
 

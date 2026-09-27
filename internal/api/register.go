@@ -104,8 +104,27 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		}
 		return false
 	}
-	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now)
+	// The profile is signed before the redemption commits. A code whose
+	// profile the lake cannot sign stays unspent, and no device is made,
+	// so the agent can register again once the operator fixes the cause.
+	var signed *protocol.Signed
+	var signErr error
+	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device) error {
+		signed, signErr = s.signedProfile(d)
+		return signErr
+	})
 	switch {
+	case signErr != nil:
+		reason := "profile could not be signed"
+		if errors.Is(signErr, errNoProfile) {
+			reason = "profile is not in the profiles file"
+		}
+		s.auditRefusal(reg.ID, req.MachineID, reason)
+		// The access log keeps the cause; the body says what to do, which
+		// fail would replace with the generic 5xx answer.
+		note(r, signErr)
+		writeJSON(w, http.StatusServiceUnavailable, protocol.ErrorBody{Error: "registration failed: the lake cannot sign this code's profile; the code is still valid, so ask the lake operator to fix the profile and register again"})
+		return
 	case errors.Is(err, catalog.ErrRegistrationUnknown):
 		s.refuseRegistration(w, r, "", "unknown")
 		return
@@ -144,14 +163,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if info := infoOf(r); info != nil {
 		info.device, info.deviceID = d.Name, d.ID
 	}
-	resp := protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, LakeID: id.LakeID}
-	// The device exists now. A profile that cannot be signed is logged,
-	// and the agent fetches it later.
-	if signed, err := s.signedProfile(d); err == nil {
-		resp.Config = signed
-	} else {
-		s.logger().Warn("register: profile", "device", d.Name, "err", err)
-	}
+	resp := protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, LakeID: id.LakeID, Config: signed}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, resp)
 }
