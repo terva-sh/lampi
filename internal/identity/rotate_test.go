@@ -72,7 +72,7 @@ func TestRotateChainsAndRetireCompromisedBreaksIt(t *testing.T) {
 	if err := loaded.Retire(pin.ID, at, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := Save(dir, loaded); err != nil {
+	if err := save(dir, loaded); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err = Load(dir)

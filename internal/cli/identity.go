@@ -157,33 +157,30 @@ func runServeIdentityKeys(env Env, sub string, args []string) error {
 	if data, err = lakeDir(env, data); err != nil {
 		return err
 	}
-	id, err := identity.Load(data)
+	// Update holds identity.lock from the load to the save, so a rotate
+	// and a retire that run at once cannot undo each other.
+	now := time.Now()
+	var k identity.Key
+	err = identity.Update(data, func(id *identity.Identity) error {
+		if sub == "rotate" {
+			var err error
+			k, err = id.Rotate(rand.Reader, now, overlap)
+			return err
+		}
+		return id.Retire(keyID, now, compromised)
+	})
 	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%s has no identity yet; serve makes one on its next start", data)
 	}
 	if err != nil {
 		return err
 	}
-	now := time.Now()
 	var event audit.Event
 	switch sub {
 	case "rotate":
-		k, err := id.Rotate(rand.Reader, now, overlap)
-		if err != nil {
-			return err
-		}
-		if err := identity.Save(data, id); err != nil {
-			return err
-		}
 		fmt.Fprintf(env.stdout(), "added key %s %s endorsed_by %s; the other keys stop signing at %s\n", k.ID, identity.Fingerprint(k.Pub), k.EndorsedBy, now.Add(overlap).UTC().Format(time.RFC3339))
 		event = audit.Event{Time: now, Kind: audit.KeyAdded, Actor: "serve identity rotate", Detail: "key=" + k.ID + " endorsed_by=" + k.EndorsedBy}
 	case "retire":
-		if err := id.Retire(keyID, now, compromised); err != nil {
-			return err
-		}
-		if err := identity.Save(data, id); err != nil {
-			return err
-		}
 		detail := "key=" + keyID
 		if compromised {
 			detail += " compromised"
