@@ -172,6 +172,13 @@ watches, uploads nothing, and says so once at start. `status` prints
 standalone state a machine is in until it is registered. A
 `config.json` with no `lakes` key still means the loopback lake.
 
+`register`, `lakes remove` and an agent moving a pin each read, edit and
+rewrite `config.json`. They take `config.json.lock` beside it first, so
+two of them at once do not lose a change. Each lake's cached profile is
+written under the same lock, and only while the entry still pins what
+it was fetched under. Edit `config.json` by hand while no agent or
+`register` is writing it, then reload the agent.
+
 ### Base configuration from a lake
 
 A lake pinned in `config.json` (`lake_id`, `key_id`, `public_key`,
