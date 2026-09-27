@@ -22,6 +22,7 @@ behind that default is in [policy.md](policy.md#off-box-raw).
     "allow": [
       {"cwd_prefix": "/home/you/src/foo"},
       {"git_remote": "git@github.com:terva-sh/lampi.git"},
+      {"git_remote_prefix": "git@github.com:terva-sh"},
       {"cwd_hash": "a1b2c3d4e5f60708"}
     ],
     "deny": [
@@ -38,8 +39,9 @@ loaded. `sync` names each refused session and exits non-zero.
 ### How a rule matches
 
 A rule matches the session's cwd (a path prefix, on a boundary), its
-terva cwd hash, or its git remote. Every field set on a rule has to
-match. `projects.deny` wins over allow. An empty rule matches nothing.
+terva cwd hash, its git remote, or a git remote prefix. Every field set
+on a rule has to match. `projects.deny` wins over allow. An empty rule
+matches nothing.
 
 The cwd is the one the harness recorded, such as the terva meta line.
 It is not the path of the transcript file.
@@ -52,7 +54,8 @@ A deny rule reads a doubt as a match:
 - Its `cwd_prefix` ignores case, and it is checked against the cwd and
   the prefix as written and with symlinks resolved.
 - Its `cwd_hash` also matches the hash of the resolved cwd.
-- Its `git_remote` also matches a session whose remote cannot be read:
+- Its `git_remote` and `git_remote_prefix` also match a session whose
+  remote cannot be read:
   the cwd is gone, or the checkout has no readable origin. A cwd that
   exists outside any repository has no remote, and a `git_remote` deny
   does not match it. Add a `cwd_prefix` to a `git_remote` deny to limit
@@ -62,7 +65,24 @@ A deny rule reads a doubt as a match:
 
 Git remotes are folded before comparison, so
 `git@github.com:terva-sh/lampi.git` and
-`https://github.com/terva-sh/lampi` are the same remote.
+`https://github.com/terva-sh/lampi` are the same remote. The folded
+form is the host and the path. The scheme, login name, port and `.git`
+are dropped, and case is ignored.
+
+`git_remote_prefix` covers an owner, a group, or a whole host in one
+rule. It is folded the same way and matches that remote or any under it
+on a `/` boundary. `git@github.com:terva-sh` matches
+`https://github.com/terva-sh/lampi` and
+`ssh://git@github.com/terva-sh/group/app.git`, but not
+`github.com/terva-sh-fork/app`. A remote with an empty, `.` or `..` path
+segment matches no prefix. A prefix does not depend on where a checkout
+lives, so one rule in a lake profile works on every machine. A
+`cwd_prefix` rule names a path on one machine.
+
+A lake or agent from v0.1.1 or earlier does not know
+`git_remote_prefix`. An older lake refuses to load a `profiles.json`
+that uses it. An older agent keeps its cached profile and reports the
+error. Upgrade the lake first, then the agents.
 
 When the session cwd still has a `.git`, the manifest records the
 remote named origin. A URL remote loses its user part and password,

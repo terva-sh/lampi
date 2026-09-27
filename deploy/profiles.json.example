@@ -3,7 +3,10 @@
     "default": {
       "agent": {"debounce": "5s", "debounce_max": "30s"},
       "projects": {
-        "allow": [{"git_remote": "git@git.example:team/app.git"}],
+        "allow": [
+          {"git_remote_prefix": "git@git.example:team"},
+          {"git_remote": "git@git.example:other/app.git"}
+        ],
         "deny": [{"cwd_prefix": "/home/you/private"}]
       }
     },

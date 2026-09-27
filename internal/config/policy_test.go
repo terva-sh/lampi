@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -184,5 +185,72 @@ func TestNormalizeRemote(t *testing.T) {
 	}
 	if NormalizeRemote("") != "" {
 		t.Fatal("empty remote should stay empty")
+	}
+}
+
+// TKT-01M3HKYFE: one rule covers every repository of an owner, in any
+// spelling of the remote, on any machine.
+func TestGitRemotePrefixAllow(t *testing.T) {
+	p := Projects{Allow: []ProjectMatch{{GitRemotePrefix: "ssh://git@git.example:2222/team"}}}
+	cases := []struct {
+		remote string
+		want   bool
+	}{
+		{"ssh://git@git.example:2222/team/app.git", true},
+		{"git@git.example:team/app.git", true},
+		{"https://git.example/Team/app", true},
+		{"https://git.example/team/group/app", true},
+		{"https://git.example/team", true},
+		{"https://git.example/teammate/app", false},
+		{"https://git.example/other/app", false},
+		{"https://other.example/team/app", false},
+		{"https://git.example/team/../other/app", false},
+		{"https://git.example/team//app", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		id := ProjectID{CWD: "/anywhere", GitRemote: c.remote}
+		if got := p.Permitted(id); got != c.want {
+			t.Errorf("remote %q: permitted %v, want %v", c.remote, got, c.want)
+		}
+	}
+	for _, prefix := range []string{"", " ", "/", ".git"} {
+		rule := Projects{Allow: []ProjectMatch{{GitRemotePrefix: prefix}}}
+		if rule.Permitted(ProjectID{CWD: "/a", GitRemote: "https://git.example/team/app"}) {
+			t.Errorf("prefix %q allowed a remote; a prefix that folds to nothing must match nothing", prefix)
+		}
+	}
+}
+
+func TestGitRemotePrefixDeny(t *testing.T) {
+	p := Projects{
+		Allow: []ProjectMatch{{GitRemotePrefix: "git@git.example:team"}, {CWDPrefix: "/work"}},
+		Deny:  []ProjectMatch{{GitRemotePrefix: "https://git.example/team/secret"}},
+	}
+	cases := []struct {
+		name string
+		id   ProjectID
+		want bool
+	}{
+		{"under the deny", ProjectID{CWD: "/work/a", GitRemote: "git@git.example:team/secret/app.git"}, false},
+		{"the deny itself", ProjectID{CWD: "/work/a", GitRemote: "https://git.example/team/secret"}, false},
+		{"beside the deny", ProjectID{CWD: "/x", GitRemote: "https://git.example/team/open"}, true},
+		{"unknown remote", ProjectID{CWD: "/work/a"}, false},
+		{"no repository", ProjectID{CWD: "/work/a", NoRepo: true}, true},
+	}
+	for _, c := range cases {
+		if got := p.Permitted(c.id); got != c.want {
+			t.Errorf("%s: permitted %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestGitRemotePrefixLoadsFromJSON(t *testing.T) {
+	var p Projects
+	if err := json.Unmarshal([]byte(`{"allow":[{"git_remote_prefix":"git@git.example:team"}]}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Allow) != 1 || p.Allow[0].GitRemotePrefix != "git@git.example:team" {
+		t.Fatalf("decoded %+v", p.Allow)
 	}
 }
