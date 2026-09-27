@@ -120,6 +120,33 @@ try {
   assert.equal(await page.locator('.hit .badge.failed').count(), failedHits);
   await page.goto(live.url + '/search?q=ab');
   await page.getByRole('heading', {name: 'That search cannot run'}).waitFor();
+  // Activity: two charts with a table, unmeasured buckets hatched, not zero.
+  await page.goto(live.url + '/activity?range=30d');
+  await page.getByRole('heading', {name: 'Accepted head updates'}).waitFor();
+  assert.equal(await page.locator('figure.chart svg[role=img]').count(), 2);
+  assert.match(await page.locator('figure.chart svg').first().getAttribute('aria-label'), /^Accepted head updates from .+ measured buckets/);
+  assert.ok(await page.locator('path.bar.negative').count() > 0, 'no shrinking bucket drawn');
+  assert.ok(await page.locator('rect.unmeasured').count() > 0, 'unmeasured range not hatched');
+  await page.getByText('Show as a table').click();
+  assert.equal(await page.locator('.activity-table tbody tr').count(), 30);
+  assert.match(await page.locator('.activity-table tbody').innerText(), /not measured/);
+  await page.screenshot({path: join(artifacts, 'activity-desktop.png'), fullPage: true});
+  await page.getByLabel('Harness', {exact: true}).selectOption('codex');
+  await page.getByRole('button', {name: 'Show', exact: true}).click();
+  await page.waitForURL(/harness=codex/);
+  assert.equal(await page.getByLabel('Harness', {exact: true}).inputValue(), 'codex');
+  await page.goto(live.url + '/activity?range=7d-hourly');
+  assert.equal(await page.locator('.activity-table tbody tr').count(), 168);
+  await page.setViewportSize({width: 390, height: 844});
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile activity overflows');
+  await page.screenshot({path: join(artifacts, 'activity-mobile.png'), fullPage: true});
+  let reachedRange = false;
+  for (let i = 0; i < 20 && !reachedRange; i++) {
+    await page.keyboard.press('Tab');
+    reachedRange = await page.evaluate(() => document.activeElement.name === 'range');
+  }
+  assert.ok(reachedRange, 'keyboard cannot reach the activity range');
+  await page.setViewportSize({width: 1440, height: 1100});
   await page.goto(live.url);
   await page.clock.install();
   let refreshes = 0;
@@ -189,14 +216,21 @@ try {
   assert.match(await (await noJS.request.get(live.url + pagePlain)).text(), /Events #0 to #99 of generation/);
   await basic.getByRole('link', {name: 'Later events →'}).first().click();
   assert.equal(await basic.locator('.event').first().getAttribute('id'), 'e-100');
+  await basic.goto(live.url + '/activity');
+  await basic.getByLabel('Range').selectOption('90d');
+  await basic.getByRole('button', {name: 'Show', exact: true}).click();
+  assert.equal(await basic.locator('figure.chart').count(), 2);
+  assert.equal(await basic.locator('.activity-table tbody tr').count(), 90);
   const denied = await fixture(['--deny']);
   const denyPage = await context.newPage(); await denyPage.goto(denied.url);
   await denyPage.getByRole('heading', {name: /no lake viewer access/}).waitFor();
   const empty = await fixture(['--empty']);
   const emptyPage = await context.newPage(); await emptyPage.goto(empty.url);
   await emptyPage.getByRole('heading', {name: 'No sessions to show'}).waitFor();
+  await emptyPage.goto(empty.url + '/activity');
+  await emptyPage.getByRole('heading', {name: 'No accepted updates in this range'}).waitFor();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake', 'activity charts/table/filters/mobile/keyboard/no-JS/empty']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));

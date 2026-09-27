@@ -65,7 +65,8 @@ test browser and its synthetic self-signed IdP. Production issuer validation is
 unchanged. The fixture shuts down even when a browser assertion fails.
 
 The smoke covers viewer and denied-group login, pagination, filters, artifact and
-provenance views, conflicts, polling visibility/error/recovery/expiry, desktop and
+provenance views, conflicts, the Activity charts and table over three weeks of
+synthetic history, polling visibility/error/recovery/expiry, desktop and
 390px mobile layouts, keyboard focus, logout, no-JavaScript filtering and an empty
 lake. Unit/integration gates additionally verify state/nonce/replay, key rotation,
 algorithm refusal, idle/hard expiry, CSRF, device/browser separation and concurrent

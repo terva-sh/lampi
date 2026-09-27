@@ -22,7 +22,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance, head-update history |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
-| Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata, transcript, search and excerpt API; see [web-dashboard.md](web-dashboard.md) |
+| Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata, transcript, search, excerpt and activity API; see [web-dashboard.md](web-dashboard.md) |
 | Recall | `internal/recall` | Query layer shared by the browser API and the planned MCP server: generation-pinned event pages, the `search.db` FTS5 index, deep links and excerpts; see [web-api.md](web-api.md) |
 | Browser identity | `internal/webauth`, `internal/webconfig` | Explicit server config, OIDC code + PKCE, mapped groups, bounded in-memory sessions; separate from device tokens |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |

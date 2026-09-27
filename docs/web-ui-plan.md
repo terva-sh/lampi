@@ -7,7 +7,8 @@ ticket map for the web releases. To run the dashboard, read
 
 Status: release A implemented and validated. Release B's viewer, search and
 search screen are implemented on a branch, with the recall additions below;
-export remains draft. Release C was groomed and promoted on 2026-09-28. The owner approved a
+export remains draft. Release C was groomed and promoted on 2026-09-28 and is
+implemented in three pull requests: history, activity API, and Activity page. The owner approved a
 small lake dashboard with OIDC in its first release and asked for executable
 tickets on 2026-09-26. This document records the defaults for those tickets;
 it does not claim a deployed endpoint or change the existing lake policy.
