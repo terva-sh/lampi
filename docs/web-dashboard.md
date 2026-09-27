@@ -185,7 +185,47 @@ transcript page links its own plain text.
 a path or an error message matches as written, ignoring case. Filters narrow by
 harness, project and recorded date. Each result names its session and event and
 links straight to that event in the transcript. The page states how many ready
-sessions the index covers. Raw blobs, export and administration are absent.
+sessions the index covers. Raw blobs and export are absent.
+
+## Registration codes
+
+An operator sees a Registrations link. `/admin/registrations` lists every
+registration code by state (pending, used, expired, revoked), with who minted
+it and, for a used code, the device it made. A viewer gets 404 there, as on
+every operator route. Listing writes the expiries since the last look to
+`audit.jsonl`, as `serve register --list` does.
+
+To add a machine, give it a device name, a profile and an expiry, and press
+Mint code. Minting needs a sign-in at the IdP in the last 10 minutes; without
+one the form is replaced by Sign in again to mint, which goes through the IdP
+and comes back. The mint is the same one `serve register` does on the lake
+host: the lake checks its public URL reaches it, stores only the code's hash,
+and writes the mint to `audit.jsonl` with the operator as actor before it shows
+the code.
+
+The code is shown once, on the page that answers the mint, and not again.
+Reloading that page does not mint a second code or show the first again: it
+names the code the form made, so it can be cancelled if it was not copied. A
+mint form is good for an hour, and until serve restarts; after that it is out
+of date and mints nothing.
+Copy one of two things:
+
+- **The install line.** It installs terva-lampi and registers the machine with
+  the code. It fetches `install.sh` from the release tag the lake was built
+  from and installs that release, so the machine runs the lake's version, and
+  passes the lake's key fingerprint for the machine to check. A lake built from
+  no release tag gets `install.sh` from `main` and the latest release, and the
+  page says so. The line begins with a space, so shells that skip such lines
+  leave it out of history. The code is in the line: that is why the expiry
+  starts at one hour.
+- **The code alone**, for `terva-lampi register` on a machine that already has
+  the binary. Paste it at the prompt or pipe it on stdin, never as a command
+  argument.
+
+Cancel stops a pending code. A used code made a device, and
+`serve devices revoke` on the lake host stops that. The dashboard mints at most
+5 codes at once and one more every 12 seconds. The
+[browser API](web-api.md#registration-codes) has the same actions as JSON.
 
 ## Search index
 
