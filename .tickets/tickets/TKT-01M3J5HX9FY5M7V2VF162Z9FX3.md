@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3J5HX9FY5M7V2VF162Z9FX3
 title: "Dashboard: mint, list and cancel registration codes"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -19,10 +19,17 @@ dependencies:
   - TKT-01M3J5HX8GGBVSVVHX82W60VJE
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: web/operator-role
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: c69ebf12fc4043a753e0440a5cd5b4817d0237e0
+  session: null
+  claimed_at: 2026-09-27T21:51:45Z
+  expires_at: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T20:52:53Z
+updated_at: 2026-09-27T21:53:56Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -72,3 +79,17 @@ With this change a stolen operator browser session can add a device to the lake,
 - [ ] Codes list by state with who minted them; a pending code can be cancelled
 - [ ] created_by and revoked_by recorded in the catalog and audit.jsonl
 - [ ] Docs updated: web dashboard, web API, policy
+
+## Implementation plan
+
+Three PRs, to stay under the review size limit.
+
+1. Auth (this PR): an operator role in role_map (it implies viewer). webauth.OperatorOnly answers 404 to non-operators. Fresh sign-in: /auth/oidc/start?fresh=1 sends max_age=600, and the callback requires auth_time within 10 minutes (1 minute of skew). Identity carries Operator and AuthTime. The test IdP models max_age and single sign-on auth_time.
+2. Catalog schema 7: registrations.created_by and revoked_by, set to 'cli' by serve register and to the OIDC subject and display name by the dashboard, and carried into audit.jsonl.
+3. Dashboard: /admin/registrations (list by state, mint form, cancel) and operator-only /api/web/v1/registrations. Mint requires Fresh and otherwise redirects to FreshLoginURL. The minted code shows once with no-store, with copy buttons for the one-liner (install.sh pinned to the lake's release tag, TERVA_LAMPI_CODE, --fingerprint) and for the code alone.
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T21:53:56Z
+
+PR 1 (auth) evidence. Tests: a viewer gets 404 on the operator page and API routes and an operator gets 200. A plain login sends no max_age and reads as stale when single sign-on reports an hour-old auth_time. A fresh login sends max_age=600 and reads as fresh. A fresh login is refused (403, no session) when the provider returns an old or missing auth_time. freshAt covers its window edges and skew. docs/web-dashboard.md, docs/policy.md (owner decision recorded) and the web-config example map an operator group.

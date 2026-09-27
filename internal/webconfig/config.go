@@ -84,6 +84,13 @@ func (c *Config) Secret() string      { return c.secret }
 func (c *Config) CallbackURL() string { return c.BaseURL + CallbackPath }
 func (c *Config) Secure() bool        { return strings.HasPrefix(c.BaseURL, "https://") }
 
+// The roles role_map grants. An operator is also a viewer, and can
+// manage registration codes (TKT-01M3J5HX9); a viewer only reads.
+const (
+	RoleViewer   = "viewer"
+	RoleOperator = "operator"
+)
+
 func (c *Config) Validate() error {
 	u, err := url.Parse(c.BaseURL)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || (u.Scheme != "https" && !(u.Scheme == "http" && loopback(u.Hostname()))) {
@@ -96,11 +103,11 @@ func (c *Config) Validate() error {
 		return errors.New("web config: client_id is required")
 	}
 	if len(c.OIDC.RoleMap) == 0 {
-		return errors.New("web config: role_map must grant viewer to at least one group")
+		return errors.New("web config: role_map must grant viewer or operator to at least one group")
 	}
 	for group, role := range c.OIDC.RoleMap {
-		if strings.TrimSpace(group) == "" || role != "viewer" {
-			return errors.New("web config: role_map accepts nonempty groups mapped to viewer only")
+		if strings.TrimSpace(group) == "" || (role != RoleViewer && role != RoleOperator) {
+			return errors.New("web config: role_map accepts nonempty groups mapped to viewer or operator")
 		}
 	}
 	if c.OIDC.GroupsClaim == "" {

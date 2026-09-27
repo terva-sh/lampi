@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,11 +23,17 @@ var ErrProvider = errors.New("identity provider unavailable")
 var ErrIdentity = errors.New("identity response did not verify")
 
 // Identity contains only verified display/authorization data, never tokens.
+// Operator implies Viewer. AuthTime is the ID token's auth_time: when the
+// user last authenticated at the identity provider, which a single
+// sign-on can make much earlier than this login. It is zero when the
+// token has none.
 type Identity struct {
-	Issuer  string
-	Subject string
-	Display string
-	Viewer  bool
+	Issuer   string
+	Subject  string
+	Display  string
+	Viewer   bool
+	Operator bool
+	AuthTime time.Time
 }
 type discovered struct {
 	oauth    oauth2.Config
@@ -121,6 +128,13 @@ func (p *Provider) discover(ctx context.Context) (*discovered, error) {
 	return d, nil
 }
 func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string) (string, error) {
+	return p.AuthURLMaxAge(ctx, state, nonce, verifier, 0)
+}
+
+// AuthURLMaxAge is AuthURL with the OIDC max_age parameter when maxAge
+// is positive: the provider must authenticate the user again unless it
+// did so within maxAge, and must then return auth_time.
+func (p *Provider) AuthURLMaxAge(ctx context.Context, state, nonce, verifier string, maxAge time.Duration) (string, error) {
 	release, err := p.enter(ctx)
 	if err != nil {
 		return "", err
@@ -132,7 +146,11 @@ func (p *Provider) AuthURL(ctx context.Context, state, nonce, verifier string) (
 	if err != nil {
 		return "", err
 	}
-	return d.oauth.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
+	if maxAge > 0 {
+		opts = append(opts, oauth2.SetAuthURLParam("max_age", strconv.FormatInt(int64(maxAge/time.Second), 10)))
+	}
+	return d.oauth.AuthCodeURL(state, opts...), nil
 }
 func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (Identity, error) {
 	if code == "" || nonce == "" || verifier == "" {
@@ -174,8 +192,17 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 		}
 	}
 	for _, g := range groups(claims[p.cfg.OIDC.GroupsClaim]) {
-		if p.cfg.OIDC.RoleMap[g] == "viewer" {
+		switch p.cfg.OIDC.RoleMap[g] {
+		case webconfig.RoleViewer:
 			out.Viewer = true
+		case webconfig.RoleOperator:
+			out.Viewer, out.Operator = true, true
+		}
+	}
+	var authTime json.Number
+	if raw, ok := claims["auth_time"]; ok && json.Unmarshal(raw, &authTime) == nil {
+		if sec, err := authTime.Int64(); err == nil && sec > 0 {
+			out.AuthTime = time.Unix(sec, 0)
 		}
 	}
 	return out, nil

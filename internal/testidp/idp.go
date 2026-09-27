@@ -18,7 +18,10 @@ import (
 	"time"
 )
 
-type flow struct{ nonce, challenge, client string }
+type flow struct {
+	nonce, challenge, client string
+	maxAge                   bool
+}
 type Server struct {
 	Server *httptest.Server
 	mu     sync.Mutex
@@ -32,6 +35,13 @@ type Server struct {
 	PlainEndpoint bool
 	Outage        bool
 	Groups        any
+	// AuthTime, when set, is the auth_time of a flow that did not send
+	// max_age, as a single sign-on reuses an earlier login. A flow that
+	// sends max_age reauthenticates and gets the current time. With
+	// neither, the token has no auth_time.
+	AuthTime time.Time
+	// MaxAges records the max_age parameter of each authorize request.
+	MaxAges []string
 }
 
 func New() *Server {
@@ -73,7 +83,7 @@ func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
 // Issue records a synthetic authorization code. No login bypass exists in the lake.
 func (s *Server) Issue(nonce, verifier, client string) string {
 	sum := sha256.Sum256([]byte(verifier))
-	return s.issue(flow{nonce, base64.RawURLEncoding.EncodeToString(sum[:]), client})
+	return s.issue(flow{nonce, base64.RawURLEncoding.EncodeToString(sum[:]), client, false})
 }
 func (s *Server) issue(f flow) string {
 	s.mu.Lock()
@@ -90,7 +100,10 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "PKCE required", 400)
 		return
 	}
-	code := s.issue(flow{q.Get("nonce"), q.Get("code_challenge"), q.Get("client_id")})
+	s.mu.Lock()
+	s.MaxAges = append(s.MaxAges, q.Get("max_age"))
+	s.mu.Unlock()
+	code := s.issue(flow{q.Get("nonce"), q.Get("code_challenge"), q.Get("client_id"), q.Get("max_age") != ""})
 	u, err := url.Parse(q.Get("redirect_uri"))
 	if err != nil {
 		http.Error(w, "redirect", 400)
@@ -114,6 +127,12 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	claims := map[string]any{"iss": s.URL(), "sub": "synthetic-viewer", "aud": f.client, "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "nonce": f.nonce, "name": "Lake viewer", "groups": s.Groups}
+	switch {
+	case f.maxAge:
+		claims["auth_time"] = time.Now().Unix()
+	case !s.AuthTime.IsZero():
+		claims["auth_time"] = s.AuthTime.Unix()
+	}
 	for k, v := range s.Claims {
 		claims[k] = v
 	}
