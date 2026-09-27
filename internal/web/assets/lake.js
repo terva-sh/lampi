@@ -140,3 +140,23 @@ showLatest(document);
   });
   document.getElementById('excerpt-clear').addEventListener('click', () => { boxes.forEach(b => { b.checked = false; }); last = null; update(); });
 })();
+// Copy buttons for a freshly minted registration code. Without
+// JavaScript, or without clipboard access, the text is there to select.
+(() => {
+  if (!navigator.clipboard) return;
+  for (const button of document.querySelectorAll('button[data-copy]')) {
+    const source = document.getElementById(button.dataset.copy);
+    if (!source) continue;
+    const label = button.textContent;
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(source.textContent);
+        button.textContent = 'Copied';
+      } catch {
+        button.textContent = 'Copy failed. Select the text instead.';
+      }
+      setTimeout(() => { button.textContent = label; }, 2500);
+    });
+  }
+})();

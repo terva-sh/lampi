@@ -375,7 +375,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 			return
 		}
 		newVersion := d.Payload.Version != have
-		if err := lakeprofile.Save(dir, d); err != nil {
+		if err := saveProfileIfCurrent(env, l.cfg, dir, d); err != nil {
 			if newVersion && !released {
 				unsaved = true
 				r.errf("profile: %v; uploads wait until profile %s version %s is saved", err, d.Payload.Profile, d.Payload.Version)

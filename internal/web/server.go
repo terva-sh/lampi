@@ -27,13 +27,23 @@ type Server struct {
 	// origin is the configured base URL, used to make copied links
 	// absolute.
 	origin string
+	// reg serves registration codes to operators. Nil leaves the routes
+	// out.
+	reg   *Registrations
+	mints mintLimit
+	// attempts recognises a mint form sent twice.
+	attempts mintAttempts
+	// clock replaces time.Now in tests.
+	clock func() time.Time
+	log   *slog.Logger
 }
 
 // New builds a handler mounted inside api.Server's request accounting.
 // Transcript text is read only through reader, and search only through
 // index, which may be nil. client is nil in production; tests supply
-// the trust pool of their synthetic HTTPS IdP.
-func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, index *recall.Index, client *http.Client, loggers ...*slog.Logger) (http.Handler, error) {
+// the trust pool of their synthetic HTTPS IdP. reg, when not nil, lets
+// operators manage registration codes.
+func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, index *recall.Index, reg *Registrations, client *http.Client, loggers ...*slog.Logger) (http.Handler, error) {
 	auth, err := webauth.New(cfg, client)
 	if err != nil {
 		return nil, err
@@ -41,7 +51,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	if len(loggers) > 0 {
 		auth.Logger = loggers[0]
 	}
-	s := &Server{catalog: cat, events: reader, index: index, auth: auth, origin: cfg.BaseURL}
+	s := &Server{catalog: cat, events: reader, index: index, auth: auth, origin: cfg.BaseURL, reg: reg, log: auth.Logger}
 	m := http.NewServeMux()
 	auth.Routes(m)
 	get := func(path string, h http.HandlerFunc) { m.Handle("GET "+path, s.guardRead(h)) }
@@ -55,6 +65,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/search", s.search)
 	get("/api/web/v1/activity", s.activity)
 	s.pageRoutes(m)
+	s.registrationRoutes(m)
 	return webauth.Headers(m), nil
 }
 func readContext(r *http.Request) (context.Context, context.CancelFunc) {

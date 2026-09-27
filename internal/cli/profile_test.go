@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -421,5 +422,30 @@ func TestAgentHoldsUploadsUntilTheReloadForANewProfileSucceeds(t *testing.T) {
 	}
 	if succeeded != 1 {
 		t.Fatalf("reload asked for %d times after the failures, want 1", succeeded)
+	}
+}
+
+// TKT-01M3GAHSM: agent config says where each lake's deny rules came
+// from, including both at once.
+func TestAgentConfigNamesDenySources(t *testing.T) {
+	deny := func(n int) []config.ProjectMatch { return make([]config.ProjectMatch, n) }
+	local := config.Lake{Name: "home", Projects: config.Projects{Deny: deny(1)}}
+	lakes := []config.Lake{
+		config.ApplyLakeProfile(local, config.Profile{Projects: config.Projects{Deny: deny(2)}}, true),
+		config.ApplyLakeProfile(config.Lake{Name: "work"}, config.Profile{Projects: config.Projects{Deny: deny(1)}}, true),
+		config.ApplyLakeProfile(local, config.Profile{}, false),
+		config.ApplyLakeProfile(config.Lake{Name: "open"}, config.Profile{}, true),
+	}
+	var out bytes.Buffer
+	writeLakes(&out, lakes)
+	for _, want := range []string{
+		"lake home server= source= token_file= token_source= lake_id=- projects_allow=0 projects_deny=3 allow_source=local deny_source=local+lake:home",
+		"lake work server= source= token_file= token_source= lake_id=- projects_allow=0 projects_deny=1 allow_source=local deny_source=lake:work",
+		"projects_deny=1 allow_source=local deny_source=local\n",
+		"lake open server= source= token_file= token_source= lake_id=- projects_allow=0 projects_deny=0 allow_source=local deny_source=none",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("agent config lacks %q:\n%s", want, out.String())
+		}
 	}
 }

@@ -131,7 +131,7 @@ func writeLakes(w io.Writer, lakes []config.Lake) {
 		if from == "" {
 			from = config.OriginLocal
 		}
-		fmt.Fprintf(w, "lake %s server=%s source=%s token_file=%s token_source=%s lake_id=%s projects_allow=%d projects_deny=%d allow_source=%s\n",
-			l.Name, l.Server.Value, l.Server.Source, l.TokenFile.Value, l.TokenFile.Source, id, len(l.Projects.Allow), len(l.Projects.Deny), strings.ReplaceAll(from, " ", ":"))
+		fmt.Fprintf(w, "lake %s server=%s source=%s token_file=%s token_source=%s lake_id=%s projects_allow=%d projects_deny=%d allow_source=%s deny_source=%s\n",
+			l.Name, l.Server.Value, l.Server.Source, l.TokenFile.Value, l.TokenFile.Source, id, len(l.Projects.Allow), len(l.Projects.Deny), strings.ReplaceAll(from, " ", ":"), strings.ReplaceAll(l.DenyFrom(), " ", ":"))
 	}
 }

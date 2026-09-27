@@ -248,15 +248,21 @@ func runRegister(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	if resp.Config != nil {
-		d, err := lakeprofile.Verify(resp.Config, pinned)
-		if err != nil {
-			fmt.Fprintf(env.stderr(), "terva-lampi: the lake's base configuration does not verify, so it is not used: %v\n", err)
-		} else if err := lakeprofile.Save(lakestate.Dir(state, lakeName), d); err != nil {
-			fmt.Fprintf(env.stderr(), "terva-lampi: saving the base configuration: %v; the agent fetches it again\n", err)
+	// The profile cache and the entry are written under config.json's
+	// lock, so an agent moving this lake's pin at the same moment cannot
+	// put its old profile back over this one.
+	err = config.Locked(env.getenv, func(tx config.Tx) error {
+		if resp.Config != nil {
+			d, err := lakeprofile.Verify(resp.Config, pinned)
+			if err != nil {
+				fmt.Fprintf(env.stderr(), "terva-lampi: the lake's base configuration does not verify, so it is not used: %v\n", err)
+			} else if err := lakeprofile.Save(lakestate.Dir(state, lakeName), d); err != nil {
+				fmt.Fprintf(env.stderr(), "terva-lampi: saving the base configuration: %v; the agent fetches it again\n", err)
+			}
 		}
-	}
-	if err := config.SetLake(env.getenv, lakeName, entry); err != nil {
+		return tx.SetLake(lakeName, entry)
+	})
+	if err != nil {
 		return fmt.Errorf("the lake made device %s and its token is in %s, but writing config.json failed: %w", resp.Name, tokenPath, err)
 	}
 	fmt.Fprintf(env.stdout(), "registered as device %s (%s) with lake %s\n", resp.Name, resp.DeviceID, lakeName)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
 	"terva.sh/lampi/internal/recall"
+	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -520,6 +522,23 @@ func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
 		<-done
 		index.Close()
 	}
-	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, nil, lake.Log)
+	reg := &web.Registrations{
+		Lake: func() registrar.Lake {
+			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: data, Profiles: lake.Profiles()}
+		},
+		Release: lakeRelease(),
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, nil, lake.Log)
 	return err
+}
+
+// lakeRelease is the tag this binary was built from, or "" for a build
+// from no tag. The dashboard pins the install line to it.
+func lakeRelease() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	v, _ := buildInfoVersion(info)
+	return v
 }

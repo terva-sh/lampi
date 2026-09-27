@@ -67,6 +67,8 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"sub":         func(a, b float64) float64 { return a - b },
 	"signedBytes": signedBytes,
 	"kib":         func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
+	"lifetimes":   func() []struct{ Value, Label string } { return codeLifetimes },
+	"revokeURL":   func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
 	"collectionURL": func(uid, kind string) string {
 		return "/sessions/" + url.PathEscape(uid) + "?collection=" + url.QueryEscape(kind)
 	},
@@ -91,6 +93,10 @@ type pageData struct {
 	HasTarget   bool
 	Search      searchView
 	Activity    activityView
+	// Operator shows the operator's navigation. Codes is the
+	// registrations page.
+	Operator bool
+	Codes    codesView
 }
 
 // searchView is the search form and its results. Hits carry the
@@ -134,6 +140,7 @@ func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int
 	id, csrf := webauth.Current(r)
 	d.Display = id.Display
 	d.CSRF = csrf
+	d.Operator = id.Operator
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_ = pages.ExecuteTemplate(w, "layout", d)

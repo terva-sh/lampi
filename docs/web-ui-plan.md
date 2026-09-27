@@ -375,6 +375,6 @@ Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize a
 
 | Ticket | Work |
 |---|---|
-| [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/tickets/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
-| [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/tickets/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web API: serve bounded UTC buckets of accepted head updates |
+| [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/done/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
+| [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/done/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web API: serve bounded UTC buckets of accepted head updates |
 | [TKT-01M3JEKA6RBHK9WSGEZZKKQYHC](../.tickets/tickets/TKT-01M3JEKA6RBHK9WSGEZZKKQYHC.md) | Web UI: activity page with charts, tables and release C validation |

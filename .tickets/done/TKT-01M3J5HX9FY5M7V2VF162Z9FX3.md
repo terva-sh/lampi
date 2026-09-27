@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3J5HX9FY5M7V2VF162Z9FX3
 title: "Dashboard: mint, list and cancel registration codes"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ dependencies:
   - TKT-01M3J5HX8GGBVSVVHX82W60VJE
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: web/operator-role
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: c69ebf12fc4043a753e0440a5cd5b4817d0237e0
-  session: null
-  claimed_at: 2026-09-27T21:51:45Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T22:03:47Z
+updated_at: 2026-09-27T22:22:37Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -72,13 +65,13 @@ With this change a stolen operator browser session can add a device to the lake,
 
 ## Acceptance criteria
 
-- [ ] An operator role mapped to its own group; viewers get 404 on every registration route
-- [ ] Minting requires an IdP sign-in within 10 minutes
-- [ ] A minted code is shown once with no-store and copy buttons for the one-liner and the code
-- [ ] The one-liner pins install.sh to the lake's release tag and carries the fingerprint
-- [ ] Codes list by state with who minted them; a pending code can be cancelled
-- [ ] created_by and revoked_by recorded in the catalog and audit.jsonl
-- [ ] Docs updated: web dashboard, web API, policy
+- [x] An operator role mapped to its own group; viewers get 404 on every registration route
+- [x] Minting requires an IdP sign-in within 10 minutes
+- [x] A minted code is shown once with no-store and copy buttons for the one-liner and the code
+- [x] The one-liner pins install.sh to the lake's release tag and carries the fingerprint
+- [x] Codes list by state with who minted them; a pending code can be cancelled
+- [x] created_by and revoked_by recorded in the catalog and audit.jsonl
+- [x] Docs updated: web dashboard, web API, policy
 
 ## Implementation plan
 
@@ -98,3 +91,15 @@ PR 1 (auth) evidence. Tests: a viewer gets 404 on the operator page and API rout
 **agent:claude-code/e4a47e8c** at 2026-09-27T22:00:25Z
 
 PR 2 (catalog/registration-actors): schema 7 adds registrations.created_by (NOT NULL DEFAULT '', empty for older codes) and revoked_by. CreateRegistration and RevokeRegistration take a 'by' actor; serve register passes catalog.ActorCLI ('cli') and --list prints created_by= and revoked_by=. The audit Actor for the CLI stays 'serve register'. The dashboard (PR 3) will pass its operator identity. A second revoke keeps the first revoker. Chose a parameter rather than a context value so every caller has to name its actor.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T22:09:01Z
+
+PR 4a (web/registrations-api): operator-only JSON routes. The dashboard actor is 'web:SUBJECT (DISPLAY)', control characters dropped and capped at 256 bytes, the same string in created_by/revoked_by and the audit actor. Writes carry the session CSRF in X-Lampi-CSRF, checked with webauth.Browser.CheckWrite (the same token, Origin and Sec-Fetch-Site checks as sign-out). Mint needs Fresh (403 fresh_login_required with a login URL); list and revoke do not. Revoke takes only reg_ ids, because a name could match a code the operator did not see. Minting is rate limited in-process (burst 5, one per 12s), since each mint fetches the key list through the public URL and syncs an audit line. The install line pins install.sh and --version to the lake's build tag only when it is a plain vX.Y.Z; pseudo-versions, +dirty and prereleases fall back to main and the latest release, with install_pinned false. serve register --list quotes an actor with spaces. The pages come in PR 4b.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T22:22:36Z
+
+PR 4b (web/registrations-pages): /admin/registrations lists codes by state with who minted and cancelled each, the mint form (replaced by 'Sign in again to mint' when the sign-in is older than 10 minutes; a stale POST redirects to the fresh login), the minted code shown once on the POST result with copy buttons for the install line and the code alone, and Cancel as a CSRF form POST. The refresh bar is left off operator pages so a manual refresh cannot replace a code the operator has not copied yet. The mint form offers fixed expiries (1h default, 1d, 3d, 7d, 30d); anything else is refused. Checked in headless Chromium against the smoketest (-operator): the fresh sign-in round trip, the mint, the clipboard getting the line with its leading space, the refusal, and a cancel. AC6 note: serve register records 'cli' in the catalog, and its audit actor stays 'serve register'/'serve register --revoke' as before; the dashboard writes the same web:SUBJECT (DISPLAY) string to both.
+
+## Summary
+
+Operators can mint, list and cancel registration codes in the dashboard. PRs: #36 added the operator role (a viewer gets 404) and the fresh sign-in (max_age, auth_time within 10 minutes). #37 added catalog schema 7 (registrations.created_by and revoked_by). #38 moved the mint path into internal/registrar, shared with serve register. #39 added the operator JSON API under /api/web/v1/registrations (CSRF header, fresh sign-in to mint, rate limit, install line pinned to the lake's release tag). This PR adds the /admin/registrations pages. Codes are shown once with copy buttons for the one-liner and for the code alone. The devices UI is still the follow-up, TKT-01M3J5HXA.

@@ -199,7 +199,7 @@ func restoredHandler(t *testing.T, lake *api.Server, idp *testidp.Server) http.H
 	t.Helper()
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"readers": "viewer"}}}
 	var err error
-	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, idp.Client())
+	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, nil, idp.Client())
 	if err != nil {
 		t.Fatal(err)
 	}

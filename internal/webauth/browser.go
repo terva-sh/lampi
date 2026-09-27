@@ -285,6 +285,20 @@ func OperatorOnly(next http.Handler) http.Handler {
 	})
 }
 
+// CheckWrite reports whether a request that changes the lake carries
+// the session's CSRF token and did not come from another site. token is
+// the form field or header the caller read. It runs inside Guard.
+func (b *Browser) CheckWrite(r *http.Request, token string) bool {
+	_, csrf := Current(r)
+	if csrf == "" || subtle.ConstantTimeCompare([]byte(token), []byte(csrf)) != 1 {
+		return false
+	}
+	if o := r.Header.Get("Origin"); o != "" && o != b.cfg.BaseURL {
+		return false
+	}
+	return r.Header.Get("Sec-Fetch-Site") != "cross-site"
+}
+
 func jsonError(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
