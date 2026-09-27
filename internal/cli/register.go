@@ -236,7 +236,10 @@ func runRegister(env Env, args []string) error {
 	}
 
 	entry.Server, entry.LakeID, entry.KeyID, entry.PublicKey, entry.TokenFile = c.URL, c.LakeID, c.KeyID, c.PublicKey, tokenPath
-	pinned := config.Lake{Name: lakeName, LakeID: c.LakeID, KeyID: c.KeyID, PublicKey: c.PublicKey}
+	// The device id binds the lake's profiles to this device: one signed
+	// for another device on the same lake does not verify here.
+	entry.DeviceID = resp.DeviceID
+	pinned := config.Lake{Name: lakeName, LakeID: c.LakeID, KeyID: c.KeyID, PublicKey: c.PublicKey, DeviceID: resp.DeviceID}
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
 		return err

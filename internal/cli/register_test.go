@@ -96,6 +96,11 @@ func TestRegisterOnAFreshMachineThenSync(t *testing.T) {
 	if lc.Server != f.url || lc.LakeID != f.lake.Identity.LakeID || lc.KeyID == "" || lc.PublicKey == "" || lc.TokenFile != tokenPath {
 		t.Fatalf("lake entry %+v", lc)
 	}
+	// The entry names the device the lake made, so only profiles signed
+	// for it verify; the sync below reads the cached one that way.
+	if !strings.HasPrefix(lc.DeviceID, "dev_") || !strings.Contains(f.stdout.String(), "("+lc.DeviceID+")") {
+		t.Fatalf("device id %q, output:\n%s", lc.DeviceID, f.stdout.String())
+	}
 	if _, err := os.Stat(filepath.Join(f.state, "terva-lampi", "lakes", "default", "profile.json")); err != nil {
 		t.Fatalf("base configuration not stored: %v", err)
 	}
