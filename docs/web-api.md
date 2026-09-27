@@ -61,6 +61,75 @@ Contributing machines are not online machines. Head update timestamps do not
 measure upload throughput. Only the events, search and excerpt routes below
 return transcript text.
 No endpoint initiates normalization, export, deletion, merge, or ingestion.
+The registration routes below are the only writes, and only operators reach them.
+
+## Registration codes
+
+Operators can mint, list and cancel registration codes, the same codes
+`serve register` makes on the lake host. These routes need the
+`operator` role (see [web-dashboard.md](web-dashboard.md)). Anyone else,
+viewers included, gets `404 not_found`, so a viewer learns nothing about
+them. Writes are POST and carry the session's CSRF token in the
+`X-Lampi-CSRF` header. A write from another origin, or without the
+token, is `403 csrf_failed`.
+
+| Route under `/api/web/v1` | Result |
+|---|---|
+| `GET /registrations` | Every code, newest first, as `{items: [], as_of}`. No query parameters. |
+| `POST /registrations` | Mints a code. `201` with the code, once. |
+| `POST /registrations/{id}/revoke` | Cancels a pending code by its `reg_` id. |
+
+A listed code has `id`, `name`, `state` (`pending`, `used`, `expired` or
+`revoked`), `profile`, `created`, `expires` and `created_by`, then
+`revoked` and `revoked_by` once cancelled, and `used`, `device_id` and
+`device_name` once redeemed. `created_by` is `cli` for `serve register`,
+`web:SUBJECT (DISPLAY NAME)` for the dashboard, and empty for a code
+minted before it was recorded. The list never holds a code's secret.
+Listing writes the expiries since the last look to `audit.jsonl`, as
+`serve register --list` does.
+
+A mint takes a JSON body `{name, profile, expires}`. `name` is the
+device name: lowercase letters, digits, `.`, `-` and `_`. `profile`
+defaults to `default`. `expires` is a duration such as `1h` or `72h`,
+default `1h`, at most 30 days. Minting also needs a sign-in at the IdP
+in the last 10 minutes; otherwise it is `403 fresh_login_required` with
+a `login` URL that signs in again. The response holds the code in
+`code`, the lake's `lake_id` and key `fingerprint`, and
+`install_command`, a line that installs terva-lampi and registers the
+machine:
+
+```sh
+ curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/TAG/install.sh | TERVA_LAMPI_CODE='CODE' sh -s -- --version TAG --register --fingerprint SHA256:…
+```
+
+`TAG` is the release the lake was built from, so the machine installs
+the lake's version, and `install_pinned` is true. A lake built from no
+release tag gives a line that fetches `install.sh` from `main` and
+installs the latest release, and `install_pinned` is false. The line
+begins with a space so shells that skip such lines leave it out of
+history. The code is not shown again: only its hash is stored.
+
+The dashboard attempts at most 5 mints at once and one more every 12
+seconds. Past that a mint is `429 rate_limited`. A request refused for
+its input (name, expiry, profile) does not count; one that reaches the
+public URL check does, whether or not it ends in a code.
+
+| Refusal | Status and `error` |
+|---|---|
+| A name that is not a device name | `400 invalid_name` |
+| An expiry that does not parse, or is over 30 days | `400 invalid_expiry` |
+| A profile not in `profiles.json` | `400 unknown_profile` |
+| A body that is not one JSON object of these fields | `400 invalid_request` |
+| A device, or a pending code, already has the name | `409 name_taken` |
+| No identity, no public URL, or a public URL that does not reach this lake | `503 lake_not_ready` |
+| Cancelling a code that does not exist | `404 not_found` |
+| Cancelling a code that was used | `409 already_used` |
+| Cancelling a code that was already cancelled | `409 already_revoked`, with the code |
+
+Each mint and each cancel goes to `audit.jsonl` with the operator as
+actor, and to the catalog as `created_by` or `revoked_by`. A cancel whose
+audit line fails still stands, and answers `500 audit_failed` with the
+code.
 
 ## Transcript events
 
