@@ -95,10 +95,7 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	// one pointed elsewhere may reach a copy of the lake that has not
 	// seen the rotation. A flag or the environment chose the server
 	// otherwise, and the entry's own is not what was fetched from.
-	changed := func(lc config.LakeConfig) bool {
-		return lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey ||
-			(l.Server.Source == config.SourceConfig && lc.Server != l.Server.Value)
-	}
+	changed := func(lc config.LakeConfig) bool { return entryChanged(l, lc) }
 	errChanged := fmt.Errorf("lake %s changed in config.json while its key list was fetched, so its pin does not move to key %s; the next refresh reads the new entry", l.Name, next.ID)
 	// The check, the profile and the pin are one step under config.json's
 	// lock. A register that replaced the entry meanwhile keeps the
@@ -198,9 +195,19 @@ func saveProfileIfCurrent(env Env, l config.Lake, dir string, d lakeprofile.Doc)
 		if err != nil {
 			return err
 		}
-		if !ok || lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey || lc.DeviceID != l.DeviceID {
+		if !ok || entryChanged(l, lc) {
 			return fmt.Errorf("lake %s changed in config.json, so its profile is not saved; the agent reads the new entry when it reloads", l.Name)
 		}
 		return lakeprofile.Save(dir, d)
 	})
+}
+
+// entryChanged reports whether config.json's entry lc is no longer the
+// registration l was read from: another pin, device or lake, or, where
+// the entry chose them, another server or token. A register --replace
+// that kept the lake and its key still made a new device and token.
+func entryChanged(l config.Lake, lc config.LakeConfig) bool {
+	return lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey || lc.DeviceID != l.DeviceID ||
+		(l.Server.Source == config.SourceConfig && lc.Server != l.Server.Value) ||
+		(l.TokenFile.Source == config.SourceConfig && lc.TokenFile != l.TokenFile.Value)
 }

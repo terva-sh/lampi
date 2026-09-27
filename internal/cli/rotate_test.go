@@ -293,6 +293,10 @@ func TestTheMovedPinIsNotWrittenIntoAnEntryThatChangedDuringTheRefresh(t *testin
 		// Another endpoint for the same lake, which may not have seen
 		// the rotation: the key learned from the old one is not its pin.
 		"re-pointed": func(lc *config.LakeConfig) { lc.Server = "http://127.0.0.1:1" },
+		// register --replace keeps the lake and its key but makes a new
+		// device and token; the fetch was the old registration's.
+		"re-registered": func(lc *config.LakeConfig) { lc.DeviceID = "dev_other" },
+		"new token":     func(lc *config.LakeConfig) { lc.TokenFile = lc.TokenFile + ".other" },
 	} {
 		// The entry changes after lake was read, as another process
 		// replacing it during the key list fetch would leave it.
@@ -375,9 +379,16 @@ func TestAgentSavesAProfileOnlyForTheEntryItFetchedUnder(t *testing.T) {
 	if err := saveProfileIfCurrent(f.env(""), lake, dir, d); err != nil {
 		t.Fatalf("current entry: %v", err)
 	}
-	stale := lake
-	stale.DeviceID = "dev_other"
-	if err := saveProfileIfCurrent(f.env(""), stale, t.TempDir(), d); err == nil || !strings.Contains(err.Error(), "changed in config.json") {
-		t.Fatalf("stale entry: %v", err)
+	for name, change := range map[string]func(*config.Lake){
+		"another device": func(l *config.Lake) { l.DeviceID = "dev_other" },
+		"another server": func(l *config.Lake) { l.Server.Value = "http://127.0.0.1:1" },
+		"another token":  func(l *config.Lake) { l.TokenFile.Value += ".other" },
+	} {
+		// The agent fetched under stale; config.json holds lake.
+		stale := lake
+		change(&stale)
+		if err := saveProfileIfCurrent(f.env(""), stale, t.TempDir(), d); err == nil || !strings.Contains(err.Error(), "changed in config.json") {
+			t.Fatalf("%s: %v", name, err)
+		}
 	}
 }
