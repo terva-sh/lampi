@@ -445,6 +445,77 @@ func TestRegisterReplaceKeepsTheExistingName(t *testing.T) {
 	}
 }
 
+func TestRegisterReplaceLeavesTheReplacedEntrysTokenFileAlone(t *testing.T) {
+	f := newRegFixture(t)
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	// An entry for this server with no pinned lake id, naming a token
+	// file placed by hand that another lake may share.
+	shared := filepath.Join(t.TempDir(), "shared.token")
+	if err := os.WriteFile(shared, []byte("shared\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetLake(getenv, "work", config.LakeConfig{Server: f.url, TokenFile: shared}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work", "--replace"); err != nil {
+		t.Fatalf("%v\n%s%s", err, f.stdout.String(), f.stderr.String())
+	}
+	if raw, _ := os.ReadFile(shared); string(raw) != "shared\n" {
+		t.Fatal("--replace overwrote the token file the replaced entry named")
+	}
+	tokenPath := filepath.Join(f.cfg, "terva-lampi", "tokens", "work.token")
+	if _, err := os.Stat(tokenPath); err != nil {
+		t.Fatalf("new token not in its own file: %v", err)
+	}
+	file, err := config.LoadFile(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lc := file.Lakes["work"]; lc.TokenFile != tokenPath || lc.LakeID != f.lake.Identity.LakeID {
+		t.Fatalf("lake entry %+v", lc)
+	}
+}
+
+func TestLakesRemoveFailsWhenTheTokenCannotBeRemoved(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	// A non-empty directory in the token's place makes the removal fail
+	// for a reason other than absence, on any platform and as any user.
+	tokenPath := filepath.Join(f.cfg, "terva-lampi", "tokens", "work.token")
+	if err := os.Remove(tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tokenPath, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.stdout.Reset()
+	err := Run([]string{"lakes", "remove", "work"}, f.env(""))
+	if err == nil || !strings.Contains(err.Error(), "its token is still in "+tokenPath) {
+		t.Fatalf("remove with a stuck token: %v\n%s", err, f.stdout.String())
+	}
+	// The rest of the removal still happened.
+	file, err := config.LoadFile(agentGetenv(f.home, f.cfg, f.state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := file.Lakes["work"]; ok {
+		t.Fatal("the lake is still in config.json")
+	}
+	if strings.Contains(f.stdout.String(), "removed "+tokenPath) {
+		t.Fatalf("remove reported the token removed:\n%s", f.stdout.String())
+	}
+
+	// A token already gone is not a failure.
+	if err := config.SetLake(agentGetenv(f.home, f.cfg, f.state), "home", config.LakeConfig{Server: f.url}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"lakes", "remove", "home"}, f.env("")); err != nil {
+		t.Fatalf("remove with no token file: %v", err)
+	}
+}
+
 func TestChosenLakeNamesStayValidWithASuffix(t *testing.T) {
 	long := strings.Repeat("a", 32)
 	file := config.File{Server: "https://x.example", Lakes: map[string]config.LakeConfig{long: {}}}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -321,7 +322,10 @@ func TestAgentHoldsUploadsWhileTheFirstProfileCannotBeSaved(t *testing.T) {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		watchProfile(ctx, env, r, 50*time.Millisecond, func() { changed <- struct{}{} })
+		watchProfile(ctx, env, r, 50*time.Millisecond, func() bool {
+			changed <- struct{}{}
+			return true
+		})
 	}()
 	defer func() { cancel(); <-stopped }()
 	waitOut(t, &buf, func(s string) bool { return strings.Contains(s, "terva-lampi: profile: ") })
@@ -351,5 +355,70 @@ func TestAgentHoldsUploadsWhileTheFirstProfileCannotBeSaved(t *testing.T) {
 	}
 	if _, err := os.Stat(cache); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAgentHoldsUploadsUntilTheReloadForANewProfileSucceeds(t *testing.T) {
+	lake, url := profileLake(t)
+	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
+	}})
+	home, cfg, state, _ := agentFixture(t, url)
+	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity))
+	var buf memBuf
+	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
+	lakes, _, _, err := loadAgentLakes(env, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newLakeRunner(env, lakes[0])
+	ctx, cancel := context.WithCancel(context.Background())
+	// The reload fails until the test lets it succeed, as when
+	// config.json does not resolve.
+	var ok atomic.Bool
+	asked := make(chan bool, 64)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		watchProfile(ctx, env, r, 50*time.Millisecond, func() bool {
+			v := ok.Load()
+			asked <- v
+			return v
+		})
+	}()
+	defer func() { cancel(); <-stopped }()
+	// The profile is saved once, and later fetches of the same version
+	// ask for the failed reload again; none releases the runner.
+	for range 3 {
+		select {
+		case <-asked:
+		case <-time.After(15 * time.Second):
+			t.Fatalf("the failed reload was not asked for again:\n%s", buf.String())
+		}
+	}
+	select {
+	case <-r.ready:
+		t.Fatalf("runner released before the profile's rules were in force:\n%s", buf.String())
+	default:
+	}
+	if !strings.Contains(buf.String(), "reload failed; uploads wait until profile default version sha256:") {
+		t.Fatalf("held runner not reported:\n%s", buf.String())
+	}
+	ok.Store(true)
+	select {
+	case <-r.ready:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("runner still held after the reload succeeded:\n%s", buf.String())
+	}
+	// Once a reload succeeded, fetches of the same version ask for none.
+	time.Sleep(200 * time.Millisecond)
+	succeeded := 0
+	for len(asked) > 0 {
+		if <-asked {
+			succeeded++
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("reload asked for %d times after the failures, want 1", succeeded)
 	}
 }

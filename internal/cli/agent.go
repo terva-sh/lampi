@@ -326,7 +326,7 @@ func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) er
 	watchKick(ctx, func() { set.wakeAll(false) })
 	// SIGHUP reads the lakes again. The rest of config.json, the
 	// harnesses and the debounce, still wants a restart.
-	watchReload(ctx, set.reload)
+	watchReload(ctx, func() { set.reload() })
 	// Growth waits for the watch to go quiet, so a burst of writes is
 	// one sync per lake.
 	settle := newDebouncer(window, longest, func() { set.wakeAll(true) })

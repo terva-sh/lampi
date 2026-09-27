@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -118,6 +119,10 @@ func removeLake(env Env, name string, purge bool) error {
 		}
 		defer release()
 	}
+	// A token that cannot be removed is still a credential for the
+	// lake. The rest of the removal goes ahead, and the command fails
+	// at the end naming the file.
+	var tokenErr error
 	if inMap {
 		if err := config.RemoveLake(env.getenv, name); err != nil {
 			return err
@@ -130,8 +135,12 @@ func removeLake(env Env, name string, purge bool) error {
 			return err
 		}
 		if lc.TokenFile == "" || lc.TokenFile == tokensPath(dir, name) {
-			if err := os.Remove(tokensPath(dir, name)); err == nil {
+			err := os.Remove(tokensPath(dir, name))
+			switch {
+			case err == nil:
 				fmt.Fprintf(env.stdout(), "removed %s\n", tokensPath(dir, name))
+			case !errors.Is(err, fs.ErrNotExist):
+				tokenErr = fmt.Errorf("lake %s is removed from config.json, but its token is still in %s: %w; delete that file by hand", name, tokensPath(dir, name), err)
 			}
 		} else {
 			fmt.Fprintf(env.stdout(), "kept %s, which config.json named\n", lc.TokenFile)
@@ -149,13 +158,13 @@ func removeLake(env Env, name string, purge bool) error {
 	}
 	if !purge {
 		fmt.Fprintf(env.stdout(), "kept sync state in %s\n", stateDir)
-		return nil
+		return tokenErr
 	}
 	if err := os.RemoveAll(stateDir); err != nil {
-		return err
+		return errors.Join(tokenErr, err)
 	}
 	fmt.Fprintf(env.stdout(), "removed sync state %s\n", stateDir)
-	return nil
+	return tokenErr
 }
 
 func tokensPath(configDir, name string) string {

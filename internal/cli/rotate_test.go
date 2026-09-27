@@ -260,6 +260,68 @@ func TestTheCachedProfileStaysWhenTheMovedPinCannotBeWritten(t *testing.T) {
 	}
 }
 
+func TestTheMovedPinIsNotWrittenIntoAnEntryThatChangedDuringTheRefresh(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := f.sync(); err != nil || !strings.Contains(out, "uploaded 1") {
+		t.Fatalf("first sync: %v\n%s", err, out)
+	}
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	file, err := config.LoadFile(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lakes, err := config.ResolveLakes(file, getenv, config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake := lakes[0]
+	state, err := config.StateDir(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := lakestate.Dir(state, lake.Name)
+	f.serveIdentity("rotate", "--overlap", "1h")
+	for name, change := range map[string]func(*config.LakeConfig){
+		"re-pinned": func(lc *config.LakeConfig) { lc.KeyID, lc.PublicKey = "other-key", "b3RoZXI" },
+		"replaced":  func(lc *config.LakeConfig) { lc.LakeID, lc.KeyID, lc.PublicKey = "", "", "" },
+	} {
+		// The entry changes after lake was read, as another process
+		// replacing it during the key list fetch would leave it.
+		entry := file.Lakes[lake.Name]
+		change(&entry)
+		if err := config.SetLake(getenv, lake.Name, entry); err != nil {
+			t.Fatal(err)
+		}
+		_, moved, err := refreshPin(context.Background(), f.env(""), lake)
+		if err == nil || moved || !strings.Contains(err.Error(), "changed in config.json") {
+			t.Fatalf("%s: refreshPin: moved %v, err %v", name, moved, err)
+		}
+		after, err := config.LoadFile(getenv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := after.Lakes[lake.Name]; got.LakeID != entry.LakeID || got.KeyID != entry.KeyID || got.PublicKey != entry.PublicKey {
+			t.Fatalf("%s: the changed entry was overwritten: %+v, want %+v", name, got, entry)
+		}
+		if _, ok, err := lakeprofile.Load(dir, lake); err != nil || !ok {
+			t.Fatalf("%s: the cached profile no longer verifies under the old pin: ok %v, err %v", name, ok, err)
+		}
+	}
+	// Put back as it was, the entry takes the move.
+	if err := config.SetLake(getenv, lake.Name, file.Lakes[lake.Name]); err != nil {
+		t.Fatal(err)
+	}
+	if _, moved, err := refreshPin(context.Background(), f.env(""), lake); err != nil || !moved {
+		t.Fatalf("refreshPin on the unchanged entry: moved %v, err %v", moved, err)
+	}
+	if f.pinnedKey() == lake.KeyID {
+		t.Fatal("pin did not move")
+	}
+}
+
 func TestCodesFromAKeyPastItsOverlapAreRefused(t *testing.T) {
 	f := newRegFixture(t)
 	code := f.mint("box")
