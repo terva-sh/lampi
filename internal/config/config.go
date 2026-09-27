@@ -236,6 +236,9 @@ func ensureMachineAt(path string) (Machine, error) {
 	return m, nil
 }
 
+// WriteFileAtomic is writeFileAtomic for other packages.
+func WriteFileAtomic(path string, raw []byte) error { return writeFileAtomic(path, raw) }
+
 // writeFileAtomic writes a complete owner-only file beside path and
 // renames it over path. A crash leaves the old file or none, never a
 // torn one that LoadMachine would reject.

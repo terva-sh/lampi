@@ -44,12 +44,12 @@ func knownSources() []source {
 
 // configuredSources loads config.json and resolves the harness homes
 // the agent will discover, watch, and upload.
-func configuredSources(getenv func(string) string) ([]source, error) {
-	file, err := config.LoadFile(getenv)
+func configuredSources(env Env) ([]source, error) {
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{})
 	if err != nil {
 		return nil, err
 	}
-	return sources(getenv, file.Harnesses)
+	return sources(env.getenv, cc.file.Harnesses)
 }
 
 // sources resolves terva, Claude Code, Codex, OpenCode, the Cursor IDE,

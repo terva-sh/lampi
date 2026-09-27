@@ -2,14 +2,19 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/lakeprofile"
+	"terva.sh/lampi/internal/upload"
 )
 
 // lakeSet is the lakes a running agent pushes to. The watch and SIGUSR1
@@ -19,11 +24,20 @@ type lakeSet struct {
 	env   Env
 	ctx   context.Context // ends on shutdown; every runner's context derives from it
 	state string
+	// src, serverFlag and tokenFlag are what the agent started with. A
+	// reload keeps them: harness roots are watched from the start.
+	src                   []source
+	serverFlag, tokenFlag string
+	// machine is the harnesses and debounce the agent started with,
+	// which a reload does not change. A reload whose config differs from
+	// them says so, until a restart applies it.
+	machine string
 
 	wg sync.WaitGroup
-	// reloading is held for the whole of a reload, so wait does not
-	// return, and agent.pid is not released, while one still works on
-	// the lakes' state.
+	// reloading is held for the whole of a reload. It keeps reloads one
+	// at a time, since SIGHUP and each lake's profile fetch can ask for
+	// one, and wait does not return, nor agent.pid get released, while a
+	// reload still works on the lakes' state.
 	reloading sync.Mutex
 	mu        sync.Mutex
 	// runners is keyed by lake name. reload is the only writer besides
@@ -71,6 +85,19 @@ func (s *lakeSet) launch(l agentLake) {
 		defer cancel()
 		r.run(ctx)
 	}()
+	// A pinned lake's profile is fetched while the lake runs, and the
+	// lake does not push until the first fetch has answered. Its loop
+	// is not part of done: a profile that changes asks for a reload,
+	// and that reload may stop this very lake.
+	if !lakeprofile.Pinned(l.cfg) {
+		close(r.ready)
+	} else {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			watchProfile(ctx, s.env, r, profileEvery, s.reload)
+		}()
+	}
 }
 
 // wait returns once a reload in progress has finished and every runner
@@ -126,17 +153,26 @@ func (s *lakeSet) anyReady() bool {
 // and changed lakes start with a full pass. A lake that did not change
 // keeps running, its backoff and memo intact. A config that does not
 // resolve, a token that would go in the clear, or a new lake that
-// cannot be prepared leaves the lakes as they were.
-func (s *lakeSet) reload(src []source, serverFlag, tokenFlag string) {
+// cannot be prepared leaves the lakes as they were. It reports whether
+// the config it read is now in force.
+func (s *lakeSet) reload() bool {
 	s.reloading.Lock()
 	defer s.reloading.Unlock()
 	if s.ctx.Err() != nil {
-		return
+		return false
 	}
-	next, err := s.resolve(src, serverFlag, tokenFlag)
+	next, cc, err := s.resolve()
+	// Shutdown began while the config was read: say nothing, and leave
+	// the draining runners alone.
+	if s.ctx.Err() != nil {
+		return false
+	}
 	if err != nil {
 		fmt.Fprintf(s.env.stderr(), "terva-lampi: reload: %v; the lakes are unchanged\n", err)
-		return
+		return false
+	}
+	if machineOf(cc.file) != s.machine {
+		fmt.Fprintln(s.env.stderr(), "terva-lampi: reload: harnesses or debounce changed; restart the agent to apply them")
 	}
 	want := map[string]agentLake{}
 	for _, l := range next {
@@ -170,13 +206,13 @@ func (s *lakeSet) reload(src []source, serverFlag, tokenFlag string) {
 		}
 		if err := s.prepare(l); err != nil {
 			fmt.Fprintf(s.env.stderr(), "terva-lampi: reload: lake %s: %v; the lakes are unchanged\n", l.name, err)
-			return
+			return false
 		}
 	}
-	// Shutdown began while the config was read: the runners are
+	// Shutdown began while the lakes were prepared: the runners are
 	// draining already and nothing new starts.
 	if s.ctx.Err() != nil {
-		return
+		return false
 	}
 
 	s.mu.Lock()
@@ -212,18 +248,142 @@ func (s *lakeSet) reload(src []source, serverFlag, tokenFlag string) {
 		}
 	}
 	fmt.Fprintln(s.env.stdout(), reloadLine(added, removed, changed, kept))
+	return true
 }
 
-func (s *lakeSet) resolve(src []source, serverFlag, tokenFlag string) ([]agentLake, error) {
-	file, err := config.LoadFile(s.env.getenv)
+func (s *lakeSet) resolve() ([]agentLake, clientConfig, error) {
+	cc, err := loadClientConfig(s.env, s.env.stderr(), config.LakeFlags{Server: s.serverFlag, TokenFile: s.tokenFlag})
 	if err != nil {
-		return nil, err
+		return nil, clientConfig{}, err
 	}
-	resolved, err := config.ResolveLakes(file, s.env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
+	lakes, err := agentLakes(s.env, cc.file, s.src, cc.lakes)
+	return lakes, cc, err
+}
+
+// machineOf is the machine-wide fields a running agent cannot change,
+// as one comparable string.
+func machineOf(f config.File) string {
+	raw, _ := json.Marshal(struct {
+		H config.Harnesses
+		A config.AgentConfig
+	}{f.Harnesses, f.Agent})
+	return string(raw)
+}
+
+// machineFields is machineOf for the config the agent starts with.
+func machineFields(env Env) string {
+	cc, err := loadClientConfig(env, io.Discard, config.LakeFlags{})
 	if err != nil {
-		return nil, err
+		return ""
 	}
-	return agentLakes(s.env, file, src, resolved)
+	return machineOf(cc.file)
+}
+
+// profileEvery is how often a running agent fetches each pinned lake's
+// profile, after the fetch at start.
+const profileEvery = time.Hour
+
+// watchProfile fetches the lake's profile now and every interval until
+// ctx ends. A copy that verifies against the pin and has a new version
+// replaces the cached one, and changed asks for a reload so the lake's
+// project rules take effect. A copy that names another profile with the
+// same content replaces the cached one without a reload. A failed fetch
+// or a copy that does not verify is said once per run of failures, and
+// the cached copy stays. The runner is let push once the first fetch
+// has answered and any reload it asked for is done. A verified copy
+// with new rules that cannot be saved has not taken effect, since the
+// reload reads the cache, so the runner is held until a later fetch
+// saves one. A reload that fails has not applied the rules either: it
+// is asked for again at every fetch until one succeeds, and the runner
+// is held until then.
+func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Duration, changed func() bool) {
+	l := r.lake
+	dir := l.opt.LakeStateDir
+	have, haveName := "", ""
+	if d, ok, err := lakeprofile.Load(dir, l.cfg); err == nil && ok {
+		have, haveName = d.Payload.Version, d.Payload.Profile
+	}
+	failing := false
+	// unsaved is set while the newest verified copy has rules the
+	// cache lacks.
+	unsaved := false
+	// pending is set while a saved copy's rules wait for a reload that
+	// has succeeded.
+	pending := false
+	released := false
+	release := func() {
+		if !released && !unsaved && !pending {
+			released = true
+			close(r.ready)
+		}
+	}
+	fetch := func() {
+		fctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		signed, err := upload.FetchAgentConfig(fctx, l.opt)
+		var d lakeprofile.Doc
+		if err == nil {
+			d, err = lakeprofile.Verify(signed, l.cfg)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			if !failing {
+				kept := "no profile is cached"
+				if have != "" {
+					kept = "keeping cached profile " + have
+				}
+				r.errf("profile: %v; %s", err, kept)
+			}
+			failing = true
+			return
+		}
+		failing = false
+		if d.Payload.Version == have && d.Payload.Profile == haveName {
+			unsaved = false
+			return
+		}
+		newVersion := d.Payload.Version != have
+		if err := lakeprofile.Save(dir, d); err != nil {
+			if newVersion && !released {
+				unsaved = true
+				r.errf("profile: %v; uploads wait until profile %s version %s is saved", err, d.Payload.Profile, d.Payload.Version)
+			} else {
+				r.errf("profile: %v", err)
+			}
+			return
+		}
+		unsaved = false
+		have, haveName = d.Payload.Version, d.Payload.Profile
+		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), haveName, have)
+		if newVersion {
+			pending = true
+		}
+	}
+	// step fetches, asks for the reload a saved copy still waits on, and
+	// lets the runner push once nothing holds it.
+	step := func() {
+		fetch()
+		if pending && ctx.Err() == nil {
+			pending = !changed()
+			if pending && !released {
+				r.errf("profile: reload failed; uploads wait until profile %s version %s is in force", haveName, have)
+			}
+		}
+		release()
+	}
+	step()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			step()
+		}
+	}
 }
 
 // sameLake reports whether a running lake can keep running under the

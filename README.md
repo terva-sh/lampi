@@ -345,6 +345,28 @@ also writes the lake's pinned `lake_id`, `key_id` and `public_key`.
   `lakes: none configured`; `sync` fails and says why. This is the
   standalone state a machine is in until it is registered. A
   `config.json` with no `lakes` key still means the loopback lake.
+- A lake pinned in `config.json` (`lake_id`, `key_id`, `public_key`,
+  which registration writes) can publish a base configuration, its
+  profile. The agent fetches it at start and every hour, checks it
+  against the pinned key and lake id, and against the entry's
+  `device_id` when it has one, and keeps the last copy that
+  passed in `lakes/<name>/profile.json`. A fetch that fails or a copy
+  signed by another key is logged once and the cached copy stays in
+  use. `sync` uses the cached copy and does not fetch. A lake with no
+  pin gets no profile.
+- A profile can set harnesses on or off, the debounce, and the lake's
+  own `projects.allow` and `projects.deny`. It cannot set a harness
+  root or `redaction.upload_hits`, so a lake can narrow what a machine
+  sends but can only widen the allowlist for uploads to itself.
+  `config.json` wins over every field: a lake's allow rules apply only
+  when `config.json` gives that lake none, and its deny rules are added
+  to the local ones. For the machine-wide fields, the first lake in
+  order (`default`, then by name) that sets a field wins. A changed
+  profile restarts that lake's push loop; a change to harnesses or the
+  debounce is logged and waits for a restart. `agent config` prints a
+  `profile=` line per lake and `source=local`, `source=lake:NAME` or
+  `source=default` for each machine-wide value, and `allow_source=` on
+  each lake line.
 - On Unix, SIGHUP makes a running agent read its lakes again. A lake
   that was removed, or whose server, token, machine id or rules
   changed, drains its outbox before it stops, so nothing already

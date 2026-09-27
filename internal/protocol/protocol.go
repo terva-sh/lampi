@@ -177,6 +177,22 @@ type Signature struct {
 	Sig   string `json:"sig"`
 }
 
+// AgentConfigPath is the calling device's base configuration, signed
+// with the lake key. It needs the device token.
+const AgentConfigPath = "/v1/agent/config"
+
+// AgentConfigPayload is the signed payload of GET AgentConfigPath.
+// Config is the profile, the subset of config.json a lake may set.
+// Version changes when, and only when, Config does.
+type AgentConfigPayload struct {
+	LakeID   string          `json:"lake_id"`
+	DeviceID string          `json:"device_id,omitempty"`
+	Profile  string          `json:"profile"`
+	Version  string          `json:"version"`
+	IssuedAt time.Time       `json:"issued_at"`
+	Config   json.RawMessage `json:"config"`
+}
+
 // KeysPayload is the signed payload of GET KeysPath.
 type KeysPayload struct {
 	LakeID   string    `json:"lake_id"`

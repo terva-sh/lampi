@@ -69,7 +69,8 @@ terva-lampi login writes. A line starting with # is a comment. Any
 other line is an error. Each plaintext token is hashed and the file is
 rewritten to sha256 lines, comments kept. Copy the device's token
 file first; do not point this flag at the device's only copy. The
-token is not an argument. SIGHUP reads the token file again. Requests
+token is not an argument. SIGHUP reads the token file and the
+profiles file again. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
 
@@ -79,6 +80,16 @@ token-N. A device binds to the first machine_id it uploads a manifest
 under; a manifest from another machine is 403, and so is a machine_id
 another device holds. serve devices lists, revokes and unbinds them.
 Device changes go to audit.jsonl in the lake directory.
+
+--profiles is the base configuration agents fetch from GET
+/v1/agent/config, signed with the lake key. It defaults to
+profiles.json in the lake directory; a missing file serves one empty
+default profile. Its shape is {"profiles": {"default": {...}, "NAME":
+{...}}}, and a profile may set harnesses (enabled only), agent.debounce,
+agent.debounce_max, projects.allow and projects.deny. Any other field,
+a harness root, or redaction.upload_hits fails the load. A device gets
+the default profile unless serve devices set-profile names another.
+An agent's own config.json wins over every field.
 
 The lake directory holds identity.json (the lake id and private
 signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
@@ -126,11 +137,12 @@ func runServe(env Env, args []string) error {
 			return runServeDevices(env, args[1:])
 		}
 	}
-	var addr, data, tokenFile, webConfigFile string
+	var addr, data, tokenFile, profilesFile, webConfigFile string
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file")
+		fs.StringVar(&profilesFile, "profiles", "", "agent profiles file (default: profiles.json in the lake directory)")
 		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
 	})
 	if err != nil {
@@ -145,6 +157,13 @@ func runServe(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if profilesFile == "" {
+		profilesFile = filepath.Join(data, config.ProfilesFileName)
+	}
+	profiles, err := config.LoadProfiles(profilesFile)
+	if err != nil {
+		return err
 	}
 	var devices *auth.Devices
 	if tokenFile != "" {
@@ -192,6 +211,7 @@ func runServe(env Env, args []string) error {
 		}
 	}
 	lake.Devices = devices
+	lake.SetProfiles(profiles)
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
 		if err := startWeb(*webCfg, data, lake); err != nil {
@@ -222,9 +242,12 @@ func runServe(env Env, args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if devices != nil {
-		reloadOnHangup(ctx, func() { reloadDevices(env, tokenFile, devices, lake) })
-	}
+	reloadOnHangup(ctx, func() {
+		if devices != nil {
+			reloadDevices(env, tokenFile, devices, lake)
+		}
+		reloadProfiles(env, profilesFile, lake)
+	})
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
 
@@ -251,6 +274,18 @@ func reloadDevices(env Env, path string, devices *auth.Devices, lake *api.Server
 	}
 	devices.Replace(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d device tokens\n", devices.Len())
+}
+
+// reloadProfiles reads the profiles file again. A file that no longer
+// loads keeps the profiles agents are fetching now.
+func reloadProfiles(env Env, path string, lake *api.Server) {
+	next, err := config.LoadProfiles(path)
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: profile reload failed, keeping %d profiles: %v\n", len(lake.Profiles()), err)
+		return
+	}
+	lake.SetProfiles(next)
+	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d profiles\n", len(next))
 }
 
 func warnIgnored(env Env, path string, d *auth.Devices) {

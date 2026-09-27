@@ -335,6 +335,20 @@ func (c *Catalog) UnbindDevice(ctx context.Context, name string) (Device, error)
 	return d, nil
 }
 
+// SetDeviceProfile records the profile the device's agent fetches. An
+// empty profile is the default.
+func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile string) (Device, error) {
+	d, err := c.DeviceByName(ctx, name)
+	if err != nil {
+		return Device{}, err
+	}
+	if _, err := c.db.ExecContext(ctx, `UPDATE devices SET profile=? WHERE id=?`, profile, d.ID); err != nil {
+		return Device{}, fmt.Errorf("catalog: %w", err)
+	}
+	d.Profile = profile
+	return d, nil
+}
+
 // RevokeDevice marks the device revoked. Its token stops working on the
 // next request. Revoking is final; a revoked device is not restored by
 // its token reappearing in the token file.

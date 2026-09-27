@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"terva.sh/lampi/internal/protocol"
 )
 
 // Transport limits. None of them bounds a whole request, so a large PUT
@@ -160,4 +162,18 @@ func (p progressReader) Read(b []byte) (int, error) {
 		p.w.touch()
 	}
 	return n, err
+}
+
+// FetchAgentConfig gets the device's signed base configuration. It does
+// not check the signature: the caller holds the pin.
+func FetchAgentConfig(ctx context.Context, opt Options) (*protocol.Signed, error) {
+	client := opt.Client
+	if client == nil {
+		client = NewClient()
+	}
+	var s protocol.Signed
+	if err := doJSON(ctx, client, opt, http.MethodGet, protocol.AgentConfigPath, nil, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }

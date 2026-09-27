@@ -49,8 +49,9 @@ const AlgEd25519 = "ed25519"
 // Signing contexts. Each is signed as "terva-lampi/<context>\x00" then
 // the payload, so a signature cannot be moved from one use to another.
 const (
-	ContextKeys  = "keys/v1"
-	ContextHello = "hello/v1"
+	ContextKeys        = "keys/v1"
+	ContextHello       = "hello/v1"
+	ContextAgentConfig = "agent-config/v1"
 )
 
 // Key is one signing key. Priv is nil for a key parsed from a published

@@ -49,7 +49,7 @@ func TestServeDevicesRevokeStopsARunningLake(t *testing.T) {
 	if err := Run([]string{"serve", "devices", "--data", dir}, Env{Stdout: &out, Stderr: ioDiscard()}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(out.String(), "laptop active token-file machine=- id=dev_") {
+	if !strings.HasPrefix(out.String(), "laptop active token-file profile=default machine=- id=dev_") {
 		t.Fatalf("list:\n%s", out.String())
 	}
 	out.Reset()
@@ -125,5 +125,68 @@ func TestServeDevicesAuditFailureAdvice(t *testing.T) {
 	err = Run([]string{"serve", "devices", "revoke", "desk", "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
 	if err == nil || !strings.Contains(err.Error(), "running revoke again only retries the record") {
 		t.Fatalf("revoke: %v", err)
+	}
+}
+
+func TestServeDevicesSetProfile(t *testing.T) {
+	dir := t.TempDir()
+	tokens := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tokens, "laptop.token"), []byte(strings.Repeat("c3", 32)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	devices, err := auth.LoadDevices(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Devices = devices
+	if err := lake.SyncDevices(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	lake.Close()
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := Run(append([]string{"serve", "devices"}, append(args, "--data", dir)...), Env{Stdout: &out, Stderr: ioDiscard()})
+		return out.String(), err
+	}
+	if _, err := run("set-profile", "laptop", "ci"); err == nil || !strings.Contains(err.Error(), "no profile named ci") {
+		t.Fatalf("unknown profile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "profiles.json"), []byte(`{"profiles":{"ci":{}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("set-profile", "laptop", "ci"); err != nil || out != "set laptop to profile ci\n" {
+		t.Fatalf("set-profile: %q %v", out, err)
+	}
+	if out, _ := run("list"); !strings.Contains(out, "laptop active token-file profile=ci ") {
+		t.Fatalf("list:\n%s", out)
+	}
+	if _, err := run("set-profile", "nope", "ci"); err == nil || !strings.Contains(err.Error(), "no device named nope") {
+		t.Fatalf("unknown device: %v", err)
+	}
+	if _, err := run("set-profile", "laptop"); err == nil {
+		t.Fatal("set-profile without a profile accepted")
+	}
+	if out, _ := run("set-profile", "laptop", "default"); out != "set laptop to profile default\n" {
+		t.Fatalf("back to default: %q", out)
+	}
+	raw, _ := os.ReadFile(audit.Path(dir))
+	if !strings.Contains(string(raw), `"kind":"device.profile","device":"laptop"`) || !strings.Contains(string(raw), `"detail":"profile=ci"`) {
+		t.Fatalf("audit:\n%s", raw)
+	}
+}
+
+func TestServeRefusesAProfilesFileWithAFieldOutsideTheAllowedSet(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(t.TempDir(), "profiles.json")
+	if err := os.WriteFile(bad, []byte(`{"profiles":{"default":{"server":"https://elsewhere.example"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := Run([]string{"serve", "--data", dir, "--addr", "127.0.0.1:0", "--profiles", bad}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(err.Error(), `unknown field "server"`) {
+		t.Fatalf("serve with a bad profiles file: %v", err)
 	}
 }

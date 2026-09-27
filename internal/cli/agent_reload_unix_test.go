@@ -130,7 +130,11 @@ func TestAReloadThatCannotPrepareALakeKeepsTheOldOneRunning(t *testing.T) {
 	}
 	before = len(buf.String())
 	reloadAgent(stateDir)
-	waitOut(t, &buf, func(s string) bool { return strings.Contains(s[before:], "reload: ") })
+	// The debounce differs from the agent's start, so each reload also
+	// warns about that; wait for the lake's own line.
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s[before:], "reload: restarted") || strings.Contains(s[before:], "unchanged")
+	})
 	if !strings.Contains(buf.String()[before:], "reload: restarted default") {
 		t.Fatalf("agent output:\n%s", buf.String())
 	}
@@ -167,7 +171,7 @@ func TestShutdownWaitsForAReloadInProgress(t *testing.T) {
 	}}
 	ctx, cancel := context.WithCancel(context.Background())
 	set := &lakeSet{env: env, ctx: ctx, state: stateDir, runners: map[string]*lakeRunner{}}
-	go set.reload(nil, "", "")
+	go set.reload()
 	<-entered
 
 	cancel()
@@ -195,6 +199,37 @@ func TestShutdownWaitsForAReloadInProgress(t *testing.T) {
 	if _, err := os.Stat(legacy); err != nil {
 		t.Fatalf("legacy state moved after shutdown: %v", err)
 	}
+}
+
+func TestAReloadComparesMachineWideSettingsWithTheOnesTheAgentStartedWith(t *testing.T) {
+	home, cfg, state, _ := agentFixture(t, "http://127.0.0.1:9")
+	writeAgentConfig(t, cfg, standaloneConfig)
+	var buf memBuf
+	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	set := &lakeSet{
+		env: env, ctx: ctx, state: filepath.Join(state, "terva-lampi"), runners: map[string]*lakeRunner{},
+		machine: machineFields(env),
+	}
+	const warning = "harnesses or debounce changed; restart the agent to apply them"
+	reload := func(raw string, warns bool) {
+		t.Helper()
+		writeAgentConfig(t, cfg, raw)
+		before := len(buf.String())
+		if !set.reload() {
+			t.Fatalf("reload failed:\n%s", buf.String())
+		}
+		if got := strings.Contains(buf.String()[before:], warning); got != warns {
+			t.Fatalf("warned %v, want %v:\n%s", got, warns, buf.String()[before:])
+		}
+	}
+	slower := `{"lakes":{},"agent":{"debounce":"200ms","debounce_max":"1s"}}`
+	// A change still waiting for a restart is said at every reload, and
+	// going back to what the agent runs with is not a change.
+	reload(slower, true)
+	reload(slower, true)
+	reload(standaloneConfig, false)
 }
 
 func TestReloadAgentSignalsOnlyAHeldPIDFile(t *testing.T) {
