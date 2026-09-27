@@ -1,7 +1,7 @@
 ---
 schema: 3
 id: TKT-01M3GAHSNWKB00S1RMSF0K693W
-title: "Registration codes: keep an expiry eligible until its audit line is written"
+title: "Registration codes: keep expiry eligible until its audit line lands"
 type: bug
 status: draft
 status_reason: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-27T02:19:20Z
+updated_at: 2026-09-27T02:19:41Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
