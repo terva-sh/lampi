@@ -40,6 +40,15 @@ On the machine, fresh or already running an agent:
 terva-lampi register --code-file laptop.code --install-service
 ```
 
+A machine without the binary can install and register in one step.
+`--register` runs the same command after the install. The code is read
+from the terminal, because under `curl | sh` the script itself is on
+stdin:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh -s -- --register
+```
+
 ### What register checks and writes
 
 `register` checks the code's signature and expiry, that the URL is

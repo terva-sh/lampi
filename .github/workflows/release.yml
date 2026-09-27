@@ -1,0 +1,76 @@
+# Public release: pushing a v* tag to the mirror builds every target with
+# goreleaser and publishes the archives as a GitHub release. install.sh
+# downloads from here. This follows git-ticket's release workflow.
+#
+# The Forgejo twin is .forgejo/workflows/release.yml; both fire on the same
+# tag once it is pushed to each forge.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# goreleaser creates the release and uploads the archives to it.
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: Build and Publish Release
+    # Forgejo Actions runs .github/workflows too and reports the same owner
+    # and name, so only the server URL tells the two apart. Without this the
+    # Forgejo runner would fail resolving actions/checkout and race the
+    # Forgejo workflow to publish the same tag.
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          # go build takes the version from the tag at HEAD, and the
+          # changelog reads the log between tags. A shallow checkout would
+          # ship binaries reporting 0.0.0.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        # A tag is cut from main, which CI has already passed, so this is
+        # the last look before anything is published.
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the published binary reports the tag
+        # goreleaser has already published by now, so this is a post-check.
+        # A failure leaves a release someone must delete by hand, which is
+        # still better than not noticing a binary that reports 0.0.0.
+        run: |
+          set -eu
+          tmp=$(mktemp -d)
+          archive=$(ls dist/terva-lampi_*_linux_amd64.tar.gz)
+          tar -xzf "${archive}" -C "${tmp}"
+          got=$("${tmp}/terva-lampi" --version)
+          echo "built: ${got}"
+          case "${got}" in
+            *"${GITHUB_REF_NAME}"*) echo "carries ${GITHUB_REF_NAME}" ;;
+            *)
+              echo "::error::the binary reports '${got}', which does not carry ${GITHUB_REF_NAME}"
+              echo "The build lost its VCS stamps. Delete the release, then check"
+              echo "that the checkout is not shallow before tagging again."
+              exit 1
+              ;;
+          esac

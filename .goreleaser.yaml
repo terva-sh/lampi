@@ -1,0 +1,88 @@
+# GoReleaser builds the archives a release publishes. Pushing a v* tag runs
+# it on both forges, from .github/workflows/release.yml and
+# .forgejo/workflows/release.yml. This follows git-ticket's config, which
+# explains each choice at more length.
+#
+# On GitHub goreleaser publishes the release itself. On Forgejo the workflow
+# uploads what goreleaser built, so no internal host is written here.
+#
+# Nothing is linked in with -X. go build records the tag and the commit when
+# it runs in a checkout at the tag, and --version reads them back from the
+# build info. That needs full history, which is why both workflows fetch
+# with depth 0. `just build` still stamps with ldflags for local builds.
+
+version: 2
+
+project_name: terva-lampi
+
+# No go mod tidy hook: it runs after goreleaser has checked the tree is
+# clean, and a rewrite would stamp vcs.modified into every binary.
+
+builds:
+  - id: terva-lampi
+    main: ./cmd/terva-lampi
+    binary: terva-lampi
+    env:
+      # The SQLite driver is pure Go, so every target cross-compiles.
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+
+archives:
+  - id: terva-lampi
+    ids: [terva-lampi]
+    # terva-lampi_0.1.0_linux_amd64.tar.gz, with the binary at the root.
+    # install.sh depends on this name.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # MIT wants the notice with every copy. goreleaser fails on an entry
+    # matching nothing, so losing either file breaks the release loudly.
+    files:
+      - LICENSE
+      - README.md
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  # `just release-snapshot` runs the pipeline with no tag and no publish.
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  # git rather than a forge API, so both forges build the same notes.
+  use: git
+  filters:
+    exclude:
+      - "^docs(\\(.*\\))?!?:"
+      - "^chore(\\(.*\\))?!?:"
+      - "^ci(\\(.*\\))?!?:"
+      - "^test(\\(.*\\))?!?:"
+      - "^build(\\(.*\\))?!?:"
+      - "^Merge "
+
+release:
+  draft: false
+  prerelease: auto
+  header: |
+    ## terva-lampi {{ .Tag }}
+
+    Captures agent session transcripts and ships them to a lake.
+
+    Install on Linux or macOS, checking the archive against `checksums.txt`:
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/{{ .Tag }}/install.sh | sh
+    ```
+
+    Add `-s -- --register` after `sh` to join a lake with a registration
+    code as soon as the binary is in place. On Windows, take the zip below.
+    `terva-lampi --version` names the tag and commit it was built from.
