@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T15:51:16Z
-updated_at: 2026-09-27T15:55:33Z
+updated_at: 2026-09-27T16:09:17Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -91,3 +91,21 @@ Copy git-ticket's release setup and adapt it to terva-lampi:
 ### Not claimed
 
 `go install terva.sh/lampi/...` does not resolve: the vanity host serves only terva.sh/terva. So the README does not offer it. Fixing that is outside this repository.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T16:09:17Z
+
+### Review rounds on PR #25
+
+**Round 1** (review 1002):
+
+- High, "tagged builds report 0.0.0": rejected. Since Go 1.24, `go build` at a tag stamps `Main.Version`. A real tagged-build test was added, `TestTaggedBuildReportsItsTag`, which clones, tags, builds and checks `--version`.
+- Two installer findings, fixed in c7eb34d:
+  - The staged binary is now run before it replaces the old one.
+  - A partial copy is removed.
+- CI failed because the Alpine CI image has no curl. curl was added to the Forgejo CI dependencies, and the tests skip without it.
+
+**Round 2** (review 1003): the Forgejo publish was not resumable after a partial upload. Fixed in 28930b8: a rerun reuses the tag's release and skips assets already uploaded. git-ticket's workflow has the same gap.
+
+**Round 3** (review for e30fa5ce): "verify before publishing on GitHub" was rejected. It is the org pattern, and a bad tag is now caught before tagging by `TestTaggedBuildReportsItsTag`.
+
+CI on 28930b8 failed once without a readable log: this Forgejo returns 404 for job logs over the API. The whole race suite passed in the CI image from a depth-1 clone of that commit.
