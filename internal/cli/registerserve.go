@@ -8,8 +8,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -118,10 +120,10 @@ func runServeRegister(env Env, args []string) error {
 				line += " device=" + r.DeviceID
 			}
 			if r.CreatedBy != "" {
-				line += " created_by=" + r.CreatedBy
+				line += " created_by=" + listValue(r.CreatedBy)
 			}
 			if r.RevokedBy != "" {
-				line += " revoked_by=" + r.RevokedBy
+				line += " revoked_by=" + listValue(r.RevokedBy)
 			}
 			fmt.Fprintln(env.stdout(), line)
 		}
@@ -227,4 +229,13 @@ func runServeIdentitySetURL(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stdout(), "public_url %s\n", raw)
 	return nil
+}
+
+// listValue quotes a value that would not read as one field, such as a
+// dashboard operator's display name.
+func listValue(v string) string {
+	if v == "" || strings.ContainsFunc(v, func(r rune) bool { return r == '"' || r == '\\' || unicode.IsSpace(r) || !unicode.IsPrint(r) }) {
+		return strconv.Quote(v)
+	}
+	return v
 }

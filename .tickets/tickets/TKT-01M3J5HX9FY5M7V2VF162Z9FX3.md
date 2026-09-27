@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T22:03:47Z
+updated_at: 2026-09-27T22:09:01Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -98,3 +98,7 @@ PR 1 (auth) evidence. Tests: a viewer gets 404 on the operator page and API rout
 **agent:claude-code/e4a47e8c** at 2026-09-27T22:00:25Z
 
 PR 2 (catalog/registration-actors): schema 7 adds registrations.created_by (NOT NULL DEFAULT '', empty for older codes) and revoked_by. CreateRegistration and RevokeRegistration take a 'by' actor; serve register passes catalog.ActorCLI ('cli') and --list prints created_by= and revoked_by=. The audit Actor for the CLI stays 'serve register'. The dashboard (PR 3) will pass its operator identity. A second revoke keeps the first revoker. Chose a parameter rather than a context value so every caller has to name its actor.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T22:09:01Z
+
+PR 4a (web/registrations-api): operator-only JSON routes. The dashboard actor is 'web:SUBJECT (DISPLAY)', control characters dropped and capped at 256 bytes, the same string in created_by/revoked_by and the audit actor. Writes carry the session CSRF in X-Lampi-CSRF, checked with webauth.Browser.CheckWrite (the same token, Origin and Sec-Fetch-Site checks as sign-out). Mint needs Fresh (403 fresh_login_required with a login URL); list and revoke do not. Revoke takes only reg_ ids, because a name could match a code the operator did not see. Minting is rate limited in-process (burst 5, one per 12s), since each mint fetches the key list through the public URL and syncs an audit line. The install line pins install.sh and --version to the lake's build tag only when it is a plain vX.Y.Z; pseudo-versions, +dirty and prereleases fall back to main and the latest release, with install_pinned false. serve register --list quotes an actor with spaces. The pages come in PR 4b.

@@ -107,7 +107,7 @@ func run() error {
 	if err := index.Pass(ctx); err != nil {
 		return err
 	}
-	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, idp.Client())
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, nil, idp.Client())
 	if err != nil {
 		return err
 	}
