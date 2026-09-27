@@ -25,7 +25,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:41:23Z
-updated_at: 2026-09-27T01:40:49Z
+updated_at: 2026-09-27T02:14:07Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -95,6 +95,10 @@ Review 975 on PR #19, accepted in 56cd134. refreshPin keeps a copy of the cached
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:40:49Z
 
 Review 986 on PR #19, accepted in 2f77bac. The pin is written through config.UpdateLake, which refuses when the stored lake id, key id or public key differ from the ones the refresh started with, and restores the old cached profile. After the lake-profile layer made reload report success, a moved pin now waits on the same pending reload as a new profile: it is retried each tick, and the first push is held until it succeeds (merge commit on this layer). Remaining gap: config.json has no lock between processes; filed as a draft.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T02:14:07Z
+
+Review 991 on PR #19, accepted in 8c4da6a. The pin is not written into an entry whose server URL changed during the refresh, when the server came from config.json; an override was never the entry's URL, so nothing is compared then.
 
 ## Summary
 

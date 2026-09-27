@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:40:48Z
+updated_at: 2026-09-27T02:14:06Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -99,6 +99,10 @@ Review 974 on PR #17, both accepted. 195a350: a second revoke of a code returns 
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:40:48Z
 
 Review 985 on PR #17, accepted in ac3bd49. The ticket asks for expiry in the audit log. Each expired code now gets exactly one registration.expired line, marked by expiry_recorded_at in migration 6 (edited in place; unshipped). The line is written when an expired code is presented to /v1/register, which is bounded to once per code ever minted, and on every serve register run, for codes nobody presented. Rejected: a background sweeper, which adds a goroutine and timer to serve for a record the operator command can make. Costs: serve register --list now writes to the catalog, and a code marked but whose audit append then fails is reported by id and not retried, like revoke.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T02:14:06Z
+
+Review 989 on PR #17. (1) accepted, 30690ca: /v1/register refuses a machine_id that repeats 8 or more consecutive characters of the submitted secret, before any catalog or audit call. Rejected: refusing any overlap at all, which would refuse short real machine ids at random against a 43-character secret. Anyone who already knows the secret can redeem the code, so what is left is logging it in pieces shorter than 8 characters, one per rate-limited request. (2) rejected: an expiry sweeper, for the reasons in the round-3 note. The ticket asks for expiry in the audit log, not for a record at the moment of expiry, and changing that is for the owner. (3) accepted, 6663419: CreateRegistration compares a pending code's expiry as a time, not as text.
 
 ## Summary
 

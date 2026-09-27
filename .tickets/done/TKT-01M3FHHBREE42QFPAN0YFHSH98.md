@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:40:57Z
+updated_at: 2026-09-27T02:14:07Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -114,6 +114,10 @@ Review 987 on PR #18, both accepted in d52087c. register --replace always writes
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:40:57Z
 
 Supersedes the ticket reference in the previous note: the config.json lock gap and the shared tokens/<name>.token case are filed as TKT-01M3G8B82 (Client config: lock config.json across processes for read-edit-write).
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T02:14:07Z
+
+Review 990 on PR #18, all accepted in d69fb94. register refuses when another resolved lake names tokens/<name>.token, and lakes remove keeps a token another remaining lake still names; paths are compared after filepath.Abs. Installed services now carry a non-default XDG_CONFIG_HOME, XDG_STATE_HOME or XDG_DATA_HOME, as Environment= lines in the unit or EnvironmentVariables in the plist. Not fixed: with a custom XDG_CONFIG_HOME the unit is still written under it, where systemd --user finds it only if its own environment matches; where the unit belongs is an owner call. Also on this layer: register writes the lake's device id into the entry, so the profile binding from TKT-01M3FHHBK applies to registered devices.
 
 ## Summary
 
