@@ -258,7 +258,7 @@ func runAgentDaemon(env Env, args []string) error {
 // falls through to LAMPI_SERVER, LAMPI_TOKEN_FILE, then config.json,
 // the same order sync and status use.
 func runAgentLoop(ctx context.Context, env Env, serverFlag, tokenFlag string) error {
-	lakes, src, n, err := loadAgentLakes(env, serverFlag, tokenFlag)
+	lakes, src, n, err := startAgentLakes(env, serverFlag, tokenFlag)
 	if err != nil {
 		return err
 	}
@@ -601,8 +601,8 @@ func agentLakes(env Env, file config.File, src []source, resolved []config.Lake)
 }
 
 // lakeOptions is one lake's upload options. A token that would cross
-// the network in the clear stops the command: it cannot change until
-// the config does.
+// the network in the clear is an error for that lake: it cannot change
+// until the config does.
 func lakeOptions(env Env, file config.File, state string, src []source, lake config.Lake) (upload.Options, error) {
 	token, err := lakeToken(lake)
 	if err != nil {
@@ -631,6 +631,50 @@ func lakeOptions(env Env, file config.File, state string, src []source, lake con
 		Projects:      lake.Projects,
 		UploadHits:    file.Redaction.UploadHits,
 	}, nil
+}
+
+// startAgentLakes is loadAgentLakes for the agent's start, except that
+// with several lakes one that cannot be prepared, such as one whose
+// token file is unreadable, is named and skipped so the others still
+// start. The agent does not start when no lake can be prepared.
+func startAgentLakes(env Env, serverFlag, tokenFlag string) (lakes []agentLake, src []source, n int, err error) {
+	file, err := config.LoadFile(env.getenv)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	resolved, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{Server: serverFlag, TokenFile: tokenFlag})
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	src, n, err = countSources(env.getenv, file.Harnesses)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	var skipped []string
+	for _, lake := range resolved {
+		opt, err := lakeOptions(env, file, state, src, lake)
+		if err != nil {
+			if len(resolved) == 1 {
+				return nil, nil, 0, err
+			}
+			fmt.Fprintf(env.stderr(), "terva-lampi: lake %s: %v; the other lakes still start\n", lake.Name, err)
+			skipped = append(skipped, lake.Name)
+			continue
+		}
+		l := agentLake{name: lake.Name, opt: opt, tokenPath: lake.TokenFile.Value}
+		if len(resolved) > 1 {
+			l.label = "lake " + lake.Name + ": "
+		}
+		lakes = append(lakes, l)
+	}
+	if len(lakes) == 0 && len(skipped) > 0 {
+		return nil, nil, 0, fmt.Errorf("no lake could be prepared: %s", strings.Join(skipped, ", "))
+	}
+	return lakes, src, n, nil
 }
 
 func countSources(getenv func(string) string, harnesses config.Harnesses) ([]source, int, error) {
