@@ -69,8 +69,13 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	if _, err := c.CreateRegistration(ctx, "desk", rev, "", "k1", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.RevokeRegistration(ctx, "desk", now); err != nil {
+	desk, err := c.RevokeRegistration(ctx, "desk", now)
+	if err != nil {
 		t.Fatal(err)
+	}
+	// A second revoke changes nothing and says so.
+	if again, err := c.RevokeRegistration(ctx, desk.ID, now.Add(time.Minute)); !errors.Is(err, ErrRegistrationRevoked) || !again.Revoked.Equal(desk.Revoked) {
+		t.Fatalf("second revoke: %+v %v", again, err)
 	}
 	if _, _, err := c.Redeem(ctx, rev, strings.Repeat("4", 64), "m4", nil, now); !errors.Is(err, ErrRegistrationRevoked) {
 		t.Fatalf("revoked: %v", err)

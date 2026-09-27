@@ -66,6 +66,11 @@ func editConfig(getenv func(string) string, edit func(top, lakes map[string]json
 		if err := json.Unmarshal(raw, &top); err != nil {
 			return fmt.Errorf("config: %s: %w", path, err)
 		}
+		// A file holding null unmarshals to a nil map; LoadFile reads it
+		// as an empty config, and so does a write.
+		if top == nil {
+			top = map[string]json.RawMessage{}
+		}
 	}
 	lakes := map[string]json.RawMessage{}
 	if l, ok := top["lakes"]; ok && string(bytes.TrimSpace(l)) != "null" {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
+	"terva.sh/lampi/internal/lakeprofile"
+	"terva.sh/lampi/internal/lakestate"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/regcode"
 )
@@ -210,6 +213,50 @@ func TestThePinStaysWhenTheProfileUnderTheNewKeyCannotBeFetched(t *testing.T) {
 	}
 	if f.pinnedKey() == first {
 		t.Fatal("pin did not move")
+	}
+}
+
+func TestTheCachedProfileStaysWhenTheMovedPinCannotBeWritten(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := f.sync(); err != nil || !strings.Contains(out, "uploaded 1") {
+		t.Fatalf("first sync: %v\n%s", err, out)
+	}
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	file, err := config.LoadFile(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lakes, err := config.ResolveLakes(file, getenv, config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake := lakes[0]
+	state, err := config.StateDir(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := lakestate.Dir(state, lake.Name)
+	if _, ok, err := lakeprofile.Load(dir, lake); err != nil || !ok {
+		t.Fatalf("no cached profile after the first sync: %v", err)
+	}
+	// Rotate and retire the pinned key, so a profile fetched now carries
+	// only the new key's signature.
+	f.serveIdentity("rotate", "--overlap", "1h")
+	f.serveIdentity("retire", lake.KeyID)
+	// The profile under the new key is fetched, and then config.json
+	// cannot be read, so the pin stays on the old key and the cache
+	// must still verify under it.
+	if err := os.WriteFile(filepath.Join(f.cfg, "terva-lampi", "config.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, moved, err := refreshPin(context.Background(), f.env(""), lake); err == nil || moved {
+		t.Fatalf("refreshPin with an unreadable config: moved %v, err %v", moved, err)
+	}
+	if _, ok, err := lakeprofile.Load(dir, lake); err != nil || !ok {
+		t.Fatalf("the cached profile no longer verifies under the pin: ok %v, err %v", ok, err)
 	}
 }
 

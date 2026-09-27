@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"terva.sh/lampi/internal/config"
@@ -82,22 +84,56 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	// moves, so the lake's rules do not drop out between the two. If it
 	// cannot be, the pin stays: the old key signs through the overlap,
 	// and the next refresh tries again.
-	if err := refetchProfile(fctx, env, moved); err != nil {
-		return l, false, fmt.Errorf("the profile under key %s: %w; the pin stays on key %s until it can be fetched", next.ID, err, pinned.ID)
-	}
-	file, err := config.LoadFile(env.getenv)
+	restore, err := keepProfile(env, l)
 	if err != nil {
 		return l, false, err
 	}
+	if err := refetchProfile(fctx, env, moved); err != nil {
+		return l, false, fmt.Errorf("the profile under key %s: %w; the pin stays on key %s until it can be fetched", next.ID, err, pinned.ID)
+	}
+	// From here a failure leaves the pin on the old key, which may not
+	// verify the profile just cached, so the old copy goes back.
+	file, err := config.LoadFile(env.getenv)
+	if err != nil {
+		return l, false, restore(err)
+	}
 	lc, ok := file.Lakes[l.Name]
 	if !ok {
-		return l, false, fmt.Errorf("lake %s is not in the lakes map, so its pin cannot move", l.Name)
+		return l, false, restore(fmt.Errorf("lake %s is not in the lakes map, so its pin cannot move", l.Name))
 	}
 	lc.KeyID, lc.PublicKey = next.ID, next.PublicKey
 	if err := config.SetLake(env.getenv, l.Name, lc); err != nil {
-		return l, false, err
+		return l, false, restore(err)
 	}
 	return moved, true, nil
+}
+
+// keepProfile reads l's cached profile as it is now and returns a
+// function that puts it back, or removes the cache if there was none,
+// and joins any failure to do so onto the error it is given.
+func keepProfile(env Env, l config.Lake) (func(error) error, error) {
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(lakestate.Dir(state, l.Name), lakeprofile.FileName)
+	old, err := os.ReadFile(path)
+	had := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("the cached profile: %w", err)
+	}
+	return func(cause error) error {
+		var rerr error
+		if had {
+			rerr = config.WriteFileAtomic(path, old)
+		} else if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			rerr = err
+		}
+		if rerr != nil {
+			return errors.Join(cause, fmt.Errorf("the cached profile under key %s could not be put back, so the lake's rules are unavailable until the pin moves: %w", l.KeyID, rerr))
+		}
+		return cause
+	}, nil
 }
 
 // refetchProfile fetches the lake's profile, verifies it under l's pin
