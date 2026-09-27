@@ -254,3 +254,47 @@ func TestDashboardMigrationAcrossBatches(t *testing.T) {
 		})
 	}
 }
+
+func TestRegistrationActorsMigration(t *testing.T) {
+	// A schema 6 file with one code: it keeps the code, with no creator.
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migrate := range migrations[:6] {
+		if err := migrate(tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO registrations(id, name, secret_sha256, created_at, expires_at) VALUES('reg_old', 'box', 'aa', '2026-09-27T00:00:00Z', '2026-09-28T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`PRAGMA user_version=6`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	regs, err := c.Registrations(t.Context())
+	if err != nil || len(regs) != 1 || regs[0].ID != "reg_old" || regs[0].CreatedBy != "" || regs[0].RevokedBy != "" {
+		t.Fatalf("registrations after migration: %+v %v", regs, err)
+	}
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	r, err := c.RevokeRegistration(t.Context(), "reg_old", ActorCLI, now)
+	if err != nil || r.RevokedBy != ActorCLI {
+		t.Fatalf("revoke after migration: %+v %v", r, err)
+	}
+}

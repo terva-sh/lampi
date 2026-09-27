@@ -85,8 +85,9 @@ the systemd user unit or launchd agent. Adding a second lake is the
 same command with a code from that lake.
 
 A code works once, for 24 hours unless `--expires` says otherwise.
-`serve register --list` shows each code's state and `--revoke` stops
-one.
+`serve register --list` shows each code's state, who minted it
+(`created_by`) and who revoked it (`revoked_by`): `cli` for
+`serve register`. `--revoke` stops one.
 
 ### A token file by hand
 

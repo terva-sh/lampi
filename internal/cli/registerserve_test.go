@@ -112,7 +112,7 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 		}
 	}
 	list, _, _ := run("register", "--list")
-	if !strings.Contains(list, " newbox used profile=default ") || !strings.Contains(list, " device=dev_") {
+	if !strings.Contains(list, " newbox used profile=default ") || !strings.Contains(list, " device=dev_") || !strings.Contains(list, " created_by=cli") {
 		t.Fatalf("list:\n%s", list)
 	}
 	devs, _, _ := run("devices")
@@ -135,6 +135,9 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 	}
 	if _, _, err := run("register", "--revoke", "newbox"); err == nil {
 		t.Fatal("revoked a used code")
+	}
+	if list, _, _ := run("register", "--list"); !strings.Contains(list, " spare revoked ") || !strings.Contains(list, " revoked_by=cli") {
+		t.Fatalf("list after revoke:\n%s", list)
 	}
 	if _, _, err := run("register", "--list", "--name", "x"); err == nil {
 		t.Fatal("two modes accepted")
@@ -193,7 +196,7 @@ func TestServeRegisterAuditsACodeThatExpiredUnused(t *testing.T) {
 	dir, lake, _ := registerLake(t)
 	now := time.Now()
 	secret, _ := regcode.NewSecret()
-	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", "", now.Add(-2*time.Hour), now.Add(-time.Hour))
+	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", "", "", now.Add(-2*time.Hour), now.Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

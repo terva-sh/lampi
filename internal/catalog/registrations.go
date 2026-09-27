@@ -31,6 +31,20 @@ func migrateRegistrations(tx *sql.Tx) error {
 	return err
 }
 
+// migrateRegistrationActors records who minted and who revoked each
+// code: "cli" for serve register, and the operator's identity for the
+// dashboard. Codes from before it have an empty created_by.
+func migrateRegistrationActors(tx *sql.Tx) error {
+	if _, err := tx.Exec(`ALTER TABLE registrations ADD COLUMN created_by TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`ALTER TABLE registrations ADD COLUMN revoked_by TEXT`)
+	return err
+}
+
+// ActorCLI is the actor recorded for serve register.
+const ActorCLI = "cli"
+
 // Registration is one minted code.
 type Registration struct {
 	ID      string
@@ -44,6 +58,10 @@ type Registration struct {
 	Used     time.Time
 	DeviceID string
 	Revoked  time.Time
+	// CreatedBy and RevokedBy name who minted and who revoked the code.
+	// CreatedBy is empty for a code from before they were recorded.
+	CreatedBy string
+	RevokedBy string
 }
 
 // State is pending, used, expired, or revoked at now.
@@ -74,12 +92,12 @@ var (
 	ErrNameTaken           = errors.New("catalog: name is taken")
 )
 
-const registrationCols = `id, name, profile, key_id, created_at, expires_at, COALESCE(used_at, ''), COALESCE(device_id, ''), COALESCE(revoked_at, '')`
+const registrationCols = `id, name, profile, key_id, created_at, expires_at, COALESCE(used_at, ''), COALESCE(device_id, ''), COALESCE(revoked_at, ''), created_by, COALESCE(revoked_by, '')`
 
 func scanRegistration(row interface{ Scan(...any) error }) (Registration, error) {
 	var r Registration
 	var created, expires, used, revoked string
-	if err := row.Scan(&r.ID, &r.Name, &r.Profile, &r.KeyID, &created, &expires, &used, &r.DeviceID, &revoked); err != nil {
+	if err := row.Scan(&r.ID, &r.Name, &r.Profile, &r.KeyID, &created, &expires, &used, &r.DeviceID, &revoked, &r.CreatedBy, &r.RevokedBy); err != nil {
 		return Registration{}, err
 	}
 	r.Created, r.Expires, r.Used, r.Revoked = parseStamp(created), parseStamp(expires), parseStamp(used), parseStamp(revoked)
@@ -88,7 +106,8 @@ func scanRegistration(row interface{ Scan(...any) error }) (Registration, error)
 
 // CreateRegistration records a pending code for a device called name.
 // A name held by a device, or by another pending code, is ErrNameTaken.
-func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, profile, keyID string, now, expires time.Time) (Registration, error) {
+// by names who minted it.
+func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, profile, keyID, by string, now, expires time.Time) (Registration, error) {
 	if DeviceName(name) != name || name == "" {
 		return Registration{}, fmt.Errorf("catalog: %q is not a device name: lowercase letters, digits, '.', '-' and '_'", name)
 	}
@@ -130,9 +149,9 @@ func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, pr
 	if err != nil {
 		return Registration{}, err
 	}
-	r := Registration{ID: "reg_" + strings.TrimPrefix(id, "dev_"), Name: name, Profile: profile, KeyID: keyID, Created: now.UTC(), Expires: expires.UTC()}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO registrations(id, name, secret_sha256, profile, key_id, created_at, expires_at) VALUES(?,?,?,?,?,?,?)`,
-		r.ID, r.Name, secretSHA256, r.Profile, r.KeyID, stamp(r.Created), stamp(r.Expires)); err != nil {
+	r := Registration{ID: "reg_" + strings.TrimPrefix(id, "dev_"), Name: name, Profile: profile, KeyID: keyID, Created: now.UTC(), Expires: expires.UTC(), CreatedBy: by}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registrations(id, name, secret_sha256, profile, key_id, created_at, expires_at, created_by) VALUES(?,?,?,?,?,?,?,?)`,
+		r.ID, r.Name, secretSHA256, r.Profile, r.KeyID, stamp(r.Created), stamp(r.Expires), by); err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -164,8 +183,9 @@ func (c *Catalog) Registrations(ctx context.Context) ([]Registration, error) {
 // device it made can. The read and the update are one transaction, so a
 // redemption in serve cannot land between them. A code that is already
 // revoked is returned with ErrRegistrationRevoked, so the caller does
-// not report or audit a revocation that did not happen.
-func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.Time) (Registration, error) {
+// not report or audit a revocation that did not happen. by names who
+// revoked it.
+func (c *Catalog) RevokeRegistration(ctx context.Context, ref, by string, now time.Time) (Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
@@ -185,7 +205,7 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.T
 	if !r.Revoked.IsZero() {
 		return r, ErrRegistrationRevoked
 	}
-	res, err := tx.ExecContext(ctx, `UPDATE registrations SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL`, stamp(now), r.ID)
+	res, err := tx.ExecContext(ctx, `UPDATE registrations SET revoked_at=?, revoked_by=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL`, stamp(now), by, r.ID)
 	if err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
@@ -195,7 +215,7 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.T
 	if err := tx.Commit(); err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
-	r.Revoked = now.UTC()
+	r.Revoked, r.RevokedBy = now.UTC(), by
 	return r, nil
 }
 

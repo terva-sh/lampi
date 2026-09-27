@@ -124,6 +124,12 @@ func runServeRegister(env Env, args []string) error {
 			if r.DeviceID != "" {
 				line += " device=" + r.DeviceID
 			}
+			if r.CreatedBy != "" {
+				line += " created_by=" + r.CreatedBy
+			}
+			if r.RevokedBy != "" {
+				line += " revoked_by=" + r.RevokedBy
+			}
 			fmt.Fprintln(env.stdout(), line)
 		}
 		if len(regs) == 0 {
@@ -132,7 +138,7 @@ func runServeRegister(env Env, args []string) error {
 		return nil
 	}
 	if revoke != "" {
-		r, err := cat.RevokeRegistration(ctx, revoke, now)
+		r, err := cat.RevokeRegistration(ctx, revoke, catalog.ActorCLI, now)
 		if errors.Is(err, catalog.ErrNoRegistration) {
 			return fmt.Errorf("no pending code for %s; serve register --list shows them", revoke)
 		}
@@ -190,7 +196,7 @@ func runServeRegister(env Env, args []string) error {
 		return err
 	}
 	cur, _ := id.Current(now)
-	reg, err := cat.CreateRegistration(ctx, name, regcode.HashSecret(secret), profile, cur.ID, now, now.Add(expires))
+	reg, err := cat.CreateRegistration(ctx, name, regcode.HashSecret(secret), profile, cur.ID, catalog.ActorCLI, now, now.Add(expires))
 	if err != nil {
 		return err
 	}
@@ -206,7 +212,7 @@ func runServeRegister(env Env, args []string) error {
 	// the audit log does not hold is revoked and never shown.
 	if err := audit.Append(data, audit.Event{Time: now, Kind: audit.RegistrationCreated, Device: reg.Name, Actor: "serve register",
 		Detail: fmt.Sprintf("registration=%s profile=%s expires=%s", reg.ID, prof, reg.Expires.Format(time.RFC3339))}); err != nil {
-		if _, rerr := cat.RevokeRegistration(ctx, reg.ID, now); rerr != nil {
+		if _, rerr := cat.RevokeRegistration(ctx, reg.ID, catalog.ActorCLI, now); rerr != nil {
 			return fmt.Errorf("writing the mint of %s to %s failed: %w; the code was not printed, but revoking it also failed: %v; run serve register --revoke %s", reg.ID, audit.FileName, err, rerr, reg.ID)
 		}
 		return fmt.Errorf("writing the mint of %s to %s failed: %w; the code was revoked and not printed; fix the audit log and mint again", reg.ID, audit.FileName, err)

@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T21:53:56Z
+updated_at: 2026-09-27T22:00:25Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -93,3 +93,7 @@ Three PRs, to stay under the review size limit.
 **agent:claude-code/e4a47e8c** at 2026-09-27T21:53:56Z
 
 PR 1 (auth) evidence. Tests: a viewer gets 404 on the operator page and API routes and an operator gets 200. A plain login sends no max_age and reads as stale when single sign-on reports an hour-old auth_time. A fresh login sends max_age=600 and reads as fresh. A fresh login is refused (403, no session) when the provider returns an old or missing auth_time. freshAt covers its window edges and skew. docs/web-dashboard.md, docs/policy.md (owner decision recorded) and the web-config example map an operator group.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T22:00:25Z
+
+PR 2 (catalog/registration-actors): schema 7 adds registrations.created_by (NOT NULL DEFAULT '', empty for older codes) and revoked_by. CreateRegistration and RevokeRegistration take a 'by' actor; serve register passes catalog.ActorCLI ('cli') and --list prints created_by= and revoked_by=. The audit Actor for the CLI stays 'serve register'. The dashboard (PR 3) will pass its operator identity. A second revoke keeps the first revoker. Chose a parameter rather than a context value so every caller has to name its actor.
