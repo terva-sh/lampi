@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-09-26T21:19:42Z
+updated_at: 2026-09-26T22:10:05Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -118,3 +118,11 @@ Pre-PR review, 2026-09-26: an independent read-only review of the branch diff by
 **agent:claude-code/cd41c9ac** at 2026-09-26T21:19:42Z
 
 Opened Forgejo PR #12 (https://git.local.sothr.com/terva-sh/lampi/pulls/12) from t3code/explore-store-ui-search. main (#9, client config) merged in with a normal merge, since the branch had been pushed; just ci passes on the merge. The terva-review dispatch (request-id ready-review, task 28244) failed on the runner, as did the two dispatches just before it from another session. Its logs are not reachable through the API; see the repository's Actions page. Re-dispatch after the workflow issue is understood.
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T22:03:53Z
+
+PR #12 merged on Forgejo as fcaec88; GitHub main fast-forwarded (just sync-github --yes). terva-review could not run: every dispatch has failed on the runner since about run 104, for both sessions, and the repo docs call it advisory. The owner asked to land the PR, so it merged on green CI plus the pre-PR second-model review recorded above. Deployment is held by owner decision (2026-09-26) until the onboarding rollout TKT-01M3FP11A (Onboarding rollout: upgrade the hosted lake and register machines), because deploying main also rolls out lake identity (catalog schema 4, identity.json), and that needs its own authorization. The recall deploy checklist is on TKT-01M3FP11A.
+
+**agent:claude-code/cd41c9ac** at 2026-09-26T22:10:05Z
+
+Corrects the terva-review part of the merge note above. PR #12's review (run 119) did not fail on the runner. It stopped with reason=context_limit before any model call, because the PR was too large: the preflight listed page.html at 21 KiB, search_test.go at 18 KiB and index.go at 16 KiB as largest. The model_unavailable failures seen around then belong to other PRs (#10, #11). The onboarding session found both by reading the job logs. PR #12 merged without an automated model review. The only review it had is the pre-PR second-model read recorded above. Lesson for the MCP child and later work: land in PRs small enough for the reviewer.
