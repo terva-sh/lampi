@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7
 title: "Web API: serve bounded UTC buckets of accepted head updates"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -21,17 +21,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:claude-code/e226d0e4
-  branch: web/activity-api
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
-  commit: 570e3814779b5c32678043040821cb04a0b2aa56
-  session: null
-  claimed_at: 2026-09-27T22:13:26Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:45:22Z
+updated_at: 2026-09-27T23:46:50Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -100,3 +93,7 @@ Review round on PR 41. This supersedes nothing in the earlier note; it adds to i
 - CI run 415 failed `TestActivity90DaysWithinReadDeadline` under `-race`: the race detector slows the pure-Go SQLite driver past 5 seconds on the runner. Under `-race` the test now checks sums on 20,000 rows with no deadline (build-tagged `raceEnabled`). Runs without `-race` keep 200,000 rows and the deadline, so criterion 4 is still proved by `just ci` and GitHub CI.
 
 State at hand-off: PR 41 CI green, terva-review clean on c7ce659. Not merged; merging is the owner's call.
+
+## Summary
+
+Landed in PR 41. GET /api/web/v1/activity returns hourly or daily UTC buckets of accepted head updates and net logical head-size change, filtered by harness. Every bucket in the range is listed, with coverage none (null counts), partial or full against lake_meta.head_updates_since. Ranges are rounded outward and capped at 14 days of hours or 90 days. Reversed or empty pairs, times before 1970 or after 2200, and unknown or repeated parameters are 400, never quietly narrowed. One aggregate query runs over the covering time indexes: about 80 ms for 90 days of 200,000 updates. Code: internal/catalog/activity.go and internal/web/server.go. Docs: docs/web-api.md#activity. Grooming's 403 criterion was reworded to the reachable 401; see the notes.
