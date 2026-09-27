@@ -123,8 +123,14 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 	if _, _, err := run("register", "--name", "spare"); err != nil {
 		t.Fatal(err)
 	}
-	if out, _, err := run("register", "--revoke", "spare"); err != nil || !strings.Contains(out, "revoked reg_") {
+	out, _, err = run("register", "--revoke", "spare")
+	if err != nil || !strings.HasPrefix(out, "revoked reg_") {
 		t.Fatalf("revoke: %q %v", out, err)
+	}
+	// A second revoke by id reports that nothing changed and audits nothing.
+	spare := strings.Fields(out)[1]
+	if out, _, err := run("register", "--revoke", spare); err != nil || out != spare+" (spare) was already revoked\n" {
+		t.Fatalf("second revoke: %q %v", out, err)
 	}
 	if _, _, err := run("register", "--revoke", "newbox"); err == nil {
 		t.Fatal("revoked a used code")
@@ -140,6 +146,9 @@ func TestServeRegisterMintsACodeThatRedeemsOnce(t *testing.T) {
 	}
 	if strings.Contains(string(raw), c.Secret) {
 		t.Fatal("audit holds the secret")
+	}
+	if n := strings.Count(string(raw), "registration.revoked"); n != 1 {
+		t.Fatalf("%d registration.revoked lines, want 1:\n%s", n, raw)
 	}
 }
 

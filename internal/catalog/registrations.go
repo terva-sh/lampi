@@ -141,7 +141,9 @@ func (c *Catalog) Registrations(ctx context.Context) ([]Registration, error) {
 // RevokeRegistration revokes the pending code with this id, or the
 // pending code for this device name. A used code cannot be revoked; the
 // device it made can. The read and the update are one transaction, so a
-// redemption in serve cannot land between them.
+// redemption in serve cannot land between them. A code that is already
+// revoked is returned with ErrRegistrationRevoked, so the caller does
+// not report or audit a revocation that did not happen.
 func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.Time) (Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -160,7 +162,7 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref string, now time.T
 		return Registration{}, fmt.Errorf("%w; revoke device %s instead", ErrRegistrationUsed, r.Name)
 	}
 	if !r.Revoked.IsZero() {
-		return r, nil
+		return r, ErrRegistrationRevoked
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE registrations SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL`, stamp(now), r.ID)
 	if err != nil {
