@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3J5HX8GGBVSVVHX82W60VJE
 title: "Installer: register from a code in the environment with a fingerprint"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T19:30:30Z
+updated_at: 2026-09-27T20:52:53Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -59,3 +59,9 @@ Alternative kept: a one-liner without the code that prompts for it. The dashboar
 - [ ] --fingerprint passes through so the one-liner works without a terminal
 - [ ] Tests cover env code, fingerprint, and the existing prompt path
 - [ ] docs/policy.md records the env-var entry and the owner's sign-off
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T20:47:26Z
+
+Owner sign-off, 2026-09-27: the copyable one-liner may carry the registration code. The owner's reasoning: a code is minted for one machine and redeems once, so once it is used, the copy left in shell history is only noise. docs/policy.md should record this when the ticket lands.

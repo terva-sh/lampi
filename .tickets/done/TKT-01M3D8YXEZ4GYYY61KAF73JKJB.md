@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3D8YXEZ4GYYY61KAF73JKJB
 title: "Go-live: kill mid-sync, fsck clean, next sync converges"
 type: task
-status: blocked
-status_reason: Process-kill check passed. A disposable VM and its documented hard-power-off mechanism are needed for the remaining power-loss criterion; the shared host must not be killed.
+status: done
+status_reason: null
 priority: high
 due_on: null
 labels:
@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-25T21:53:50Z
-updated_at: 2026-09-26T16:38:57Z
+updated_at: 2026-09-27T20:52:58Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:codex/rollout
+  id: agent:claude-code/e4a47e8c
   name: ""
 extensions: {}
 ---
@@ -54,3 +54,11 @@ TestGoLiveProcessCrash passed in 3.07s: SIGKILL after 10 manifest commits during
 **agent:codex/rollout** at 2026-09-26T16:38:57Z
 
 in-progress to blocked: Process-kill check passed. A disposable VM and its documented hard-power-off mechanism are needed for the remaining power-loss criterion; the shared host must not be killed.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T20:52:53Z
+
+Re-scoped and closed at the owner's direction, 2026-09-27. The process-kill criterion passed: a SIGKILL of serve mid-sync on a dev lake left fsck clean, and the next sync converged. The power-loss criterion is left unticked, not passed. It was written for a lake on a disposable VPS VM. The lake runs on brokkr, a shared host that must not be hard-killed, so the drill is not applicable to this deployment. Reopen or refile it if the lake moves to a VPS.
+
+## Summary
+
+Process-kill crash check passed. The power-loss drill does not apply while the lake runs on a shared host: closed unticked by owner decision on 2026-09-27, to reopen if the lake moves to a VPS.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3G8B827FRF0XWM7VQ04WHRH
 title: "Client config: lock config.json across processes for read-edit-write"
 type: bug
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T01:40:48Z
-updated_at: 2026-09-27T01:40:48Z
+updated_at: 2026-09-27T20:52:53Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
