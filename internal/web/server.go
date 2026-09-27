@@ -245,7 +245,9 @@ func parseActivity(q url.Values) (catalog.ActivityRequest, error) {
 			continue
 		}
 		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
+		// The catalog reads a zero time as "not given", and year 1 parses
+		// to exactly that, so anything before 1970 is refused here.
+		if err != nil || t.Before(time.Unix(0, 0)) {
 			return req, catalog.ErrPage
 		}
 		*f.dest = t
