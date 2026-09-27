@@ -364,6 +364,23 @@ func TestLakesRemovePurgeBesideAnAgentChangesNothing(t *testing.T) {
 	}
 }
 
+func TestLakesRemovePurgeRefusesANameThatIsNotALake(t *testing.T) {
+	f := newRegFixture(t)
+	lakes := filepath.Join(f.state, "terva-lampi", "lakes")
+	if err := os.MkdirAll(filepath.Join(lakes, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// ".." resolves to the state directory itself, which exists.
+	for _, name := range []string{"..", ".", "work/..", "Work"} {
+		if err := Run([]string{"lakes", "remove", name, "--purge-state"}, f.env("")); err == nil || !strings.Contains(err.Error(), "is not a lake name") {
+			t.Fatalf("remove %q: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(lakes, "work")); err != nil {
+		t.Fatalf("a refused name removed another lake's state: %v", err)
+	}
+}
+
 func TestRegisterReplaceNeverTakesOverAnotherLakesEntry(t *testing.T) {
 	f := newRegFixture(t)
 	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint(), "--lake", "work"); err != nil {

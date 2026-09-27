@@ -84,6 +84,11 @@ func runLakes(env Env, args []string) error {
 }
 
 func removeLake(env Env, name string, purge bool) error {
+	// The name becomes a path under the state directory that --purge-state
+	// deletes, so a name like .. must not get that far.
+	if !config.ValidLakeName(name) {
+		return fmt.Errorf("%q is not a lake name: lowercase letters, digits, '-' and '_', at most 32 characters; terva-lampi lakes lists them", name)
+	}
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
 		return err

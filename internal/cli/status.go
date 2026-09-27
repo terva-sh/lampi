@@ -73,7 +73,10 @@ device token when one is configured. The token is not sent to an
 http:// URL whose host is not localhost, 127.0.0.0/8, or ::1; the
 catalog line says so instead. A lake that does not answer is
 reported, and a last-sync stamp that cannot be read is reported as
-unreadable. The other lines are still printed.
+unreadable. The other lines are still printed. With more than one
+lake, a lake whose block cannot be printed, such as one whose token
+file cannot be read, is named on stderr, the other lakes are still
+printed, and status exits non-zero.
 `
 
 func runStatus(env Env, args []string) error {
@@ -118,10 +121,20 @@ func runStatus(env Env, args []string) error {
 		return nil
 	}
 	// One block per lake, each opening with its lake line.
+	var failed []string
 	for _, lake := range lakes {
+		// A lake whose block cannot be written, such as one whose token
+		// file is unreadable, is named and the next lake still printed.
 		if err := writeLakeStatus(env, state, lake); err != nil {
-			return err
+			if len(lakes) == 1 {
+				return err
+			}
+			fmt.Fprintf(env.stderr(), "terva-lampi: lake %s: %v\n", lake.Name, err)
+			failed = append(failed, lake.Name)
 		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("status failed for %d of %d lakes: %s", len(failed), len(lakes), strings.Join(failed, ", "))
 	}
 	return nil
 }

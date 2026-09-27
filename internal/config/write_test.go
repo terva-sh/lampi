@@ -58,3 +58,23 @@ func TestSetAndRemoveLakeKeepOtherKeys(t *testing.T) {
 		t.Fatal("half a pin written")
 	}
 }
+
+func TestSetLakeOnANullConfigWritesTheLake(t *testing.T) {
+	dir := t.TempDir()
+	env := envOf(map[string]string{"XDG_CONFIG_HOME": dir, "HOME": dir})
+	path := filepath.Join(dir, "terva-lampi", "config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// LoadFile reads null as an empty config; a write must too.
+	if err := os.WriteFile(path, []byte("null\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetLake(env, "work", LakeConfig{Server: "https://work.example"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := LoadFile(env)
+	if err != nil || f.Lakes["work"].Server != "https://work.example" {
+		t.Fatalf("%+v %v", f, err)
+	}
+}

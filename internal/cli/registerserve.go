@@ -134,6 +134,11 @@ func runServeRegister(env Env, args []string) error {
 		if errors.Is(err, catalog.ErrNoRegistration) {
 			return fmt.Errorf("no pending code for %s; serve register --list shows them", revoke)
 		}
+		if errors.Is(err, catalog.ErrRegistrationRevoked) {
+			// Nothing changed, so there is nothing to audit.
+			fmt.Fprintf(env.stdout(), "%s (%s) was already revoked\n", r.ID, r.Name)
+			return nil
+		}
 		if err != nil {
 			return err
 		}

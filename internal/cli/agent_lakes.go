@@ -289,7 +289,10 @@ var profileEvery = time.Hour
 // same content replaces the cached one without a reload. A failed fetch
 // or a copy that does not verify is said once per run of failures, and
 // the cached copy stays. The runner is let push once the first fetch
-// has answered and any reload it asked for is done.
+// has answered and any reload it asked for is done. A verified copy
+// with new rules that cannot be saved has not taken effect, since the
+// reload reads the cache, so the runner is held until a later fetch
+// saves one.
 func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Duration, changed func()) {
 	l := r.lake
 	dir := l.opt.LakeStateDir
@@ -299,6 +302,16 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 	}
 	failing := false
 	keysFailing := false
+	// unsaved is set while the newest verified copy has rules the
+	// cache lacks.
+	unsaved := false
+	released := false
+	release := func() {
+		if !released && !unsaved {
+			released = true
+			close(r.ready)
+		}
+	}
 	fetch := func() {
 		// The key list first: a moved pin restarts this lake, and the
 		// profile is then fetched by the new runner under the new pin.
@@ -347,13 +360,20 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		}
 		failing = false
 		if d.Payload.Version == have && d.Payload.Profile == haveName {
-			return
-		}
-		if err := lakeprofile.Save(dir, d); err != nil {
-			r.errf("profile: %v", err)
+			unsaved = false
 			return
 		}
 		newVersion := d.Payload.Version != have
+		if err := lakeprofile.Save(dir, d); err != nil {
+			if newVersion && !released {
+				unsaved = true
+				r.errf("profile: %v; uploads wait until profile %s version %s is saved", err, d.Payload.Profile, d.Payload.Version)
+			} else {
+				r.errf("profile: %v", err)
+			}
+			return
+		}
+		unsaved = false
 		have, haveName = d.Payload.Version, d.Payload.Profile
 		fmt.Fprintf(env.stdout(), "%sprofile %s version %s\n", r.prefix(), haveName, have)
 		if newVersion {
@@ -361,7 +381,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 		}
 	}
 	fetch()
-	close(r.ready)
+	release()
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -370,6 +390,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 			return
 		case <-t.C:
 			fetch()
+			release()
 		}
 	}
 }
