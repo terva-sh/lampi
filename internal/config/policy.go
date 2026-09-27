@@ -21,18 +21,28 @@ type Projects struct {
 // with no fields matches nothing, so an empty object does not allow the
 // world. CWDPrefix is matched on a path boundary. GitRemote is compared
 // after NormalizeRemote, so the scp and https spellings of one remote
-// are the same rule. CWDHash is terva's hex(sha256(cwd)[:8]).
+// are the same rule. GitRemotePrefix is folded the same way and matches
+// that remote or any under it on a "/" boundary, so "git@host:org"
+// covers every repository of org on host, whatever its checkout path.
+// CWDHash is terva's hex(sha256(cwd)[:8]).
 //
 // A deny rule reads a doubt as a match. Its cwd_prefix ignores case,
 // and it is tried against the cwd and the prefix as written and with
 // symlinks resolved. Its cwd_hash also matches the hash of the
-// resolved cwd. Its git_remote also matches a
+// resolved cwd. Its git_remote and git_remote_prefix also match a
 // session whose remote is unknown. An allow rule compares exactly, so
 // a case or symlink variant of an allowed path is refused.
 type ProjectMatch struct {
 	CWDPrefix string `json:"cwd_prefix,omitempty"`
 	GitRemote string `json:"git_remote,omitempty"`
 	CWDHash   string `json:"cwd_hash,omitempty"`
+	// GitRemotePrefix is TKT-01M3HKYFE: one rule for an owner or host.
+	GitRemotePrefix string `json:"git_remote_prefix,omitempty"`
+}
+
+// empty is a rule with no field set, which matches nothing.
+func (r ProjectMatch) empty() bool {
+	return r.CWDPrefix == "" && r.GitRemote == "" && r.CWDHash == "" && r.GitRemotePrefix == ""
 }
 
 // ProjectID is the project a session belongs to, taken from the harness
@@ -81,7 +91,7 @@ func deniedByAny(rules []ProjectMatch, id ProjectID) bool {
 // denies is matches read the way ProjectMatch describes for a deny
 // rule. cwd is the session cwd or its resolved form.
 func (r ProjectMatch) denies(id ProjectID, cwd string) bool {
-	if r.CWDPrefix == "" && r.GitRemote == "" && r.CWDHash == "" {
+	if r.empty() {
 		return false
 	}
 	if r.CWDPrefix != "" && !denyPrefix(cwd, r.CWDPrefix) {
@@ -93,9 +103,19 @@ func (r ProjectMatch) denies(id ProjectID, cwd string) bool {
 			return false
 		}
 	}
+	unknown := id.GitRemote == "" && !id.NoRepo
 	if r.GitRemote != "" {
-		unknown := id.GitRemote == "" && !id.NoRepo
 		if !unknown && NormalizeRemote(r.GitRemote) != NormalizeRemote(id.GitRemote) {
+			return false
+		}
+	}
+	if r.GitRemotePrefix != "" {
+		// A prefix that folds to nothing matches nothing, even here,
+		// where an unknown remote would otherwise count as a match.
+		if NormalizeRemote(r.GitRemotePrefix) == "" {
+			return false
+		}
+		if !unknown && !remoteHasPrefix(id.GitRemote, r.GitRemotePrefix) {
 			return false
 		}
 	}
@@ -147,7 +167,7 @@ func matchesAny(rules []ProjectMatch, id ProjectID) bool {
 }
 
 func (r ProjectMatch) matches(id ProjectID) bool {
-	if r.CWDPrefix == "" && r.GitRemote == "" && r.CWDHash == "" {
+	if r.empty() {
 		return false
 	}
 	if r.CWDPrefix != "" && !cwdHasPrefix(id.CWD, r.CWDPrefix) {
@@ -159,7 +179,29 @@ func (r ProjectMatch) matches(id ProjectID) bool {
 	if r.GitRemote != "" && NormalizeRemote(r.GitRemote) != NormalizeRemote(id.GitRemote) {
 		return false
 	}
+	if r.GitRemotePrefix != "" && !remoteHasPrefix(id.GitRemote, r.GitRemotePrefix) {
+		return false
+	}
 	return true
+}
+
+// remoteHasPrefix reports whether remote is prefix, or a repository
+// under it, after both are folded by NormalizeRemote. The match is on a
+// "/" boundary: "host/org" matches "host/org/app" but not
+// "host/organisation/app". A prefix that folds to nothing matches
+// nothing. A remote with an empty, "." or ".." path segment matches no
+// prefix, so a remote cannot climb out of the prefix it names.
+func remoteHasPrefix(remote, prefix string) bool {
+	remote, prefix = NormalizeRemote(remote), NormalizeRemote(prefix)
+	if remote == "" || prefix == "" {
+		return false
+	}
+	for _, seg := range strings.Split(remote, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return remote == prefix || strings.HasPrefix(remote, prefix+"/")
 }
 
 // cwdHasPrefix reports whether cwd is prefix or a child of prefix.

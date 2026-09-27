@@ -68,3 +68,16 @@ func TestDeployProfilesExampleLoads(t *testing.T) {
 		t.Fatalf("example profiles: %+v", p)
 	}
 }
+
+func TestProfileAcceptsGitRemotePrefix(t *testing.T) {
+	p, err := ParseProfile([]byte(`{"projects":{"allow":[{"git_remote_prefix":"git@git.example:team"}],"deny":[{"git_remote_prefix":"git@git.example:team/secret"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Projects.Permitted(ProjectID{CWD: "/a", GitRemote: "https://git.example/team/app"}) {
+		t.Error("the profile's prefix rule did not allow a repository under it")
+	}
+	if p.Projects.Permitted(ProjectID{CWD: "/a", GitRemote: "https://git.example/team/secret/x"}) {
+		t.Error("the profile's prefix deny did not refuse a repository under it")
+	}
+}
