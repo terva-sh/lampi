@@ -52,6 +52,12 @@ var errNoProfile = errors.New("profile is not in the lake's profiles file")
 
 // signedProfile is device d's profile signed for the agent.
 func (s *Server) signedProfile(d catalog.Device) (*protocol.Signed, error) {
+	return s.signedProfileBy(s.Identity(), d)
+}
+
+// signedProfileBy is signedProfile under the identity id, for a caller
+// that must sign with the same identity it checked a key against.
+func (s *Server) signedProfileBy(id *identity.Identity, d catalog.Device) (*protocol.Signed, error) {
 	name := d.Profile
 	if name == "" {
 		name = config.DefaultProfile
@@ -65,7 +71,6 @@ func (s *Server) signedProfile(d catalog.Device) (*protocol.Signed, error) {
 		return nil, err
 	}
 	now := s.now()
-	id := s.Identity()
 	if id == nil {
 		return nil, errors.New("this lake has no identity")
 	}

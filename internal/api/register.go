@@ -96,6 +96,9 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
+	// The key check and the profile signature both use id, the identity
+	// read at the start of this request, so a retirement that SIGHUP
+	// loads meanwhile applies to the next request, not half of this one.
 	keyActive := func(keyID string) bool {
 		for _, k := range id.ActiveKeys(now) {
 			if k.ID == keyID {
@@ -110,7 +113,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	var signed *protocol.Signed
 	var signErr error
 	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device) error {
-		signed, signErr = s.signedProfile(d)
+		signed, signErr = s.signedProfileBy(id, d)
 		return signErr
 	})
 	switch {
