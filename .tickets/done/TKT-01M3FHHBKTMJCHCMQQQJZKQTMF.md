@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:40:48Z
+updated_at: 2026-09-27T02:14:06Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -103,6 +103,10 @@ Review 973 on PR #16, accepted in 1ecc3eb. A verified first profile with new rul
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:40:48Z
 
 Review 984 on PR #16, both accepted in aae2992. reload now returns whether the config it read is in force. A saved new profile stays pending and its reload is retried on every tick, and the first upload waits until one succeeds, so a profile deny can no longer be bypassed by a failed reload. Once the runner is released it is not held again; a later failed reload is only retried. The machine-wide settings a reload compares against are now the ones the agent started with, not the last config read.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T02:14:06Z
+
+Review 988 on PR #16, both accepted in 21bb32b. A lake entry may carry device_id. When it is set, Verify refuses a profile signed for another device, or for none, and the cache is checked the same way. register fills it in (register-cli layer), so registered devices are bound. Token-file devices have no id the client knows and stay unbound, which the lake's TLS and pinned key still cover. Verify also refuses a document whose version is not the computed version of its profile, because the watcher treats an equal version as equal rules. Also on this layer: the reload test now waits for the lake's own line, because each reload also prints the debounce warning (c32980d; it failed on CI only).
 
 ## Summary
 
