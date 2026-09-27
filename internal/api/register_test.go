@@ -130,7 +130,7 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", now); err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{expired, revoked} {
+	for _, secret := range []string{expired, revoked, expired} {
 		if rr := postRegister(t, s, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "m"}); rr.Code != http.StatusForbidden {
 			t.Fatalf("%d %s", rr.Code, rr.Body)
 		}
@@ -138,6 +138,13 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	raw, _ := os.ReadFile(audit.Path(dir))
 	if !strings.Contains(string(raw), "reason=expired") || !strings.Contains(string(raw), "reason=revoked") {
 		t.Fatalf("audit:\n%s", raw)
+	}
+	// The expiry is recorded the first time the code is presented, once.
+	if n := strings.Count(string(raw), `"kind":"registration.expired","device":"old"`); n != 1 {
+		t.Fatalf("%d registration.expired lines for old, want 1:\n%s", n, raw)
+	}
+	if strings.Contains(string(raw), expired) {
+		t.Fatal("audit holds the secret")
 	}
 	if rr := postRegister(t, s, protocol.RegisterRequest{Secret: expired, TokenSHA256: "NOTHEX", MachineID: "m"}); rr.Code != http.StatusBadRequest {
 		t.Fatalf("bad token hash: %d", rr.Code)
