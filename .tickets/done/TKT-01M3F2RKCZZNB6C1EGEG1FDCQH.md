@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2RKCZZNB6C1EGEG1FDCQH
 title: "Lake analytics: record and visualize accepted ingestion updates"
 type: epic
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: children
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:claude-code/e226d0e4
-  branch: catalog/head-updates
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
-  commit: c3b2a9b431228dd3fa96008932b0eaa7a6b845e4
-  session: null
-  claimed_at: 2026-09-27T22:13:03Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:13:03Z
+updated_at: 2026-09-27T23:51:58Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -70,3 +63,7 @@ Groomed against the code on main at 5eaa7bc before promotion.
 - [ ] Accepted head updates have durable idempotent history and an explicit measurement coverage boundary.
 - [ ] Authorized viewers can inspect bounded time-series charts with accurate units, empty states and purge limitations.
 - [ ] Migration, ingest retry, purge, backup/restore and aggregate correctness are validated without live data.
+
+## Summary
+
+Release C landed in three PRs: 40 (head-update history, schema 8), 41 (the /api/web/v1/activity buckets) and 43 (the Activity page). The lake now records each accepted head change from the upgrade on, and never reconstructs earlier activity. Viewers see hourly or daily counts and net logical size change, with unmeasured time marked as such. Grooming split the chart ticket so each PR fit terva-review, stored old and new sizes, capped hourly ranges at 14 days, and chose server-rendered SVG. The child tickets carry the decisions and review rounds. Out of scope, as designed: network bytes, CAS disk growth, online agents, token or cost usage.

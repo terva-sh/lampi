@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JEKA6RBHK9WSGEZZKKQYHC
 title: "Web UI: activity page with charts, tables and release C validation"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ dependencies:
   - TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e226d0e4
-  branch: web/activity-page
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
-  commit: 9a7c61b5f5412262781a6b40f287879731e12232
-  session: null
-  claimed_at: 2026-09-27T22:28:35Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T22:08:33Z
-updated_at: 2026-09-27T22:45:23Z
+updated_at: 2026-09-27T23:51:58Z
 created_by:
   id: agent:claude-code/e226d0e4
   name: ""
@@ -101,3 +94,7 @@ Review round on PR 43, adding to the earlier note.
 - New tests: `TestActivityPageEmptyRangeKeepsCharts`, the tops of 5 and 10 in `TestChartEdges`, and smoke steps for refresh-keeps-table-and-selection and empty-lake-still-has-two-charts.
 
 State at hand-off: PR 43 CI green, terva-review clean on 450a31d, full browser smoke passing locally. Not merged; merging is the owner's call.
+
+## Summary
+
+Landed in PR 43. /activity (viewer role, in the main nav) draws accepted head updates and net logical head-size change as two server-rendered SVG bar charts, each with its own axis and a hover label per bucket, beside a table of the same buckets. Buckets before recording began are hatched and read 'not measured'. Shrinking rewrites draw below the axis. The page states the recording start, what purge and restore do, and what the units are not. It works without JavaScript and keeps an open table and an unsubmitted form across refreshes. Charts scroll to the newest bucket on phones. Validation: TestActivityFromIngestToPage (upload, retry, grow, purge, restore) and TestChartEdges; an Activity section in e2e/web-smoke.mjs over three weeks of synthetic history. Docs: web-dashboard.md#activity, e2e/README.md, architecture.md.
