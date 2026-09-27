@@ -190,6 +190,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateDevices,
 	migrateRegistrations,
 	migrateRegistrationActors,
+	migrateHeadUpdates,
 }
 
 // upgrade runs each migration above the file's user_version, one
@@ -548,11 +549,27 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 		}
 		ack.ArtifactIDs = append(ack.ArtifactIDs, got)
 	}
-	if err := tx.QueryRowContext(ctx, `
-		SELECT size FROM artifacts
-		WHERE session_uid = ? AND sha256 = ?
-		ORDER BY current DESC, size DESC LIMIT 1`, uid, newHead).Scan(&ack.HeadSize); err != nil {
-		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: head size: %w", err)
+	if ack.HeadSize, err = headSize(ctx, tx, uid, newHead); err != nil {
+		return protocol.ManifestAck{}, false, err
+	}
+	if newHead != head {
+		u := headUpdate{
+			uid: uid, machine: m.MachineID, harness: m.Harness, received: now,
+			oldSHA: head, newSHA: newHead, newSize: ack.HeadSize,
+		}
+		for i, d := range decisions {
+			if d.Head && m.Artifacts[i].SHA256 == newHead {
+				u.relation = d.Relation
+			}
+		}
+		if head != "" {
+			if u.oldSize, err = headSize(ctx, tx, uid, head); err != nil {
+				return protocol.ManifestAck{}, false, err
+			}
+		}
+		if err := recordHeadUpdate(ctx, tx, u); err != nil {
+			return protocol.ManifestAck{}, false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return protocol.ManifestAck{}, false, err
