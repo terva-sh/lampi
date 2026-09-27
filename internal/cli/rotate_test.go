@@ -283,10 +283,16 @@ func TestTheMovedPinIsNotWrittenIntoAnEntryThatChangedDuringTheRefresh(t *testin
 		t.Fatal(err)
 	}
 	dir := lakestate.Dir(state, lake.Name)
+	if lake.Server.Source != config.SourceConfig {
+		t.Fatalf("the lake's server comes from %s, not config.json", lake.Server.Source)
+	}
 	f.serveIdentity("rotate", "--overlap", "1h")
 	for name, change := range map[string]func(*config.LakeConfig){
 		"re-pinned": func(lc *config.LakeConfig) { lc.KeyID, lc.PublicKey = "other-key", "b3RoZXI" },
 		"replaced":  func(lc *config.LakeConfig) { lc.LakeID, lc.KeyID, lc.PublicKey = "", "", "" },
+		// Another endpoint for the same lake, which may not have seen
+		// the rotation: the key learned from the old one is not its pin.
+		"re-pointed": func(lc *config.LakeConfig) { lc.Server = "http://127.0.0.1:1" },
 	} {
 		// The entry changes after lake was read, as another process
 		// replacing it during the key list fetch would leave it.
@@ -303,7 +309,7 @@ func TestTheMovedPinIsNotWrittenIntoAnEntryThatChangedDuringTheRefresh(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := after.Lakes[lake.Name]; got.LakeID != entry.LakeID || got.KeyID != entry.KeyID || got.PublicKey != entry.PublicKey {
+		if got := after.Lakes[lake.Name]; got.Server != entry.Server || got.LakeID != entry.LakeID || got.KeyID != entry.KeyID || got.PublicKey != entry.PublicKey {
 			t.Fatalf("%s: the changed entry was overwritten: %+v, want %+v", name, got, entry)
 		}
 		if _, ok, err := lakeprofile.Load(dir, lake); err != nil || !ok {

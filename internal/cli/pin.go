@@ -94,10 +94,15 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	// From here a failure leaves the pin on the old key, which may not
 	// verify the profile just cached, so the old copy goes back.
 	// The key list was checked against l, so the pin moves only in an
-	// entry that still pins what l does. One replaced or re-pointed
-	// while the list was fetched belongs to another identity.
+	// entry that still pins what l does. One replaced or re-pinned
+	// while the list was fetched belongs to another identity. When the
+	// entry named the server the list came from, it must still name it:
+	// one pointed elsewhere may reach a copy of the lake that has not
+	// seen the rotation. A flag or the environment chose the server
+	// otherwise, and the entry's own is not what was fetched from.
 	err = config.UpdateLake(env.getenv, l.Name, func(lc *config.LakeConfig) error {
-		if lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey {
+		if lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey ||
+			(l.Server.Source == config.SourceConfig && lc.Server != l.Server.Value) {
 			return fmt.Errorf("lake %s changed in config.json while its key list was fetched, so its pin does not move to key %s; the next refresh reads the new entry", l.Name, next.ID)
 		}
 		lc.KeyID, lc.PublicKey = next.ID, next.PublicKey
