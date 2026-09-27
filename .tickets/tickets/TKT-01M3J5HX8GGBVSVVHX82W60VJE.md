@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3J5HX8GGBVSVVHX82W60VJE
 title: "Installer: register from a code in the environment with a fingerprint"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: install/env-code
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: 24aeaf43703f9102fc84a3d3f15d2aaa27f04bad
+  session: null
+  claimed_at: 2026-09-27T20:59:53Z
+  expires_at: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T20:52:53Z
+updated_at: 2026-09-27T21:02:41Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -55,13 +62,42 @@ Alternative kept: a one-liner without the code that prompts for it. The dashboar
 
 ## Acceptance criteria
 
-- [ ] install.sh --register reads TERVA_LAMPI_CODE and hands it to register on stdin, never argv
-- [ ] --fingerprint passes through so the one-liner works without a terminal
-- [ ] Tests cover env code, fingerprint, and the existing prompt path
-- [ ] docs/policy.md records the env-var entry and the owner's sign-off
+- [x] install.sh --register reads TERVA_LAMPI_CODE and hands it to register on stdin, never argv
+- [x] --fingerprint passes through so the one-liner works without a terminal
+- [x] Tests cover env code, fingerprint, and the existing prompt path
+- [x] docs/policy.md records the env-var entry and the owner's sign-off
+
+## Implementation plan
+
+install.sh reads `TERVA_LAMPI_CODE` once and unsets it, then takes one of two paths:
+
+- **With `--fingerprint`:** the code goes to `register` through a printf pipe. printf is a builtin, so the code is in no argv, and no terminal is needed.
+- **Without it:** the code goes into a mode-0600 file in the installer's private temporary directory, passed with `--code-file`. The terminal answers the confirmation, and the file is removed on exit.
+
+Impossible combinations are refused before any download: a code or fingerprint without `--register`, and a code with neither a fingerprint nor a terminal. register itself does not change.
+
+Deviation from the ticket's wording: the plan said stdin only. The code-file path covers the case with a terminal but no fingerprint, where stdin must stay the terminal for the prompt. A file is one of the entry points the policy already allows.
 
 ## Notes
 
 **agent:claude-code/e4a47e8c** at 2026-09-27T20:47:26Z
 
 Owner sign-off, 2026-09-27: the copyable one-liner may carry the registration code. The owner's reasoning: a code is minted for one machine and redeems once, so once it is used, the copy left in shell history is only noise. docs/policy.md should record this when the ticket lands.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T21:02:41Z
+
+### Evidence
+
+**Tests** (`TestInstallScript*`, with a fake binary recording its arguments, stdin and environment):
+- The env code plus a fingerprint, with no terminal: register's argv is `register --install-service --lake work --fingerprint SHA256:abc`, stdin is the code, and it does not inherit `TERVA_LAMPI_CODE`.
+- Each impossible combination is refused with zero HTTP requests.
+
+**End to end:** a throwaway lake on loopback, a real code from `serve register --expires 1h`, and the real binary served as a fake release. The installer ran under setsid with stdin /dev/null and `systemctl` stubbed.
+- Installer exit 0.
+- The code appeared 0 times in the output.
+- `serve devices list` showed e2e-box active and bound to its machine id, and the code showed as used.
+- The unit was written and the stub got `enable --now`.
+
+**Pseudo-terminal path** (code in the env, no fingerprint): register got `--code-file` on a mode-600 file holding the code, with stdin on the terminal and no inherited env. The file was gone after exit.
+
+**Docs:** policy.md records the owner's sign-off, and registration-and-lakes.md shows the one-liner.

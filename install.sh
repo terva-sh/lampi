@@ -6,12 +6,22 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh
 #   curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh -s -- --register
+#   curl -fsSL .../install.sh | TERVA_LAMPI_CODE='...' sh -s -- --register --fingerprint SHA256:...
 #
 # --register runs `terva-lampi register --install-service` once the binary
-# is in place. Under `curl | sh` the script itself is stdin, and register
-# reads its code from stdin when stdin is not a terminal, so register is
-# given the terminal instead. With no terminal, --register is refused
-# before anything is downloaded.
+# is in place. Under `curl | sh` the script itself is stdin, so register
+# never reads the script:
+#
+# - With TERVA_LAMPI_CODE and --fingerprint, the code goes to register on
+#   a pipe and the fingerprint replaces the prompt, so no terminal is
+#   needed. This is the line the dashboard hands out (TKT-01M3J5HX8).
+# - With TERVA_LAMPI_CODE alone, the code goes to register in a file in
+#   this script's private temporary directory, and the terminal answers
+#   the confirmation.
+# - With neither, register asks for the code on the terminal.
+#
+# The code is never a command argument, so ps does not show it. A case
+# that cannot work is refused before anything is downloaded.
 
 set -u
 
@@ -28,7 +38,8 @@ fail() {
 # shell, not this file.
 usage() {
     cat <<'EOF'
-usage: install.sh [--prefix DIR] [--version TAG] [--register [--lake NAME]]
+usage: install.sh [--prefix DIR] [--version TAG]
+                  [--register [--lake NAME] [--fingerprint SHA256:...]]
 
 Installs terva-lampi from the latest GitHub release, or from TAG, after
 checking its sha256 against the release's checksums.txt.
@@ -39,6 +50,12 @@ checking its sha256 against the release's checksums.txt.
   --register     then run `terva-lampi register --install-service`, which
                  asks for the registration code on the terminal.
   --lake NAME    passed to register, for a machine joining a second lake.
+  --fingerprint  the lake key fingerprint that `serve identity` prints;
+                 register checks it instead of asking.
+
+TERVA_LAMPI_CODE, when set with --register, is the registration code, so
+nothing is typed. It is passed to register on stdin or in a private file,
+never as an argument.
 
 From a pipe:  curl -fsSL .../install.sh | sh -s -- --register
 EOF
@@ -49,6 +66,11 @@ PREFIX=""
 TAG=""
 REGISTER=false
 LAKE=""
+FINGERPRINT=""
+# Read once and dropped from the environment, so neither the download
+# commands nor the installed binary inherit the code.
+CODE="${TERVA_LAMPI_CODE:-}"
+unset TERVA_LAMPI_CODE
 while [ $# -gt 0 ]; do
     case "$1" in
     --prefix)
@@ -70,6 +92,11 @@ while [ $# -gt 0 ]; do
         LAKE="$2"
         shift 2
         ;;
+    --fingerprint)
+        [ $# -ge 2 ] || fail "--fingerprint needs the value serve identity prints"
+        FINGERPRINT="$2"
+        shift 2
+        ;;
     -h | --help)
         usage
         exit 0
@@ -81,13 +108,23 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -z "$LAKE" ] || [ "$REGISTER" = true ] || fail "--lake only applies with --register"
+[ -z "$FINGERPRINT" ] || [ "$REGISTER" = true ] || fail "--fingerprint only applies with --register"
+[ -z "$CODE" ] || [ "$REGISTER" = true ] || fail "TERVA_LAMPI_CODE is set but --register is not"
 
 # Checked first, so a machine without a terminal learns before anything
 # is downloaded or replaced. Opening /dev/tty is the test: the node can
-# exist in a session that has no controlling terminal.
+# exist in a session that has no controlling terminal. A code and a
+# fingerprint together need no terminal at all.
 if [ "$REGISTER" = true ]; then
-    (: </dev/tty) 2>/dev/null ||
-        fail "--register needs a terminal for the registration code; run 'terva-lampi register' on one after installing"
+    TTY=false
+    (: </dev/tty) 2>/dev/null && TTY=true
+    if [ -z "$CODE" ]; then
+        [ "$TTY" = true ] ||
+            fail "--register needs a terminal for the registration code, or TERVA_LAMPI_CODE with --fingerprint"
+    elif [ -z "$FINGERPRINT" ]; then
+        [ "$TTY" = true ] ||
+            fail "with no terminal to confirm the lake, pass --fingerprint with the value serve identity prints"
+    fi
 fi
 
 # --- platform ----------------------------------------------------------
@@ -214,10 +251,23 @@ if [ "$REGISTER" = false ]; then
 fi
 
 # --- register ----------------------------------------------------------
+# Optional flags are set as positional parameters, which POSIX sh has in
+# place of arrays. The code is never one of them.
+set -- register --install-service
+[ -z "$LAKE" ] || set -- "$@" --lake "$LAKE"
+[ -z "$FINGERPRINT" ] || set -- "$@" --fingerprint "$FINGERPRINT"
+
 echo ""
-echo "registering: paste the code from 'terva-lampi serve register' when asked"
-if [ -n "$LAKE" ]; then
-    "$DEST/terva-lampi" register --install-service --lake "$LAKE" </dev/tty
+if [ -z "$CODE" ]; then
+    echo "registering: paste the code from 'terva-lampi serve register' when asked"
+    "$DEST/terva-lampi" "$@" </dev/tty
+elif [ -n "$FINGERPRINT" ]; then
+    echo "registering with the code from TERVA_LAMPI_CODE"
+    # printf is a shell builtin, so the code is not in any process's argv.
+    printf '%s\n' "$CODE" | "$DEST/terva-lampi" "$@"
 else
-    "$DEST/terva-lampi" register --install-service </dev/tty
+    echo "registering with the code from TERVA_LAMPI_CODE; confirm the lake when asked"
+    # $TMP is mode 0700 and removed on exit. umask covers the file itself.
+    (umask 077 && printf '%s\n' "$CODE" >"$TMP/code") || fail "writing the code file failed"
+    "$DEST/terva-lampi" "$@" --code-file "$TMP/code" </dev/tty
 fi

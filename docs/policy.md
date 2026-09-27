@@ -83,8 +83,17 @@ stays documented as the fallback.
   own token, allowlist, sync state and `machine_id`, so two lakes cannot
   join their data by machine. Top-level deny rules and redaction apply to
   every lake.
-- **Entry.** The code is a secret. It is read from stdin, a prompt, or a
-  file, and never from a command argument.
+- **Entry.** The code is a secret. `register` reads it from stdin, a
+  prompt, or a file, and never from a command argument, so `ps` cannot
+  show it. The installer also accepts it in `TERVA_LAMPI_CODE`, so an
+  operator can copy one line that installs and registers a machine. The
+  installer passes it to `register` on stdin or in a private file, never
+  as an argument, and the installed agent does not inherit it. That line
+  leaves the code in shell history until it is used. The owner accepted
+  this on 2026-09-27 (TKT-01M3J5HX8): a code is minted for one machine,
+  works once and expires, so a used code in history is noise. Mint a
+  code for the one-liner with a short `--expires`, and begin the line
+  with a space so shells that ignore such lines leave it out of history.
 
 ### Routes without a token
 
