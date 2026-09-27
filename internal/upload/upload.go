@@ -992,6 +992,11 @@ func endpoint(base, p string) (string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", fmt.Errorf("upload: server URL must be http or https")
 	}
+	// p may carry a query, which is not part of the path.
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		u.RawQuery = p[i+1:]
+		p = p[:i]
+	}
 	u.Path = strings.TrimRight(u.Path, "/") + p
 	return u.String(), nil
 }

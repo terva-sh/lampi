@@ -95,8 +95,24 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	if _, _, err := c.Redeem(ctx, again, strings.Repeat("6", 64), "m9", now, nil); err != nil {
 		t.Fatalf("code spent by a refused attempt: %v", err)
 	}
+	// A machine whose device was revoked registers again under its id.
+	if _, err := c.RevokeDevice(ctx, "tab", now); err != nil {
+		t.Fatal(err)
+	}
+	back := strings.Repeat("7", 64)
+	if _, err := c.CreateRegistration(ctx, "tab-new", back, "", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	d2, _, err := c.Redeem(ctx, back, strings.Repeat("8", 64), "m9", now, nil)
+	if err != nil || d2.MachineID != "m9" {
+		t.Fatalf("re-register after revoke: %+v %v", d2, err)
+	}
+	old, _ := c.DeviceByName(ctx, "tab")
+	if old.MachineID != "" || old.Revoked.IsZero() {
+		t.Fatalf("revoked device %+v", old)
+	}
 	list, _ := c.Registrations(ctx)
-	if len(list) != 4 {
+	if len(list) != 5 {
 		t.Fatalf("list %d", len(list))
 	}
 

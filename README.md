@@ -205,12 +205,15 @@ Bulk export and ingestion charts are planned in later releases.
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check/put, manifests. |
 | `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. |
 | `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
-| `terva-lampi serve devices` | List the lake's devices, or `revoke` or `unbind` one by name. Runs while `serve` runs; a revoke takes effect on the next request. |
-| `terva-lampi serve identity` | Print the lake id and each signing key's fingerprint. Runs while `serve` runs. |
+| `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind` or `set-profile` one by name. Runs while `serve` runs; a revoke takes effect on the next request. |
+| `terva-lampi serve identity` | Print the lake id, public URL and each signing key's fingerprint. `set-url URL` records the URL agents reach the lake at. Runs while `serve` runs. |
+| `terva-lampi serve register` | Mint a one-time registration code for a new machine (`--name`, `--expires`, `--profile`), or `--list` and `--revoke` them. |
 | `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 | `terva-lampi agent` | This machine. `discover`, `machine-id`, `config`, `status`, or watch and upload until SIGTERM. |
 | `terva-lampi sync` | One shot: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, one line per harness (`enabled`, `root`, `source`), outbox, watermarks, last sync, last attempt, error, and skipped files, server and token file with their `source`, lake health and catalog counts. |
+| `terva-lampi register` | Join a lake with a registration code, read from stdin, a prompt or `--code-file`. Checks the code, the URL and the lake's keys, asks you to confirm the fingerprint, then writes the token and the lake entry. `--install-service` enables the user unit. |
+| `terva-lampi lakes` | List the lakes this machine reports to, or `remove` one. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT/trajectory dataset (`--format sharegpt`). |
 | `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
@@ -297,6 +300,46 @@ empty id and is not linked. See [docs/protocol.md](docs/protocol.md).
 
 `terva-lampi agent config` prints how many allow and deny rules are
 loaded. `sync` names each refused session and exits non-zero.
+
+### Registering a machine
+
+On the lake host, once:
+
+```bash
+terva-lampi serve identity set-url https://lake.example   # the URL agents use
+```
+
+Then one code per machine. The code is a secret: move it the way you
+would move a password, not in a chat log or a command line.
+
+```bash
+terva-lampi serve register --name laptop > laptop.code
+terva-lampi serve identity          # note the key fingerprint
+```
+
+On the machine, fresh or already running an agent:
+
+```bash
+terva-lampi register --code-file laptop.code --install-service
+```
+
+`register` checks the code's signature and expiry, that the URL is
+https, and that the key list at that URL holds the code's key. It then
+shows the lake's URL, id and key fingerprint. Compare the fingerprint
+with the one `serve identity` printed, as you would an SSH host key, and
+confirm. Without a terminal, pass `--fingerprint SHA256:…` instead. Then
+it makes a device token that never leaves the machine, redeems the code,
+and writes `tokens/<name>.token`, the lake entry in `config.json` with
+its pinned lake id and key, and the lake's base configuration. A running
+agent picks up the lake at once on Unix; on Windows restart it. On a
+fresh machine `--install-service` writes and starts the systemd user
+unit or launchd agent. Adding a second lake is the same command with a
+code from that lake.
+
+A code works once, for 24 hours unless `--expires` says otherwise.
+`serve register --list` shows each code's state and `--revoke` stops
+one. Copying a token file by hand (`login`, then `serve --token-file`)
+still works and stays the fallback.
 
 ### Many lakes
 

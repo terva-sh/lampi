@@ -2,12 +2,9 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -250,49 +247,56 @@ func auditExpiries(ctx context.Context, cat *catalog.Catalog, data string, now t
 // checkPublicURL fetches the key list through public and checks that it
 // is this lake's, signed over a fresh nonce.
 func checkPublicURL(ctx context.Context, public string, id *identity.Identity, now time.Time) error {
-	nonce, err := identity.NewNonce()
-	if err != nil {
-		return err
-	}
-	u, err := url.Parse(strings.TrimRight(public, "/") + protocol.KeysPath)
-	if err != nil {
-		return err
-	}
-	u.RawQuery = url.Values{"nonce": {nonce}}.Encode()
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "terva-lampi")
-	resp, err := upload.NewClient().Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", protocol.KeysPath, resp.Status)
-	}
-	var signed protocol.Signed
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&signed); err != nil {
-		return fmt.Errorf("key list: %w", err)
-	}
 	keys := id.ActiveKeys(now)
 	if len(keys) == 0 {
 		return errors.New("this lake has no active key")
 	}
-	if err := identity.Verify(identity.ContextKeys, &signed, keys[0].Pub); err != nil {
-		return fmt.Errorf("the key list there is not signed by this lake's key: %w", err)
+	pub := id.Public()
+	for _, k := range pub {
+		if k.ID == keys[0].ID {
+			return verifyKeyList(ctx, public, id.LakeID, k)
+		}
 	}
-	var p protocol.KeysPayload
-	if err := json.Unmarshal(signed.Payload, &p); err != nil {
+	return errors.New("this lake's active key is not in its key list")
+}
+
+// verifyKeyList fetches the key list at server over a fresh nonce and
+// checks that it is lake lakeID's, that key is listed there as active,
+// and that key signed it over the nonce. register runs the same check
+// against the key a code names.
+func verifyKeyList(ctx context.Context, server, lakeID string, key protocol.LakeKey) error {
+	pub, err := identity.ParsePublic(key)
+	if err != nil {
 		return err
 	}
-	if p.LakeID != id.LakeID || p.Nonce != nonce {
-		return fmt.Errorf("the key list there is for lake %s, not this nonce and lake %s", p.LakeID, id.LakeID)
+	nonce, err := identity.NewNonce()
+	if err != nil {
+		return err
 	}
-	return nil
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	signed, p, err := upload.FetchKeys(ctx, server, nonce)
+	if err != nil {
+		return err
+	}
+	if err := identity.Verify(identity.ContextKeys, signed, pub); err != nil {
+		return fmt.Errorf("the key list there is not signed by key %s: %w", key.ID, err)
+	}
+	if p.Nonce != nonce {
+		return errors.New("the key list there does not carry the nonce sent: it is a replay or a cache")
+	}
+	if p.LakeID != lakeID {
+		return fmt.Errorf("the key list there is for lake %s, not %s", p.LakeID, lakeID)
+	}
+	for _, k := range p.Keys {
+		if k.ID == key.ID && k.PublicKey == key.PublicKey {
+			if k.Status != identity.StatusActive {
+				return fmt.Errorf("key %s is %s there, not active", key.ID, k.Status)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("key %s is not in the key list there", key.ID)
 }
 
 // runServeIdentitySetURL records the lake's public URL.

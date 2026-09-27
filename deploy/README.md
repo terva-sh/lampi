@@ -26,6 +26,14 @@ and `agent config` print `source=flag`, `env`, `config`, or `default`
 beside each. The token is not a command argument. Restart the agent to
 reload any of these, and to reload `harnesses`.
 
+## Registering instead of copying
+
+`terva-lampi register --install-service` writes a unit like the ones
+here, pointing at the binary that ran it, and enables it. It leaves an
+existing unit file alone. The unit it writes has `ExecReload`, so
+`systemctl --user reload terva-lampi-agent` reloads the lakes. See
+[Registering a machine](../README.md#registering-a-machine).
+
 ## More than one lake
 
 `config.json` can name more lakes under `lakes`, each with its own

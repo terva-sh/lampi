@@ -264,3 +264,31 @@ func TestReloadAgentSignalsOnlyAHeldPIDFile(t *testing.T) {
 		t.Fatal("no SIGHUP")
 	}
 }
+
+func TestRegisterAddsALakeToARunningStandaloneAgent(t *testing.T) {
+	f := newRegFixture(t)
+	writeAgentConfig(t, f.cfg, standaloneConfig)
+	var buf memBuf
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runAgentLoop(ctx, Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(f.home, f.cfg, f.state)}, "", "")
+	}()
+	waitOut(t, &buf, func(s string) bool { return strings.Contains(s, "\nwatching\n") })
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatalf("%v\n%s", err, f.stderr.String())
+	}
+	if !strings.Contains(f.stdout.String(), "is reloading its lakes") {
+		t.Fatalf("register did not signal the agent:\n%s", f.stdout.String())
+	}
+	// The debounce keys survive the write, and the lake's profile, cached
+	// by register, admits the session.
+	waitOut(t, &buf, func(s string) bool {
+		return strings.Contains(s, "reload: added default") && strings.Contains(s, "uploaded 1")
+	})
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

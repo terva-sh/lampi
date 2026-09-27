@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FP115FH6DV3V5WGN3XHPJK
 title: "Agent: standalone mode with no lake, and lake reload on SIGHUP"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,14 +17,7 @@ dependencies:
   - TKT-01M3FHHBPHPZHBTJT794N8HCZW
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: onboarding/agent-reload
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 6bf114a6a771922af958c0db2862755ef6453369
-  session: null
-  claimed_at: 2026-09-26T21:17:13Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
 updated_at: 2026-09-27T00:04:01Z
@@ -49,7 +42,7 @@ Part of the agent onboarding epic. Let the agent run with no lake, and change it
 
 - [x] With no lake configured, the agent watches, uploads nothing and says so once
 - [x] On Unix, SIGHUP reloads the lake set without dropping in-flight work
-- [ ] On Windows the commands that change lakes say a restart is required
+- [x] On Windows the commands that change lakes say a restart is required
 
 ## Implementation plan
 
@@ -79,6 +72,14 @@ Evidence:
 
 AC3 is unticked. The commands that change lakes, register and lakes remove, arrive in TKT-01M3FHHBR. reloadAgent returns the Windows restart line they must print, and it is tested only by `go vet` on Windows. TKT-01M3FHHBR has to call it after it writes config.json.
 
+**agent:claude-code/e4a47e8c** at 2026-09-26T21:57:53Z
+
+Supersedes the AC3 part of the first note. register and lakes remove (TKT-01M3FHHBR) now print reloadAgent(state). On Windows that is 'restart the agent … it reads them only at start on this platform'. Evidence is the code path plus GOOS=windows vet; no test ran on Windows.
+
 **agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
 
 Review 930 on PR #15, both findings fixed in 32360b5. Starting a lake is split into prepare (can fail) and launch (cannot); a reload prepares every new and changed lake before stopping any, so a failed migration leaves every lake running and the reload says the lakes are unchanged. A reload holds one mutex for its whole run and shutdown's wait takes it first, so agent.pid is not released mid-reload. When the lake-profile layer merged in, its reloadMu and this mutex became one (profile fetches also trigger reloads), and reload re-checks shutdown right after reading config so a reload cut short says nothing.
+
+## Summary
+
+An empty lakes map is standalone: the agent watches, uploads nothing and says so once; status and sync say no lake is configured. On Unix SIGHUP reloads the lake set, draining lakes that go or change and keeping unchanged ones running; register and lakes remove signal a running agent through agent.pid, and on Windows say a restart is required.

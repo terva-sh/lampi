@@ -232,11 +232,19 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 	if !errors.Is(err, sql.ErrNoRows) {
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
 	}
-	err = tx.QueryRowContext(ctx, `SELECT name FROM devices WHERE machine_id=?`, machineID).Scan(&other)
-	if err == nil {
+	// A machine re-registering after its old device was revoked takes
+	// its machine_id back; the revoked row keeps its history without it.
+	var otherID string
+	var revoked sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT id, name, revoked_at FROM devices WHERE machine_id=?`, machineID).Scan(&otherID, &other, &revoked)
+	switch {
+	case err == nil && revoked.Valid:
+		if _, err := tx.ExecContext(ctx, `UPDATE devices SET machine_id=NULL WHERE id=?`, otherID); err != nil {
+			return Device{}, r, fmt.Errorf("catalog: %w", err)
+		}
+	case err == nil:
 		return Device{}, r, fmt.Errorf("%w: %s", ErrMachineTaken, other)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	case !errors.Is(err, sql.ErrNoRows):
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
 	}
 	d := Device{Source: DeviceFromRegistration, TokenSHA256: tokenSHA256, Profile: r.Profile, MachineID: machineID, Created: now.UTC()}
