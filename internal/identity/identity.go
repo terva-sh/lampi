@@ -49,9 +49,10 @@ const AlgEd25519 = "ed25519"
 // Signing contexts. Each is signed as "terva-lampi/<context>\x00" then
 // the payload, so a signature cannot be moved from one use to another.
 const (
-	ContextKeys        = "keys/v1"
-	ContextHello       = "hello/v1"
-	ContextAgentConfig = "agent-config/v1"
+	ContextKeys         = "keys/v1"
+	ContextHello        = "hello/v1"
+	ContextAgentConfig  = "agent-config/v1"
+	ContextRegistration = "registration/v1"
 )
 
 // Key is one signing key. Priv is nil for a key parsed from a published
@@ -387,6 +388,21 @@ func (id *Identity) Sign(context string, payload any, now time.Time) (*protocol.
 		})
 	}
 	return s, nil
+}
+
+// SignRaw signs payload for context with the first key active at now,
+// for a document too small to carry an envelope, and returns that key.
+func (id *Identity) SignRaw(context string, payload []byte, now time.Time) (Key, []byte, error) {
+	keys := id.ActiveKeys(now)
+	if len(keys) == 0 {
+		return Key{}, nil, errors.New("identity: no active key")
+	}
+	return keys[0], ed25519.Sign(keys[0].priv, message(context, payload)), nil
+}
+
+// VerifyRaw checks a SignRaw signature.
+func VerifyRaw(context string, payload, sig []byte, pub ed25519.PublicKey) bool {
+	return len(sig) == ed25519.SignatureSize && ed25519.Verify(pub, message(context, payload), sig)
 }
 
 // ParsePublic decodes a published key.

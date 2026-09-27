@@ -29,6 +29,12 @@ const (
 	DeviceRefused  = "device.refused"
 	DeviceDetached = "device.detached"
 	DeviceProfile  = "device.profile"
+
+	RegistrationCreated  = "registration.created"
+	RegistrationRedeemed = "registration.redeemed"
+	RegistrationExpired  = "registration.expired"
+	RegistrationRevoked  = "registration.revoked"
+	RegistrationRefused  = "registration.refused"
 )
 
 // Event is one line. Device is the device name. Actor is where the

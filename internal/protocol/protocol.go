@@ -193,6 +193,29 @@ type AgentConfigPayload struct {
 	Config   json.RawMessage `json:"config"`
 }
 
+// RegisterPath redeems a registration code. It needs no token.
+const RegisterPath = "/v1/register"
+
+// RegisterRequest redeems a code. Secret is the code's one-time secret.
+// TokenSHA256 is the hex SHA-256 of the device token the agent made;
+// the token itself never leaves the machine. Name is a suggestion the
+// lake records beside the name the operator chose.
+type RegisterRequest struct {
+	Secret      string `json:"secret"`
+	TokenSHA256 string `json:"token_sha256"`
+	MachineID   string `json:"machine_id"`
+	Name        string `json:"name,omitempty"`
+}
+
+// RegisterResponse is the new device and its base configuration, the
+// same signed document GET AgentConfigPath returns.
+type RegisterResponse struct {
+	DeviceID string  `json:"device_id"`
+	Name     string  `json:"name"`
+	LakeID   string  `json:"lake_id"`
+	Config   *Signed `json:"config"`
+}
+
 // KeysPayload is the signed payload of GET KeysPath.
 type KeysPayload struct {
 	LakeID   string    `json:"lake_id"`

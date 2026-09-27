@@ -92,7 +92,9 @@ Each active key signs. A signature covers the bytes
 appears in the body. Verify those bytes before you decode them. Do not
 encode the payload again. The context is `keys/v1` for the key list,
 `hello/v1` for the hello proof and `agent-config/v1` for the base
-configuration, so a signature made for one does not verify as another. `key_id` is the first 8 bytes of the public key's
+configuration, so a signature made for one does not verify as another.
+A registration code uses `registration/v1` with a single bare signature
+instead of an envelope. `key_id` is the first 8 bytes of the public key's
 SHA-256, in hex. `sig` is unpadded base64url.
 
 ## GET /.well-known/terva-lampi/keys
@@ -170,6 +172,90 @@ is in `protocol_versions`. A PUT body, a Content-Range total, and one
 chunk each stay under `max_blob_bytes`. A file that is already over that
 cap is split into chunks of at most that size. The manifest names the
 chunks. The lake does not install one object for that concatenation.
+
+## Registration codes
+
+`terva-lampi serve register --name NAME` mints a code on the lake host:
+
+```text
+tlr1.<payload>.<signature>
+```
+
+Both parts are unpadded base64url, so the code is one URL-safe word.
+The payload is JSON:
+
+```json
+{
+  "v": 1,
+  "url": "https://lake.example",
+  "lake_id": "lake_…",
+  "key_id": "3f9a…",
+  "public_key": "<base64url>",
+  "secret": "<32 random bytes, base64url>",
+  "expires": "2026-09-28T12:00:00Z"
+}
+```
+
+The signature is ed25519, by the key `key_id` names, over
+`terva-lampi/registration/v1`, a zero byte, then the payload bytes as
+they appear once decoded. A reader checks it before trusting any field.
+A prefix other than `tlr1.` is a later format.
+
+The signature shows only that whoever holds that key made the code.
+Before redeeming, a client fetches the key list from `url` over TLS and
+refuses a code whose `lake_id` or key is not there as active. It also
+shows the key fingerprint for a person to compare with `serve identity`
+on the lake host (see policy.md). The lake alone decides expiry. A code
+holds no device token.
+
+## POST /v1/register
+
+This route needs no token. It shares the open routes' rate limit, and
+its body is at most 4 KiB.
+
+```json
+{
+  "secret": "<the code's secret>",
+  "token_sha256": "<hex SHA-256 of the device token the client made>",
+  "machine_id": "…",
+  "name": "suggested name"
+}
+```
+
+The lake looks up the SHA-256 of `secret`. A code that is unknown,
+used, expired or revoked is 403 with one message for all four, so a
+caller learns nothing about which codes exist. The audit log records
+the reason. The first time the lake sees a code expired, here or in
+`serve register`, it also writes one `registration.expired` line for
+it. A malformed `token_sha256` or `machine_id` is 400, and so is a
+`machine_id` that repeats any 8 characters of the secret, since the
+machine id is logged. A `machine_id` another device is bound to is 409, and the code stays
+unused. A lake started without `--token-file` answers 409, because its
+first registered device would close it to every client using it
+without a token.
+
+On success the code is spent and the device is created in one
+transaction. The device has the name the operator gave and the code's
+profile, is bound to `machine_id`, and holds `token_sha256`. `name` is
+kept in the audit log only.
+
+```json
+{
+  "device_id": "dev_…",
+  "name": "newbox",
+  "lake_id": "lake_…",
+  "config": {"payload": {"…": "…"}, "signatures": ["…"]}
+}
+```
+
+`config` is the same signed document `GET /v1/agent/config` returns.
+The lake signs it before the transaction commits. When it cannot, for
+a profile missing from its profiles file or no active key, the answer
+is 503, the code stays unused, no device is created, and the audit log
+records the refusal. The same code registers once the operator fixes
+the cause. The lake stores the hashes of the secret and of
+the token, never either one. Neither the access log nor the audit log
+holds the secret.
 
 ## GET /v1/agent/config
 
