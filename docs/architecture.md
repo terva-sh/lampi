@@ -20,7 +20,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve identity`, `serve devices`, `serve register`), `agent`, `sync`, `status`, `register`, `lakes`, `login`, `export`, `conflicts`, `quarantine`. See [cli.md](cli.md) |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
-| Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance |
+| Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance, head-update history |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
 | Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata, transcript, search and excerpt API; see [web-dashboard.md](web-dashboard.md) |
 | Recall | `internal/recall` | Query layer shared by the browser API and the planned MCP server: generation-pinned event pages, the `search.db` FTS5 index, deep links and excerpts; see [web-api.md](web-api.md) |
@@ -224,6 +224,19 @@ session head, and a move clears the old path's current flag. Other
 artifacts stay keyed by relpath. Normalize reads the head, plus the
 current rows under the head's directory for terva, Claude, and Codex:
 error sidecars and subagent transcripts sit there.
+
+Each accepted head change also writes one `head_updates` row in the same
+transaction: session, machine, harness, receipt time, old and new head
+digest and logical size, and relation. A new session's old digest is
+empty and its old size zero. An unchanged or stale repost, a divergent
+copy, and a second machine posting bytes the lake already has move no
+head and write no row, so a retry never counts twice. A snapshot
+rewritten back to an earlier digest is a real change and does. Recording
+began when the catalog reached schema 8, and `lake_meta` keeps that
+time as `head_updates_since`; earlier activity is not reconstructed.
+`serve purge` deletes the session's rows, and `serve backup` carries
+the table and the marker. The sizes are logical sizes of the head
+artifact, not bytes on the wire or in the CAS.
 
 A git-ticket claim does not resolve to that uid. The decision is to
 leave the claim unwired. A claim stays an opaque string in the ticket
