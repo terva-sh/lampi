@@ -34,8 +34,16 @@ The repository does not name or provision a live deployment.
    in the **ID token**. The default extra scopes are profile/email/groups; customize
    `scopes` when your provider uses different scopes. `openid` is always included.
 4. Map the actual group claim and exact group names. A successful IdP login grants
-   no access unless a configured group maps to `viewer`. The role reads metadata
-   for the whole lake; this release has no per-project viewer isolation.
+   no access unless a configured group maps to `viewer` or `operator`. A viewer
+   reads metadata for the whole lake; this release has no per-project viewer
+   isolation. An `operator` is also a viewer and can manage registration codes,
+   which adds machines to the lake. Map it to a small group. Operator routes
+   answer 404 to a viewer.
+5. For operator actions that add access, the dashboard asks the provider to sign
+   the user in again with OIDC `max_age` and requires an `auth_time` from the
+   last 10 minutes. The provider must return `auth_time` in the ID token when
+   `max_age` is sent, as OIDC Core requires; one that does not cannot be used for
+   those actions.
 
 Use HTTPS for the issuer and discovered authorization/token/JWKS endpoints. A
 private CA belongs in the service's system trust store. There is no TLS or issuer

@@ -29,7 +29,34 @@ const (
 type attempt struct {
 	state, nonce, verifier, next string
 	expires                      time.Time
+	// fresh asks the provider to authenticate again (max_age), and the
+	// callback then requires an auth_time inside FreshWindow.
+	fresh bool
 }
+
+// FreshWindow is how recent an operator's sign-in must be for an action
+// that adds access to the lake, such as minting a registration code.
+const FreshWindow = 10 * time.Minute
+
+// freshSkew allows for clock difference with the identity provider.
+const freshSkew = time.Minute
+
+// FreshLoginURL signs in again with max_age and returns to next.
+func FreshLoginURL(next string) string {
+	return LoginPath + "?fresh=1&next=" + url.QueryEscape(safeReturn(next))
+}
+
+// Fresh reports whether the request's identity authenticated at the
+// provider within FreshWindow of now.
+func Fresh(r *http.Request, now time.Time) bool {
+	id, _ := Current(r)
+	return freshAt(id.AuthTime, now)
+}
+
+func freshAt(authTime, now time.Time) bool {
+	return !authTime.IsZero() && !authTime.After(now.Add(freshSkew)) && now.Sub(authTime) <= FreshWindow
+}
+
 type session struct {
 	Identity   Identity
 	CSRF       string
@@ -124,8 +151,12 @@ func (b *Browser) start(w http.ResponseWriter, r *http.Request) {
 		b.refuse(w, r, 503, "Too many sign-in attempts. Try again later.")
 		return
 	}
-	a := attempt{state: randomID(), nonce: randomID(), verifier: randomID(), next: safeReturn(r.URL.Query().Get("next")), expires: b.now().Add(attemptTTL)}
-	to, err := b.provider.AuthURL(r.Context(), a.state, a.nonce, a.verifier)
+	a := attempt{state: randomID(), nonce: randomID(), verifier: randomID(), next: safeReturn(r.URL.Query().Get("next")), expires: b.now().Add(attemptTTL), fresh: r.URL.Query().Get("fresh") == "1"}
+	var maxAge time.Duration
+	if a.fresh {
+		maxAge = FreshWindow
+	}
+	to, err := b.provider.AuthURLMaxAge(r.Context(), a.state, a.nonce, a.verifier, maxAge)
 	if err != nil {
 		b.refuse(w, r, 503, "The identity provider is unavailable. Try again later.")
 		return
@@ -172,6 +203,10 @@ func (b *Browser) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := b.now()
+	if a.fresh && !freshAt(id.AuthTime, now) {
+		b.refuse(w, r, 403, "The identity provider did not confirm a recent sign-in, so this action is not available.")
+		return
+	}
 	key := randomID()
 	s := session{Identity: id, CSRF: randomID(), Idle: now.Add(idleTTL), Hard: now.Add(hardTTL)}
 	b.mu.Lock()
@@ -232,6 +267,24 @@ func (b *Browser) Guard(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), viewerKey{}, s)))
 	})
 }
+
+// OperatorOnly serves next to an operator and answers 404 to anyone
+// else, so a viewer learns nothing about operator routes. It runs
+// inside Guard, which has already authenticated the request.
+func OperatorOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id, _ := Current(r); !id.Operator {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				jsonError(w, 404, "not_found")
+			} else {
+				http.NotFound(w, r)
+			}
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func jsonError(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

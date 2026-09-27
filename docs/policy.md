@@ -94,6 +94,16 @@ stays documented as the fallback.
   works once and expires, so a used code in history is noise. Mint a
   code for the one-liner with a short `--expires`, and begin the line
   with a space so shells that ignore such lines leave it out of history.
+- **Dashboard operators.** The browser dashboard is read-only for the
+  `viewer` role. The `operator` role, mapped to its own IdP group, can
+  also manage registration codes, so a signed-in operator can add a
+  machine to the lake. The owner chose this on 2026-09-27
+  (TKT-01M3J5HX9). A stolen operator session could therefore add a
+  device, where a viewer session can only read. The mitigations: the
+  separate group, operator routes that answer 404 to anyone else, a
+  fresh IdP sign-in (OIDC `max_age`, `auth_time` within 10 minutes)
+  before minting, short code lifetimes, and the audit log naming the
+  operator. A device token can upload but cannot read the catalog.
 
 ### Routes without a token
 
