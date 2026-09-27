@@ -301,9 +301,18 @@ func TestTheMovedPinIsNotWrittenIntoAnEntryThatChangedDuringTheRefresh(t *testin
 		if err := config.SetLake(getenv, lake.Name, entry); err != nil {
 			t.Fatal(err)
 		}
+		before, err := os.Stat(filepath.Join(dir, lakeprofile.FileName))
+		if err != nil {
+			t.Fatal(err)
+		}
 		_, moved, err := refreshPin(context.Background(), f.env(""), lake)
 		if err == nil || moved || !strings.Contains(err.Error(), "changed in config.json") {
 			t.Fatalf("%s: refreshPin: moved %v, err %v", name, moved, err)
+		}
+		// TKT-01M3G8B8: the cache is left alone, not rewritten and put
+		// back, so a profile register saved for the new entry survives.
+		if after, err := os.Stat(filepath.Join(dir, lakeprofile.FileName)); err != nil || !os.SameFile(before, after) {
+			t.Fatalf("%s: the cached profile was rewritten: %v", name, err)
 		}
 		after, err := config.LoadFile(getenv)
 		if err != nil {
@@ -338,5 +347,37 @@ func TestCodesFromAKeyPastItsOverlapAreRefused(t *testing.T) {
 	f.serveIdentity("rotate", "--overlap", "0s")
 	if err := f.register(code+"\n", "--fingerprint", f.fingerprint()); err == nil || !strings.Contains(err.Error(), "check 3") || !strings.Contains(err.Error(), "not signed by key") {
 		t.Fatalf("register: %v", err)
+	}
+}
+
+// TKT-01M3G8B8: the agent saves a fetched profile only while config.json
+// still pins what it fetched under.
+func TestAgentSavesAProfileOnlyForTheEntryItFetchedUnder(t *testing.T) {
+	f := newRegFixture(t)
+	if err := f.register(f.mint("box")+"\n", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatal(err)
+	}
+	getenv := agentGetenv(f.home, f.cfg, f.state)
+	file, err := config.LoadFile(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lakes, err := config.ResolveLakes(file, getenv, config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake := lakes[0]
+	d, err := fetchProfile(context.Background(), f.env(""), lake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := saveProfileIfCurrent(f.env(""), lake, dir, d); err != nil {
+		t.Fatalf("current entry: %v", err)
+	}
+	stale := lake
+	stale.DeviceID = "dev_other"
+	if err := saveProfileIfCurrent(f.env(""), stale, t.TempDir(), d); err == nil || !strings.Contains(err.Error(), "changed in config.json") {
+		t.Fatalf("stale entry: %v", err)
 	}
 }

@@ -84,15 +84,10 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	// moves, so the lake's rules do not drop out between the two. If it
 	// cannot be, the pin stays: the old key signs through the overlap,
 	// and the next refresh tries again.
-	restore, err := keepProfile(env, l)
+	d, err := fetchProfile(fctx, env, moved)
 	if err != nil {
-		return l, false, err
-	}
-	if err := refetchProfile(fctx, env, moved); err != nil {
 		return l, false, fmt.Errorf("the profile under key %s: %w; the pin stays on key %s until it can be fetched", next.ID, err, pinned.ID)
 	}
-	// From here a failure leaves the pin on the old key, which may not
-	// verify the profile just cached, so the old copy goes back.
 	// The key list was checked against l, so the pin moves only in an
 	// entry that still pins what l does. One replaced or re-pinned
 	// while the list was fetched belongs to another identity. When the
@@ -100,16 +95,45 @@ func refreshPin(ctx context.Context, env Env, l config.Lake) (config.Lake, bool,
 	// one pointed elsewhere may reach a copy of the lake that has not
 	// seen the rotation. A flag or the environment chose the server
 	// otherwise, and the entry's own is not what was fetched from.
-	err = config.UpdateLake(env.getenv, l.Name, func(lc *config.LakeConfig) error {
-		if lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey ||
-			(l.Server.Source == config.SourceConfig && lc.Server != l.Server.Value) {
-			return fmt.Errorf("lake %s changed in config.json while its key list was fetched, so its pin does not move to key %s; the next refresh reads the new entry", l.Name, next.ID)
+	changed := func(lc config.LakeConfig) bool {
+		return lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey ||
+			(l.Server.Source == config.SourceConfig && lc.Server != l.Server.Value)
+	}
+	errChanged := fmt.Errorf("lake %s changed in config.json while its key list was fetched, so its pin does not move to key %s; the next refresh reads the new entry", l.Name, next.ID)
+	// The check, the profile and the pin are one step under config.json's
+	// lock. A register that replaced the entry meanwhile keeps the
+	// profile it saved: nothing here writes over it.
+	err = config.Locked(env.getenv, func(tx config.Tx) error {
+		lc, ok, err := tx.Lake(l.Name)
+		if err != nil {
+			return err
 		}
-		lc.KeyID, lc.PublicKey = next.ID, next.PublicKey
+		if !ok || changed(lc) {
+			return errChanged
+		}
+		restore, err := keepProfile(env, l)
+		if err != nil {
+			return err
+		}
+		if err := saveProfile(env, moved, d); err != nil {
+			return restore(err)
+		}
+		// From here a failure leaves the pin on the old key, which may
+		// not verify the profile just cached, so the old copy goes back.
+		err = tx.UpdateLake(l.Name, func(lc *config.LakeConfig) error {
+			if changed(*lc) {
+				return errChanged
+			}
+			lc.KeyID, lc.PublicKey = next.ID, next.PublicKey
+			return nil
+		})
+		if err != nil {
+			return restore(err)
+		}
 		return nil
 	})
 	if err != nil {
-		return l, false, restore(err)
+		return l, false, err
 	}
 	return moved, true, nil
 }
@@ -142,24 +166,41 @@ func keepProfile(env Env, l config.Lake) (func(error) error, error) {
 	}, nil
 }
 
-// refetchProfile fetches the lake's profile, verifies it under l's pin
-// and caches it.
-func refetchProfile(ctx context.Context, env Env, l config.Lake) error {
+// fetchProfile fetches the lake's profile and verifies it under l's pin.
+func fetchProfile(ctx context.Context, env Env, l config.Lake) (lakeprofile.Doc, error) {
 	token, err := lakeToken(l)
 	if err != nil {
-		return err
+		return lakeprofile.Doc{}, err
 	}
 	signed, err := upload.FetchAgentConfig(ctx, upload.Options{ServerURL: l.Server.Value, Token: token})
 	if err != nil {
-		return err
+		return lakeprofile.Doc{}, err
 	}
-	d, err := lakeprofile.Verify(signed, l)
-	if err != nil {
-		return err
-	}
+	return lakeprofile.Verify(signed, l)
+}
+
+// saveProfile caches d as l's profile.
+func saveProfile(env Env, l config.Lake, d lakeprofile.Doc) error {
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
 		return err
 	}
 	return lakeprofile.Save(lakestate.Dir(state, l.Name), d)
+}
+
+// saveProfileIfCurrent caches d in dir, under config.json's lock, while
+// config.json's entry for l still pins what l does. An entry that
+// register replaced since the agent read it belongs to another
+// registration, whose profile register saved, and the agent reloads it.
+func saveProfileIfCurrent(env Env, l config.Lake, dir string, d lakeprofile.Doc) error {
+	return config.Locked(env.getenv, func(tx config.Tx) error {
+		lc, ok, err := tx.Lake(l.Name)
+		if err != nil {
+			return err
+		}
+		if !ok || lc.LakeID != l.LakeID || lc.KeyID != l.KeyID || lc.PublicKey != l.PublicKey || lc.DeviceID != l.DeviceID {
+			return fmt.Errorf("lake %s changed in config.json, so its profile is not saved; the agent reads the new entry when it reloads", l.Name)
+		}
+		return lakeprofile.Save(dir, d)
+	})
 }
