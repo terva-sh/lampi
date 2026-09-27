@@ -83,10 +83,18 @@ jobs:
             --rawfile body dist/CHANGELOG.md \
             --argjson pre "${pre}" \
             '{tag_name: $tag, name: $tag, body: $body, draft: false, prerelease: $pre}')
-          id=$(curl -sS -X POST "${api}/releases" \
-            -H "Authorization: token ${TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "${payload}" | jq -r '.id // empty')
+          # A rerun after a partial upload finds the release the first run
+          # created and resumes it, so the tag never needs deleting by hand.
+          id=$(curl -sS "${api}/releases/tags/${TAG}" \
+            -H "Authorization: token ${TOKEN}" | jq -r '.id // empty')
+          if [ -z "${id}" ]; then
+            id=$(curl -sS -X POST "${api}/releases" \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "${payload}" | jq -r '.id // empty')
+          else
+            echo "release ${TAG} exists; uploading what it lacks"
+          fi
           # A non-numeric id means the API answered with an error object.
           case "${id}" in
             ''|*[!0-9]*)
@@ -95,17 +103,24 @@ jobs:
               ;;
           esac
           echo "release ${TAG} is id ${id}"
+          have=$(curl -sS "${api}/releases/${id}/assets" \
+            -H "Authorization: token ${TOKEN}" | jq -r '.[].name')
           uploaded=0
           for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do
             [ -e "${f}" ] || continue
             name=$(basename "${f}")
+            if printf '%s\n' "${have}" | grep -qxF "${name}"; then
+              echo "already there: ${name}"
+              uploaded=$((uploaded + 1))
+              continue
+            fi
             code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
               "${api}/releases/${id}/assets?name=${name}" \
               -H "Authorization: token ${TOKEN}" \
               -F "attachment=@${f}")
             case "${code}" in
               2*) echo "uploaded ${name}"; uploaded=$((uploaded + 1)) ;;
-              *)  echo "::error::uploading ${name} answered HTTP ${code}"; exit 1 ;;
+              *)  echo "::error::uploading ${name} answered HTTP ${code}; rerun the job to resume"; exit 1 ;;
             esac
           done
           # A release with no assets would otherwise pass with a green tick.
