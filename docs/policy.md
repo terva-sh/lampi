@@ -1,5 +1,9 @@
 # Phase 0 policy
 
+The decisions behind how a lake is hosted and what may reach it. Read it
+when you need the reason for a default. Back to the
+[documentation index](README.md).
+
 These are the placement and handling decisions for the MVP lake.
 Drew Short (`human:sothr`) locked them. This file records them. It does
 not provision a host, terminate TLS, set up a disk, or add an object
@@ -218,36 +222,11 @@ implemented in `internal/config`. This policy confirms that surface.
   [protocol.md](protocol.md).
 
 Cursor IDE and Cursor CLI exports use that same gate. The global IDE
-database has an empty cwd and is refused by design. Current Cursor
-builds keep chat bodies in the global database's `cursorDiskKV` table,
-so a read of the workspace database alone misses type 1 and type 2
-bubbles. The export copies the global database when
-`composer.composerHeaders` names at least one composer. One sync
-copies it at most once and shares that copy across workspaces. Each
-workspace selects, in SQL, only the `cursorDiskKV` rows of the
-composers it names. A snapshot copies the database and its WAL, not
-the `-shm` index. When a checkpoint moved the files during the copy,
-it copies again, up to five times. `PRAGMA quick_check` must pass on
-the copy, which is then opened read-only. The workspace database uses
-the same snapshot. The reader does not open a live database. The merge
-puts matching `cursorDiskKV` rows into the workspace document field
-`cursor_disk_kv`. Membership is `allComposers[].composerId` on the
-ItemTable key `composer.composerHeaders`. `composer.composerData` is
-the older workspace list and is not the registry. A composer listed
-only on `composer.composerData` is not merged. A missing global file
-adds nothing to the document. If the copy or the open fails, the
-workspace export fails. The global export itself still does not leave
-the machine. `sync` asks the allowlist before it builds an export, so
-the global database and a refused workspace are not copied or exported
-at all. `sync` still names them as refused. The Cursor IDE pinned
-reader `Version` is `2`, and the document field `harness_version` is
-that string. `confidence` is `low`. The native session id stays
-`workspace/<id>`. `terva-lampi export --format events` writes
-`session_id` as `cursor:workspace/<id>`. A workspace database takes
-its cwd from `workspace.json`. A Cursor CLI export needs an absolute
-`cwd` in the sibling `meta.json`. A missing file, a relative path, or
-a file URI is an empty cwd, and the allowlist refuses the export.
-Neither case adds a permit rule or a schema field.
+database has an empty cwd and is refused by design, and so is a Cursor
+session whose cwd cannot be read as an absolute local path. Neither case
+adds a permit rule or a schema field. How the Cursor readers snapshot and
+filter their databases is in
+[Cursor sessions with an empty cwd](harnesses.md#cursor-sessions-with-an-empty-cwd).
 
 Ruleset v2 still runs after the allowlist and before any request. A
 hit is quarantined unless `redaction.upload_hits` is set, or unless

@@ -1,5 +1,9 @@
 # Pull requests and reviews
 
+Read this before you open or merge a pull request. Building and testing
+are in [development.md](development.md). Back to the
+[documentation index](README.md).
+
 lampi has two forges, and each has its own review process. Internal work
 goes through the internal Forgejo (`origin`). External agents watch the
 public GitHub repository (`github`) and open their pull requests there.

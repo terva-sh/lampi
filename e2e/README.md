@@ -76,6 +76,20 @@ For manual inspection, run `go run ./internal/web/smoketest` and open the printe
 `url` in a test browser that trusts the fixture's HTTPS IdP. Stop with Ctrl-C. Use
 `--deny` or `--empty` to inspect those states. Never use this fixture as a service.
 
+## README screenshots
+
+`docs/images/dashboard-overview.png` and `docs/images/dashboard-transcript.png`
+come from the same synthetic fixture, so they never show a real lake. With
+Playwright installed as above, regenerate them from the repository root:
+
+```sh
+node e2e/readme-screenshots.mjs "$browser_tools_dir/node_modules/playwright/index.mjs"
+```
+
+The script builds the fixture, signs in through the fake IdP, and writes both
+images at 1280x800 with a device scale factor of 2. Look at each image before
+you commit it.
+
 ## Isolated go-live drills
 
 The `golive` build tag enables operational drills with explicit temporary harness

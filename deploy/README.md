@@ -1,5 +1,7 @@
 # Packaging examples
 
+Back to the [documentation index](../docs/README.md).
+
 These files are examples. `make build` does not install them. Copy the
 ones you want, and point them at the `terva-lampi` binary you built.
 The hook at the bottom is supported and optional. Nothing installs it

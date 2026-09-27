@@ -1,5 +1,10 @@
 # Web dashboard and retrieval plan
 
+This is a design record, not user documentation. It records the decisions and
+ticket map for the web releases. To run the dashboard, read
+[web-dashboard.md](web-dashboard.md). Back to the
+[documentation index](README.md).
+
 Status: release A implemented and validated. Release B's viewer, search and
 search screen are implemented on a branch, with the recall additions below;
 export and release C remain draft. The owner approved a
