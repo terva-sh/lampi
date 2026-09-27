@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T21:57:53Z
+updated_at: 2026-09-27T00:04:28Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -98,6 +98,10 @@ Evidence:
 - `TestRegisterAddsALakeToARunningStandaloneAgent`: SIGHUP, reload, upload.
 - `TestRegistrationRedeemsOnce` extended with the case above.
 - Full `-race` suite, the golive drills, and vet on windows and darwin are green.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T00:04:28Z
+
+Review 933 on PR #18, all four accepted in d874bdd. lakes remove --purge-state takes agent.pid before changing anything, and refuses with nothing removed while an agent runs. On that path it does not signal the agent, since it would find its own pid. --replace takes over only an entry pinned to the code's lake id, or an unpinned one on the same server (pre-pin entries), keeps the existing name, and refuses a different --lake. chooseLakeName shortens the base so -N stays within 32 characters.
 
 ## Summary
 
