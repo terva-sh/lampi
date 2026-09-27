@@ -44,8 +44,9 @@ TLS.
 Phase 0 said there was no enrolment API. On 2026-09-27 Drew reversed
 that and locked the model in this section. The work is tracked under
 TKT-01M3FHHB (Agent onboarding: registration codes, lake config, many
-lakes). Until each part lands, the manual token copy above is the way
-to add a device, and it stays documented as the fallback afterwards.
+lakes). Registration is the way to add a device
+([vps-bringup.md](vps-bringup.md#devices)). The manual token copy above
+stays documented as the fallback.
 
 ### The model
 

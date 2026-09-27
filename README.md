@@ -131,7 +131,29 @@ allowlists. The harnesses map and the debounce are read when the
 process starts, and so are the lakes on Windows; restart it to reload
 them. The one-shot command is still `sync`.
 
-`login` writes a device token and does not print it:
+To add another machine, register it with a one-time code from the
+lake. The lake needs a token file (one operator token is enough) and
+the URL agents reach it at:
+
+```bash
+./bin/terva-lampi login --token-file ./tokens/operator.token
+./bin/terva-lampi serve --token-file ./tokens &
+./bin/terva-lampi serve identity set-url https://lake.example
+./bin/terva-lampi serve register --name laptop > laptop.code
+```
+
+and on the laptop:
+
+```bash
+terva-lampi register --code-file laptop.code --install-service
+```
+
+[Registering a machine](#registering-a-machine) explains the checks
+`register` makes and what it writes. On Windows, restart the agent
+after registering to add the lake.
+
+The manual path still works and stays the fallback. `login` writes a
+device token and does not print it:
 
 ```bash
 ./bin/terva-lampi login

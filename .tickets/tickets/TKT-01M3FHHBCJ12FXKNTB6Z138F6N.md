@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-26T20:20:46Z
+updated_at: 2026-09-27T04:49:48Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -89,11 +89,11 @@ A web page for minting codes or revoking devices, the lake dialing the agent, ob
 
 ## Acceptance criteria
 
-- [ ] A fresh machine goes from a registration code to syncing with one command and no hand-copied token or config
-- [ ] A standalone agent running with no lake starts syncing after a code is entered, without a restart
-- [ ] One agent reports to two lakes, each with its own token, allowlist and state, and one lake being down does not stall the other
-- [ ] Existing single-lake clients and the hosted lake's token file upgrade in place with no re-registration and no re-upload
-- [ ] Registration refuses a code whose key is not listed as active at the code's URL, or whose lake cannot sign a fresh nonce with it
+- [x] A fresh machine goes from a registration code to syncing with one command and no hand-copied token or config
+- [x] A standalone agent running with no lake starts syncing after a code is entered, without a restart
+- [x] One agent reports to two lakes, each with its own token, allowlist and state, and one lake being down does not stall the other
+- [x] Existing single-lake clients and the hosted lake's token file upgrade in place with no re-registration and no re-upload
+- [x] Registration refuses a code whose key is not listed as active at the code's URL, or whose lake cannot sign a fresh nonce with it
 
 ## Definition of done
 
@@ -109,3 +109,31 @@ A web page for minting codes or revoking devices, the lake dialing the agent, ob
 **human:sothr** at 2026-09-26T20:20:39Z
 
 Owner decisions, 2026-09-27: confirmed all design decisions in the description; legacy tokens bind to the first machine_id after upgrade with serve devices unbind to reset; Windows is out of scope for live lake reload and needs a restart; priority stays normal and no milestone. Authorized merging each child after green CI, a terva-review and posted dispositions, followed by just sync-github --yes. Deploying to the hosted lake is not authorized and is the separate rollout child TKT-01M3FP11A71HW786Z00YZQDWA1. Grooming split TKT-01M3FHHBN into config (TKT-01M3FP1107KXYARCAYVYT2Y409 holds state) and TKT-01M3FHHBP into fan-out (TKT-01M3FP115FH6DV3V5WGN3XHPJK holds standalone mode and reload), because each mixed two PRs' worth of risk.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T04:49:38Z
+
+Implementation landed on main through Forgejo PRs, one child each, in dependency order: #10 named devices, #11 per-lake client state, #14 fan-out, #15 standalone and reload, #16 lake profiles, #17 registration codes, #18 register CLI, #19 key rotation, and #20 end-to-end validation (this PR). Earlier children landed before these (#8 lake identity and the client config PR). #21 fixed a recall CI flake, outside the epic, that was blocking every run.
+
+### How the stack was run
+
+The first stack of branches was already published, so it was rebased into new onboarding/v2-* branches, one PR per ticket, each based on the one below, so every review saw only its own layer. Fixes went onto each layer as new commits, and each layer was merged into the one above; nothing was force-pushed. After every fix round each layer passed vet (linux and windows) and go test -race, and go-live passed at the top. That per-layer check caught two breaks that only appeared once layers were combined: a startup path that skipped the lake profile and pin, and a moved pin that ignored a failed reload.
+
+### Review rounds and the merge rule
+
+terva-review ran five rounds on #16 to #19. Most findings were real and were fixed, each with a test that failed first. Rejected with evidence: a redaction field profiles cannot carry, register's key-window check (the lake already signs only with active keys), and an expiry sweeper (twice). Each round found fewer and narrower issues, but did not reach zero. On 2026-09-27 the owner directed: merge the PRs where our disagreements are recorded. After that, round-5 findings on #16 to #19 were either fixed (the identity lock, and a code spent when its profile could not be signed) or deferred to follow-up tickets. The last #19 fix (register checks and signs under one identity snapshot) merged on green CI without a fresh model review, since a new review would only have restarted the loop.
+
+### Follow-ups filed as drafts
+
+- TKT-01M3GAHSM: profile fields that are forbidden but zero-valued; deny-rule sources in agent config.
+- TKT-01M3GAHSN: audit events written after a catalog commit can be lost (expiry, redemption, binding).
+- TKT-01M3GAHSQ: install the systemd unit where the user manager looks, when XDG_CONFIG_HOME is custom.
+- TKT-01M3G8B82: lock config.json across processes.
+- Found in passing, outside the epic's code: TKT-01M3G44GC (/v1/hello answers 200 on a body read error) and TKT-01M3G3B0Z (a rare OIDC rotation test flake).
+
+### Still open
+
+TKT-01M3FP11A (rollout to the hosted lake) needs its own authorization and stays in draft, so the definition of done stays unticked. TKT-01M3FHHBD criterion 3, the owner's sign-off on the policy wording, is also unticked.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T04:49:48Z
+
+Acceptance evidence, all in internal/cli with -tags golive against real serve subprocesses, green at eb23960: AC1 TestGoLiveOnboardFreshMachine. AC2 and AC3 TestGoLiveOnboardStandaloneAgentTwoLakes (two lakes added to a running standalone agent; lake b down while a keeps syncing), plus TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther. AC4 TestGoLiveOnboardLegacyUpgrade (starts from a schema 4 catalog). AC5 TestGoLiveOnboardFailures (tampered code at check 1, wrong key at the code's URL at check 3) and TestCodesFromAKeyPastItsOverlapAreRefused.

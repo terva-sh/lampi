@@ -93,7 +93,49 @@ sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin te
 sudo install -d -o terva-lampi -g terva-lampi -m 0700 /var/lib/terva-lampi
 ```
 
-## Device token
+## Devices
+
+Each machine that uploads is a device with its own token. The lake
+stores only a hash of each token. There are two ways to add one.
+
+### Registration (the usual way)
+
+`serve` needs a token file even when every device registers, because a
+lake with none accepts requests without a token and refuses to
+register devices. One operator token in a directory is enough:
+
+```bash
+sudo -u terva-lampi install -d -m 0700 /var/lib/terva-lampi/tokens
+terva-lampi login --token-file ./operator.token   # on your own machine
+```
+
+Copy `operator.token` into that directory as `operator.token`, and start
+`serve` with `--token-file /var/lib/terva-lampi/tokens`. Then, once
+TLS is in front (below), record the URL agents reach the lake at:
+
+```bash
+sudo -u terva-lampi terva-lampi serve identity set-url https://lake.example --data /var/lib/terva-lampi
+sudo -u terva-lampi terva-lampi serve identity --data /var/lib/terva-lampi
+```
+
+The second command prints the lake id, the public URL and the key
+fingerprint. Keep the fingerprint where you can read it when a machine
+registers. For each machine, mint a code:
+
+```bash
+sudo -u terva-lampi terva-lampi serve register --name laptop --data /var/lib/terva-lampi > laptop.code
+```
+
+Minting fetches the key list through the public URL and refuses when
+it does not reach this lake, so a wrong URL or a proxy that drops
+`/.well-known/terva-lampi/` shows up here and not on the laptop. The
+code works once, for 24 hours (`--expires`), and is a secret: move it
+like a password. `--profile` chooses the base configuration its agent
+gets (see Profiles below). `serve register --list` shows codes and
+their state; `--revoke laptop` stops a pending one. The machine side is
+in [Check, then point the agents](#check-then-point-the-agents).
+
+### A token file by hand (the fallback)
 
 On each machine that will upload, mint a token. `terva-lampi login`
 writes a 256-bit token to `~/.config/terva-lampi/token` at mode 0600
@@ -104,10 +146,9 @@ token is not a command argument.
 terva-lampi login
 ```
 
-Copy that file to the VPS before you start `serve`. The copy is
-yours to make. This tree does not log in to a host. The host path
-is a different file from the client's. Keep the client's file. It
-stays the secret.
+Copy that file to the VPS. The copy is yours to make. This tree does
+not log in to a host. The host path is a different file from the
+client's. Keep the client's file. It stays the secret.
 
 `serve --token-file` hashes each token with SHA-256 and rewrites the
 host copy to lines of `sha256:<hex>`, mode 0600. One file holds one
@@ -118,18 +159,19 @@ rename device files to `.token` when you upgrade. A token is 64
 lowercase hex characters, as `login` writes. A line starting with `#`
 is a comment, such as the device's name, and stays through the
 rewrite. Any other line stops `serve` with the file and line number.
-There is no TTL. Registration codes will replace this manual copy
-([policy.md](policy.md#registration-and-many-lakes)). Until they land,
-this is how to add a device, and it stays the fallback after.
+There is no TTL. A machine added this way has no pinned lake key and
+gets no base configuration; register it instead when you can.
 
 To add a device, add its token to the file and send `serve` SIGHUP
 (`sudo systemctl kill -s HUP terva-lampi-serve`). Requests in flight
 keep going. A file that does not load leaves the old tokens in place
 and says why on stderr.
 
-Each token is a named device in the catalog. The name is the
-`<name>.token` file in a directory, or the `#` comment line just above
-the token in a file, or `token-N`. A device binds to the first
+Each token is a named device in the catalog: the name given to
+`serve register`, or the `<name>.token` file in a directory, or the
+`#` comment line just above the token in a file, or `token-N`. A
+registered device is bound to its machine when it registers. A
+token-file device binds to the first
 `machine_id` it uploads a manifest under. A manifest from another
 machine, or a `machine_id` another device holds, is refused with 403.
 
@@ -140,7 +182,8 @@ sudo -u terva-lampi terva-lampi serve devices unbind desktop --data /var/lib/ter
 ```
 
 `revoke` takes effect on the lake's next request, with no signal, and
-is final. Remove the token from the file as well. A token removed
+is final. For a token-file device, remove the token from the file as
+well. A token removed
 from the file shows as `detached`. `unbind` lets a reinstalled machine
 with a new machine id bind again. Device changes are appended to
 `audit.jsonl` in the data directory, which `serve backup` copies.
@@ -161,6 +204,21 @@ The agent, `sync`, and `status` read `--token-file`, then
 `LAMPI_TOKEN_FILE`, then `config.json`, then
 `~/.config/terva-lampi/token`. `serve` reads only
 `--token-file`. It does not read `LAMPI_TOKEN_FILE`.
+
+### Profiles
+
+A lake can give its registered agents a base configuration.
+`deploy/profiles.json.example` is the shape; copy it to
+`/var/lib/terva-lampi/profiles.json` (or pass `--profiles`), then
+replace its placeholder `projects.allow` and `projects.deny` entries
+with your own projects. As copied, it allows only a placeholder
+remote, so an agent with no allow rules of its own uploads nothing.
+A profile may set harnesses on or off, the debounce, and `projects.allow` and
+`projects.deny` for uploads to this lake. It cannot set a harness root
+or `redaction.upload_hits`; a file that tries fails the load. A
+device gets the `default` profile unless its code named one or
+`serve devices set-profile laptop NAME` changes it. The machine's own
+`config.json` wins over every field. SIGHUP reloads the file.
 
 ## Serve on loopback
 
@@ -224,6 +282,27 @@ lake.example {
 }
 ```
 
+Two routes answer without a token: `POST /v1/register` and
+`GET /.well-known/terva-lampi/keys`. `serve` limits them together to a
+burst of 20 and 5 a second for the whole lake. Behind a proxy every
+caller has the proxy's address, so limit them per client address at
+the proxy as well. Core Caddy has no rate limiter; with the
+`caddy-ratelimit` module built in, add:
+
+```text
+lake.example {
+	@open path /v1/register /.well-known/terva-lampi/*
+	rate_limit @open {
+		zone open {
+			key    {remote_host}
+			events 10
+			window 1m
+		}
+	}
+	reverse_proxy 127.0.0.1:8787
+}
+```
+
 nginx is the same shape, with more lines. Its default body limit is
 1 MiB, so a larger blob gets `413`. It also buffers the whole body
 before it proxies, and times out after 60 seconds. The snippet below
@@ -234,6 +313,9 @@ certificate paths are placeholders. They belong on the host, not in
 git.
 
 ```text
+# In the http block: ten a minute per client address.
+limit_req_zone $binary_remote_addr zone=lampi_open:1m rate=10r/m;
+
 server {
 	listen 443 ssl;
 	server_name lake.example;
@@ -242,6 +324,12 @@ server {
 	ssl_certificate_key /etc/ssl/private/lake.example.key;
 
 	client_max_body_size 40m;
+
+	location ~ ^/(v1/register|\.well-known/terva-lampi/) {
+		limit_req zone=lampi_open burst=10 nodelay;
+		proxy_pass http://127.0.0.1:8787;
+		proxy_set_header Host $host;
+	}
 
 	location / {
 		proxy_pass http://127.0.0.1:8787;
@@ -270,8 +358,28 @@ placeholder before you run it.
 curl -fsS https://lake.example/healthz
 ```
 
-On each uploading machine, set `LAMPI_SERVER` to that HTTPS URL, or
-set `server` in `config.json`. The agent unit reads
+On each uploading machine, copy the code over and register. On a fresh
+machine, `--install-service` also writes and starts the agent's user
+unit (systemd) or launchd agent:
+
+```bash
+terva-lampi register --code-file laptop.code --install-service
+shred -u laptop.code
+```
+
+`register` checks the code's signature and expiry, that the URL is
+https, and that the key list there holds the code's key. It then shows
+the URL, lake id and fingerprint. Compare the fingerprint with `serve
+identity` on the VPS and confirm; with no terminal, pass
+`--fingerprint SHA256:…`. It writes the token to
+`~/.config/terva-lampi/tokens/<name>.token` without printing it, the
+lake with its pinned key into `config.json`, and the lake's profile. A
+running agent picks the lake up at once on Linux and macOS. On Windows,
+restart the agent to add a lake. `terva-lampi lakes` lists the lakes a
+machine reports to.
+
+A machine using a hand-copied token instead sets `LAMPI_SERVER` to the
+HTTPS URL, or `server` in `config.json`. The agent unit reads
 `~/.config/terva-lampi/agent.env` (mode 0600) and sets neither value
 itself. The copy of that file in git keeps the loopback URL. Put the
 real URL only in the file on the machine. `terva-lampi status` prints
@@ -283,11 +391,14 @@ LAMPI_TOKEN_FILE=/home/you/.config/terva-lampi/token
 ```
 
 Restart the agent after either value changes. `GET /v1` requires
-`Authorization: Bearer` and the device token. `/healthz` does not.
-The agent, `sync`, `status`, and `conflicts` refuse to send the token
-to an `http://` URL whose host is not `localhost`, 127.0.0.0/8, or
-`::1`. A lake that answers 401 or 403 is logged once, naming the token
-file, and the agent retries every five minutes until it is accepted.
+`Authorization: Bearer` and the device token. `/healthz`, the key list
+and `POST /v1/register` do not. The agent, `sync`, `status`, and
+`conflicts` refuse to send the token to an `http://` URL whose host is
+not `localhost`, 127.0.0.0/8, or `::1`. A lake that answers 401 or 403
+is logged once, naming the token file, and the agent retries every
+five minutes until it is accepted. A registered machine also checks
+the lake's key on every connection and pushes nothing to a lake that
+does not prove it.
 
 Laptop, desktop, and the remote/cloud box each run `terva-lampi
 agent`. The names stay at the role. [policy.md](policy.md) lists

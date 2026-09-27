@@ -303,7 +303,11 @@ func TestGoLiveServeProcess(t *testing.T) {
 	if data == "" {
 		t.Skip("subprocess helper")
 	}
-	err := Run([]string{"serve", "--data", data, "--addr", "127.0.0.1:0"}, Env{Stdout: os.Stdout, Stderr: os.Stderr, Getenv: func(string) string { return "" }})
+	args := []string{"serve", "--data", data, "--addr", "127.0.0.1:0"}
+	if extra := os.Getenv("LAMPI_GOLIVE_PROCESS_ARGS"); extra != "" {
+		args = append(args, strings.Split(extra, "\n")...)
+	}
+	err := Run(args, Env{Stdout: os.Stdout, Stderr: os.Stderr, Getenv: func(string) string { return "" }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,8 +315,14 @@ func TestGoLiveServeProcess(t *testing.T) {
 
 func goLiveServe(t *testing.T, data string) (string, *exec.Cmd) {
 	t.Helper()
+	return goLiveServeArgs(t, data)
+}
+
+// goLiveServeArgs is goLiveServe with more serve flags.
+func goLiveServeArgs(t *testing.T, data string, args ...string) (string, *exec.Cmd) {
+	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestGoLiveServeProcess$", "-test.timeout=20m")
-	cmd.Env = []string{"LAMPI_GOLIVE_PROCESS_DATA=" + data}
+	cmd.Env = []string{"LAMPI_GOLIVE_PROCESS_DATA=" + data, "LAMPI_GOLIVE_PROCESS_ARGS=" + strings.Join(args, "\n")}
 	pipe, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)

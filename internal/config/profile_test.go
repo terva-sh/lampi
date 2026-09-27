@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -50,5 +51,20 @@ func TestLoadProfiles(t *testing.T) {
 		if _, err := LoadProfiles(path); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v, want %q", tc.body, err, tc.want)
 		}
+	}
+}
+
+func TestDeployProfilesExampleLoads(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	path := filepath.Join(filepath.Dir(file), "..", "..", "deploy", "profiles.json.example")
+	p, err := LoadProfiles(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := p["ci"]; !ok || len(p[DefaultProfile].Projects.Allow) == 0 {
+		t.Fatalf("example profiles: %+v", p)
 	}
 }
