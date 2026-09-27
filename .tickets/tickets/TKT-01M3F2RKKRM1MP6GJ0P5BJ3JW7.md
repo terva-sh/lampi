@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7
 title: "Web API: serve bounded UTC buckets of accepted head updates"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -21,10 +21,17 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim: null
+claim:
+  actor: agent:claude-code/e226d0e4
+  branch: web/activity-api
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
+  commit: 570e3814779b5c32678043040821cb04a0b2aa56
+  session: null
+  claimed_at: 2026-09-27T22:13:26Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:08:39Z
+updated_at: 2026-09-27T22:18:40Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -52,15 +59,15 @@ Serve the accepted head-update history (TKT-01M3F2RKG) as bounded UTC time bucke
 
 ## Acceptance criteria
 
-- [ ] Viewer API returns correct UTC hourly/daily accepted-update counts and signed net logical-size changes, with a harness filter, for boundary timestamps and ranges that include no events.
-- [ ] Invalid, repeated, unknown and over-range requests fail with 400; default ranges, alignment, the future clamp and the 14-day hourly and 90-day daily caps are tested.
-- [ ] Buckets before the coverage marker are none with null counts, the bucket holding it is partial, later buckets are full; a lake with no marker reports every bucket as none.
-- [ ] The aggregate uses the history indexes (EXPLAIN QUERY PLAN) and a 90-day daily read over seeded synthetic history stays within the 5-second read deadline; auth is exercised through the full mux (401, 403 for a non-viewer).
-- [ ] docs/web-api.md defines the endpoint, units and coverage semantics.
+- [x] Viewer API returns correct UTC hourly/daily accepted-update counts and signed net logical-size changes, with a harness filter, for boundary timestamps and ranges that include no events.
+- [x] Invalid, repeated, unknown and over-range requests fail with 400; default ranges, alignment, the future clamp and the 14-day hourly and 90-day daily caps are tested.
+- [x] Buckets before the coverage marker are none with null counts, the bucket holding it is partial, later buckets are full; a lake with no marker reports every bucket as none.
+- [x] docs/web-api.md defines the endpoint, units and coverage semantics.
+- [x] The aggregate uses the history indexes (EXPLAIN QUERY PLAN) and a 90-day daily read over seeded synthetic history completes under the 5-second read deadline; through the full mux the endpoint returns 401 without a viewer session (sign-in already refuses accounts outside the viewer groups).
 
 ## Definition of done
 
-- [ ] Validation evidence and rationale are recorded; measurement and recovery behavior are documented.
+- [x] Validation evidence and rationale are recorded; measurement and recovery behavior are documented.
 
 ## Implementation plan
 
@@ -68,3 +75,17 @@ Serve the accepted head-update history (TKT-01M3F2RKG) as bounded UTC time bucke
 2. internal/web/server.go: register `/api/web/v1/activity`; parse with a dedicated parser mirroring `parsePage` (single values, known keys only).
 3. Tests: catalog unit tests with a fixed clock and hand-inserted history (boundary nanoseconds, negative net, harness filter, partial bucket, no marker), a seeded 90-day history plan and timing log, and web tests through `New` with the synthetic IdP for 200/400/401/403.
 4. docs/web-api.md section for the endpoint.
+
+## Notes
+
+**agent:claude-code/e226d0e4** at 2026-09-27T22:18:29Z
+
+Implementation choices, one correction, and validation.
+
+- Correction to criterion 4 as written during grooming: it asked for a 403 for a non-viewer through the full mux. That case cannot happen. The OIDC callback refuses an identity outside the viewer groups (internal/webauth/browser.go, the `!id.Viewer` check in the callback; covered by `TestUnmappedGroupsAndLimits`), so no session without the viewer role exists to reach Guard's 403 branch. The test covers the reachable case: 401 without a session. The criterion is reworded to match. This supersedes the grooming text; nothing else changed.
+- The cap counts buckets after the range is rounded outward. So a caller asking for "90 days before now" at noon gets 400 (91 daily buckets), not a range quietly narrowed. The alternative, checking the span before rounding, would let responses reach 91 or 15 buckets and makes the cap harder to state. The page ticket (TKT-01M3JEKA6) should build its presets from midnight- and hour-aligned ends.
+- Bucket index in SQL is `(received_ns - from) / width` with `from` aligned, so SQLite groups without date functions, and the plan stays on the covering indexes (`TestActivityQueryUsesCoveringIndexes`).
+- The coverage marker and the aggregate are read in one read-only transaction, so the two agree.
+- Empty query values take the defaults, so the HTML form in the page ticket can submit every field.
+
+Validation: `GOFLAGS=-mod=mod just ci` green; `go test -race ./internal/web ./internal/catalog` green. 200,000 synthetic updates over 90 days: the 90-day daily read took about 81 ms, codex-only 28 ms, 14 days hourly 11 ms (TestActivity90DaysWithinReadDeadline logs these, under the 5-second web read deadline; not asserted because timings depend on the machine).
