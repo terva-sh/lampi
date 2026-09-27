@@ -80,9 +80,10 @@ so you do not write to the live one.
 ## Add another machine
 
 A second machine needs a lake it can reach. The quickstart lake listens
-on loopback with no token, so first put the lake behind TLS
-([VPS bring-up](docs/vps-bringup.md) covers the proxy), give it an
-operator token, and record the URL agents use:
+on loopback with no token, so stop it with Ctrl-C first. Put the lake
+host behind TLS ([VPS bring-up](docs/vps-bringup.md) covers the proxy).
+Then start the lake again with an operator token, and record the URL
+agents use:
 
 ```bash
 terva-lampi login --token-file ./tokens/operator.token
