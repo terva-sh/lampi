@@ -38,6 +38,15 @@ func TestLoadProfiles(t *testing.T) {
 		{`{"profiles":{"default":{}},"extra":1}`, `unknown field "extra"`},
 		{`{"profiles":{"default":{"harnesses":{"codex":{"root":"/etc"}}}}}`, "cannot set a harness root"},
 		{`{"profiles":{"default":{"redaction":{"upload_hits":true}}}}`, "cannot upload flagged files"},
+		// Forbidden means not allowed here, whatever the value.
+		{`{"profiles":{"default":{"harnesses":{"codex":{"root":""}}}}}`, "cannot set a harness root"},
+		{`{"profiles":{"default":{"redaction":{"upload_hits":false}}}}`, "cannot upload flagged files"},
+		{`{"profiles":{"default":{"harnesses":{"codex":{"enabled":true,"root":null}}}}}`, "cannot set a harness root"},
+		// The decoder matches field names ignoring case, and so does the
+		// refusal.
+		{`{"profiles":{"default":{"redaction":{"UPLOAD_HITS":false}}}}`, "cannot upload flagged files"},
+		{`{"profiles":{"default":{"Redaction":{"Upload_Hits":false}}}}`, "cannot upload flagged files"},
+		{`{"profiles":{"default":{"HARNESSES":{"codex":{"Root":""}}}}}`, "cannot set a harness root"},
 		// upload_hits is redaction's only field, so a profile carries no
 		// redaction setting the merge could drop.
 		{`{"profiles":{"default":{"redaction":{"ruleset":"strict"}}}}`, `unknown field "ruleset"`},
