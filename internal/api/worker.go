@@ -42,10 +42,19 @@ type normalizeQueue struct {
 	// them too.
 	delayed int
 	closed  bool
+	// held counts each job, by session and generation, that is queued,
+	// waiting on a retry timer, or running. pushNew reads it so a
+	// reload of catalog.normalize_jobs does not queue a job twice.
+	held map[jobKey]int
+}
+
+type jobKey struct {
+	uid string
+	gen int64
 }
 
 func newNormalizeQueue() *normalizeQueue {
-	q := &normalizeQueue{}
+	q := &normalizeQueue{held: map[jobKey]int{}}
 	q.cond = sync.NewCond(&q.mu)
 	return q
 }
@@ -60,8 +69,25 @@ func (q *normalizeQueue) push(job catalog.NormalizeJob) {
 		return
 	}
 	q.items = append(q.items, job)
+	q.held[jobKey{job.SessionUID, job.Gen}]++
 	q.cond.Broadcast()
 	q.mu.Unlock()
+}
+
+// pushNew adds job unless the same session and generation is already
+// queued, waiting on a retry, or running, and reports whether it did.
+// A job whose attempts ran out is held by nothing, so a reload runs it
+// again, as a restart would.
+func (q *normalizeQueue) pushNew(job catalog.NormalizeJob) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed || q.held[jobKey{job.SessionUID, job.Gen}] > 0 {
+		return false
+	}
+	q.items = append(q.items, job)
+	q.held[jobKey{job.SessionUID, job.Gen}]++
+	q.cond.Broadcast()
+	return true
 }
 
 // later pushes job after d.
@@ -72,12 +98,15 @@ func (q *normalizeQueue) later(job catalog.NormalizeJob, d time.Duration) {
 		return
 	}
 	q.delayed++
+	q.held[jobKey{job.SessionUID, job.Gen}]++
 	q.mu.Unlock()
 	time.AfterFunc(d, func() {
 		q.mu.Lock()
 		q.delayed--
 		if !q.closed {
 			q.items = append(q.items, job)
+		} else {
+			q.release(job)
 		}
 		q.cond.Broadcast()
 		q.mu.Unlock()
@@ -101,11 +130,24 @@ func (q *normalizeQueue) pop() (catalog.NormalizeJob, bool) {
 	return job, true
 }
 
-func (q *normalizeQueue) done() {
+// done ends a job pop handed out. A retry of it was counted again by
+// later.
+func (q *normalizeQueue) done(job catalog.NormalizeJob) {
 	q.mu.Lock()
 	q.inflight--
+	q.release(job)
 	q.cond.Broadcast()
 	q.mu.Unlock()
+}
+
+// release drops one count of job from held. q.mu is held.
+func (q *normalizeQueue) release(job catalog.NormalizeJob) {
+	k := jobKey{job.SessionUID, job.Gen}
+	if q.held[k] <= 1 {
+		delete(q.held, k)
+		return
+	}
+	q.held[k]--
 }
 
 func (q *normalizeQueue) waitIdle(ctx context.Context) error {
@@ -163,6 +205,27 @@ func (s *Server) loadNormalizeJobs(ctx context.Context) error {
 	return nil
 }
 
+// ReloadNormalizeJobs queues each row of catalog.normalize_jobs that
+// this process does not already hold, and reports how many it queued.
+// serve calls it on SIGHUP, so jobs serve normalize wrote, and jobs
+// whose attempts ran out, start without a restart.
+func (s *Server) ReloadNormalizeJobs(ctx context.Context) (int, error) {
+	if s == nil || s.norm == nil {
+		return 0, nil
+	}
+	jobs, err := s.Catalog.ListNormalizeJobs(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, job := range jobs {
+		if s.norm.pushNew(job) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *Server) startNormalizeWorkers() {
 	for range normalizeWorkers {
 		s.normalizeWG.Add(1)
@@ -178,7 +241,7 @@ func (s *Server) normalizeLoop() {
 			return
 		}
 		s.runNormalize(job)
-		s.norm.done()
+		s.norm.done(job)
 	}
 }
 

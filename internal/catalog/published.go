@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 func migratePublished(tx *sql.Tx) error {
@@ -36,6 +37,30 @@ const normalizationStateSQL = `CASE
 	WHEN COALESCE(s.normalize_error,'')!='' THEN 'failed'
 	WHEN s.published_gen=s.normalize_gen AND s.published_head=s.head_sha256 THEN 'ready'
 	ELSE 'unknown' END`
+
+// SessionsInNormalizationState lists the UIDs of the sessions whose
+// state (pending, failed, ready or unknown, as the dashboard counts
+// them) is state, oldest first. serve normalize uses it to requeue.
+func (c *Catalog) SessionsInNormalizationState(ctx context.Context, state string) ([]string, error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid FROM sessions s
+	WHERE (`+normalizationStateSQL+`) = ? ORDER BY s.ingested_at, s.session_uid`, state)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, uid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return out, nil
+}
 
 func (c *Catalog) NormalizationState(ctx context.Context, uid string) (string, error) {
 	var state string

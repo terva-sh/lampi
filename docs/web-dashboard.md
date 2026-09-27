@@ -141,6 +141,11 @@ configuration bypass.
 - Pending includes queued, running and retrying normalization. Failed means a
   recorded terminal failure. Ready requires publication of the current generation
   and head. Unknown includes legacy rows not verified by a new publication.
+- To clear unknown and failed sessions, run `terva-lampi serve normalize --stale
+  --failed` on the lake host (as the service user, with `--data`), then send
+  serve SIGHUP (`systemctl kill -s HUP terva-lampi-serve`). The overview's
+  counts move from pending to ready or failed as the jobs finish. `--dry-run`
+  lists the sessions first, and `--session UID` takes one.
 - Metadata lists use bounded live cursor pages. Ingestion may move a session to
   an earlier page; refresh to start over. Large labels/paths are display previews.
   The [browser API contract](web-api.md) describes exact limits.
