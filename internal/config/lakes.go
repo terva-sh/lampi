@@ -18,7 +18,9 @@ const DefaultLake = "default"
 // required. TokenFile defaults to tokens/<name>.token in the config
 // directory, or to the legacy token path for the lake named default.
 // LakeID, KeyID and PublicKey are the lake's pinned identity, written by
-// register; a hand-written entry may leave them empty. Projects are the
+// register; a hand-written entry may leave them empty. DeviceID is the
+// id the lake gave this machine's device; when set, a profile signed
+// for another device is refused. Projects are the
 // rules for uploads to this lake only. Top-level projects.deny applies
 // to every lake as well.
 type LakeConfig struct {
@@ -27,6 +29,7 @@ type LakeConfig struct {
 	LakeID    string   `json:"lake_id,omitempty"`
 	KeyID     string   `json:"key_id,omitempty"`
 	PublicKey string   `json:"public_key,omitempty"`
+	DeviceID  string   `json:"device_id,omitempty"`
 	Projects  Projects `json:"projects,omitempty"`
 }
 
@@ -41,6 +44,7 @@ type Lake struct {
 	LakeID    string
 	KeyID     string
 	PublicKey string
+	DeviceID  string
 	Projects  Projects
 	Legacy    bool
 	// AllowFrom is where Projects.Allow came from once ApplyLakeProfile
@@ -187,6 +191,7 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 			LakeID:    lc.LakeID,
 			KeyID:     lc.KeyID,
 			PublicKey: lc.PublicKey,
+			DeviceID:  lc.DeviceID,
 			Projects: Projects{
 				Allow: lc.Projects.Allow,
 				Deny:  append(append([]ProjectMatch(nil), file.Projects.Deny...), lc.Projects.Deny...),
