@@ -22,7 +22,8 @@ allowlist refuses, most sessions first: the session count, the
 harnesses, the reason, the cwd and the git remote. A project with a
 git remote is one line however many checkouts it has, since allow rules
 name repositories; the cwd column then shows one checkout and how many
-more there are. A project without a remote is its cwd. The reason is one
+more there are. Checkouts refused for different reasons are separate
+lines. A project without a remote is its cwd. The reason is one
 of: a deny rule matches, the allow list is empty, the session has no
 cwd, or no allow rule matches. The rules are each lake's effective
 rules: config.json with that lake's cached profile applied. With

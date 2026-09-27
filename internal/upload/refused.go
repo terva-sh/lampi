@@ -22,12 +22,11 @@ type RefusedProject struct {
 }
 
 // Refusals reads the harness homes in opt the way Sync does and groups
-// the sessions opt.Projects refuses by project: the folded remote when
-// there is one, since allow rules name repositories, and otherwise the
-// cwd. Within a repository the reason is the first session's; sessions
-// of one repository in different cwds can differ only when a cwd rule
-// is involved, and the report is a guide to writing rules, not a
-// verdict per session.
+// the sessions opt.Projects refuses by project and reason: the folded
+// remote when there is one, since allow rules name repositories, and
+// otherwise the cwd. Checkouts of one repository refused for different
+// reasons, such as one under a deny rule, are separate lines, so every
+// line's reason is true of every session it counts.
 // It sends nothing, opens no sync state, and snapshots no refused Cursor
 // session. skipped names what could not be read, as in Result.
 func Refusals(opt Options) (projects []RefusedProject, skipped []string) {
@@ -47,6 +46,7 @@ func Refusals(opt Options) (projects []RefusedProject, skipped []string) {
 			if r := config.NormalizeRemote(id.GitRemote); r != "" {
 				key = "remote\x00" + r
 			}
+			key += "\x00" + reason
 			p := byKey[key]
 			if p == nil {
 				p = &RefusedProject{GitRemote: id.GitRemote, Reason: reason}

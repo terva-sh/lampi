@@ -96,3 +96,30 @@ func TestRefusalReasons(t *testing.T) {
 		}
 	}
 }
+
+// Checkouts of one repository refused for different reasons are
+// separate lines, each with its own true reason.
+func TestRefusalsSplitsARepositoryByReason(t *testing.T) {
+	work := t.TempDir()
+	open, closed := filepath.Join(work, "open"), filepath.Join(work, "closed")
+	checkout(t, open, "git@git.example:team/app.git")
+	checkout(t, closed, "git@git.example:team/app.git")
+	home := t.TempDir()
+	tervaSession(t, home, "aaaa", "s1", open)
+	tervaSession(t, home, "bbbb", "s2", closed)
+	got, _ := Refusals(Options{
+		TervaHome: home,
+		MachineID: "m",
+		Projects: config.Projects{
+			Allow: []config.ProjectMatch{{CWDPrefix: closed}},
+			Deny:  []config.ProjectMatch{{CWDPrefix: closed}},
+		},
+	})
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want one line per reason", got)
+	}
+	reasons := map[string]string{got[0].CWD: got[0].Reason, got[1].CWD: got[1].Reason}
+	if reasons[open] != config.RefusedNoMatch || reasons[closed] != config.RefusedByDeny {
+		t.Fatalf("reasons %v", reasons)
+	}
+}
