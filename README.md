@@ -81,7 +81,19 @@ so you do not write to the live one.
 
 ## Add another machine
 
-On the lake host, mint a one-time code:
+A second machine needs a lake it can reach. The quickstart lake listens
+on loopback with no token, so first put the lake behind TLS
+([VPS bring-up](docs/vps-bringup.md) covers the proxy), give it an
+operator token, and record the URL agents use:
+
+```bash
+terva-lampi login --token-file ./tokens/operator.token
+terva-lampi serve --token-file ./tokens &
+terva-lampi serve identity set-url https://lake.example
+```
+
+Then, on the lake host, mint a one-time code. Move it the way you would
+move a password:
 
 ```bash
 terva-lampi serve register --name laptop > laptop.code
