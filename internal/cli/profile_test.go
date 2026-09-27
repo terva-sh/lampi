@@ -166,8 +166,9 @@ func TestOneLakesProfileNeverAppliesToAnotherLake(t *testing.T) {
 	writeAgentConfig(t, cfg, fmt.Sprintf(`{"projects":{"deny":[{"cwd_prefix":"/work/app/secret"}]},"lakes":{
 		"work":{"server":%q,"lake_id":%q,"key_id":%q,"public_key":%q},
 		"home":{"server":"http://127.0.0.1:9"}}}`, url, lake.Identity().LakeID, k.ID, k.PublicKey))
+	allow := config.Profile{Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work"}}}}
 	signed, err := lake.Identity().Sign(identity.ContextAgentConfig, protocol.AgentConfigPayload{
-		LakeID: lake.Identity().LakeID, Profile: "default", Version: "v1",
+		LakeID: lake.Identity().LakeID, Profile: "default", Version: allow.Version(),
 		Config: json.RawMessage(`{"projects":{"allow":[{"cwd_prefix":"/work"}]}}`),
 	}, time.Now())
 	if err != nil {

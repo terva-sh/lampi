@@ -81,6 +81,7 @@ const twoLakes = `{
     "work": {
       "server": "https://work.example",
       "lake_id": "lake_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "device_id": "dev_work",
       "projects": {
         "allow": [{"cwd_prefix": "/src/work"}],
         "deny": [{"cwd_prefix": "/src/work/private"}]
@@ -108,8 +109,8 @@ func TestLakesMapAddsLakesBesideTheLegacyOne(t *testing.T) {
 	if work.TokenFile != (Setting{filepath.Join(cfgHome, "terva-lampi", "tokens", "work.token"), SourceDefault}) {
 		t.Fatalf("work token %+v", work.TokenFile)
 	}
-	if work.LakeID != "lake_aaaaaaaaaaaaaaaaaaaaaaaaaa" {
-		t.Fatalf("work lake id %q", work.LakeID)
+	if work.LakeID != "lake_aaaaaaaaaaaaaaaaaaaaaaaaaa" || work.DeviceID != "dev_work" || archive.DeviceID != "" {
+		t.Fatalf("work lake id %q device %q, archive device %q", work.LakeID, work.DeviceID, archive.DeviceID)
 	}
 
 	id := func(cwd string) ProjectID { return ProjectID{CWD: cwd, NoRepo: true} }
