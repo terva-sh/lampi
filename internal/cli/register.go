@@ -18,6 +18,7 @@ import (
 	"terva.sh/lampi/internal/lakestate"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/regcode"
+	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/upload"
 )
 
@@ -131,7 +132,7 @@ func runRegister(env Env, args []string) error {
 	}
 	// 3. The lake at that URL holds the code's key.
 	key := protocol.LakeKey{ID: c.KeyID, Alg: "ed25519", PublicKey: c.PublicKey}
-	if err := verifyKeyList(ctx, c.URL, c.LakeID, key); err != nil {
+	if err := registrar.VerifyKeyList(ctx, c.URL, c.LakeID, key); err != nil {
 		if errors.Is(err, upload.ErrNoKeyEndpoint) {
 			return fmt.Errorf("check 3, the lake's keys: %w", err)
 		}
