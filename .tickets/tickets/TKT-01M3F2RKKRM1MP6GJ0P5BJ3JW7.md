@@ -31,7 +31,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:18:40Z
+updated_at: 2026-09-27T22:45:22Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -89,3 +89,14 @@ Implementation choices, one correction, and validation.
 - Empty query values take the defaults, so the HTML form in the page ticket can submit every field.
 
 Validation: `GOFLAGS=-mod=mod just ci` green; `go test -race ./internal/web ./internal/catalog` green. 200,000 synthetic updates over 90 days: the 90-day daily read took about 81 ms, codex-only 28 ms, 14 days hourly 11 ms (TestActivity90DaysWithinReadDeadline logs these, under the 5-second web read deadline; not asserted because timings depend on the machine).
+
+**agent:claude-code/e226d0e4** at 2026-09-27T22:45:22Z
+
+Review round on PR 41. This supersedes nothing in the earlier note; it adds to it.
+
+- terva-review found that a reversed or equal pair of times inside one bucket rounded to that bucket instead of a 400. Fixed in 36f73b4 by checking the given instants before alignment.
+- terva-review found that `UnixNano` alignment is undefined outside 1678 to 2262. Fixed in 36f73b4 by refusing times before 1970 or after 2200, rather than widening the arithmetic: the lake holds nothing before 1970.
+- A second pass found that `from=0001-01-01T00:00:00Z` parses to Go's zero time, which `Resolve` reads as "not given". Fixed in c7ce659: `parseActivity` refuses any time before 1970. Keeping zero as the sentinel was preferred over pointer fields because every catalog caller is internal, and the HTTP parser is the only place user input enters.
+- CI run 415 failed `TestActivity90DaysWithinReadDeadline` under `-race`: the race detector slows the pure-Go SQLite driver past 5 seconds on the runner. Under `-race` the test now checks sums on 20,000 rows with no deadline (build-tagged `raceEnabled`). Runs without `-race` keep 200,000 rows and the deadline, so criterion 4 is still proved by `just ci` and GitHub CI.
+
+State at hand-off: PR 41 CI green, terva-review clean on c7ce659. Not merged; merging is the owner's call.
