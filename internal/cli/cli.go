@@ -14,10 +14,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 )
 
-// version and commit are stamped with -ldflags. 0.0.0 means unstamped.
+// version and commit are stamped with -ldflags by `just build`. 0.0.0
+// means unstamped, and then versionLine reads the build info instead.
 var (
 	version = "0.0.0"
 	commit  = ""
@@ -113,10 +115,45 @@ func Run(args []string, env Env) error {
 }
 
 func versionLine() string {
-	if commit == "" {
-		return "terva-lampi " + version
+	v, c := version, commit
+	if v == "0.0.0" && c == "" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			v, c = buildInfoVersion(info)
+		}
 	}
-	return "terva-lampi " + version + " (" + commit + ")"
+	if c == "" {
+		return "terva-lampi " + v
+	}
+	return "terva-lampi " + v + " (" + c + ")"
+}
+
+// buildInfoVersion is the module version and short commit that go build
+// records. A release is built by goreleaser in a checkout at its tag
+// with nothing linked in, so the tag comes from here, as it does for
+// the other terva-sh releases. A build outside a tagged checkout
+// reports (devel), which stays 0.0.0.
+func buildInfoVersion(info *debug.BuildInfo) (string, string) {
+	v := "0.0.0"
+	if mv := info.Main.Version; mv != "" && mv != "(devel)" {
+		v = mv
+	}
+	var c string
+	var modified bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			c = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	if len(c) > 12 {
+		c = c[:12]
+	}
+	if c != "" && modified {
+		c += "-modified"
+	}
+	return v, c
 }
 
 func isHelp(s string) bool {

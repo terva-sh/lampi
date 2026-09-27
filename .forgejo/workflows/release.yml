@@ -1,0 +1,116 @@
+# Forgejo release: pushing a v* tag builds every target with goreleaser and
+# publishes the archives on this instance. This follows git-ticket's Forgejo
+# release workflow.
+#
+# goreleaser builds but does not publish here. Publishing natively would
+# need `gitea_urls.api` in .goreleaser.yaml naming this instance, and that
+# file ships to the public mirror, so the host is read from
+# ${{ github.server_url }} at run time instead. Runner conventions match
+# ci.yml: checkout from Actions-Mirrors and Go from the registry image.
+#
+# Needs BOT_TOKEN, a Forgejo token with write access to this repository, the
+# same secret terva-review.yml uses. The publish step fails loudly without
+# it, because a tag that produced no release looks like a tag nobody pushed.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Publish Release
+    runs-on: docker
+    container:
+      image: container.local.sothr.com/library/golang:1.27-alpine
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache git curl jq
+
+      - name: Checkout Code
+        uses: Actions-Mirrors/forgejo-actions-checkout@v6
+        with:
+          # The version comes from the tag at HEAD; see .goreleaser.yaml.
+          fetch-depth: 0
+
+      - name: Build the archives
+        uses: Actions-Mirrors/goreleaser-action@v6
+        with:
+          args: release --clean --skip=publish
+
+      - name: Verify the binary reports the tag
+        # Here it gates the upload, since this workflow does its own publishing.
+        run: |
+          set -eu
+          tmp=$(mktemp -d)
+          archive=$(ls dist/terva-lampi_*_linux_amd64.tar.gz)
+          tar -xzf "${archive}" -C "${tmp}"
+          got=$("${tmp}/terva-lampi" --version)
+          echo "built: ${got}"
+          case "${got}" in
+            *"${GITHUB_REF_NAME}"*) echo "carries ${GITHUB_REF_NAME}" ;;
+            *)
+              echo "::error::the binary reports '${got}', which does not carry ${GITHUB_REF_NAME}"
+              echo "The build lost its VCS stamps. Check that the checkout is not shallow."
+              exit 1
+              ;;
+          esac
+
+      - name: Publish the release
+        env:
+          TOKEN: ${{ secrets.BOT_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if [ -z "${TOKEN:-}" ]; then
+            echo "::error::BOT_TOKEN is unset, so the archives cannot be published"
+            exit 1
+          fi
+          api="${SERVER}/api/v1/repos/${REPO}"
+          [ -f dist/CHANGELOG.md ] || : > dist/CHANGELOG.md
+          case "${TAG}" in
+            *-*) pre=true ;;
+            *)   pre=false ;;
+          esac
+          payload=$(jq -n \
+            --arg tag "${TAG}" \
+            --rawfile body dist/CHANGELOG.md \
+            --argjson pre "${pre}" \
+            '{tag_name: $tag, name: $tag, body: $body, draft: false, prerelease: $pre}')
+          id=$(curl -sS -X POST "${api}/releases" \
+            -H "Authorization: token ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${payload}" | jq -r '.id // empty')
+          # A non-numeric id means the API answered with an error object.
+          case "${id}" in
+            ''|*[!0-9]*)
+              echo "::error::creating the release for ${TAG} did not return an id"
+              exit 1
+              ;;
+          esac
+          echo "release ${TAG} is id ${id}"
+          uploaded=0
+          for f in dist/*.tar.gz dist/*.zip dist/checksums.txt; do
+            [ -e "${f}" ] || continue
+            name=$(basename "${f}")
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              "${api}/releases/${id}/assets?name=${name}" \
+              -H "Authorization: token ${TOKEN}" \
+              -F "attachment=@${f}")
+            case "${code}" in
+              2*) echo "uploaded ${name}"; uploaded=$((uploaded + 1)) ;;
+              *)  echo "::error::uploading ${name} answered HTTP ${code}"; exit 1 ;;
+            esac
+          done
+          # A release with no assets would otherwise pass with a green tick.
+          if [ "${uploaded}" -eq 0 ]; then
+            echo "::error::the release was created with no assets"
+            exit 1
+          fi
+          echo "published ${uploaded} asset(s) to ${TAG}"
