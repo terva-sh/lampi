@@ -61,10 +61,12 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return fmt.Sprint(*p)
 	},
-	"deref":    func(p *bool) bool { return p != nil && *p },
-	"derefInt": func(p *int64) int64 { return *p },
-	"int64":    func(n int) int64 { return int64(n) },
-	"kib":      func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
+	"deref":     func(p *bool) bool { return p != nil && *p },
+	"derefInt":  func(p *int64) int64 { return *p },
+	"int64":     func(n int) int64 { return int64(n) },
+	"kib":       func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
+	"lifetimes": func() []struct{ Value, Label string } { return codeLifetimes },
+	"revokeURL": func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
 	"collectionURL": func(uid, kind string) string {
 		return "/sessions/" + url.PathEscape(uid) + "?collection=" + url.QueryEscape(kind)
 	},
@@ -88,6 +90,10 @@ type pageData struct {
 	Target      int64
 	HasTarget   bool
 	Search      searchView
+	// Operator shows the operator's navigation. Codes is the
+	// registrations page.
+	Operator bool
+	Codes    codesView
 }
 
 // searchView is the search form and its results. Hits carry the
@@ -131,6 +137,7 @@ func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int
 	id, csrf := webauth.Current(r)
 	d.Display = id.Display
 	d.CSRF = csrf
+	d.Operator = id.Operator
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_ = pages.ExecuteTemplate(w, "layout", d)
