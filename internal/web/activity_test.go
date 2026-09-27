@@ -221,6 +221,14 @@ func TestChartEdges(t *testing.T) {
 	if len(zero.Bars) != 0 || len(zero.Ticks) != 2 || zero.Ticks[1].Label != "1" {
 		t.Fatalf("all zero: %+v", zero)
 	}
+	five := buildChart("x", "Five", []time.Time{day}, []*int64{n(4)}, false, humanCount, niceCeil)
+	if len(five.Ticks) != 2 || five.Ticks[1].Label != "5" {
+		t.Fatalf("top of 5 has a fractional middle tick: %+v", five.Ticks)
+	}
+	ten := buildChart("x", "Ten", []time.Time{day}, []*int64{n(7)}, false, humanCount, niceCeil)
+	if len(ten.Ticks) != 3 || ten.Ticks[1].Label != "5" {
+		t.Fatalf("top of 10: %+v", ten.Ticks)
+	}
 	neg := buildChart("x", "Net", []time.Time{day, day.Add(24 * time.Hour)}, []*int64{n(3000), n(-90000)}, false, signedBytes, niceBytes)
 	if !neg.Negative || len(neg.Bars) != 2 || !neg.Bars[1].Negative || neg.Ticks[0].Label != "−100.0 KiB" || neg.Ticks[2].Label != "+5.0 KiB" {
 		t.Fatalf("negative: %+v", neg.Ticks)

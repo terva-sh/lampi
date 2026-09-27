@@ -259,11 +259,13 @@ func buildChart(id, title string, starts []time.Time, values []*int64, hourly bo
 	}
 	y := func(v float64) float64 { return padT + (top-v)/(top-bottom)*plotH }
 	c.Baseline = y(0)
-	ticks := []float64{0, top / 2, top}
+	// A middle tick only where its label can say exactly what it marks:
+	// half of 5 updates is not a count.
+	ticks := []float64{0, top}
 	if bottom < 0 {
 		ticks = []float64{bottom, 0, top}
-	} else if top < 2 {
-		ticks = []float64{0, top}
+	} else if half := top / 2; half == math.Trunc(half) {
+		ticks = []float64{0, half, top}
 	}
 	for _, t := range ticks {
 		c.Ticks = append(c.Ticks, chartTick{Y: y(t), Label: format(int64(t))})
