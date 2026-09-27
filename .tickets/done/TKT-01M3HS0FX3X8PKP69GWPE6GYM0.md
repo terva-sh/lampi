@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3HS0FX3X8PKP69GWPE6GYM0
 title: Release archives on GitHub and a curl-able install.sh
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: release/installer
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: ee46de976b3263cc54f2fb8b3d9d5028a0aa5565
-  session: null
-  claimed_at: 2026-09-27T15:51:16Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T15:51:16Z
-updated_at: 2026-09-27T17:25:03Z
+updated_at: 2026-09-27T17:39:07Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -58,10 +51,10 @@ Alternatives: a lake-served installer, rejected by the owner in favour of the or
 
 ## Acceptance criteria
 
-- [ ] A v* tag publishes goreleaser archives and checksums.txt on GitHub
+- [x] A v* tag publishes goreleaser archives and checksums.txt on GitHub
 - [x] install.sh verifies sha256 before unpacking and installs without sudo
 - [x] install.sh --register runs register on the terminal, never on the piped script
-- [ ] A release binary's --version carries its tag
+- [x] A release binary's --version carries its tag
 - [x] README documents install and the release steps
 
 ## Implementation plan
@@ -125,3 +118,15 @@ Fixed on release/fix-first-release:
 - The lookup uses `curl -f`.
 
 The owner chose to leave v0.1.0 in place and release v0.1.1 rather than rewrite a pushed tag.
+
+## Summary
+
+v0.1.1 is the first published release: tag on 53d1c54, released 2026-09-27.
+
+- **GitHub:** the release carries the linux and darwin amd64 and arm64 archives, the windows amd64 zip, and `checksums.txt`. Forgejo has the same six assets.
+- **Installer check:** `curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh` into a fresh HOME downloaded v0.1.1, verified its sha256, and installed a binary reporting `terva-lampi v0.1.1 (53d1c54f89c3)`.
+- **Earlier failed tag:** v0.1.0 stays on 5a58468 with no release. Both of its jobs failed on bugs fixed in PR #27. The owner chose v0.1.1 over rewriting the pushed tag.
+
+Landed in PRs #25 and #27.
+
+Release procedure: `docs/development.md#releases`.
