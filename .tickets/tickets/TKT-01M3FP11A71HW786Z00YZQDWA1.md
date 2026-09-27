@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-27T14:12:36Z
+updated_at: 2026-09-27T14:22:52Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -83,3 +83,7 @@ Lake upgraded by the owner on 2026-09-27 with the bundle's operator script (inst
 - AC3: the workstation agent was upgraded in place. Before that, copies of its config, state and old binary were taken to a private directory under ~/.local/state (outside every repo) for rollback. On start it logged "moved sync state to .../lakes/default"; the machine id is unchanged; the legacy files are gone from the top level. Its first passes counted 83 files unchanged and uploaded only one: this session's own transcript, which is still growing. A later pass uploaded nothing (checked 0, unchanged 84). Nothing was re-uploaded.
 
 The refused count, 78, is the agent's allowlist refusals and was the same before the upgrade; quarantined stayed at 6. The workstation's entry stays a legacy one: there is no lake_id pin and no profile fetch. Moving it to a pinned, registered entry would take register --replace and is not needed for this ticket.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T14:22:52Z
+
+AC4 is in the owner's hands: they will register NeoT, their main laptop and the servers kobal and shai. Cross-built binaries of d9aa261 for linux and darwin (amd64, arm64), with checksums, are in the rollout bundle's machines/ directory outside the repository. A new machine uploads nothing until it has allow rules; follow-ups filed as TKT-01M3HKYFE1 (Allow and deny rules by git remote prefix), TKT-01M3HKYFF5 (Report which projects the allowlist refuses) and TKT-01M3HKYFCW (Operator re-normalization for stale and failed sessions).
