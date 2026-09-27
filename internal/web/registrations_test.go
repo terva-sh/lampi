@@ -134,6 +134,7 @@ func TestOperatorMintsListsAndRevokes(t *testing.T) {
 		`{"name":"box","extra":1}`:        "invalid_request",
 		`{"name":"box"}{"name":"other"}`:  "invalid_request",
 		`not json`:                        "invalid_request",
+		`null`:                            "invalid_request",
 	} {
 		if w := post(h, "/api/web/v1/registrations", body, cookie, map[string]string{CSRFHeader: csrf}); w.Code != 400 || !strings.Contains(w.Body.String(), want) {
 			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
@@ -204,6 +205,12 @@ func TestMintIsRateLimited(t *testing.T) {
 	idp.AuthTime = time.Now()
 	cookie, _ := signIn(t, idp, h)
 	csrf := csrfOf(t, h, cookie)
+	// Refused input does not use up the allowance.
+	for range mintBurst + 1 {
+		if w := post(h, "/api/web/v1/registrations", `{"name":"box","profile":"nope"}`, cookie, map[string]string{CSRFHeader: csrf}); w.Code != 400 {
+			t.Fatalf("unknown profile: %d %s", w.Code, w.Body)
+		}
+	}
 	var last *httptest.ResponseRecorder
 	for i := range mintBurst + 1 {
 		last = post(h, "/api/web/v1/registrations", `{"name":"box-`+string(rune('a'+i))+`"}`, cookie, map[string]string{CSRFHeader: csrf})

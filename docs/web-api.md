@@ -109,8 +109,10 @@ installs the latest release, and `install_pinned` is false. The line
 begins with a space so shells that skip such lines leave it out of
 history. The code is not shown again: only its hash is stored.
 
-The dashboard mints at most 5 codes at once and one more every 12
-seconds. Past that a mint is `429 rate_limited`.
+The dashboard attempts at most 5 mints at once and one more every 12
+seconds. Past that a mint is `429 rate_limited`. A request refused for
+its input (name, expiry, profile) does not count; one that reaches the
+public URL check does, whether or not it ends in a code.
 
 | Refusal | Status and `error` |
 |---|---|

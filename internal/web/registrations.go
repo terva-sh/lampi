@@ -112,8 +112,9 @@ func actor(id webauth.Identity) registrar.Actor {
 	return registrar.Actor{Catalog: a, Audit: a}
 }
 
-// mintLimit bounds how often the dashboard mints. Each mint fetches the
-// key list through the public URL and appends to the audit log.
+// mintLimit bounds how often the dashboard attempts a mint that passed
+// its input checks. Each attempt fetches the key list through the
+// public URL, and a mint appends to the audit log.
 type mintLimit struct {
 	mu     sync.Mutex
 	tokens float64
@@ -232,14 +233,25 @@ func (s *Server) mint(r *http.Request, req mintRequest) (mintedView, error) {
 		}
 		lifetime = d
 	}
+	if lifetime <= 0 || lifetime > registrar.MaxLifetime {
+		return mintedView{}, registrar.ErrLifetime
+	}
 	if req.Name == "" || catalog.DeviceName(req.Name) != req.Name {
 		return mintedView{}, errBadName
 	}
+	lake := s.reg.Lake()
+	if _, ok := lake.Profiles[req.Profile]; !ok && req.Profile != "" && req.Profile != config.DefaultProfile {
+		return mintedView{}, registrar.ErrNoProfile
+	}
+	// Input is checked before the limit, so a mistyped form does not use
+	// it up. What the limit bounds is the key-list fetch and the synced
+	// audit line an attempt past this point costs, whether or not it
+	// ends in a code.
 	if !s.mints.allow(now) {
 		return mintedView{}, errMintRate
 	}
 	id, _ := webauth.Current(r)
-	m, err := registrar.Mint(r.Context(), s.reg.Lake(), req.Name, req.Profile, lifetime, actor(id), now)
+	m, err := registrar.Mint(r.Context(), lake, req.Name, req.Profile, lifetime, actor(id), now)
 	if err != nil {
 		return mintedView{}, err
 	}
@@ -281,15 +293,16 @@ func (s *Server) mintCode(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusForbidden, "csrf_failed")
 		return
 	}
-	var req mintRequest
+	// A pointer, so a body of null is told apart from an empty object.
+	var req *mintRequest
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil || dec.More() {
+	if err := dec.Decode(&req); err != nil || req == nil || dec.More() {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	v, err := s.mint(r, req)
+	v, err := s.mint(r, *req)
 	if err != nil {
 		status, code := mintStatus(err)
 		if status >= 500 {
