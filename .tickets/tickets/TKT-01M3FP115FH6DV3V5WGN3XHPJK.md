@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-26T21:24:33Z
+updated_at: 2026-09-27T00:04:01Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -78,3 +78,7 @@ Evidence:
 - Full `-race` suite and the golive drills are green.
 
 AC3 is unticked. The commands that change lakes, register and lakes remove, arrive in TKT-01M3FHHBR. reloadAgent returns the Windows restart line they must print, and it is tested only by `go vet` on Windows. TKT-01M3FHHBR has to call it after it writes config.json.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T00:04:01Z
+
+Review 930 on PR #15, both findings fixed in 32360b5. Starting a lake is split into prepare (can fail) and launch (cannot); a reload prepares every new and changed lake before stopping any, so a failed migration leaves every lake running and the reload says the lakes are unchanged. A reload holds one mutex for its whole run and shutdown's wait takes it first, so agent.pid is not released mid-reload. When the lake-profile layer merged in, its reloadMu and this mutex became one (profile fetches also trigger reloads), and reload re-checks shutdown right after reading config so a reload cut short says nothing.
