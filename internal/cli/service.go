@@ -49,16 +49,48 @@ func installService(env Env, state string) error {
 	}
 }
 
-func installSystemd(env Env, exe string, running bool) error {
-	cfg := env.getenv("XDG_CONFIG_HOME")
-	if cfg == "" {
-		home := env.getenv("HOME")
-		if home == "" {
-			return errors.New("--install-service: HOME is not set")
+// systemdUserDir is where the running user manager looks for units:
+// its own $XDG_CONFIG_HOME/systemd/user, or ~/.config/systemd/user. It
+// asks the manager with show-environment rather than reading this
+// process's XDG_CONFIG_HOME, which register may run with set elsewhere
+// (TKT-01M3GAHSQ). The unit's Environment= lines carry this process's
+// directories to the agent either way. When the manager cannot be
+// asked, the default path is used and enable reports any problem.
+func systemdUserDir(env Env) (string, error) {
+	home := env.getenv("HOME")
+	if out, err := runCommand("systemctl", "--user", "show-environment"); err == nil {
+		var mgrCfg, mgrHome string
+		for _, line := range strings.Split(string(out), "\n") {
+			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if !ok {
+				continue
+			}
+			switch k {
+			case "XDG_CONFIG_HOME":
+				mgrCfg = v
+			case "HOME":
+				mgrHome = v
+			}
 		}
-		cfg = filepath.Join(home, ".config")
+		if filepath.IsAbs(mgrCfg) {
+			return filepath.Join(mgrCfg, "systemd", "user"), nil
+		}
+		if filepath.IsAbs(mgrHome) {
+			home = mgrHome
+		}
 	}
-	path := filepath.Join(cfg, "systemd", "user", systemdUnitName)
+	if home == "" {
+		return "", errors.New("--install-service: HOME is not set")
+	}
+	return filepath.Join(home, ".config", "systemd", "user"), nil
+}
+
+func installSystemd(env Env, exe string, running bool) error {
+	dir, err := systemdUserDir(env)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, systemdUnitName)
 	unit := fmt.Sprintf(`[Unit]
 Description=terva-lampi capture agent
 Documentation=https://github.com/terva-sh/lampi/blob/main/deploy/README.md

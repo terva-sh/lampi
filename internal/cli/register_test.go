@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/xml"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -301,8 +302,13 @@ func TestRegisterInstallsTheUserService(t *testing.T) {
 	oldRun, oldOS := runCommand, serviceGOOS
 	runCommand = func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
-		if name == "loginctl" {
+		switch {
+		case name == "loginctl":
 			return []byte("Linger=no\n"), nil
+		case len(args) > 1 && args[1] == "show-environment":
+			// The user manager runs with the default config directory,
+			// while register runs with f.cfg (TKT-01M3GAHSQ).
+			return []byte("HOME=" + f.home + "\nLANG=C.UTF-8\n"), nil
 		}
 		return nil, nil
 	}
@@ -319,14 +325,19 @@ func TestRegisterInstallsTheUserService(t *testing.T) {
 	if err := Run([]string{"register", "--fingerprint", f.fingerprint(), "--install-service"}, env); err != nil {
 		t.Fatal(err)
 	}
-	unit, err := os.ReadFile(filepath.Join(f.cfg, "systemd", "user", "terva-lampi-agent.service"))
+	// Where the manager looks, not under register's own XDG_CONFIG_HOME.
+	unit, err := os.ReadFile(filepath.Join(f.home, ".config", "systemd", "user", "terva-lampi-agent.service"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(unit), " agent\n") || !strings.Contains(string(unit), "ExecReload=/bin/kill -HUP $MAINPID") {
+	if _, err := os.Stat(filepath.Join(f.cfg, "systemd")); !os.IsNotExist(err) {
+		t.Fatalf("a unit was also written under register's XDG_CONFIG_HOME: %v", err)
+	}
+	if !strings.Contains(string(unit), " agent\n") || !strings.Contains(string(unit), "ExecReload=/bin/kill -HUP $MAINPID") ||
+		!strings.Contains(string(unit), "Environment=\"XDG_CONFIG_HOME="+f.cfg+"\"") {
 		t.Fatalf("unit:\n%s", unit)
 	}
-	want := []string{"systemctl --user daemon-reload", "systemctl --user enable --now terva-lampi-agent.service", "loginctl show-user drew --property=Linger"}
+	want := []string{"systemctl --user show-environment", "systemctl --user daemon-reload", "systemctl --user enable --now terva-lampi-agent.service", "loginctl show-user drew --property=Linger"}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Fatalf("calls %q", calls)
 	}
@@ -620,9 +631,14 @@ func TestLakesRemoveKeepsATokenAnotherLakeNames(t *testing.T) {
 
 func TestInstalledServicesKeepCustomXDGDirectories(t *testing.T) {
 	oldRun := runCommand
-	runCommand = func(string, ...string) ([]byte, error) { return nil, nil }
-	defer func() { runCommand = oldRun }()
 	home := t.TempDir()
+	runCommand = func(name string, args ...string) ([]byte, error) {
+		if len(args) > 1 && args[1] == "show-environment" {
+			return []byte("HOME=" + home + "\n"), nil
+		}
+		return nil, nil
+	}
+	defer func() { runCommand = oldRun }()
 	cfg := t.TempDir()
 	// A state directory whose name needs quoting in both files.
 	state := filepath.Join(t.TempDir(), `50% "odd" \ & <dir>`)
@@ -637,7 +653,7 @@ func TestInstalledServicesKeepCustomXDGDirectories(t *testing.T) {
 	if err := installSystemd(env, "/opt/terva-lampi", true); err != nil {
 		t.Fatal(err)
 	}
-	unit, err := os.ReadFile(filepath.Join(cfg, "systemd", "user", systemdUnitName))
+	unit, err := os.ReadFile(filepath.Join(home, ".config", "systemd", "user", systemdUnitName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,5 +704,32 @@ func TestInstalledServicesKeepCustomXDGDirectories(t *testing.T) {
 	}
 	if !strings.Contains(string(plist), "ProgramArguments") || strings.Contains(string(plist), "EnvironmentVariables") {
 		t.Fatalf("plist:\n%s", plist)
+	}
+}
+
+// TKT-01M3GAHSQ: the unit goes where the running user manager looks.
+func TestSystemdUserDirFollowsTheManager(t *testing.T) {
+	oldRun := runCommand
+	defer func() { runCommand = oldRun }()
+	env := Env{Getenv: func(k string) string {
+		return map[string]string{"HOME": "/home/me", "XDG_CONFIG_HOME": "/tmp/register-only"}[k]
+	}}
+	cases := []struct {
+		name string
+		out  string
+		err  error
+		want string
+	}{
+		{"manager with its own config dir", "HOME=/home/me\nXDG_CONFIG_HOME=/srv/cfg\n", nil, "/srv/cfg/systemd/user"},
+		{"manager at the default", "HOME=/home/me\n", nil, "/home/me/.config/systemd/user"},
+		{"relative config dir ignored", "HOME=/home/me\nXDG_CONFIG_HOME=cfg\n", nil, "/home/me/.config/systemd/user"},
+		{"manager unreachable", "", errors.New("no bus"), "/home/me/.config/systemd/user"},
+	}
+	for _, c := range cases {
+		runCommand = func(string, ...string) ([]byte, error) { return []byte(c.out), c.err }
+		got, err := systemdUserDir(env)
+		if err != nil || got != c.want {
+			t.Errorf("%s: %q %v, want %q", c.name, got, err, c.want)
+		}
 	}
 }
