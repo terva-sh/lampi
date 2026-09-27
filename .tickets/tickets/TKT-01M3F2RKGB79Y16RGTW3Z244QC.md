@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:12:49Z
+updated_at: 2026-09-27T22:45:31Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -88,3 +88,7 @@ Implementation choices and what was rejected.
 - The two time indexes carry `old_size` and `new_size`, so the activity API's bucketed SUM reads only the index. `TestHeadUpdateRangeScansUseIndexes` checks the plan says COVERING INDEX.
 
 Validation: `GOFLAGS=-mod=mod just ci` green; `go test -race` on internal/catalog, internal/api and internal/cli green. Rollback is proved with a trigger that aborts the history insert: the head does not move and the retry after the trigger is dropped records one row.
+
+**agent:claude-code/e226d0e4** at 2026-09-27T22:45:31Z
+
+State at hand-off: PR 40 CI green, terva-review clean on 570e381. Its one open question, whether applyArtifact can change the old head's size before the history row reads it, is answered in a PR comment: size is only rewritten for the same digest, whose bytes fix it. Not merged; merging is the owner's call. PRs 41 and 43 stack on this branch.
