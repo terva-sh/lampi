@@ -36,6 +36,14 @@ behind that default is in [policy.md](policy.md#off-box-raw).
 `terva-lampi agent config` prints how many allow and deny rules are
 loaded. `sync` names each refused session and exits non-zero.
 
+`terva-lampi agent refused` answers "what would I have to allow?". It
+reads every session the agent would read and prints one line per
+refused project, most sessions first: the count, the harnesses, the
+reason, a cwd and the git remote. A repository with many checkouts is
+one line. The reason is a deny rule, an empty allow list, a session
+with no cwd, or no matching allow rule. It uploads nothing and contacts
+no lake, and `--lake NAME` picks which lake's rules to apply.
+
 ### How a rule matches
 
 A rule matches the session's cwd (a path prefix, on a boundary), its

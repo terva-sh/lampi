@@ -426,3 +426,29 @@ func TestMigrationCleanupWaitsForAnOldAgent(t *testing.T) {
 		t.Fatal("leftover legacy file kept")
 	}
 }
+
+// TKT-01M3HKYFF: agent refused lists each lake's refusals under that
+// lake's own rules, and --lake narrows it to one.
+func TestAgentRefusedListsEachLakesRefusals(t *testing.T) {
+	f := newTwoLakeFixture(t)
+	if err := f.run("agent", "refused"); err != nil {
+		t.Fatalf("agent refused: %v\n%s", err, f.stderr)
+	}
+	out := f.stdout.String()
+	for _, want := range []string{
+		"lake default: 1 sessions refused in 1 projects",
+		"no allow rule matches  /work/app",
+		"lake work: nothing is refused",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	f.stdout.Reset()
+	if err := f.run("agent", "refused", "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.stdout.String(), "lake default") {
+		t.Errorf("--lake work also listed default:\n%s", f.stdout)
+	}
+}
