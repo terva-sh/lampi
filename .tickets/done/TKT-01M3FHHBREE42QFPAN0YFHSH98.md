@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:01:02Z
+updated_at: 2026-09-27T01:40:49Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -106,6 +106,10 @@ Review 933 on PR #18, all four accepted in d874bdd. lakes remove --purge-state t
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
 
 Review 976 on PR #18, both accepted in 99c8a62. lakes remove refuses any name that fails ValidLakeName before it builds a path; before this, '..' with --purge-state removed the whole state directory. A config.json holding null is edited as an empty config, the way LoadFile already reads it.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:40:49Z
+
+Review 987 on PR #18, both accepted in d52087c. register --replace always writes the new token to this lake's own tokens/<name>.token and leaves the replaced entry's token file alone, since that file may be hand-placed or shared. lakes remove reports a token it could not delete, after finishing the rest of the removal. Not fixed: another lake's entry naming this lake's tokens/<name>.token would still be overwritten. Filed with the config-lock gap as TKT-01M3G (see the draft about config.json locking).
 
 ## Summary
 

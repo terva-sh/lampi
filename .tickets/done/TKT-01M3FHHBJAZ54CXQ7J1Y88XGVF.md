@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:02:11Z
-updated_at: 2026-09-27T01:01:02Z
+updated_at: 2026-09-27T01:40:48Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -95,6 +95,10 @@ Review 932 on PR #17, all accepted. 40b6fab: every refusal the limiter lets thro
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:01:02Z
 
 Review 974 on PR #17, both accepted. 195a350: a second revoke of a code returns ErrRegistrationRevoked, and serve register --revoke says it was already revoked and writes no second audit event. e07eb3a: a body read error on /v1/register answers 400 through bodyStatus rather than an empty 200. The same gap in /v1/hello, from TKT-01M3FHHBF, is filed as TKT-01M3G44GC.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:40:48Z
+
+Review 985 on PR #17, accepted in ac3bd49. The ticket asks for expiry in the audit log. Each expired code now gets exactly one registration.expired line, marked by expiry_recorded_at in migration 6 (edited in place; unshipped). The line is written when an expired code is presented to /v1/register, which is bounded to once per code ever minted, and on every serve register run, for codes nobody presented. Rejected: a background sweeper, which adds a goroutine and timer to serve for a record the operator command can make. Costs: serve register --list now writes to the catalog, and a code marked but whose audit append then fails is reported by id and not retried, like revoke.
 
 ## Summary
 

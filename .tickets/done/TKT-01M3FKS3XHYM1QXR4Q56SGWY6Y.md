@@ -25,7 +25,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T19:41:23Z
-updated_at: 2026-09-27T01:01:03Z
+updated_at: 2026-09-27T01:40:49Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -91,6 +91,10 @@ Review 934 on PR #19. (1) accepted, a6091fb: the pin stays on the old key when t
 **agent:claude-code/e4a47e8c** at 2026-09-27T01:01:03Z
 
 Review 975 on PR #19, accepted in 56cd134. refreshPin keeps a copy of the cached profile before refetching under the new key, and puts it back (or removes a new one) when the moved pin cannot be written. The cache and the pin therefore never disagree. It only mattered after the old key was retired, when the lake signs with the new key alone.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T01:40:49Z
+
+Review 986 on PR #19, accepted in 2f77bac. The pin is written through config.UpdateLake, which refuses when the stored lake id, key id or public key differ from the ones the refresh started with, and restores the old cached profile. After the lake-profile layer made reload report success, a moved pin now waits on the same pending reload as a new profile: it is retried each tick, and the first push is held until it succeeds (merge commit on this layer). Remaining gap: config.json has no lock between processes; filed as a draft.
 
 ## Summary
 
