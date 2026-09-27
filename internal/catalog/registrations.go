@@ -100,12 +100,26 @@ func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, pr
 	if !errors.Is(err, sql.ErrNoRows) {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
-	err = tx.QueryRowContext(ctx, `SELECT 1 FROM registrations WHERE name=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?`, name, stamp(now)).Scan(&one)
-	if err == nil {
-		return Registration{}, fmt.Errorf("%w: a pending code is for %s; revoke it first", ErrNameTaken, name)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	rows, err := tx.QueryContext(ctx, `SELECT `+registrationCols+` FROM registrations WHERE name=? AND used_at IS NULL AND revoked_at IS NULL`, name)
+	if err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
+	}
+	pending := false
+	for rows.Next() {
+		r, err := scanRegistration(rows)
+		if err != nil {
+			rows.Close()
+			return Registration{}, fmt.Errorf("catalog: %w", err)
+		}
+		// Compared as times, as in RecordExpiries.
+		pending = pending || r.State(now) == "pending"
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return Registration{}, fmt.Errorf("catalog: %w", err)
+	}
+	if pending {
+		return Registration{}, fmt.Errorf("%w: a pending code is for %s; revoke it first", ErrNameTaken, name)
 	}
 	id, err := newDeviceID()
 	if err != nil {

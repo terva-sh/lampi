@@ -227,8 +227,9 @@ used, expired or revoked is 403 with one message for all four, so a
 caller learns nothing about which codes exist. The audit log records
 the reason. The first time the lake sees a code expired, here or in
 `serve register`, it also writes one `registration.expired` line for
-it. A malformed `token_sha256` or `machine_id` is 400. A
-`machine_id` another device is bound to is 409, and the code stays
+it. A malformed `token_sha256` or `machine_id` is 400, and so is a
+`machine_id` that repeats any 8 characters of the secret, since the
+machine id is logged. A `machine_id` another device is bound to is 409, and the code stays
 unused. A lake started without `--token-file` answers 409, because its
 first registered device would close it to every client using it
 without a token.
@@ -286,8 +287,13 @@ and so does a lake whose profiles file no longer holds the device's
 profile. The answer is `Cache-Control: no-store`.
 
 A client accepts the document only from a lake whose key it pinned at
-registration, and only when `lake_id` matches the pin. It keeps the last
-copy that verified and uses it when a fetch fails.
+registration, only when `lake_id` matches the pin, and only when
+`version` is the version of the `config` it carries. When the lake's
+entry in `config.json` holds a `device_id`, `device_id` must match it
+too; an entry without one, a device the client knows only by its token
+file, skips that check. It keeps the last copy that verified and uses it
+when a fetch fails. A cached copy is checked the same way each time it
+is read.
 
 ## POST /v1/blobs/check
 

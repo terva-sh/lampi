@@ -171,6 +171,31 @@ func TestRevokeNeverSucceedsOnACodeThatWasRedeemed(t *testing.T) {
 	}
 }
 
+func TestANameIsFreeTheMomentItsCodeExpires(t *testing.T) {
+	c, err := Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx := t.Context()
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	half := 500 * time.Millisecond
+	// Stamps drop trailing zeros, so as text "12:00:00Z" sorts after
+	// "12:00:00.5Z", and each of these would come out the wrong way.
+	if _, err := c.CreateRegistration(ctx, "whole", strings.Repeat("a", 64), "", now.Add(-time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateRegistration(ctx, "whole", strings.Repeat("b", 64), "", now.Add(half), now.Add(time.Hour)); err != nil {
+		t.Fatalf("name of a code that expired half a second ago: %v", err)
+	}
+	if _, err := c.CreateRegistration(ctx, "part", strings.Repeat("c", 64), "", now.Add(-time.Hour), now.Add(half)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateRegistration(ctx, "part", strings.Repeat("d", 64), "", now, now.Add(time.Hour)); !errors.Is(err, ErrNameTaken) {
+		t.Fatalf("name of a code with half a second left: %v", err)
+	}
+}
+
 func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.db")
 	serve, err := Open(path)
