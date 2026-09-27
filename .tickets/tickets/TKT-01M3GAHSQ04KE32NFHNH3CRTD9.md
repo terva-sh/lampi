@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3GAHSQ04KE32NFHNH3CRTD9
 title: "CLI register: install the systemd unit where the user manager looks"
 type: bug
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-27T02:19:20Z
+updated_at: 2026-09-27T20:52:53Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""

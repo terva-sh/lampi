@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3GAHSNWKB00S1RMSF0K693W
 title: "Registration codes: audit events after a commit can be lost"
 type: bug
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-27T02:31:13Z
+updated_at: 2026-09-27T20:52:53Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
