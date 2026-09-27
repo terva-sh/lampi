@@ -1,6 +1,10 @@
 # VPS lake bring-up
 
-This is the operator checklist for the Phase 0 lake.
+This is the operator checklist for the Phase 0 lake. Read it when you
+host a lake on a server. For a lake on one machine, start with
+[Getting started](getting-started.md). Back to the
+[documentation index](README.md).
+
 [policy.md](policy.md) is the decision. This file does not provision
 a host, open a disk, or store a token. Copy the examples and edit
 them on the machine.

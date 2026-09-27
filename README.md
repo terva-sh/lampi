@@ -9,6 +9,8 @@ lampi is Finnish for a pond, a small lake. One static Go binary is both
 the lake (`terva-lampi serve`) and the agent on each machine
 (`terva-lampi agent`).
 
+![The lampi dashboard overview: session, artifact, and machine counts, sessions by harness, and normalization status](docs/images/dashboard-overview.png)
+
 ## How it works
 
 ```mermaid

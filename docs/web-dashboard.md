@@ -1,9 +1,21 @@
 # Serving the OIDC dashboard
 
-The first browser release shows lake totals, a harness breakdown, normalization
-status, recent/filtered sessions, artifact metadata, provenance and divergent
-copies. It is read-only. Transcript browsing, search, downloads and ingestion
-charts remain future releases in [web-ui-plan.md](web-ui-plan.md).
+Read this to turn on the browser dashboard for a lake you run. The routes it
+serves are in [web-api.md](web-api.md). Back to the
+[documentation index](README.md).
+
+The dashboard shows lake totals, a harness breakdown, normalization status,
+recent and filtered sessions, artifact metadata, provenance, and divergent
+copies. It reads normalized transcripts, searches them, and copies a span of
+events as text. It is read-only. Downloads and ingestion charts remain future
+releases in [web-ui-plan.md](web-ui-plan.md).
+
+![The lampi dashboard overview with synthetic data](images/dashboard-overview.png)
+
+![A transcript in the lampi dashboard, with events selectable for copying](images/dashboard-transcript.png)
+
+The screenshots come from the synthetic fixture. `node e2e/readme-screenshots.mjs`
+regenerates them; see [e2e/README.md](../e2e/README.md#readme-screenshots).
 
 ## Register the application
 

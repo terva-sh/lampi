@@ -1,5 +1,9 @@
 # Capture protocol 1
 
+Reference for the HTTP API between the agent and the lake. Read it when
+you write a client or debug an upload. Back to the
+[documentation index](README.md).
+
 `terva-lampi serve` and `terva-lampi sync` speak this over HTTP JSON.
 The types live in `internal/protocol`. The version field is
 `capture_protocol`. This tree speaks version 1 only.
