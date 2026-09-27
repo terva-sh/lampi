@@ -38,6 +38,9 @@ Environment=LAMPI_SERVE_TOKEN_FILE=/var/lib/terva-lampi/tokens
 Environment=LAMPI_SERVE_WEB_CONFIG=
 EnvironmentFile=-/etc/terva-lampi/serve.env
 ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE} --web-config=${LAMPI_SERVE_WEB_CONFIG}
+# SIGHUP reloads tokens, profiles and identity, and starts normalize jobs
+# serve normalize queued. With this line, systemctl reload sends it.
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 # serve drains the normalize queue before it exits.
 TimeoutStopSec=120

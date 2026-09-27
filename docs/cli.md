@@ -17,6 +17,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind`, or `set-profile` one by name. Runs while `serve` runs. A revoke takes effect on the next request. |
 | `terva-lampi serve identity` | Print the lake id, public URL, and each signing key's fingerprint. `set-url URL` records the URL agents reach the lake at. `rotate` adds a key and `retire KEY-ID` ends one; see [Rotating and retiring keys](policy.md#rotating-and-retiring-keys). Runs while `serve` runs. |
 | `terva-lampi serve register` | Mint a one-time registration code for a new machine (`--name`, `--expires`, `--profile`), or `--list` and `--revoke` them. |
+| `terva-lampi serve normalize` | Queue sessions to be normalized again: `--stale` (the dashboard's unknown), `--failed`, or `--session UID`. `--dry-run` lists them. Runs while `serve` runs; serve starts the jobs on SIGHUP or at its next start. |
 | `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
 
 ### On each machine

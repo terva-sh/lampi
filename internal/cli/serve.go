@@ -45,6 +45,8 @@ usage:
   terva-lampi serve register --name NAME [--expires 24h] [--profile P]
                                  mint a one-time registration code
                                  (--list and --revoke manage them)
+  terva-lampi serve normalize [--stale] [--failed] [--session UID] [--data DIR]
+                                 queue sessions to be normalized again
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -76,7 +78,8 @@ other line is an error. Each plaintext token is hashed and the file is
 rewritten to sha256 lines, comments kept. Copy the device's token
 file first; do not point this flag at the device's only copy. The
 token is not an argument. SIGHUP reads the token file, the profiles
-file and identity.json again. Requests
+file and identity.json again, and starts normalize jobs that serve
+normalize queued. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
 
@@ -143,6 +146,8 @@ func runServe(env Env, args []string) error {
 			return runServeDevices(env, args[1:])
 		case "register":
 			return runServeRegister(env, args[1:])
+		case "normalize":
+			return runServeNormalize(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, profilesFile, webConfigFile string
@@ -256,6 +261,7 @@ func runServe(env Env, args []string) error {
 		}
 		reloadProfiles(env, profilesFile, lake)
 		reloadIdentity(env, data, lake)
+		reloadNormalizeJobs(env, lake)
 	})
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
@@ -313,6 +319,20 @@ func reloadProfiles(env Env, path string, lake *api.Server) {
 	}
 	lake.SetProfiles(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d profiles\n", len(next))
+}
+
+// reloadNormalizeJobs starts the jobs in catalog.normalize_jobs that
+// this process does not hold: those serve normalize wrote, and those
+// whose attempts ran out.
+func reloadNormalizeJobs(env Env, lake *api.Server) {
+	n, err := lake.ReloadNormalizeJobs(context.Background())
+	if err != nil {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: normalize job reload failed: %v\n", err)
+		return
+	}
+	if n > 0 {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: started %d normalize jobs\n", n)
+	}
 }
 
 func warnIgnored(env Env, path string, d *auth.Devices) {
