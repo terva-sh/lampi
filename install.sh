@@ -88,12 +88,12 @@ while [ $# -gt 0 ]; do
         shift
         ;;
     --lake)
-        [ $# -ge 2 ] || fail "--lake needs a name"
+        [ $# -ge 2 ] && [ -n "$2" ] || fail "--lake needs a name"
         LAKE="$2"
         shift 2
         ;;
     --fingerprint)
-        [ $# -ge 2 ] || fail "--fingerprint needs the value serve identity prints"
+        [ $# -ge 2 ] && [ -n "$2" ] || fail "--fingerprint needs the value serve identity prints"
         FINGERPRINT="$2"
         shift 2
         ;;

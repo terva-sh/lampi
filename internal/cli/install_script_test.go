@@ -307,6 +307,8 @@ func TestInstallScriptRefusesAnEnvironmentCodeItCannotConfirm(t *testing.T) {
 		{"code without register", []string{"TERVA_LAMPI_CODE=x"}, nil, "TERVA_LAMPI_CODE is set but --register is not"},
 		{"fingerprint without register", nil, []string{"--fingerprint", "SHA256:abc"}, "--fingerprint only applies with --register"},
 		{"fingerprint without a code or terminal", nil, []string{"--register", "--fingerprint", "SHA256:abc"}, "--register needs a terminal"},
+		{"empty fingerprint", []string{"TERVA_LAMPI_CODE=x"}, []string{"--register", "--fingerprint", ""}, "--fingerprint needs the value"},
+		{"empty lake", nil, []string{"--register", "--lake", ""}, "--lake needs a name"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rel := newFakeRelease(t, "v0.1.0")

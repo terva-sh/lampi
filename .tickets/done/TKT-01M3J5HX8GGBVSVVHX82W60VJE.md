@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3J5HX8GGBVSVVHX82W60VJE
 title: "Installer: register from a code in the environment with a fingerprint"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: install/env-code
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 24aeaf43703f9102fc84a3d3f15d2aaa27f04bad
-  session: null
-  claimed_at: 2026-09-27T20:59:53Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T21:02:41Z
+updated_at: 2026-09-27T21:05:38Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -101,3 +94,7 @@ Owner sign-off, 2026-09-27: the copyable one-liner may carry the registration co
 **Pseudo-terminal path** (code in the env, no fingerprint): register got `--code-file` on a mode-600 file holding the code, with stdin on the terminal and no inherited env. The file was gone after exit.
 
 **Docs:** policy.md records the owner's sign-off, and registration-and-lakes.md shows the one-liner.
+
+## Summary
+
+The installer takes the code from TERVA_LAMPI_CODE and the lake key from --fingerprint, so one copied line installs and registers a machine with no terminal. The code reaches register on a pipe, or in a private 0600 file when the terminal confirms instead. It is never an argument and is not inherited by the agent. An empty --fingerprint or --lake is refused (review f77ad362 finding-1). Verified end to end against a loopback lake with a real code. docs/policy.md records the owner's sign-off. Landed in PR #31.
