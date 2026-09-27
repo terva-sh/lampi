@@ -416,7 +416,11 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	var req protocol.HelloRequest
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxHelloBytes+1))
 	if err != nil {
+		// An answer, never an empty 200: an agent reads that as a hello
+		// with no proof.
+		code, berr := bodyStatus(err)
 		note(r, err)
+		writeJSON(w, code, protocol.ErrorBody{Error: berr.Error()})
 		return
 	}
 	if len(raw) > maxHelloBytes {
