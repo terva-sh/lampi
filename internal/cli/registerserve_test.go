@@ -218,3 +218,16 @@ func TestServeRegisterAuditsACodeThatExpiredUnused(t *testing.T) {
 		t.Fatalf("audit:\n%s", raw)
 	}
 }
+
+func TestRegisterListQuotesActorsWithSpaces(t *testing.T) {
+	for in, want := range map[string]string{
+		"cli":                "cli",
+		"web:sub-1 (Op One)": `"web:sub-1 (Op One)"`,
+		"web:sub-1 (\"x\")":  `"web:sub-1 (\"x\")"`,
+		"web:sub\u00a0x":     `"web:sub\u00a0x"`,
+	} {
+		if got := listValue(in); got != want {
+			t.Errorf("listValue(%q) = %s, want %s", in, got, want)
+		}
+	}
+}

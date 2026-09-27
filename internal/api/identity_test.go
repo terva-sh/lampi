@@ -3,11 +3,14 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"terva.sh/lampi/internal/identity"
@@ -163,6 +166,16 @@ func TestHelloSignsTheNonceAndStillTakesAnEmptyBody(t *testing.T) {
 	}
 	if rr := post(`{"nonce":"a b"}`); rr.Code != http.StatusBadRequest {
 		t.Fatalf("bad nonce %d", rr.Code)
+	}
+	// A body that breaks off mid-read gets an error answer, not an empty
+	// 200 that reads as a hello with no proof.
+	rr = httptest.NewRecorder()
+	broken := io.MultiReader(strings.NewReader(`{"nonce":"ab`), iotest.ErrReader(errors.New("connection reset")))
+	req := httptest.NewRequest(http.MethodPost, "/v1/hello", broken)
+	req.Header.Set("Authorization", "Bearer sekret")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "request body could not be read") {
+		t.Fatalf("broken hello body: %d %s", rr.Code, rr.Body)
 	}
 }
 

@@ -50,6 +50,28 @@ type Lake struct {
 	// AllowFrom is where Projects.Allow came from once ApplyLakeProfile
 	// ran: "local", or "lake NAME" for the lake's own profile.
 	AllowFrom string
+	// DenyLocal and DenyLake count Projects.Deny by where each rule came
+	// from once ApplyLakeProfile ran: config.json, or the lake's profile.
+	DenyLocal, DenyLake int
+}
+
+// DenyFrom names where the deny rules in force came from: "local",
+// "lake NAME", both joined by "+", or "none".
+func (l Lake) DenyFrom() string {
+	local := l.DenyLocal
+	if local == 0 && l.DenyLake == 0 {
+		// ApplyLakeProfile has not run: every rule is config.json's.
+		local = len(l.Projects.Deny)
+	}
+	switch {
+	case local > 0 && l.DenyLake > 0:
+		return OriginLocal + "+" + OriginLake(l.Name)
+	case l.DenyLake > 0:
+		return OriginLake(l.Name)
+	case local > 0:
+		return OriginLocal
+	}
+	return "none"
 }
 
 // LakeFlags are the command-line inputs to ResolveLakes. Lake selects one

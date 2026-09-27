@@ -24,6 +24,7 @@ import (
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/recall"
+	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
@@ -38,6 +39,7 @@ func main() {
 func run() error {
 	deny := flag.Bool("deny", false, "synthetic identity has no mapped group")
 	empty := flag.Bool("empty", false, "empty synthetic catalog")
+	operator := flag.Bool("operator", false, "synthetic identity is also an operator, and registration codes are on")
 	flag.Parse()
 	dir, err := os.MkdirTemp("", "lampi-web-smoke-")
 	if err != nil {
@@ -91,13 +93,16 @@ func run() error {
 	if *deny {
 		idp.Groups = []string{"outsiders"}
 	}
+	if *operator {
+		idp.Groups = []string{"readers", "admins"}
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
 	origin := "http://" + ln.Addr().String()
-	cfg := webconfig.Config{BaseURL: origin, OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lampi-smoke", RoleMap: map[string]string{"readers": "viewer"}}}
+	cfg := webconfig.Config{BaseURL: origin, OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lampi-smoke", RoleMap: map[string]string{"readers": "viewer", "admins": "operator"}}}
 	reader := recall.NewReader(lake.Catalog, lake.Normalized)
 	index, err := recall.OpenIndex(filepath.Join(dir, recall.IndexFile), reader)
 	if err != nil {
@@ -107,7 +112,21 @@ func run() error {
 	if err := index.Pass(ctx); err != nil {
 		return err
 	}
-	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, idp.Client())
+	var reg *web.Registrations
+	if *operator {
+		// The lake's public URL is the smoke origin, so minting's key-list
+		// check reaches this process.
+		if _, err := lake.EnsureIdentity(dir); err != nil {
+			return err
+		}
+		if err := lake.Catalog.SetPublicURL(ctx, origin); err != nil {
+			return err
+		}
+		reg = &web.Registrations{Lake: func() registrar.Lake {
+			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir, Profiles: lake.Profiles()}
+		}, Release: "v0.1.1"}
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, idp.Client())
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-27T20:52:53Z
+updated_at: 2026-09-27T22:38:20Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -44,3 +44,7 @@ Fix: keep the event eligible until the append succeeds. For example, select the 
 Widened by terva-review 996 on PR #17 (finding-2), deferred with this ticket at the owner's direction. The redemption itself has the same gap. `/v1/register` commits the device and the spent code, and only then appends `registration.redeemed` and the device-binding events. If that append fails, the handler still returns success, and nothing can recreate those events later, since the code cannot be replayed.
 
 So the general problem is that every audit event written after its catalog commit can be lost when the append fails: expiry, redemption, and binding. The fix should cover all of them. One option is an outbox of pending audit events kept in the catalog and written in the same transaction, then appended and cleared, and retried on the next write or at serve start. That gives at-least-once delivery, where a duplicate line is acceptable and a lost one is not.
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T22:38:20Z
+
+Deferred behind open PR #40 (catalog/head-updates, TKT-01M3F2RKG), which adds catalog schema 8. The outbox this ticket needs is a catalog migration too, and two branches each appending schema 8 would collide. Picking it up once #40 lands, on top of it. Plan: an audit_outbox table written in the same transaction as the catalog change (expiry marks, redemption, device binding), appended and cleared after commit, retried on the next write and at serve start: at-least-once, with a duplicate line accepted and a lost one not.

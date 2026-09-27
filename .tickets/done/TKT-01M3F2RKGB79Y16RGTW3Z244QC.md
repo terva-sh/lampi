@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2RKGB79Y16RGTW3Z244QC
 title: "Catalog: record idempotent accepted head-update history"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim:
-  actor: agent:claude-code/e226d0e4
-  branch: catalog/head-updates
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
-  commit: 5b79bc3c862f04755ac26783c30a78d8d71765b7
-  session: null
-  claimed_at: 2026-09-27T22:09:04Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:12:49Z
+updated_at: 2026-09-27T23:41:49Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -88,3 +81,11 @@ Implementation choices and what was rejected.
 - The two time indexes carry `old_size` and `new_size`, so the activity API's bucketed SUM reads only the index. `TestHeadUpdateRangeScansUseIndexes` checks the plan says COVERING INDEX.
 
 Validation: `GOFLAGS=-mod=mod just ci` green; `go test -race` on internal/catalog, internal/api and internal/cli green. Rollback is proved with a trigger that aborts the history insert: the head does not move and the retry after the trigger is dropped records one row.
+
+**agent:claude-code/e226d0e4** at 2026-09-27T22:45:31Z
+
+State at hand-off: PR 40 CI green, terva-review clean on 570e381. Its one open question, whether applyArtifact can change the old head's size before the history row reads it, is answered in a PR comment: size is only rewritten for the same digest, whose bytes fix it. Not merged; merging is the owner's call. PRs 41 and 43 stack on this branch.
+
+## Summary
+
+Landed in PR 40. Schema 8 adds head_updates: one row per accepted head change, written inside IngestChanged's transaction, with old and new digest and logical size, machine, harness and receipt time. Retries, stale posts, divergent copies and provenance-only posts write nothing, and a snapshot rewritten back to an earlier digest counts. lake_meta.head_updates_since marks when recording began, and no earlier events are invented. Purge deletes a session's rows, and serve backup carries them. The time indexes cover both sizes, so bucketed sums read the index alone. Tests: internal/catalog/head_updates_test.go. Docs: docs/architecture.md and the release C paragraph of docs/web-ui-plan.md.
