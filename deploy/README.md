@@ -48,8 +48,10 @@ uploads nothing.
 
 
 `terva-lampi register --install-service` writes a unit like the ones
-here, pointing at the binary that ran it, and enables it. It leaves an
-existing unit file alone. The unit it writes has `ExecReload`, so
+here, pointing at the binary that ran it, and enables it. It writes the
+unit into the user directory of the running manager's search path,
+`systemctl --user show -p UnitPath`, usually `~/.config/systemd/user/`. It
+leaves an existing unit file alone. The unit it writes has `ExecReload`, so
 `systemctl --user reload terva-lampi-agent` reloads the lakes. See
 [Registering a machine](../docs/registration-and-lakes.md#registering-a-machine).
 

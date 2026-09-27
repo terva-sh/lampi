@@ -58,9 +58,12 @@ its name. --replace never takes over an entry for another lake, or a
 token file another lake names as its token_file.
 
 --install-service writes and enables the agent's systemd user unit or
-launchd agent, running this binary. XDG_CONFIG_HOME, XDG_STATE_HOME
-and XDG_DATA_HOME, when set away from their defaults, are set in it
-too, so the agent reads what register wrote. On Linux it suggests loginctl
+launchd agent, running this binary. The systemd unit goes in the user
+directory of the running manager's unit search path (systemctl --user
+show -p UnitPath), not under this process's XDG_CONFIG_HOME.
+XDG_CONFIG_HOME, XDG_STATE_HOME and XDG_DATA_HOME, when set away from
+their defaults, are set in the unit, so the agent reads what register
+wrote. On Linux it suggests loginctl
 enable-linger when the user has no lingering session.
 
 A lake from before key lists cannot be registered with; upgrade it

@@ -49,16 +49,45 @@ func installService(env Env, state string) error {
 	}
 }
 
-func installSystemd(env Env, exe string, running bool) error {
-	cfg := env.getenv("XDG_CONFIG_HOME")
-	if cfg == "" {
-		home := env.getenv("HOME")
-		if home == "" {
-			return errors.New("--install-service: HOME is not set")
+// systemdUserDir is the directory the running user manager searches for
+// a user's own units: its $XDG_CONFIG_HOME/systemd/user as it was when
+// it built its UnitPath. Neither this process's XDG_CONFIG_HOME
+// (register may run with it set elsewhere, TKT-01M3GAHSQ) nor
+// show-environment (set-environment changes it later) reliably says
+// where that is. systemd lists the persistent control directory,
+// <that directory>.control, first in UnitPath, so the directory is the
+// output up to the first "/systemd/user.control", without ".control".
+// Reading from the start keeps a path with a space whole, since systemd
+// separates entries with spaces and does not quote them; an entry that
+// is not a single absolute path is refused. When UnitPath cannot be
+// read or does not start that way, ~/.config/systemd/user is used and
+// enable reports any problem. The unit's Environment= lines carry this
+// process's directories to the agent either way.
+func systemdUserDir(env Env) (string, error) {
+	const control = "/systemd/user.control"
+	if out, err := runCommand("systemctl", "--user", "show", "--property=UnitPath", "--value"); err == nil {
+		list := strings.TrimRight(string(out), "\r\n")
+		if i := strings.Index(list, control); i > 0 {
+			first := list[:i+len(control)]
+			rest := list[i+len(control):]
+			if filepath.IsAbs(first) && !strings.Contains(first, " /") && (rest == "" || rest[0] == ' ') {
+				return strings.TrimSuffix(first, ".control"), nil
+			}
 		}
-		cfg = filepath.Join(home, ".config")
 	}
-	path := filepath.Join(cfg, "systemd", "user", systemdUnitName)
+	home := env.getenv("HOME")
+	if home == "" {
+		return "", errors.New("--install-service: HOME is not set")
+	}
+	return filepath.Join(home, ".config", "systemd", "user"), nil
+}
+
+func installSystemd(env Env, exe string, running bool) error {
+	dir, err := systemdUserDir(env)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, systemdUnitName)
 	unit := fmt.Sprintf(`[Unit]
 Description=terva-lampi capture agent
 Documentation=https://github.com/terva-sh/lampi/blob/main/deploy/README.md
