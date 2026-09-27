@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-27T13:15:37Z
+updated_at: 2026-09-27T13:17:37Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -66,3 +66,9 @@ Authorized by the owner on 2026-09-27 ("promote and work TKT-01M3FP11A so we are
 5. Other machines: the owner mints a code per machine on the lake host (serve register), so a code secret never passes through the agent, and runs terva-lampi register on each machine. Check each one appears by name in serve devices list and syncs its allowlisted projects (AC4).
 
 Rollback. The old binary refuses a schema-6 catalog, so a binary swap alone is not a rollback. Before capture resumes: stop the lake, keep the upgraded catalog and its sidecars aside, restore the checkpoint's catalog.db with the old binary, and start. After capture resumes, uploads land in the new catalog, so any rollback needs reconciliation; prefer fixing forward.
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-27T13:17:37Z
+
+Bundle prepared in the external handoff (onboarding-2026-09-27-*), built from main d9aa261 and stamped d9aa261: operator-onboarding.sh (root), README with the three steps and rollback, reused checkpoint-backup.py, copies of the installed unit, drop-in and route. Checked from the user account before handoff: the installed binary is 8adca49; the unit, drop-in and route match; Go's TLS trusts the proxy certificate for the public URL (status 200, chains verified); 79 GiB free. Rollback is a catalog restore from the checkpoint, not a binary swap: 8adca49 refuses a catalog above schema 3. With no profiles.json the lake serves an empty default profile, so new machines need allow rules locally or in a lake profile; the README says so. Code secrets go from the owner's terminal to each machine and never through the agent.
