@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"time"
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
@@ -104,6 +106,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.refuseRegistration(w, r, reg.ID, "used")
 		return
 	case errors.Is(err, catalog.ErrRegistrationExpired):
+		s.auditExpiry(r.Context(), reg.ID)
 		s.refuseRegistration(w, r, reg.ID, "expired")
 		return
 	case errors.Is(err, catalog.ErrRegistrationRevoked):
@@ -144,6 +147,21 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// auditExpiry writes the expiry of the code just presented, the first
+// time the lake sees it expired. The catalog hands each code out once,
+// so this route adds at most one line per code ever minted.
+func (s *Server) auditExpiry(ctx context.Context, regID string) {
+	regs, err := s.Catalog.RecordExpiries(ctx, s.now(), regID)
+	if err != nil {
+		s.logger().Error("register: record expiry", "registration", regID, "err", err)
+		return
+	}
+	for _, reg := range regs {
+		s.audit(audit.Event{Kind: audit.RegistrationExpired, Device: reg.Name,
+			Detail: "registration=" + reg.ID + " expires=" + reg.Expires.Format(time.RFC3339)})
+	}
 }
 
 func (s *Server) refuseRegistration(w http.ResponseWriter, r *http.Request, regID, reason string) {

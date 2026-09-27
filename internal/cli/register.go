@@ -190,14 +190,14 @@ func runRegister(env Env, args []string) error {
 		}
 		entry = prev
 	}
-	tokenPath := entry.TokenFile
-	if tokenPath == "" {
-		dir, err := config.ConfigDir(env.getenv)
-		if err != nil {
-			return err
-		}
-		tokenPath = tokensPath(dir, lakeName)
+	// The token always goes to this lake's own file under tokens/. A
+	// token_file the replaced entry names may be placed by hand or
+	// shared with another lake, so it is left as it is.
+	dir, err := config.ConfigDir(env.getenv)
+	if err != nil {
+		return err
 	}
+	tokenPath := tokensPath(dir, lakeName)
 	if _, err := os.Stat(tokenPath); err == nil && !replace {
 		return fmt.Errorf("%s exists; pass --replace to overwrite it, or --lake for another name", tokenPath)
 	}
