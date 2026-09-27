@@ -23,7 +23,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 
 | Command | What it does |
 |---------|--------------|
-| `terva-lampi agent` | Watch and upload until SIGTERM. Subcommands: `discover`, `machine-id`, `config`, `status`. See [The agent](agent.md). |
+| `terva-lampi agent` | Watch and upload until SIGTERM. Subcommands: `discover`, `machine-id`, `config`, `status`, and `refused`, which lists each project the allowlist keeps on this machine with the reason ([Allowlist](allowlist-and-redaction.md#the-project-allowlist)). See [The agent](agent.md). |
 | `terva-lampi sync` | One pass: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, harnesses, outbox, watermarks, last sync and attempt, skipped files, server and token file, lake health, and catalog counts. See [What status prints](agent.md#what-status-prints). |
 | `terva-lampi register` | Join a lake with a registration code, read from stdin, a prompt, or `--code-file`. See [Registering a machine](registration-and-lakes.md#registering-a-machine). `--install-service` enables the user unit. |

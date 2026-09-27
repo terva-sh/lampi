@@ -73,6 +73,31 @@ func (p Projects) Permitted(id ProjectID) bool {
 	return matchesAny(p.Allow, id)
 }
 
+// Refusal is why Permitted refuses id, or "" when it permits it. The
+// reasons are the ones agent refused prints.
+func (p Projects) Refusal(id ProjectID) string {
+	switch {
+	case deniedByAny(p.Deny, id):
+		return RefusedByDeny
+	case matchesAny(p.Allow, id):
+		return ""
+	case len(p.Allow) == 0:
+		return RefusedEmptyAllow
+	case id.CWD == "":
+		return RefusedNoCWD
+	default:
+		return RefusedNoMatch
+	}
+}
+
+// The reasons Refusal returns.
+const (
+	RefusedByDeny     = "a deny rule matches"
+	RefusedEmptyAllow = "the allow list is empty"
+	RefusedNoCWD      = "the session has no cwd"
+	RefusedNoMatch    = "no allow rule matches"
+)
+
 func deniedByAny(rules []ProjectMatch, id ProjectID) bool {
 	if len(rules) == 0 {
 		return false

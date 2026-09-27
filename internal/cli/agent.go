@@ -96,6 +96,9 @@ usage:
   terva-lampi agent config       print paths, the effective server URL and
                                  token file, and which layer set each
   terva-lampi agent status       local identity, outbox, watermarks, and last sync
+  terva-lampi agent refused [--lake NAME]
+                                 list the projects the allowlist keeps on this
+                                 machine, one line each, with the reason
 
 terva sessions are read from TERVA_HOME, then ZOT_HOME, then the platform
 default terva uses. Optional sidecars in that home are
@@ -228,6 +231,8 @@ func runAgent(env Env, args []string) error {
 		return runAgentConfig(env)
 	case "status":
 		return runAgentStatus(env)
+	case "refused":
+		return runAgentRefused(env, args)
 	default:
 		fmt.Fprint(env.stdout(), agentUsage)
 		return fmt.Errorf("unknown agent command %q", sub)
