@@ -88,9 +88,7 @@ func (r *PageRequest) validate(kind string) (pageCursor, error) {
 	if r.Limit < 1 || r.Limit > 200 || len(r.Project) > 4096 || len(r.Cursor) > 8192 || r.Unlinked && r.Project != "" {
 		return pageCursor{}, ErrPage
 	}
-	switch r.Harness {
-	case "", "terva", "claude", "codex", "opencode", "cursor", "cursor-cli":
-	default:
+	if !validHarness(r.Harness) {
 		return pageCursor{}, ErrPage
 	}
 	switch r.State {
@@ -117,6 +115,16 @@ func (r *PageRequest) validate(kind string) (pageCursor, error) {
 		cur = got
 	}
 	return cur, nil
+}
+
+// validHarness is a harness filter: empty for every harness, or one
+// the lake ingests.
+func validHarness(h string) bool {
+	switch h {
+	case "", "terva", "claude", "codex", "opencode", "cursor", "cursor-cli":
+		return true
+	}
+	return false
 }
 func (cur pageCursor) encode(after string, when int64) string {
 	cur.After = after

@@ -63,6 +63,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/sessions/{uid}/excerpt", s.sessionExcerpt)
 	get("/api/web/v1/conflicts", s.conflicts)
 	get("/api/web/v1/search", s.search)
+	get("/api/web/v1/activity", s.activity)
 	s.pageRoutes(m)
 	s.registrationRoutes(m)
 	return webauth.Headers(m), nil
@@ -222,6 +223,57 @@ func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardRecords(ctx, "", "conflicts", p)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, v)
+}
+
+// parseActivity reads bucket, from, until and harness. Each appears at
+// most once and nothing else is accepted. An empty value takes the
+// default, so a plain HTML form can submit every field.
+func parseActivity(q url.Values) (catalog.ActivityRequest, error) {
+	var req catalog.ActivityRequest
+	for k, v := range q {
+		if len(v) != 1 {
+			return req, catalog.ErrPage
+		}
+		switch k {
+		case "bucket", "from", "until", "harness":
+		default:
+			return req, catalog.ErrPage
+		}
+	}
+	req.Bucket = q.Get("bucket")
+	req.Harness = q.Get("harness")
+	for _, f := range []struct {
+		key  string
+		dest *time.Time
+	}{{"from", &req.From}, {"until", &req.Until}} {
+		raw := q.Get(f.key)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		// The catalog reads a zero time as "not given", and year 1 parses
+		// to exactly that, so anything before 1970 is refused here.
+		if err != nil || t.Before(time.Unix(0, 0)) {
+			return req, catalog.ErrPage
+		}
+		*f.dest = t
+	}
+	return req, nil
+}
+func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
+	req, err := parseActivity(r.URL.Query())
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	ctx, cancel := readContext(r)
+	defer cancel()
+	v, err := s.catalog.Activity(ctx, req, time.Now())
 	if err != nil {
 		fail(w, err)
 		return

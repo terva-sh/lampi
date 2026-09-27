@@ -28,6 +28,7 @@ raw manifests never appear in these responses.
 | `/sessions/{uid}/events` | One page of the session's published normalized events; see below |
 | `/search` | Literal text search over indexed events; see below |
 | `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
+| `/activity` | Accepted head updates per UTC hour or day; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
 arrays. `limit` defaults to 50 and accepts 1–200. `cursor` is opaque, bound to the
@@ -257,3 +258,68 @@ on the transcript page. Bulk downloads and training formats are the separate,
 unimplemented export feature (TKT-01M3F2PGR), which needs its own role and
 project policy. Errors match the events route; a span that starts past the end is
 `400 invalid_request`.
+
+## Activity
+
+`GET /api/web/v1/activity` counts accepted session head updates in UTC
+buckets. The lake records one update each time a session head changes: a new
+session, a transcript that grew, or a snapshot export rewritten. A repost of
+bytes the lake already has, a stale post and a divergent copy change no head
+and are not counted. See [architecture.md](architecture.md) for what is
+recorded.
+
+| Parameter | Values | Default |
+|---|---|---|
+| `bucket` | `hour` or `day` | `day` |
+| `from` | RFC3339 time | `until` minus 24 hours (`hour`) or 7 days (`day`) |
+| `until` | RFC3339 time | the end of the current bucket |
+| `harness` | one harness name | every harness |
+
+Each parameter appears at most once, and an empty value takes the default.
+`from` is rounded down and `until` up to bucket boundaries in UTC. An `until`
+later than the end of the current bucket is clamped to it. After rounding, the
+range must be at most 14 days for `hour` and 90 days for `day`. A wider range,
+an empty or reversed pair of times (checked before rounding, so two times inside
+one bucket do not become that bucket), a time before 1970 or after 2200, an
+unknown parameter, and a malformed time are `400 invalid_filters_or_cursor`; the
+range is never silently narrowed. Because
+the cap counts whole buckets, "the last 90 days" means `from` at a midnight.
+
+```json
+{
+  "bucket": "day",
+  "from": "2026-09-22T00:00:00Z",
+  "until": "2026-09-29T00:00:00Z",
+  "harness": "",
+  "coverage_since": "2026-09-27T18:04:11.52Z",
+  "as_of": "2026-09-28T13:45:10.1Z",
+  "units": {"updates": "...", "net_logical_bytes": "..."},
+  "totals": {"updates": 41, "net_logical_bytes": 5230118},
+  "buckets": [
+    {"start": "2026-09-22T00:00:00Z", "coverage": "none", "updates": null, "net_logical_bytes": null},
+    {"start": "2026-09-27T00:00:00Z", "coverage": "partial", "updates": 12, "net_logical_bytes": 880412},
+    {"start": "2026-09-28T00:00:00Z", "coverage": "full", "updates": 29, "net_logical_bytes": 4349706}
+  ]
+}
+```
+
+The example shortens `buckets`; a response has one entry for every bucket in the
+range, in order.
+
+- `updates` is the number of accepted head updates that began in the bucket.
+- `net_logical_bytes` is the sum, over those updates, of the new head's logical
+  size minus the old head's; a new session's old size is zero. It is negative
+  when rewrites shrank heads. It is not network traffic, and it is not disk
+  growth: the CAS stores each blob once and a grown transcript keeps its
+  earlier blob.
+- `coverage` compares the bucket with `coverage_since`, the time this catalog
+  began recording. `none` buckets ended before that, were not measured, and
+  carry `null` counts; they are not zero. `partial` holds the start of
+  recording. `full` buckets were measured throughout. A catalog with no
+  recorded start reports every bucket as `none` and `coverage_since` as `null`.
+- `totals` sums the `partial` and `full` buckets.
+
+Purging a session deletes its updates, so past buckets drop them. Restoring a
+backup rewinds the history to the backup, and agents that upload again after the
+restore are counted at the time the lake accepts them.
+
