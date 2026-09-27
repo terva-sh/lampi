@@ -187,7 +187,7 @@ func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	mint := func(name string, secret string, expires time.Time) Registration {
 		t.Helper()
-		r, err := serve.CreateRegistration(ctx, name, strings.Repeat(secret, 64), "", now.Add(-72*time.Hour), expires)
+		r, err := serve.CreateRegistration(ctx, name, strings.Repeat(secret, 64), "", "", now.Add(-72*time.Hour), expires)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -203,7 +203,7 @@ func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	mint("used", "e", now.Add(-time.Hour))
-	if _, _, err := serve.Redeem(ctx, strings.Repeat("e", 64), strings.Repeat("f", 64), "m1", now.Add(-2*time.Hour)); err != nil {
+	if _, _, err := serve.Redeem(ctx, strings.Repeat("e", 64), strings.Repeat("f", 64), "m1", nil, now.Add(-2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 

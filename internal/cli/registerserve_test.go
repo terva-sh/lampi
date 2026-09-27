@@ -193,7 +193,7 @@ func TestServeRegisterAuditsACodeThatExpiredUnused(t *testing.T) {
 	dir, lake, _ := registerLake(t)
 	now := time.Now()
 	secret, _ := regcode.NewSecret()
-	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", now.Add(-2*time.Hour), now.Add(-time.Hour))
+	reg, err := lake.Catalog.CreateRegistration(t.Context(), "idle", regcode.HashSecret(secret), "", "", now.Add(-2*time.Hour), now.Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

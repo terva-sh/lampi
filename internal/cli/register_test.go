@@ -471,7 +471,7 @@ func TestRegisterReplaceLeavesTheReplacedEntrysTokenFileAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lc := file.Lakes["work"]; lc.TokenFile != tokenPath || lc.LakeID != f.lake.Identity.LakeID {
+	if lc := file.Lakes["work"]; lc.TokenFile != tokenPath || lc.LakeID != f.lake.Identity().LakeID {
 		t.Fatalf("lake entry %+v", lc)
 	}
 }
