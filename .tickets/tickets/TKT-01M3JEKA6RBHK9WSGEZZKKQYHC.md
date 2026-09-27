@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T22:08:33Z
-updated_at: 2026-09-27T22:28:55Z
+updated_at: 2026-09-27T22:45:23Z
 created_by:
   id: agent:claude-code/e226d0e4
   name: ""
@@ -88,3 +88,16 @@ Choices made while building the page, and what was rejected.
 - **Bad `/activity` parameters answer with the JSON 400** that the other pages use (`pageError`), not an HTML error page.
 
 Validation, 2026-09-28: `GOFLAGS=-mod=mod just ci` green. `GOFLAGS=-mod=mod go test -race ./...` green, the whole module. `mise exec -- node e2e/web-smoke.mjs <playwright>` passed, including the new Activity checks (30-day and 7-day-hourly tables, a harness filter through the form, a hatched unmeasured range, a shrinking bar, mobile without page overflow, keyboard reaching the Range select, the 90-day view without JavaScript, and the empty lake). The screenshots were looked at on desktop and at 390px. They sit in the smoke's temporary evidence directory and are not committed.
+
+**agent:claude-code/e226d0e4** at 2026-09-27T22:45:23Z
+
+Review round on PR 43, adding to the earlier note.
+
+- terva-review (review 1047) flagged three things, all accepted and fixed in 24bf444:
+  - An all-zero range hid both charts behind its message. Now the charts always render, with the message above.
+  - An all-unmeasured range did the same. Now its hatching shows.
+  - The form and the open table lived inside `[data-live]`, which polling replaces. The form is now rendered outside it, as on the Sessions page, and lake.js keeps any `details[id]` open across a refresh.
+- The next pass found that the middle axis tick at `top/2` was labelled by truncation (a tick at 2.5 read "2"). Fixed in 450a31d: the middle tick is drawn only when half the top is whole.
+- New tests: `TestActivityPageEmptyRangeKeepsCharts`, the tops of 5 and 10 in `TestChartEdges`, and smoke steps for refresh-keeps-table-and-selection and empty-lake-still-has-two-charts.
+
+State at hand-off: PR 43 CI green, terva-review clean on 450a31d, full browser smoke passing locally. Not merged; merging is the owner's call.
