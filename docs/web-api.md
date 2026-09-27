@@ -210,8 +210,10 @@ Each parameter appears at most once, and an empty value takes the default.
 `from` is rounded down and `until` up to bucket boundaries in UTC. An `until`
 later than the end of the current bucket is clamped to it. After rounding, the
 range must be at most 14 days for `hour` and 90 days for `day`. A wider range,
-an empty or reversed range, an unknown parameter, and a malformed time are
-`400 invalid_filters_or_cursor`; the range is never silently narrowed. Because
+an empty or reversed pair of times (checked before rounding, so two times inside
+one bucket do not become that bucket), a time before 1970 or after 2200, an
+unknown parameter, and a malformed time are `400 invalid_filters_or_cursor`; the
+range is never silently narrowed. Because
 the cap counts whole buckets, "the last 90 days" means `from` at a midnight.
 
 ```json

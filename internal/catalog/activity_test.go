@@ -46,6 +46,10 @@ func TestActivityResolve(t *testing.T) {
 		{name: "empty range", req: ActivityRequest{From: day(20, 0), Until: day(20, 0)}, fail: true},
 		{name: "reversed range", req: ActivityRequest{From: day(21, 0), Until: day(20, 0)}, fail: true},
 		{name: "wholly in the future", req: ActivityRequest{From: day(30, 0), Until: day(30, 12)}, fail: true},
+		{name: "reversed inside one bucket", req: ActivityRequest{Bucket: BucketHour, From: day(28, 12).Add(40 * time.Minute), Until: day(28, 12).Add(20 * time.Minute)}, fail: true},
+		{name: "equal instants inside one bucket", req: ActivityRequest{Bucket: BucketHour, From: day(28, 12).Add(30 * time.Minute), Until: day(28, 12).Add(30 * time.Minute)}, fail: true},
+		{name: "before the epoch", req: ActivityRequest{From: time.Date(1600, 1, 1, 0, 0, 0, 0, time.UTC), Until: time.Date(1600, 1, 5, 0, 0, 0, 0, time.UTC)}, fail: true},
+		{name: "past what nanoseconds hold", req: ActivityRequest{From: time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC)}, fail: true},
 		{name: "unknown bucket", req: ActivityRequest{Bucket: "week"}, fail: true},
 		{name: "unknown harness", req: ActivityRequest{Harness: "vim"}, fail: true},
 	} {
@@ -186,13 +190,19 @@ func TestActivityQueryUsesCoveringIndexes(t *testing.T) {
 // Ninety days of synthetic history, read the widest way the API allows,
 // within the deadline every web read runs under. The time is logged,
 // not asserted: it depends on the machine. now is a midnight, because
-// the cap counts buckets after the range is aligned outward.
+// the cap counts buckets after the range is aligned outward. Under
+// -race the driver runs many times slower, so the race run checks the
+// sums on fewer rows and holds no deadline.
 func TestActivity90DaysWithinReadDeadline(t *testing.T) {
 	c, _ := openTemp(t)
 	now := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 	start := now.Add(-90 * 24 * time.Hour)
 	setCoverage(t, c, start.Add(-time.Hour))
-	const n = 200000
+	n := int64(200000)
+	deadline := 5 * time.Second
+	if raceEnabled {
+		n, deadline = 20000, time.Hour
+	}
 	step := int64(90*24*time.Hour) / n
 	if _, err := c.db.Exec(`WITH RECURSIVE i(k) AS (SELECT 0 UNION ALL SELECT k + 1 FROM i WHERE k + 1 < ?)
 		INSERT INTO head_updates (session_uid, machine_id, harness, received_ns, old_sha256, new_sha256, old_size, new_size, relation)
@@ -205,7 +215,7 @@ func TestActivity90DaysWithinReadDeadline(t *testing.T) {
 		{Bucket: BucketDay, From: start, Until: now, Harness: "codex"},
 		{Bucket: BucketHour, From: now.Add(-14 * 24 * time.Hour), Until: now},
 	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), deadline)
 		began := time.Now()
 		a, err := c.Activity(ctx, req, now)
 		cancel()
