@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2RKGB79Y16RGTW3Z244QC
 title: "Catalog: record idempotent accepted head-update history"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -20,10 +20,17 @@ blocks_on: none
 references:
   - ref: plan:web-ui
     path: docs/web-ui-plan.md
-claim: null
+claim:
+  actor: agent:claude-code/e226d0e4
+  branch: catalog/head-updates
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e226d0e4
+  commit: 5b79bc3c862f04755ac26783c30a78d8d71765b7
+  session: null
+  claimed_at: 2026-09-27T22:09:04Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:08:39Z
+updated_at: 2026-09-27T22:12:49Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
@@ -49,15 +56,15 @@ Follow docs/web-ui-plan.md release C. Receipt time is the `now` the lake passes 
 
 ## Acceptance criteria
 
-- [ ] Every committed initial/new head has one matching metadata history event; transaction failure produces neither.
-- [ ] Unchanged/stale retries, provenance-only additions and divergent copies without a head change add no event; legitimate repeated digest transitions remain recordable.
-- [ ] Old/new logical sizes and receipt times support net-change measures without claiming network or physical disk bytes.
-- [ ] Migration starts prospective coverage explicitly and never invents events; backup/restore preserves coverage/history and purge removes the session history.
-- [ ] Tests prove idempotency, rollback, append/replacement, snapshot rewrites back to an earlier digest, multi-machine behavior and that the history indexes serve time and harness range scans (EXPLAIN QUERY PLAN).
+- [x] Every committed initial/new head has one matching metadata history event; transaction failure produces neither.
+- [x] Unchanged/stale retries, provenance-only additions and divergent copies without a head change add no event; legitimate repeated digest transitions remain recordable.
+- [x] Old/new logical sizes and receipt times support net-change measures without claiming network or physical disk bytes.
+- [x] Migration starts prospective coverage explicitly and never invents events; backup/restore preserves coverage/history and purge removes the session history.
+- [x] Tests prove idempotency, rollback, append/replacement, snapshot rewrites back to an earlier digest, multi-machine behavior and that the history indexes serve time and harness range scans (EXPLAIN QUERY PLAN).
 
 ## Definition of done
 
-- [ ] Validation evidence and rationale are recorded; measurement and recovery behavior are documented.
+- [x] Validation evidence and rationale are recorded; measurement and recovery behavior are documented.
 
 ## Implementation plan
 
@@ -67,3 +74,17 @@ Follow docs/web-ui-plan.md release C. Receipt time is the `now` the lake passes 
 4. Add `HeadUpdatesSince(ctx) (time.Time, bool, error)`, tolerating a read-only open of an older catalog the way `LakeID` does.
 5. Tests in internal/catalog/head_updates_test.go: new session, grown_from, unchanged repost, stale repost, divergent copy, provenance-only second machine with the same digest, second machine that moves the head, snapshot kind rewrite and rewrite back, rollback on a forced failure, purge, migration from a version-7 file with sessions present (no events invented, marker set), `VacuumInto` copy keeps rows and marker, and EXPLAIN QUERY PLAN for the two range scans.
 6. Update docs/architecture.md catalog section and the release C paragraph of docs/web-ui-plan.md (old and new size).
+
+## Notes
+
+**agent:claude-code/e226d0e4** at 2026-09-27T22:12:49Z
+
+Implementation choices and what was rejected.
+
+- The history row is written inside `IngestChanged` only when `newHead != head` (which includes a new session, whose head starts empty). That is the one place `sessions.head_sha256` changes; merge, renormalize and publish do not move it. Hooking the HTTP handler instead was rejected: it runs after commit, so a crash between commit and the history write would lose an event, and a handler that saw a retry would have to re-derive whether the head moved.
+- No unique key on digests. A key like (session, new digest) would suppress a snapshot rewritten back to an earlier export, which is a real change. Idempotency comes from the head comparison: a retry cannot move a head that already moved.
+- The old size is read by digest from `artifacts` inside the same transaction (`headSize`), and it is an error, not zero, if that row is missing, since a missing head row is catalog corruption and zero would silently distort the net change.
+- The coverage marker is a `lake_meta` row set by the migration with SQLite's clock, because a migration has no clock argument. A lake created on this schema covers its whole life.
+- The two time indexes carry `old_size` and `new_size`, so the activity API's bucketed SUM reads only the index. `TestHeadUpdateRangeScansUseIndexes` checks the plan says COVERING INDEX.
+
+Validation: `GOFLAGS=-mod=mod just ci` green; `go test -race` on internal/catalog, internal/api and internal/cli green. Rollback is proved with a trigger that aborts the history insert: the head does not move and the retry after the trigger is dropped records one row.

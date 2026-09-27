@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3F2RKCZZNB6C1EGEG1FDCQH
 title: "Lake analytics: record and visualize accepted ingestion updates"
 type: epic
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -23,7 +23,7 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-26T14:44:00Z
-updated_at: 2026-09-27T22:08:39Z
+updated_at: 2026-09-27T22:09:04Z
 created_by:
   id: agent:codex/web-ui-planning
   name: ""
