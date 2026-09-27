@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 )
 
 // DefaultProfile is the profile a device gets when none was chosen for
@@ -69,30 +70,50 @@ func ParseProfile(raw []byte) (Profile, error) {
 
 // forbiddenKeys refuses a profile that names a field it may not set,
 // whatever the value. Validate sees only the decoded struct, where
-// "upload_hits": false and "root": "" look like fields left out.
+// "upload_hits": false and "root": "" look like fields left out. Keys
+// match as the decoder matches struct fields, ignoring case, so no
+// spelling it would accept slips past.
 func forbiddenKeys(raw []byte) error {
-	var keys struct {
-		Harnesses map[string]map[string]json.RawMessage `json:"harnesses"`
-		Redaction map[string]json.RawMessage            `json:"redaction"`
-	}
 	// A body this cannot read is left to decodeStrict to refuse.
-	if json.Unmarshal(raw, &keys) != nil {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil {
 		return nil
 	}
-	names := make([]string, 0, len(keys.Harnesses))
-	for id := range keys.Harnesses {
-		names = append(names, id)
-	}
-	sort.Strings(names)
-	for _, id := range names {
-		if _, ok := keys.Harnesses[id]["root"]; ok {
-			return fmt.Errorf("harnesses.%s.root: a profile cannot set a harness root; the machine's config.json sets it", id)
+	var harnesses map[string]json.RawMessage
+	for _, v := range fields(top, "harnesses") {
+		if json.Unmarshal(v, &harnesses) != nil {
+			continue
+		}
+		names := make([]string, 0, len(harnesses))
+		for id := range harnesses {
+			names = append(names, id)
+		}
+		sort.Strings(names)
+		for _, id := range names {
+			var h map[string]json.RawMessage
+			if json.Unmarshal(harnesses[id], &h) == nil && len(fields(h, "root")) > 0 {
+				return fmt.Errorf("harnesses.%s.root: a profile cannot set a harness root; the machine's config.json sets it", id)
+			}
 		}
 	}
-	if _, ok := keys.Redaction["upload_hits"]; ok {
-		return errors.New("redaction.upload_hits: a profile cannot upload flagged files; the machine's config.json sets it")
+	for _, v := range fields(top, "redaction") {
+		var r map[string]json.RawMessage
+		if json.Unmarshal(v, &r) == nil && len(fields(r, "upload_hits")) > 0 {
+			return errors.New("redaction.upload_hits: a profile cannot upload flagged files; the machine's config.json sets it")
+		}
 	}
 	return nil
+}
+
+// fields is every value in m whose key matches name ignoring case.
+func fields(m map[string]json.RawMessage, name string) []json.RawMessage {
+	var out []json.RawMessage
+	for k, v := range m {
+		if strings.EqualFold(k, name) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Validate refuses what a profile may not set and checks the debounce.
