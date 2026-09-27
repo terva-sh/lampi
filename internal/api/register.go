@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
@@ -86,6 +87,12 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.auditRefusal("", "", "malformed machine_id")
 		s.fail(w, r, http.StatusBadRequest, errors.New("machine_id is required, at most 128 characters"))
 		return
+	case sharesSecret(req.MachineID, req.Secret):
+		// The machine id goes to the audit and access logs; this keeps
+		// the secret out of them.
+		s.auditRefusal("", "", "machine_id holds part of the secret")
+		s.fail(w, r, http.StatusBadRequest, errors.New("machine_id must not contain the registration secret; send the agent's own machine id"))
+		return
 	}
 	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, s.now())
 	switch {
@@ -149,6 +156,24 @@ func (s *Server) auditExpiry(ctx context.Context, regID string) {
 		s.audit(audit.Event{Kind: audit.RegistrationExpired, Device: reg.Name,
 			Detail: "registration=" + reg.ID + " expires=" + reg.Expires.Format(time.RFC3339)})
 	}
+}
+
+// secretOverlap is the shortest run of the secret a machine id may not
+// repeat. A real machine id matches a random run this long by chance
+// about once in 2^36 registrations; a shorter run gives away less than a
+// fifth of the secret.
+const secretOverlap = 8
+
+// sharesSecret reports whether machineID repeats any secretOverlap
+// characters of the secret, which covers a machine id that holds the
+// secret and one cut from it.
+func sharesSecret(machineID, secret string) bool {
+	for i := 0; i+secretOverlap <= len(secret); i++ {
+		if strings.Contains(machineID, secret[i:i+secretOverlap]) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) refuseRegistration(w http.ResponseWriter, r *http.Request, regID, reason string) {
