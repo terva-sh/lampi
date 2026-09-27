@@ -49,6 +49,21 @@ stdin:
 curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh -s -- --register
 ```
 
+To type nothing on the machine, put the code and the fingerprint that
+`serve identity` prints on the line. It then needs no terminal, so it
+also works as `ssh host '…'`. The leading space keeps the line out of
+history in shells that ignore such lines (bash with `ignorespace`, zsh
+with `HIST_IGNORE_SPACE`):
+
+```bash
+ curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | TERVA_LAMPI_CODE='…' sh -s -- --register --fingerprint SHA256:…
+```
+
+The code works once, so after registration the copy in history is
+spent. Give such a code a short life, for example `serve register
+--name laptop --expires 1h`. Without `--fingerprint`, the installer
+asks you to confirm the lake on the terminal.
+
 ### What register checks and writes
 
 `register` checks the code's signature and expiry, that the URL is

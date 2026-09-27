@@ -87,6 +87,13 @@ func (f *fakeRelease) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // would run under `curl | sh` in CI or over ssh without -t.
 func runInstaller(t *testing.T, srv *httptest.Server, home string, args ...string) (string, error) {
 	t.Helper()
+	return runInstallerEnv(t, srv, home, nil, args...)
+}
+
+// runInstallerEnv is runInstaller with extra environment, such as
+// TERVA_LAMPI_CODE.
+func runInstallerEnv(t *testing.T, srv *httptest.Server, home string, extra []string, args ...string) (string, error) {
+	t.Helper()
 	switch runtime.GOARCH {
 	case "amd64", "arm64":
 	default:
@@ -104,6 +111,7 @@ func runInstaller(t *testing.T, srv *httptest.Server, home string, args ...strin
 		"TERVA_LAMPI_INSTALL_API=" + srv.URL + "/api",
 		"TERVA_LAMPI_INSTALL_DOWNLOAD=" + srv.URL + "/download",
 	}
+	cmd.Env = append(cmd.Env, extra...)
 	cmd.Stdin = strings.NewReader("")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	out, err := cmd.CombinedOutput()
@@ -242,5 +250,77 @@ func TestInstallScriptKeepsTheOldBinaryWhenTheNewOneFails(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(bin))
 	if len(entries) != 1 {
 		t.Errorf("the prefix holds %d entries, want only the old binary", len(entries))
+	}
+}
+
+// recordingBinary stands in for terva-lampi. register writes its
+// arguments, stdin, and whether it inherited TERVA_LAMPI_CODE to
+// $HOME/register.log.
+const recordingBinary = `#!/bin/sh
+case "$1" in --version) echo 'terva-lampi v0.1.0 (0123456789ab)'; exit 0;; esac
+{
+	echo "args: $*"
+	echo "env: ${TERVA_LAMPI_CODE:-unset}"
+	echo "stdin: $(cat)"
+} > "$HOME/register.log"
+`
+
+// The dashboard's one-liner: a code in the environment and a fingerprint,
+// with no terminal anywhere, as under ssh without -t.
+func TestInstallScriptRegistersFromAnEnvironmentCode(t *testing.T) {
+	srv := httptest.NewServer(newFakeReleaseWith(t, "v0.1.0", recordingBinary))
+	defer srv.Close()
+	home := t.TempDir()
+	const code = "tlc1.secret-code-value"
+
+	out, err := runInstallerEnv(t, srv, home, []string{"TERVA_LAMPI_CODE=" + code},
+		"--register", "--lake", "work", "--fingerprint", "SHA256:abc")
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	if strings.Contains(out, code) {
+		t.Errorf("the installer printed the code:\n%s", out)
+	}
+	log, err := os.ReadFile(filepath.Join(home, "register.log"))
+	if err != nil {
+		t.Fatalf("register did not run: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"args: register --install-service --lake work --fingerprint SHA256:abc\n",
+		"env: unset\n",
+		"stdin: " + code + "\n",
+	} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("register log lacks %q:\n%s", want, log)
+		}
+	}
+}
+
+func TestInstallScriptRefusesAnEnvironmentCodeItCannotConfirm(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  []string
+		args []string
+		want string
+	}{
+		{"code without fingerprint or terminal", []string{"TERVA_LAMPI_CODE=x"}, []string{"--register"}, "pass --fingerprint"},
+		{"code without register", []string{"TERVA_LAMPI_CODE=x"}, nil, "TERVA_LAMPI_CODE is set but --register is not"},
+		{"fingerprint without register", nil, []string{"--fingerprint", "SHA256:abc"}, "--fingerprint only applies with --register"},
+		{"fingerprint without a code or terminal", nil, []string{"--register", "--fingerprint", "SHA256:abc"}, "--register needs a terminal"},
+		{"empty fingerprint", []string{"TERVA_LAMPI_CODE=x"}, []string{"--register", "--fingerprint", ""}, "--fingerprint needs the value"},
+		{"empty lake", nil, []string{"--register", "--lake", ""}, "--lake needs a name"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rel := newFakeRelease(t, "v0.1.0")
+			srv := httptest.NewServer(rel)
+			defer srv.Close()
+			out, err := runInstallerEnv(t, srv, t.TempDir(), tc.env, tc.args...)
+			if err == nil || !strings.Contains(out, tc.want) {
+				t.Fatalf("got %v, want a refusal naming %q:\n%s", err, tc.want, out)
+			}
+			if n := rel.requests.Load(); n != 0 {
+				t.Errorf("the refusal came after %d requests, want none", n)
+			}
+		})
 	}
 }
