@@ -135,6 +135,8 @@ func TestOperatorMintsListsAndRevokes(t *testing.T) {
 		`{"name":"box"}{"name":"other"}`:  "invalid_request",
 		`not json`:                        "invalid_request",
 		`null`:                            "invalid_request",
+		`{"name":"box"}]`:                 "invalid_request",
+		`{"name":"box"}}`:                 "invalid_request",
 	} {
 		if w := post(h, "/api/web/v1/registrations", body, cookie, map[string]string{CSRFHeader: csrf}); w.Code != 400 || !strings.Contains(w.Body.String(), want) {
 			t.Fatalf("%s: %d %s", body, w.Code, w.Body)

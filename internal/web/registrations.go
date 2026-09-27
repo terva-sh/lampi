@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -298,7 +299,7 @@ func (s *Server) mintCode(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil || req == nil || dec.More() {
+	if err := dec.Decode(&req); err != nil || req == nil || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
