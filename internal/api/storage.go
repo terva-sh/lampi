@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/storage"
@@ -52,4 +53,16 @@ func clampInt64(n uint64) int64 {
 		return 1<<63 - 1
 	}
 	return int64(n)
+}
+
+// Contacts returns the time of each device's last authenticated
+// request, by device id. It is kept in memory: a restart empties it,
+// and a lake with no device tokens records none.
+func (s *Server) Contacts() map[string]time.Time {
+	out := map[string]time.Time{}
+	s.contacts.Range(func(k, v any) bool {
+		out[k.(string)] = v.(time.Time)
+		return true
+	})
+	return out
 }

@@ -26,6 +26,7 @@ import (
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/registrar"
+	"terva.sh/lampi/internal/storage"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
@@ -132,7 +133,14 @@ func run() error {
 			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir, Profiles: lake.Profiles()}
 		}, Release: "v0.1.1"}
 	}
-	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, idp.Client())
+	if !*empty {
+		if err := seedStorage(ctx, lake, time.Now()); err != nil {
+			return err
+		}
+	}
+	started := time.Now().Add(-26 * time.Hour)
+	ops := &web.Operations{Version: "v0.0.0-smoke", Started: started, LakeID: func() string { return "lake_synthetic_smoke" }, Contacts: lake.Contacts}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, idp.Client())
 	if err != nil {
 		return err
 	}
@@ -237,4 +245,39 @@ func seedActivity(path string, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// seedStorage records 90 days of synthetic storage samples, hourly for
+// the last 14 days and daily before that, growing toward the real one
+// it takes last, so the operations charts have a history to draw.
+func seedStorage(ctx context.Context, lake *api.Server, now time.Time) error {
+	real, err := lake.SampleStorage(ctx)
+	if err != nil {
+		return err
+	}
+	const fsTotal = 200 << 30
+	for h := 90 * 24; h > 0; h-- {
+		if h > 14*24 && h%24 != 0 {
+			continue
+		}
+		at := now.Add(-time.Duration(h) * time.Hour)
+		f := 1 - float64(h)/(90*24)
+		m := map[string]catalog.StorageUse{}
+		var total int64
+		for name, u := range real.Measures {
+			scaled := catalog.StorageUse{Bytes: int64(float64(u.Bytes)*f*0.6 + float64(u.Bytes)*0.4), Files: int64(float64(u.Files) * f)}
+			m[name] = scaled
+		}
+		for _, c := range storage.Components {
+			total += m[c].Bytes
+		}
+		// A filesystem other things share, filling slowly.
+		m[catalog.MeasureFSTotal] = catalog.StorageUse{Bytes: fsTotal}
+		m[catalog.MeasureFSFree] = catalog.StorageUse{Bytes: fsTotal - (60 << 30) - int64(f*float64(40<<30)) - total}
+		if err := lake.Catalog.RecordStorage(ctx, catalog.StorageSample{At: at, Measures: m}); err != nil {
+			return err
+		}
+	}
+	_, err = lake.SampleStorage(ctx)
+	return err
 }

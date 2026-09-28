@@ -46,7 +46,7 @@ func operatorLake(t *testing.T, release string, groups ...string) (*api.Server, 
 		},
 		Release: release,
 	}
-	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, idp.Client())
+	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, nil, idp.Client())
 	if err != nil {
 		t.Fatal(err)
 	}

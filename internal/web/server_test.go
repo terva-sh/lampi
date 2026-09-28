@@ -44,7 +44,7 @@ func fixture(t *testing.T) (*api.Server, *testidp.Server, http.Handler, *bytes.B
 	}
 	t.Cleanup(func() { index.Close() })
 	indexes[lake] = index
-	lake.Web, err = New(cfg, lake.Catalog, reader, index, nil, idp.Client(), lake.Log)
+	lake.Web, err = New(cfg, lake.Catalog, reader, index, nil, nil, idp.Client(), lake.Log)
 	if err != nil {
 		t.Fatal(err)
 	}

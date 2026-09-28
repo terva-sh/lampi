@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV45ZV8XBJW0XZPZS740T4
 title: "Web: operations page with storage, growth, queues and devices"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M3JV45Y7RJ7S7Y3WWW2WMEKC
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: ops/operations-page
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: 0eb79ed84a5baba615e6995f11dab5a219157aec
+  session: null
+  claimed_at: 2026-09-28T02:01:28Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T01:47:35Z
+updated_at: 2026-09-28T02:01:29Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -54,6 +61,47 @@ tokens and no host paths.
 
 ## Acceptance criteria
 
-- [ ] Operations page and /api/web/v1/operations show storage now and growth charts
-- [ ] Process, queue and device freshness figures are shown
-- [ ] Docs describe every number and what it is not
+- [x] Operations page and /api/web/v1/operations show storage now and growth charts
+- [x] Process, queue and device freshness figures are shown
+- [x] Docs describe every number and what it is not
+
+## Implementation plan
+
+- `GET /api/web/v1/operations?range=7d|30d|90d` and `/operations` are built
+  from one read, `readOperations`, which combines:
+  - the newest storage sample
+  - growth buckets, each carrying the last sample in its hour or day
+  - queues: outbox, normalization, search coverage and uploads
+  - process figures from `web.Operations`, which serve supplies
+  - machines: devices joined to `MachinesActivity`, with in-memory contacts
+- Catalog migration 11 indexes `head_updates(machine_id, received_ns)`.
+- `api.Server` records each device's last authenticated request in
+  memory. `Contacts()` exposes it.
+- `web.New` gains an `ops *Operations` parameter.
+- The smoketest seeds 90 days of synthetic samples so the charts have a
+  history to draw.
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T02:01:29Z
+
+Decisions, with the alternatives each one beat:
+
+- **Last contact is kept in memory, not persisted.** Writing a row on
+  every request would add a catalog write to the hot path. Contact only
+  matters for "is it talking now", and a restart losing it is
+  acceptable as long as the page says so.
+- **Show both last contact and last new data.** Provenance and
+  head_updates only record new data. A healthy agent with nothing new
+  to send would look stale if new data were the only signal.
+- **Growth charts reuse the Activity bar chart, with a level summary.**
+  Summing levels over buckets means nothing, so the summary gives the
+  latest, lowest and highest value instead. A line or area chart would
+  show small growth better; that is left to the design pass
+  (TKT-01M3JV464).
+- **The page is open to viewers, not only operators.** It holds no
+  tokens and no paths. Machine ids already appear on session pages.
+- **The page does not auto-refresh.** Samples change hourly.
+- **Bug found while testing:** a sample just before the window
+  truncated into the first bucket, because integer division rounds
+  toward zero. It is now guarded, and a test covers it.

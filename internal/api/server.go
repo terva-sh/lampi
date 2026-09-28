@@ -98,6 +98,10 @@ type Server struct {
 	// open limits the routes that need no token, other than healthz.
 	openOnce sync.Once
 	open     *rateLimit
+
+	// contacts holds the time of each device's last authenticated
+	// request, by device id, since this process started.
+	contacts sync.Map
 }
 
 // maxHeavy is how many blob PUTs and manifest posts run at once. A put
@@ -349,6 +353,7 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 		if info := infoOf(r); info != nil {
 			info.device, info.deviceID = d.Name, d.ID
 		}
+		s.contacts.Store(d.ID, s.now())
 		r = r.WithContext(context.WithValue(r.Context(), deviceKey{}, d))
 		next(w, r)
 	}

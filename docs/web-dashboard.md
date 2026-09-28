@@ -256,6 +256,42 @@ page refreshes every 25 seconds while it is visible.
 The [browser API contract](web-api.md#activity) gives the JSON form, with the
 range limits: at most 14 days by the hour and 90 days by the day.
 
+## Operations
+
+`/operations` answers two questions: how full the lake is, and whether it
+keeps up. It does not refresh on its own, because its storage figures change
+hourly.
+
+- **Where the space goes** lists each part of the lake directory: its disk
+  use, its share of the whole, its file count, and how much it changed over
+  the chosen range.
+  - Stored blobs, the catalog and the audit log are the lake's record, and
+    `serve backup` copies them.
+  - Normalized events, parquet and the search index are derived from that
+    record and can be rebuilt.
+  - Uploads in progress holds partial uploads and temporary files. Start-up
+    sweeps any that are a day old.
+- **Filesystem free** is the space left on the filesystem that holds the lake,
+  whatever else shares that filesystem.
+- **Deduplication** is the logical bytes every artifact row names, divided by
+  the bytes of each distinct blob counted once.
+- **Growth charts** show the lake directory's disk use and the filesystem's
+  free space: hourly over the last 7 days, or daily over 30 or 90. Hours or
+  days with no sample are hatched and read "not measured".
+- **Machines** lists each device with its last contact and its last new data.
+  - A machine that is running but has nothing new to upload still makes
+    contact.
+  - A machine that has stopped syncing goes idle after a day and quiet after
+    a week.
+  - Contacts are kept in memory, so they start empty after serve restarts.
+  - A machine that uploaded before devices were recorded shows as an
+    unregistered machine.
+
+Serve takes the first sample when it starts, and then one every hour. Samples
+from the last 14 days are all kept; older ones are thinned to one per day.
+
+The [browser API contract](web-api.md#operations) gives the JSON form.
+
 ## Search index
 
 With web configuration, serve keeps a full-text index of normalized event text

@@ -113,7 +113,7 @@ func TestSearchPageMarksMatchesAndEscapes(t *testing.T) {
 func TestSearchOffWithoutIndex(t *testing.T) {
 	lake, idp, _, _ := fixture(t)
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"readers": "viewer"}}}
-	web, err := New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, nil, idp.Client(), slog.Default())
+	web, err := New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, nil, nil, idp.Client(), slog.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
