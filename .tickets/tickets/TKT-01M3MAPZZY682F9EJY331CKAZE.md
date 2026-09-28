@@ -3,16 +3,16 @@ schema: 3
 id: TKT-01M3MAPZZY682F9EJY331CKAZE
 title: "Devices: show agent version, flag outdated and known-bad agents"
 type: task
-status: draft
+status: ready
 status_reason: null
-priority: low
+priority: normal
 due_on: null
 labels:
   - area/server
   - area/agent
   - area/protocol
 assignees: []
-milestone: null
+milestone: v0.2.0
 parent: TKT-01M3MAV1XM089JPDCG5NH2RAJ6
 origin: null
 dependencies: []
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T15:39:08Z
-updated_at: 2026-09-28T15:41:21Z
+updated_at: 2026-09-28T15:50:08Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
