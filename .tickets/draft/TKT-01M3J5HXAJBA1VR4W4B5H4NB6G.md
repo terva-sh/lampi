@@ -12,7 +12,7 @@ labels:
   - area/auth
 assignees: []
 milestone: null
-parent: null
+parent: TKT-01M3MAV1XM089JPDCG5NH2RAJ6
 origin: null
 dependencies:
   - TKT-01M3J5HX9FY5M7V2VF162Z9FX3
@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T19:30:30Z
+updated_at: 2026-09-28T15:41:21Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/e4a47e8c
+  id: agent:claude-code/03b82158
   name: ""
 extensions: {}
 ---

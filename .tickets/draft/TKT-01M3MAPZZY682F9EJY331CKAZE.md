@@ -13,7 +13,7 @@ labels:
   - area/protocol
 assignees: []
 milestone: null
-parent: null
+parent: TKT-01M3MAV1XM089JPDCG5NH2RAJ6
 origin: null
 dependencies: []
 blocks_on: none
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T15:39:08Z
-updated_at: 2026-09-28T15:39:08Z
+updated_at: 2026-09-28T15:41:21Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
