@@ -20,8 +20,9 @@ func claudeSession(native string, rels ...string) protocol.Manifest {
 }
 
 // The repair moves a subagent head back to the session's transcript,
+// whether that transcript is current or was kept as a divergent copy,
 // makes a subagent file stored as a divergent copy current, leaves a
-// copy at the head's own depth alone, and queues each changed session
+// transcript that really moved alone, and queues each changed session
 // for normalization (TKT-01M3M5VEQ).
 func TestMigrateSubagentHeadsRepairsBothShapes(t *testing.T) {
 	c, _ := openTemp(t)
@@ -54,8 +55,20 @@ func TestMigrateSubagentHeadsRepairsBothShapes(t *testing.T) {
 		}
 	}
 
-	var genA, genB int64
-	for uid, gen := range map[string]*int64{ackA.SessionUID: &genA, ackB.SessionUID: &genB} {
+	// C: a subagent arrived first and took the head, then the session's
+	// transcript was taken for a move of it and kept as a divergent copy.
+	cSub := claudeSession("C", "projects/p/C/subagents/agent-1.jsonl")
+	ackC, err := c.Ingest(ctx, cSub, now, []Decision{head(0)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cMain := claudeSession("C", "projects/p/C.jsonl")
+	if _, err := c.Ingest(ctx, cMain, now, []Decision{{Relation: protocol.RelationDivergentCopy, Record: true}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var genA, genB, genC int64
+	for uid, gen := range map[string]*int64{ackA.SessionUID: &genA, ackB.SessionUID: &genB, ackC.SessionUID: &genC} {
 		if err := c.db.QueryRow(`SELECT normalize_gen FROM sessions WHERE session_uid = ?`, uid).Scan(gen); err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +103,18 @@ func TestMigrateSubagentHeadsRepairsBothShapes(t *testing.T) {
 	if strings.Join(current, " ") != "projects/p/B.jsonl projects/p/B/subagents/agent-1.jsonl" {
 		t.Fatalf("session B current %v", current)
 	}
-	for uid, before := range map[string]int64{ackA.SessionUID: genA, ackB.SessionUID: genB} {
+	v, _, err = c.Head(ctx, protocol.HarnessClaude, "C")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = current[:0]
+	for _, r := range v.Current {
+		current = append(current, r.RelPath)
+	}
+	if v.HeadSHA256 != cMain.Artifacts[0].SHA256 || strings.Join(current, " ") != "projects/p/C.jsonl projects/p/C/subagents/agent-1.jsonl" {
+		t.Fatalf("session C head %s, current %v", v.HeadSHA256, current)
+	}
+	for uid, before := range map[string]int64{ackA.SessionUID: genA, ackB.SessionUID: genB, ackC.SessionUID: genC} {
 		var gen, job int64
 		if err := c.db.QueryRow(`SELECT s.normalize_gen, j.gen FROM sessions s JOIN normalize_jobs j USING (session_uid) WHERE s.session_uid = ?`, uid).Scan(&gen, &job); err != nil {
 			t.Fatalf("%s not queued: %v", uid, err)

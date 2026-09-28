@@ -106,3 +106,21 @@ func TestSubagentAloneInAManifestIsKept(t *testing.T) {
 		t.Fatalf("projected %q", got)
 	}
 }
+
+// A subagent file that reached the lake before the session's own
+// transcript holds the head until that transcript arrives, which then
+// takes it rather than being stored as a move of the subagent file.
+func TestTranscriptAfterItsSubagentTakesTheHead(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	postManifest(t, h, claudeManifest(claudeArtifact(t, h, subRel, claudeLine("subagent text"))))
+	m := claudeManifest(claudeArtifact(t, h, mainRel, claudeLine("main text")))
+	postManifest(t, h, m)
+	head, current := headRel(t, s)
+	if head != mainRel || len(current) != 2 {
+		t.Fatalf("head %q, current %v", head, current)
+	}
+	if got := projectedText(t, s, m); !slices.Equal(got, []string{"main text", "subagent text"}) {
+		t.Fatalf("projected %q", got)
+	}
+}

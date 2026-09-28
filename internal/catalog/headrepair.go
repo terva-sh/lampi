@@ -12,8 +12,11 @@ import (
 //
 //   - A session head could be a subagent transcript. Normalization reads
 //     the head's directory, so the session's own transcript was left
-//     out of its events and search. The head moves back to the current
-//     artifact of its kind that it is a companion of.
+//     out of its events and search. The head moves back to the artifact
+//     of its kind that it is a companion of. That transcript is current,
+//     or, when it arrived after the subagent had taken the head, it was
+//     related to that head as a move and stored as a divergent copy; the
+//     newest such copy at a path with no current row becomes current.
 //   - A manifest carrying only a new subagent file related that file to
 //     the session head as if the transcript had moved, and stored it as
 //     a divergent_copy that is not current. The newest such copy that is
@@ -54,21 +57,30 @@ func migrateSubagentHeads(tx *sql.Tx) error {
 
 	changed := map[string]bool{}
 	for uid, h := range heads {
+		// Current rows first, so a current transcript wins over a copy.
 		rows, err := tx.Query(`
-			SELECT sha256, relpath FROM artifacts
-			WHERE session_uid = ? AND kind = ? AND current = 1 ORDER BY relpath`, uid, h.kind)
+			SELECT a.artifact_id, a.sha256, a.relpath, a.current FROM artifacts a
+			WHERE a.session_uid = ? AND a.kind = ?
+			  AND (a.current = 1 OR (a.relation = 'divergent_copy'
+			    AND NOT EXISTS (SELECT 1 FROM artifacts c
+			                    WHERE c.session_uid = a.session_uid AND c.relpath = a.relpath AND c.current = 1)
+			    AND a.artifact_id = (SELECT MAX(b.artifact_id) FROM artifacts b
+			                         WHERE b.session_uid = a.session_uid AND b.relpath = a.relpath)))
+			ORDER BY a.current DESC, a.relpath`, uid, h.kind)
 		if err != nil {
 			return err
 		}
-		var sha, rel string
+		var aid, sha, rel string
+		var cur bool
 		for rows.Next() {
-			var s, r string
-			if err := rows.Scan(&s, &r); err != nil {
+			var id, s, r string
+			var c bool
+			if err := rows.Scan(&id, &s, &r, &c); err != nil {
 				rows.Close()
 				return err
 			}
 			if sha == "" && companion(h.rel, r) {
-				sha, rel = s, r
+				aid, sha, rel, cur = id, s, r, c
 			}
 		}
 		rows.Close()
@@ -76,6 +88,11 @@ func migrateSubagentHeads(tx *sql.Tx) error {
 			return err
 		}
 		if sha != "" {
+			if !cur {
+				if _, err := tx.Exec(`UPDATE artifacts SET current = 1, relation = 'head' WHERE artifact_id = ?`, aid); err != nil {
+					return err
+				}
+			}
 			if _, err := tx.Exec(`UPDATE sessions SET head_sha256 = ? WHERE session_uid = ?`, sha, uid); err != nil {
 				return err
 			}
