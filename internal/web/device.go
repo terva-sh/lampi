@@ -45,6 +45,9 @@ type inventoryView struct {
 	RefusedSessions int                         `json:"refused_sessions"`
 	RefusedBytes    int64                       `json:"refused_bytes"`
 	Truncated       bool                        `json:"truncated,omitempty"`
+	// Shown is the projects the page lists: all of them, or the refused
+	// ones alone.
+	Shown []protocol.InventoryProject `json:"-"`
 }
 
 // Strict reports whether the device holds back its refused projects.
@@ -96,6 +99,17 @@ func (s *Server) renderDevice(w http.ResponseWriter, r *http.Request, id string,
 		return
 	}
 	v.RefusedOnly, v.Problem = refused, problem
+	if iv := v.Inventory; iv != nil {
+		iv.Shown = iv.Projects
+		if refused {
+			iv.Shown = nil
+			for _, p := range iv.Projects {
+				if !p.Allowed {
+					iv.Shown = append(iv.Shown, p)
+				}
+			}
+		}
+	}
 	if ident, csrf := webauth.Current(r); ident.Operator && s.reg != nil {
 		v.Actions, v.CSRF = true, csrf
 		if v.Profiles, err = s.reg.Lake().Catalog.ProfileNames(ctx); err != nil {

@@ -38,12 +38,17 @@ type DeviceInventory struct {
 // agent's: an inventory generated at or after inv.GeneratedAt stays,
 // however the requests arrived. A tie keeps the one stored, since the
 // time cannot say which is newer; the agent sends again with a later
-// time. A GeneratedAt after now counts as now, so an
-// agent whose clock runs ahead cannot pin a snapshot the ones after it
-// never replace.
+// time. A GeneratedAt after now counts as now, so an agent whose clock
+// runs ahead cannot pin a snapshot the ones after it never replace, and
+// one before 1970 counts as 1970.
 func (c *Catalog) PutDeviceInventory(ctx context.Context, id string, inv protocol.AgentInventory, now time.Time) (bool, error) {
 	if inv.GeneratedAt.After(now) {
 		inv.GeneratedAt = now
+	}
+	// UnixNano is undefined before 1678, and a clock that far off is not
+	// telling time; the epoch still orders before any real snapshot.
+	if epoch := time.Unix(0, 0); inv.GeneratedAt.Before(epoch) {
+		inv.GeneratedAt = epoch
 	}
 	raw, err := json.Marshal(inv)
 	if err != nil {

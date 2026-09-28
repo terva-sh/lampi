@@ -80,6 +80,9 @@ func TestDevicePageShowsItsInventory(t *testing.T) {
 		}
 	}
 
+	if !strings.Contains(get(h, "/devices/"+quiet.ID, cookie).Body.String(), "No inventory yet") {
+		t.Error("device with no inventory")
+	}
 	page := get(h, "/devices/"+laptop.ID, cookie).Body.String()
 	for _, want := range []string{"git.example/team/app", "/home/me/scratch", "no allow rule matches", "2 checkouts", "lake default", "Refused only", `action="/devices/` + laptop.ID + `/profile"`, `name="from" value="device"`} {
 		if !strings.Contains(page, want) {
@@ -90,13 +93,18 @@ func TestDevicePageShowsItsInventory(t *testing.T) {
 	if !strings.Contains(refused, "/home/me/scratch") || strings.Contains(refused, "git.example/team/app") {
 		t.Error("refused only still lists the allowed project, or lost the refused one")
 	}
+	// A machine with nothing refused says so, rather than showing an
+	// empty table.
+	if _, err := lake.Catalog.PutDeviceInventory(ctx, quiet.ID, protocol.AgentInventory{Mode: "sociable", GeneratedAt: now, Projects: rows[:1]}, now); err != nil {
+		t.Fatal(err)
+	}
+	if body := get(h, "/devices/"+quiet.ID+"?show=refused", cookie).Body.String(); !strings.Contains(body, "No project on this machine is refused") || strings.Contains(body, "inventory-table") {
+		t.Error("refused only with nothing refused")
+	}
 	strict := get(h, "/devices/"+vault.ID, cookie).Body.String()
 	if !strings.Contains(strict, "git.example/team/app") || strings.Contains(strict, "/home/me/scratch") ||
 		!strings.Contains(strict, "This device is strict") || strings.Contains(strict, "Refused only") {
 		t.Error("strict device page")
-	}
-	if !strings.Contains(get(h, "/devices/"+quiet.ID, cookie).Body.String(), "No inventory yet") {
-		t.Error("device with no inventory")
 	}
 
 	// The devices list and the operations machines link here.
