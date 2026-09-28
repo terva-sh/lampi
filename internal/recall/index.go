@@ -113,9 +113,9 @@ type Index struct {
 	// failed holds the generation that could not be indexed, so it is
 	// not read again until a newer one is published.
 	failed map[string]int64
-	// merging is set while the last reclaim still merged segments, so
-	// the next pass merges again although it wrote nothing. Only Pass
-	// reads and writes it.
+	// merging is set while the last reclaim still merged segments or
+	// failed, so the next pass reclaims again although it wrote nothing.
+	// Only Pass reads and writes it.
 	merging bool
 	// passes counts finished passes, for tests.
 	passes int
@@ -436,28 +436,30 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) er
 
 // reclaim merges up to mergePages of the full-text index, which drops
 // the rows deleted from it, and returns the pages that frees to the
-// filesystem. more is true when the merge changed the index, so there
-// may be more to merge.
+// filesystem. more is true when the merge did work, so there may be
+// more to merge, and when reclaim failed, so the next pass tries again.
+// FTS5 documents a merge that did work as raising total_changes() by
+// two or more on its connection.
 func (x *Index) reclaim(ctx context.Context) (more bool, err error) {
 	conn, err := x.db.Conn(ctx)
 	if err != nil {
-		return false, err
+		return true, err
 	}
 	defer conn.Close()
 	var before, after int64
-	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM fts_data`).Scan(&before); err != nil {
-		return false, err
+	if err := conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
+		return true, err
 	}
 	if _, err := conn.ExecContext(ctx, `INSERT INTO fts(fts, rank) VALUES('merge', ?)`, -mergePages); err != nil {
-		return false, err
+		return true, err
 	}
-	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM fts_data`).Scan(&after); err != nil {
-		return false, err
+	if err := conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
+		return true, err
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA incremental_vacuum`); err != nil {
-		return false, err
+		return true, err
 	}
-	return after != before, nil
+	return after-before >= 2, nil
 }
 
 // remove drops every row of uid.

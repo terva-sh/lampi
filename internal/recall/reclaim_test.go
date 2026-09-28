@@ -1,6 +1,7 @@
 package recall
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -63,5 +64,33 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 	}
 	if p := search(t, x, SearchRequest{Query: text[first+69][:20]}); len(p.Items) == 0 {
 		t.Fatal("the newest events are not searchable")
+	}
+}
+
+// A pass that writes nothing keeps merging while the last merge did
+// work, and stops once a merge finds nothing to do. A reclaim that
+// fails stays pending.
+func TestIdlePassesFinishTheMerge(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "merge")
+	x := openIndex(t, s)
+	for g := 0; g < 6; g++ {
+		publish(t, s, uid, events(300+g, func(i int) string { return fmt.Sprintf("merge text %d of generation %d", i, g) }))
+		pass(t, x)
+	}
+	for i := 0; x.merging; i++ {
+		if i > 50 {
+			t.Fatal("idle passes never stopped merging")
+		}
+		pass(t, x)
+	}
+	if more, err := x.reclaim(t.Context()); err != nil || more {
+		t.Fatalf("a merge after the index settled did work: %v %v", more, err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if more, err := x.reclaim(ctx); err == nil || !more {
+		t.Fatalf("a failed reclaim is not pending: %v %v", more, err)
 	}
 }
