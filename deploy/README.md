@@ -162,6 +162,34 @@ systemctl --user enable --now terva-lampi-agent.service
 `SIGUSR1` asks the running agent to sync. The watch on
 `$TERVA_HOME/sessions` is still the source of truth.
 
+## Upgrading an agent
+
+Upgrade the lake first, then its agents. On each machine:
+
+```bash
+terva-lampi self-update
+```
+
+With no flag, it installs the release the agent's lake names, so an
+agent is never ahead of its lake. `status` prints the lake's release
+and says when the agent is behind it. A lake that cannot be reached, or
+one older than the release that added `self-update`, stops the update
+rather than letting the agent get ahead of it. `--version TAG` installs
+a named release, including an older one, and `--latest` ignores the
+lake.
+
+The download is checked against the release's `checksums.txt`, and
+the new binary has to report the expected version before it replaces
+the old one. The old binary stays beside it as `terva-lampi.prev`. To
+roll back, move it over `terva-lampi` and restart the agent.
+
+A running `terva-lampi-agent` service is restarted, which is needed
+because a reload keeps the old binary running. `--no-restart` leaves it
+alone. `self-update` does not use sudo, so a binary under
+`/usr/local/bin` has to be upgraded by its owner. `--check` exits 10, 11
+or 12 when a patch, minor or major update is available, for a cron job
+or a fleet script.
+
 ## systemd system service
 
 ```text
