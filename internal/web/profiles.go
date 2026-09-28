@@ -181,7 +181,7 @@ func (s *Server) readProfile(ctx context.Context, name string, now time.Time) (p
 	}
 	var prof config.Profile
 	var sum profileSummary
-	stored, err := s.catalog.Profile(ctx, name)
+	stored, err := s.catalog.ProfileByName(ctx, name)
 	switch {
 	case errors.Is(err, catalog.ErrNoProfile) && name == config.DefaultProfile:
 		sum = emptyDefault(len(users[name]))
