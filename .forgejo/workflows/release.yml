@@ -140,3 +140,33 @@ jobs:
             exit 1
           fi
           echo "published ${uploaded} asset(s) to ${TAG}"
+
+  image:
+    name: Build Image
+    # Builds the lake image for both platforms with Buildah, the way the
+    # Sothr-Containers repositories build on this runner, and pushes
+    # nothing: GHCR is the one registry, and the GitHub release publishes to it. This proves the tag builds. Every RUN in the
+    # Dockerfile runs on the build platform, so arm64 needs no QEMU.
+    runs-on: docker
+    container:
+      image: container.local.sothr.com/library/buildah:latest
+      options: --device=/dev/fuse --security-opt seccomp=unconfined
+    steps:
+      - name: Checkout Code
+        uses: Actions-Mirrors/forgejo-actions-checkout@v6
+
+      # Docker format keeps HEALTHCHECK, which the OCI format drops.
+      - name: Build linux/amd64 and linux/arm64
+        run: |
+          buildah build --format docker \
+            --platform linux/amd64,linux/arm64 \
+            --manifest localhost/terva-lampi:ci .
+
+      # The image has no shell, so buildah run calls the binary itself.
+      - name: Run the amd64 binary
+        run: |
+          set -eu
+          c=$(buildah from --platform linux/amd64 localhost/terva-lampi:ci)
+          buildah run "$c" -- /usr/local/bin/terva-lampi --version
+          buildah run "$c" -- /usr/local/bin/terva-lampi serve healthcheck --help >/dev/null
+          buildah rm "$c"
