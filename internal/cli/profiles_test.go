@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/catalog"
 )
 
 func profilesLake(t *testing.T) (dir string, run func(stdin string, args ...string) (string, error)) {
@@ -102,15 +104,57 @@ func TestServeWarnsThatAProfilesFileIsNotInForce(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "profiles.json"), []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	warnProfilesFile(env, data, "/etc/lampi/profiles.json")
+	warnProfilesFile(env, data, "/etc/lampi/my profiles'; rm -rf x.json")
 	got := out.String()
 	for _, want := range []string{
-		"/etc/lampi/profiles.json is NOT in force",
+		`import '/etc/lampi/my profiles'\''; rm -rf x.json' --data`,
 		filepath.Join(data, "profiles.json") + " is NOT in force",
 		"serve profiles import",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"/var/lib/terva-lampi/profiles.json": "/var/lib/terva-lampi/profiles.json",
+		"a b":                                "'a b'",
+		"it's":                               `'it'\''s'`,
+		"$(x)":                               "'$(x)'",
+		"":                                   "''",
+	} {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestServeProfilesSetUnchangedFlushesTheAuditQueue(t *testing.T) {
+	dir, run := profilesLake(t)
+	if _, err := run(`{}`, "set", "ci", "-"); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, audit.FileName)
+	// Lose the line on disk and queue it again, as a failed flush would.
+	cat, err := catalog.Open(filepath.Join(dir, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cat.PutProfile(t.Context(), "ci", []byte(`{"agent":{"debounce":"2s"}}`), "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cat.Close()
+	before, _ := os.ReadFile(log)
+	if out, err := run(`{"agent":{"debounce":"2s"}}`, "set", "ci", "-"); err != nil || !strings.Contains(out, "unchanged") {
+		t.Fatalf("set %v:\n%s", err, out)
+	}
+	after, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(after), string(audit.ProfilePut)) != strings.Count(string(before), string(audit.ProfilePut))+1 {
+		t.Fatalf("the queued line was not written:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }

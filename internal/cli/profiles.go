@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
@@ -118,11 +119,13 @@ func runServeProfiles(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !changed {
+		// An unchanged set still flushes below: a line an earlier
+		// write left queued goes out now.
+		if changed {
+			fmt.Fprintf(env.stdout(), "set %s revision %d version %s\n", p.Name, p.Revision, p.Version)
+		} else {
 			fmt.Fprintf(env.stdout(), "unchanged %s version %s\n", p.Name, p.Version)
-			return nil
 		}
-		fmt.Fprintf(env.stdout(), "set %s revision %d version %s\n", p.Name, p.Revision, p.Version)
 	case "delete":
 		rev, err := cat.DeleteProfile(ctx, pos[0], actor, note, now)
 		if errors.Is(err, catalog.ErrNoProfile) {
@@ -256,6 +259,16 @@ func warnProfilesFile(env Env, data, flagPath string) {
 		paths = append(paths, def)
 	}
 	for _, p := range paths {
-		fmt.Fprintf(env.stderr(), "terva-lampi serve: WARNING: %s is NOT in force. Profiles live in the catalog, and serve does not read this file. Run: terva-lampi serve profiles import %s --data %s\n", p, p, data)
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: WARNING: %s is NOT in force. Profiles live in the catalog, and serve does not read this file. Run: terva-lampi serve profiles import %s --data %s\n", p, shellQuote(p), shellQuote(data))
 	}
+}
+
+// shellQuote makes s one POSIX shell word, so a suggested command
+// can be copied as printed. A word of only safe characters is left as
+// it is.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+=:,@%") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
