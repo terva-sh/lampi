@@ -420,8 +420,9 @@ sent, compared with the lake. It takes no parameters; any parameter is
 
 - `version_state` compares `agent_version` with `lake_release`: `current`,
   `behind` or `ahead`. It is `unstamped` for an agent that is not a release
-  build, and `unknown` when the device has sent no report or the lake is not a
-  release build. `behind` counts active devices that are behind.
+  build, whatever the lake is, since that says something about the agent
+  alone. It is `unknown` when the device has sent no report, or when the agent
+  is a release build and the lake is not. `behind` counts active devices that are behind.
 - `profile_state` is `current` when the agent applied the profile version the
   lake would serve it now, `stale` when it applied another, and `unknown` when
   it has not said. `current_version` is what the lake would serve.
