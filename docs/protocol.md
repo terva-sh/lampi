@@ -352,6 +352,44 @@ file, skips that check. It keeps the last copy that verified and uses it
 when a fetch fails. A cached copy is checked the same way each time it
 is read.
 
+## POST /v1/agent/report
+
+Needs the device token. The agent's heartbeat: what it runs, which lake
+profile it applied, and what its last sync did. The lake stores it as
+the calling device's newest report and replaces the one before. The
+time it was received is the device's last contact, and it survives a
+restart of `serve`.
+
+```json
+{
+  "agent_version": "v0.1.3",
+  "machine_id": "01M3…",
+  "profile": "default",
+  "profile_version": "sha256:8427…",
+  "allow_source": "lake default",
+  "deny_source": "none",
+  "last_sync": {
+    "at": "2026-09-28T15:00:00Z",
+    "checked": 221, "missing": 0, "uploaded": 12, "manifests": 4,
+    "refused": 3, "quarantined": 0, "unchanged": 202
+  },
+  "last_error": "",
+  "last_error_at": "0001-01-01T00:00:00Z"
+}
+```
+
+Every field is optional. `inventory` is the agent's inventory mode,
+`sociable` or `strict`, and is empty from an agent without the inventory
+report. `allow_source` and `deny_source` are the values `agent config`
+prints. A lake's allow rules do not apply to a device whose
+`allow_source` is `local`. `last_error` is the newest failed sync's
+error and is empty after a sync succeeds.
+
+The body cap is 64 KiB. The lake cuts each string to 256 bytes, and
+`last_error` to 2 KiB, and does not keep a field it does not know. The
+answer is `{"received_at": "…"}`. A lake with no device tokens takes
+any report, as it takes any upload, and keeps nothing.
+
 ## POST /v1/blobs/check
 
 Request body is a JSON array of lowercase sha256 hex digests, not an object.

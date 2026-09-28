@@ -302,6 +302,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/conflicts", s.authed(s.conflicts))
 	mux.HandleFunc("POST /v1/hello", s.authed(s.hello))
 	mux.HandleFunc("GET "+protocol.AgentConfigPath, s.authed(s.agentConfig))
+	mux.HandleFunc("POST "+protocol.AgentReportPath, s.authed(s.agentReport))
 	mux.HandleFunc("POST "+protocol.RegisterPath, s.register)
 	mux.HandleFunc("POST /v1/blobs/check", s.authed(s.check))
 	mux.HandleFunc("PUT /v1/blobs/{digest}", s.authed(s.put))

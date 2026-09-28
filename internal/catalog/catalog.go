@@ -200,6 +200,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateStorageSamples,
 	migrateMachineActivity,
 	migrateSubagentHeads,
+	migrateDeviceReports,
 }
 
 // upgrade runs each migration above the file's user_version, one
