@@ -12,6 +12,7 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/webauth"
 )
 
 // IgnoredProfiles is a profiles file serve does not read, and the
@@ -49,6 +50,11 @@ type profilesView struct {
 	AsOf     string            `json:"as_of"`
 	Profiles []profileSummary  `json:"profiles"`
 	Ignored  []IgnoredProfiles `json:"ignored_files"`
+	// Actions offers the operator's forms; the page uses these, the API
+	// does not.
+	Actions bool   `json:"-"`
+	CSRF    string `json:"-"`
+	Problem string `json:"-"`
 }
 
 // profileHarness is one harness toggle: set is false when the profile
@@ -90,6 +96,9 @@ type profileView struct {
 	DeviceList []profileDevice       `json:"device_list"`
 	Revisions  []profileRevisionView `json:"revisions"`
 	Ignored    []IgnoredProfiles     `json:"ignored_files"`
+	Actions    bool                  `json:"-"`
+	CSRF       string                `json:"-"`
+	Problem    string                `json:"-"`
 }
 
 func (s *Server) ignoredProfiles() []IgnoredProfiles {
@@ -240,9 +249,20 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.readProfile(ctx, r.PathValue("name"), s.now())
+	name := r.PathValue("name")
+	v, err := s.readProfile(ctx, name, s.now())
 	if errors.Is(err, catalog.ErrNoProfile) {
-		apiError(w, http.StatusNotFound, "not_found")
+		// latest_revision is the base_revision a PUT that creates it names.
+		var latest int64
+		if config.ValidProfileName(name) {
+			if latest, err = s.catalog.LatestProfileRevision(ctx, name); err != nil {
+				fail(w, r, err)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "not_found", "latest_revision": latest})
 		return
 	}
 	if err != nil {
@@ -257,6 +277,17 @@ func (s *Server) profilesPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, catalog.ErrPage)
 		return
 	}
+	s.renderProfiles(w, r, "", http.StatusOK)
+}
+
+// operatorForms reports whether the signed-in user gets the editor's
+// forms, and the CSRF token they carry.
+func (s *Server) operatorForms(r *http.Request) (bool, string) {
+	id, csrf := webauth.Current(r)
+	return id.Operator && s.reg != nil, csrf
+}
+
+func (s *Server) renderProfiles(w http.ResponseWriter, r *http.Request, problem string, status int) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readProfiles(ctx, s.now())
@@ -264,7 +295,9 @@ func (s *Server) profilesPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Profiles", View: "profiles", AsOf: v.AsOf, Profiles: v})
+	v.Problem = problem
+	v.Actions, v.CSRF = s.operatorForms(r)
+	renderStatus(w, r, pageData{Title: "Profiles", View: "profiles", AsOf: v.AsOf, Profiles: v}, status)
 }
 
 func (s *Server) profilePage(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +316,30 @@ func (s *Server) profilePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Profile " + v.Name, View: "profile", AsOf: v.AsOf, Profile: v})
+	s.showProfile(w, r, v, "", http.StatusOK)
+}
+
+// renderProfile shows the profile called name with problem, after an
+// operator's action on it was refused.
+func (s *Server) renderProfile(w http.ResponseWriter, r *http.Request, name, problem string, status int) {
+	ctx, cancel := readContext(r)
+	defer cancel()
+	v, err := s.readProfile(ctx, name, s.now())
+	if errors.Is(err, catalog.ErrNoProfile) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	s.showProfile(w, r, v, problem, status)
+}
+
+func (s *Server) showProfile(w http.ResponseWriter, r *http.Request, v profileView, problem string, status int) {
+	v.Actions, v.CSRF = s.operatorForms(r)
+	v.Problem = problem
+	renderStatus(w, r, pageData{Title: "Profile " + v.Name, View: "profile", AsOf: v.AsOf, Profile: v}, status)
 }
 
 func profileURL(name string) string { return "/profiles/" + url.PathEscape(name) }

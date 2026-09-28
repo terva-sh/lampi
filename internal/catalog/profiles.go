@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -76,6 +77,7 @@ var (
 	ErrProfileName    = errors.New("catalog: a profile name is lowercase letters, digits, '-' and '_', at most 32 characters")
 	ErrDefaultProfile = errors.New("catalog: the default profile cannot be deleted")
 	ErrProfileInUse   = errors.New("catalog: profile is in use")
+	ErrProfileChanged = errors.New("catalog: profile changed since it was read")
 )
 
 const profileCols = `name, document, version, revision, updated_at, updated_by`
@@ -131,6 +133,24 @@ func (c *Catalog) ProfileByName(ctx context.Context, name string) (Profile, erro
 // stored. A document with the version the profile already has changes
 // nothing, and PutProfile reports false.
 func (c *Catalog) PutProfile(ctx context.Context, name string, raw []byte, actor, note string, now time.Time) (Profile, bool, error) {
+	return c.putProfile(ctx, name, raw, actor, note, -1, now)
+}
+
+// PutProfileIf is PutProfile for an editor that read revision base. For
+// a profile that is not stored, base is LatestProfileRevision: 0 for a
+// name never saved, else the deletion that removed it. It refuses with ErrProfileChanged
+// when another save or a delete landed since, so one operator's save
+// does not silently replace another's.
+func (c *Catalog) PutProfileIf(ctx context.Context, name string, raw []byte, actor, note string, base int64, now time.Time) (Profile, bool, error) {
+	if base < 0 {
+		return Profile{}, false, fmt.Errorf("%w: revision %d", ErrProfileChanged, base)
+	}
+	return c.putProfile(ctx, name, raw, actor, note, base, now)
+}
+
+// putProfile saves raw; base is the revision the caller read, or -1 to
+// save whatever is there.
+func (c *Catalog) putProfile(ctx context.Context, name string, raw []byte, actor, note string, base int64, now time.Time) (Profile, bool, error) {
 	if !config.ValidProfileName(name) {
 		return Profile{}, false, fmt.Errorf("%w: %q", ErrProfileName, name)
 	}
@@ -149,11 +169,22 @@ func (c *Catalog) PutProfile(ctx context.Context, name string, raw []byte, actor
 	}
 	defer tx.Rollback()
 	cur, err := scanProfile(tx.QueryRowContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE name=?`, name))
-	switch {
-	case err == nil && cur.Version == p.Version:
-		return cur, false, nil
-	case err != nil && !errors.Is(err, sql.ErrNoRows):
+	existed := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, false, fmt.Errorf("catalog: %w", err)
+	}
+	if !existed && base >= 0 {
+		// An absent name's revision is its newest: a create and delete
+		// since the editor opened it moves it on.
+		if cur.Revision, err = latestRevision(ctx, tx, name); err != nil {
+			return Profile{}, false, err
+		}
+	}
+	switch {
+	case base >= 0 && cur.Revision != base:
+		return cur, false, fmt.Errorf("%w: %s is at revision %d, not %d", ErrProfileChanged, name, cur.Revision, base)
+	case existed && cur.Version == p.Version:
+		return cur, false, nil
 	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO profile_revisions(profile, document, version, note, created_at, created_by) VALUES(?,?,?,?,?,?)`,
 		name, p.Document, p.Version, note, stamp(now), actor)
@@ -168,7 +199,11 @@ func (c *Catalog) PutProfile(ctx context.Context, name string, raw []byte, actor
 		name, p.Document, p.Version, p.Revision, stamp(now), actor); err != nil {
 		return Profile{}, false, fmt.Errorf("catalog: %w", err)
 	}
-	e := audit.Event{Kind: audit.ProfilePut, Actor: actor, Detail: fmt.Sprintf("profile=%s revision=%d version=%s", name, p.Revision, p.Version)}
+	changed := "new"
+	if existed {
+		changed = strings.Join(ChangedProfileFields(cur.Config, prof), ",")
+	}
+	e := audit.Event{Kind: audit.ProfilePut, Actor: actor, Detail: fmt.Sprintf("profile=%s revision=%d version=%s changed=%s", name, p.Revision, p.Version, changed)}
 	if err := queueAudit(ctx, tx, now, e); err != nil {
 		return Profile{}, false, err
 	}
@@ -184,6 +219,19 @@ func (c *Catalog) PutProfile(ctx context.Context, name string, raw []byte, actor
 // deleted. Nor can a profile a device that is not revoked uses: the
 // error names those devices.
 func (c *Catalog) DeleteProfile(ctx context.Context, name, actor, note string, now time.Time) (ProfileRevision, error) {
+	return c.deleteProfile(ctx, name, actor, note, -1, now)
+}
+
+// DeleteProfileIf is DeleteProfile for an editor that read revision
+// base. It refuses with ErrProfileChanged when a save landed since.
+func (c *Catalog) DeleteProfileIf(ctx context.Context, name, actor, note string, base int64, now time.Time) (ProfileRevision, error) {
+	if base < 1 {
+		return ProfileRevision{}, fmt.Errorf("%w: revision %d", ErrProfileChanged, base)
+	}
+	return c.deleteProfile(ctx, name, actor, note, base, now)
+}
+
+func (c *Catalog) deleteProfile(ctx context.Context, name, actor, note string, base int64, now time.Time) (ProfileRevision, error) {
 	if name == config.DefaultProfile {
 		return ProfileRevision{}, ErrDefaultProfile
 	}
@@ -192,13 +240,27 @@ func (c *Catalog) DeleteProfile(ctx context.Context, name, actor, note string, n
 		return ProfileRevision{}, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	var one int
-	err = tx.QueryRowContext(ctx, `SELECT 1 FROM profiles WHERE name=?`, name).Scan(&one)
+	var rev int64
+	err = tx.QueryRowContext(ctx, `SELECT revision FROM profiles WHERE name=?`, name).Scan(&rev)
+	if errors.Is(err, sql.ErrNoRows) && base >= 0 {
+		// Absent now: a lost race only if the name's history moved on
+		// from the revision the editor read.
+		latest, lerr := latestRevision(ctx, tx, name)
+		if lerr != nil {
+			return ProfileRevision{}, lerr
+		}
+		if latest != 0 && latest != base {
+			return ProfileRevision{}, fmt.Errorf("%w: %s was deleted", ErrProfileChanged, name)
+		}
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProfileRevision{}, fmt.Errorf("%w: %s", ErrNoProfile, name)
 	}
 	if err != nil {
 		return ProfileRevision{}, fmt.Errorf("catalog: %w", err)
+	}
+	if base >= 0 && rev != base {
+		return ProfileRevision{}, fmt.Errorf("%w: %s is at revision %d, not %d", ErrProfileChanged, name, rev, base)
 	}
 	users, err := profileUsers(ctx, tx, name)
 	if err != nil {
@@ -227,6 +289,53 @@ func (c *Catalog) DeleteProfile(ctx context.Context, name, actor, note string, n
 		return ProfileRevision{}, fmt.Errorf("catalog: %w", err)
 	}
 	return r, nil
+}
+
+// LatestProfileRevision is the newest revision of the profile called
+// name, a deletion included, or 0 for a name never saved. An editor of
+// a profile that is not stored passes it to PutProfileIf.
+func (c *Catalog) LatestProfileRevision(ctx context.Context, name string) (int64, error) {
+	var id int64
+	if err := c.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM profile_revisions WHERE profile=?`, name).Scan(&id); err != nil {
+		return 0, fmt.Errorf("catalog: %w", err)
+	}
+	return id, nil
+}
+
+func latestRevision(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
+	var id int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM profile_revisions WHERE profile=?`, name).Scan(&id); err != nil {
+		return 0, fmt.Errorf("catalog: %w", err)
+	}
+	return id, nil
+}
+
+// ChangedProfileFields names the parts of a profile that differ between
+// a and b, as the audit line records them: projects.allow,
+// projects.deny, harnesses, agent and redaction. The revisions hold both
+// documents in full.
+func ChangedProfileFields(a, b config.Profile) []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		x, y any
+	}{
+		{"projects.allow", a.Projects.Allow, b.Projects.Allow},
+		{"projects.deny", a.Projects.Deny, b.Projects.Deny},
+		{"harnesses", a.Harnesses, b.Harnesses},
+		{"agent", a.Agent, b.Agent},
+		{"redaction", a.Redaction, b.Redaction},
+	} {
+		x, _ := json.Marshal(f.x)
+		y, _ := json.Marshal(f.y)
+		if !bytes.Equal(x, y) {
+			out = append(out, f.name)
+		}
+	}
+	if out == nil {
+		out = []string{"none"}
+	}
+	return out
 }
 
 // profileUsers names the devices, not revoked, whose profile is name.
