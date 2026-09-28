@@ -252,3 +252,42 @@ func TestFailedStepReportsTheVersionReachedAndTheCopy(t *testing.T) {
 		t.Fatalf("file at %d (%v), want %d", v, err, from+1)
 	}
 }
+
+// A clock that went back sorts the new copy before the others. It is
+// the one this upgrade would roll back to, so it stays.
+func TestBackupKeepsTheCopyJustMadeWhenTheClockWentBack(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	catalogAt(t, path, len(migrations)-1)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	later := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	var future []string
+	for i := 0; i < 3; i++ {
+		b, err := backupBeforeMigrating(db, path, len(migrations)-1, later.Add(time.Duration(i)*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		future = append(future, filepath.Base(b))
+	}
+	made, err := backupBeforeMigrating(db, path, len(migrations)-1, time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(made); err != nil {
+		t.Fatalf("the copy just made was pruned: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(made))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if len(got) != 3 || got[0] != filepath.Base(made) || got[1] != future[1] || got[2] != future[2] {
+		t.Fatalf("left %v", got)
+	}
+}

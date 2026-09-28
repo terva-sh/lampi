@@ -238,7 +238,7 @@ func upgrade(db *sql.DB, path string, steps []func(*sql.Tx) error, now time.Time
 	for ; v < len(steps); v++ {
 		tx, err := db.Begin()
 		if err != nil {
-			return m, fmt.Errorf("catalog: %w", err)
+			return m, partialError(m, v+1, stepName(steps[v]), err)
 		}
 		if err := steps[v](tx); err != nil {
 			tx.Rollback()
@@ -247,7 +247,7 @@ func upgrade(db *sql.DB, path string, steps []func(*sql.Tx) error, now time.Time
 		// PRAGMA does not take a bound parameter. v is an int.
 		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, v+1)); err != nil {
 			tx.Rollback()
-			return m, fmt.Errorf("catalog: %w", err)
+			return m, partialError(m, v+1, stepName(steps[v]), err)
 		}
 		if err := tx.Commit(); err != nil {
 			return m, partialError(m, v+1, stepName(steps[v]), err)

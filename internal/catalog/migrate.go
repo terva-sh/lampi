@@ -126,28 +126,29 @@ func backupBeforeMigrating(db *sql.DB, path string, v int, now time.Time) (strin
 		os.Remove(dest)
 		return "", fmt.Errorf("catalog: backup before migrating from version %d: %w", v, err)
 	}
-	if err := pruneBackups(dir, keepBackups); err != nil {
+	if err := pruneBackups(dir, keepBackups, filepath.Base(dest)); err != nil {
 		return "", err
 	}
 	return dest, nil
 }
 
-// pruneBackups removes all but the newest keep copies. Only names in
-// the form this package writes are touched, so an operator's own file
-// in the directory stays.
-func pruneBackups(dir string, keep int) error {
+// pruneBackups leaves keep copies: the one just made, whatever its time,
+// and the newest of the rest. A clock that went back would otherwise
+// sort the new copy first and remove it. Only names in the form this
+// package writes are touched, so an operator's own file stays.
+func pruneBackups(dir string, keep int, made string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}
 	var names []string
 	for _, e := range entries {
-		if n := e.Name(); e.Type().IsRegular() && backupName.MatchString(n) {
+		if n := e.Name(); e.Type().IsRegular() && backupName.MatchString(n) && n != made {
 			names = append(names, n)
 		}
 	}
 	sort.Strings(names)
-	for len(names) > keep {
+	for len(names) > keep-1 {
 		if err := os.Remove(filepath.Join(dir, names[0])); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("catalog: %w", err)
 		}
