@@ -425,7 +425,9 @@ sent, compared with the lake. It takes no parameters; any parameter is
   is a release build and the lake is not. `behind` counts active devices that are behind.
 - `profile_state` is `current` when the agent applied the profile version the
   lake would serve it now, `stale` when it applied another, and `unknown` when
-  it has not said. `current_version` is what the lake would serve.
+  it has not said. It is `missing` if the device names a profile the lake does
+  not hold, which a delete refuses, so it means the catalog is out of step.
+  `current_version` is what the lake would serve.
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.

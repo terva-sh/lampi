@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"time"
@@ -37,8 +38,9 @@ type deviceRow struct {
 	VersionState string `json:"version_state"`
 	Inventory    string `json:"inventory,omitempty"`
 	// ProfileState is current when the agent applied the version the
-	// lake would serve it now, stale when it applied another, and
-	// unknown when it has not said.
+	// lake would serve it now, stale when it applied another, unknown
+	// when it has not said, and missing when the device names a profile
+	// the lake no longer holds.
 	AppliedVersion string `json:"applied_version,omitempty"`
 	CurrentVersion string `json:"current_version,omitempty"`
 	ProfileState   string `json:"profile_state"`
@@ -183,7 +185,17 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 				}
 			}
 		}
-		if eff, err := s.catalog.ResolveProfile(ctx, d); err == nil {
+		eff, err := s.catalog.ResolveProfile(ctx, d)
+		switch {
+		case errors.Is(err, catalog.ErrNoProfile):
+			// The catalog refuses to delete a profile a device names, so
+			// this is a catalog out of step. Its agent cannot fetch a
+			// profile, whatever it reported; say so on its row rather
+			// than failing the page.
+			row.ProfileState = "missing"
+		case err != nil:
+			return v, err
+		default:
 			row.CurrentVersion = eff.Version
 		}
 		if rep, ok := byDevice[d.ID]; ok {
@@ -229,7 +241,7 @@ func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, 
 	row.AppliedVersion = r.ProfileVersion
 	row.VersionState = versionState(r.AgentVersion, lakeV, lakeKnown)
 	switch {
-	case r.ProfileVersion == "" || row.CurrentVersion == "":
+	case row.ProfileState == "missing", r.ProfileVersion == "":
 	case r.ProfileVersion == row.CurrentVersion:
 		row.ProfileState = "current"
 	default:
