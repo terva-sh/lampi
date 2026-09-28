@@ -160,7 +160,7 @@ func TestServeNormalizeStatus(t *testing.T) {
 	}
 	for _, want := range []string{
 		"sessions: ready=0 pending=1 failed=1 unknown=1\n",
-		"jobs: 1 waiting, oldest 2m",
+		"jobs: 1 outstanding, queued or running, oldest queued 2m",
 		"failed " + bad + ": normalize: line 3 is not JSON\n",
 	} {
 		if !strings.Contains(out, want) {

@@ -33,11 +33,13 @@ Each session is projected again from its raw blobs, two at a time.
 A viewer reading a session while it is replaced is asked to reload.
 
 --status queues nothing. It reads the catalog, so it works with serve
-stopped, and prints sessions by state, the jobs waiting and the
-oldest one's age, and each failed session with its message. --json
-prints the normalization object of GET /v1/stats instead. queued,
-running and retrying are 0 there: they are what a serve process holds,
-and this does not ask one.
+stopped. It prints sessions by state, the jobs outstanding and how
+long ago the oldest was queued, and each failed session with its
+message. A job stays in the table while serve runs it, until its
+result is stored, so outstanding is queued or running. --json prints
+the normalization object of GET /v1/stats instead. queued, running and
+retrying are 0 there: they are what a serve process holds, and this
+does not ask one.
 
 The jobs are rows in the catalog, so this runs while serve runs. A
 running serve starts them on its next SIGHUP (systemctl kill -s HUP
@@ -195,7 +197,7 @@ func normalizeStatus(env Env, data string, asJSON bool) error {
 	}
 	fmt.Fprintf(out, "sessions: ready=%d pending=%d failed=%d unknown=%d\n",
 		st.Sessions["ready"], st.Sessions["pending"], st.Sessions["failed"], st.Sessions["unknown"])
-	fmt.Fprintf(out, "jobs: %d waiting, oldest %s\n", st.Jobs,
+	fmt.Fprintf(out, "jobs: %d outstanding, queued or running, oldest queued %s ago\n", st.Jobs,
 		ageString(st.OldestPendingSeconds))
 	uids, err := cat.SessionsInNormalizationState(ctx, "failed")
 	if err != nil {
