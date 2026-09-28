@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T16:03:33Z
+updated_at: 2026-09-28T18:08:29Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -64,3 +64,23 @@ Link it from `docs/README.md`, the README install section, and `deploy/README.md
 - [ ] A checked-in compose example sets the stop grace period, healthcheck, hardening options and secrets
 - [ ] The guide is linked from docs/README.md, the README and deploy/README.md
 - [ ] Every command in the guide was run against a real container
+
+## Notes
+
+**agent:claude-code/aa1afd80** at 2026-09-28T18:08:29Z
+
+### The compose example ships a Caddy proxy
+
+The owner asked on 2026-09-28 for the recommended compose setup to include Caddy, or another web server, that terminates TLS and sets the right headers. Make Caddy the default `proxy` service in `deploy/compose/compose.yaml`, with a checked-in `deploy/compose/Caddyfile`. Traefik labels can follow as a variant.
+
+What the Caddyfile does, and why:
+
+- **TLS.** Automatic HTTPS for `lake.example.com`. Document the DNS-01 or internal-CA route for a home server with no public port 80/443, because a tailnet or LAN-only lake can't pass the HTTP challenge.
+- **Only the proxy is exposed.** `reverse_proxy lampi:8787` over the compose network. The lake publishes no port, and its default command already has `--behind-proxy`.
+- **Body size.** `request_body max_size` sized for chunked uploads: take the value from the go-live 32 MiB drill (TKT-01M3D8YXG) and `docs/vps-bringup.md#tls-in-front`, don't guess it. Check the timeouts for a slow uplink too.
+- **Forwarded headers.** Caddy sets `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` by default. `serve` logs X-Forwarded-For as sent and trusts nothing from it. Check whether the OIDC dashboard's `base_url` needs `X-Forwarded-Proto` before relying on it.
+- **Response headers.** HSTS; `X-Content-Type-Options: nosniff`; `Referrer-Policy: no-referrer`. For the dashboard, a frame-ancestors or X-Frame-Options deny, unless `internal/web` already sets these. Read what `internal/web` sends first, and don't set a header twice with different values.
+- **Paths.** `/.well-known/terva-lampi/` must reach the lake (`serve register` checks it), and so must `/v1/register`. Nothing is rewritten.
+- **Metrics.** The Caddyfile doesn't route `/metrics`. Metrics stay on the private network.
+
+Test it with `docker compose up` against a local CA, then register a real agent through it. That end-to-end registration is the part TKT-01M3MC0QV couldn't test.
