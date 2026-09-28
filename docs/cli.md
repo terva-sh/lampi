@@ -19,6 +19,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi serve register` | Mint a one-time registration code for a new machine (`--name`, `--expires`, `--profile`), or `--list` and `--revoke` them. |
 | `terva-lampi serve normalize` | Queue sessions to be normalized again: `--stale` (the dashboard's unknown), `--failed`, or `--session UID`. `--dry-run` lists them. Runs while `serve` runs; serve starts the jobs on SIGHUP or at its next start. |
 | `terva-lampi serve purge` | Remove one session: its catalog rows, derived files, and the blobs no other session names. Dry run without `--yes`. `serve` stopped. |
+| `terva-lampi serve compact` | Store each grown file's bytes once: fold older versions into prefix records of the newest, and remove unreferenced tails and chunks. `--dry-run` reports and writes nothing, and can run beside `serve`; otherwise `serve` stopped. |
 
 ### On each machine
 

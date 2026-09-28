@@ -42,6 +42,8 @@ usage:
                                  re-hash every stored object
   terva-lampi serve purge --session UID [--data DIR] [--yes]
                                  remove one session and its blobs
+  terva-lampi serve compact [--data DIR] [--dry-run] [--min-age 1h]
+                                 store each grown file's bytes once
   terva-lampi serve identity [set-url URL] [--data DIR]
                                  print the lake id and key fingerprints,
                                  or set the URL agents reach the lake at
@@ -151,6 +153,8 @@ func runServe(env Env, args []string) error {
 			return runServeFsck(env, args[1:])
 		case "purge":
 			return runServePurge(env, args[1:])
+		case "compact":
+			return runServeCompact(env, args[1:])
 		case "identity":
 			return runServeIdentity(env, args[1:])
 		case "devices":

@@ -441,9 +441,9 @@ previous version's object replaced by a prefix record in
 `cas/logical`, written after the grown object it points at. Copy
 `cas/sha256`, then `cas/logical`, then `cas/sha256` again, so each
 record copied finds the object it reads from. `serve backup` does
-this and follows every record in the copy. `serve purge`
-and `serve fsck --repair` remove objects, and both refuse while
-`serve` holds the lake. Leave out the `.put-*`
+this and follows every record in the copy. `serve purge`,
+`serve compact` and `serve fsck --repair` remove objects, and all
+three refuse while `serve` holds the lake. Leave out the `.put-*`
 and `.logical-*` temp files. The example uses `rsync`. Any copy that
 keeps the tree works. Run `serve fsck --data` on the copy to check it.
 
@@ -557,6 +557,40 @@ machine. The three `catalog_` counts match the ones you kept. Delete
 ```bash
 sudo systemctl start terva-lampi-serve.service
 ```
+
+## Compact
+
+Ingest keeps a transcript's older versions as prefix records of the
+newest, but the tails a client sent stay stored, and a lake written
+before prefix records holds each version whole. `serve compact` folds
+every older version that is a prefix of its file's newest into a
+record, points existing records at the newest, and removes the
+objects nothing reads from. Each fold is hash-checked against the
+newest's bytes first.
+
+See what it would do first. The dry run writes nothing and can run
+beside `serve`.
+
+```bash
+sudo -u terva-lampi terva-lampi serve compact --data /var/lib/terva-lampi --dry-run
+```
+
+Then stop `serve`, compact, check the store, and start it again.
+Take a backup first if the disk has room. An older `terva-lampi`
+cannot read prefix records, so after the first compact a rollback
+needs that backup.
+
+```bash
+sudo systemctl stop terva-lampi-serve.service
+sudo -u terva-lampi terva-lampi serve compact --data /var/lib/terva-lampi
+sudo -u terva-lampi terva-lampi serve fsck --data /var/lib/terva-lampi
+sudo systemctl start terva-lampi-serve.service
+```
+
+An unreferenced object written in the last hour is kept, since it
+may be a blob put for a manifest not yet posted. `--min-age` changes
+the window. Compact is safe to run again, and a run over a compacted
+lake changes nothing.
 
 ## Leave out of git
 
