@@ -27,12 +27,12 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-27T14:22:52Z
+updated_at: 2026-09-28T14:45:12Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/e4a47e8c
+  id: agent:claude-code/2cf53976
   name: ""
 extensions: {}
 ---
@@ -106,3 +106,7 @@ The refused count, 78, is the agent's allowlist refusals and was the same before
 **agent:claude-code/e4a47e8c** at 2026-09-27T14:22:52Z
 
 AC4 is in the owner's hands: they will register NeoT, their main laptop and the servers kobal and shai. Cross-built binaries of d9aa261 for linux and darwin (amd64, arm64), with checksums, are in the rollout bundle's machines/ directory outside the repository. A new machine uploads nothing until it has allow rules; follow-ups filed as TKT-01M3HKYFE1 (Allow and deny rules by git remote prefix), TKT-01M3HKYFF5 (Report which projects the allowlist refuses) and TKT-01M3HKYFCW (Operator re-normalization for stale and failed sessions).
+
+**agent:claude-code/2cf53976** at 2026-09-28T14:45:12Z
+
+2026-09-28: the first remote device (tehbeast, dev_5367lazjlql5ck435rvffchi44) refused all 221 sessions because the lake had no default profile allow rules. A default profile copied from brokkr's local allowlist (28 allow rules, agent debounce 5s/30s, version sha256:8427a42989cbc15f) was prepared for /var/lib/terva-lampi/profiles.json; installing it needs sudo on brokkr. Follow-up design is epic TKT-01M3M7KB32 (Lake-managed agent config: dashboard editing, push, inventory).

@@ -79,6 +79,8 @@ stays documented as the fallback.
   `harnesses`, debounce values, `redaction`, and `projects` rules. The
   local `config.json` wins over every field. A local deny wins over a
   lake's allow. A lake's rules apply only to uploads to that lake.
+  A profile cannot set the inventory mode; see
+  [Off-box metadata](#off-box-metadata-the-inventory-report).
 - **Many lakes.** An agent can report to several lakes. Each lake has its
   own token, allowlist, sync state and `machine_id`, so two lakes cannot
   join their data by machine. Top-level deny rules and redaction apply to
@@ -263,6 +265,43 @@ hit is quarantined unless `redaction.upload_hits` is set, or unless
 `terva-lampi quarantine allow` acknowledged that file's exact digest.
 Leave `upload_hits` false. The manifest is scanned too, and a hit there is refused
 whatever `upload_hits` says. Neither gate rewrites the raw file.
+
+## Off-box metadata: the inventory report
+
+The allowlist above gates raw bytes. The owner decided on 2026-09-28
+(TKT-01M3M7M0PM) that an agent may also send metadata about projects
+the allowlist refuses, so that a lake operator can see what a machine
+captures and fix a misconfigured allowlist from the lake. The report
+ships with TKT-01M3M7M0TH. Until an agent runs a release with it, the
+agent sends nothing about a refused project.
+
+The agent's `config.json` picks one of two modes. A lake profile cannot
+set or clear it, and a profile that names it is refused.
+
+- **SOCIABLE**, the default. The agent reports each project its
+  harnesses hold, allowed or refused: the harness, the cwd, the cwd
+  hash, the folded git remote, the session count, the total bytes, the
+  newest session time, and the verdict with its refusal reason.
+- **STRICT**, set with `"inventory": "strict"`. The agent reports
+  allowlisted projects only, plus the total count and bytes of refused
+  sessions, with no name, path, remote or hash. It still fetches and
+  applies the lake's profiles.
+
+Raw transcripts of a refused project stay on the machine in both
+modes. The inventory is metadata, but a cwd or a remote can name a
+project or a client, so the lake keeps only each device's newest
+report, not a history.
+
+The mode is local because it protects the machine's owner from the
+lake. A lake that could turn SOCIABLE on could list the projects that
+owner chose not to share. STRICT still sends refused counts so that an
+operator can tell a few expected refusals from hundreds that point at a
+wrong allowlist.
+
+Alternatives the owner turned down: STRICT as the default, which leaves
+the lake blind on every new machine; cwd hashes only, which the
+dashboard cannot show or act on; and keeping the inventory on the
+machine behind `agent refused`, which means reading logs on each host.
 
 ## Machine inventory
 
