@@ -11,3 +11,4 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3FPP3H592T31Y2M3N347CPB](tickets/TKT-01M3FPP3H592T31Y2M3N347CPB.md) | Session recall: one query surface for the web UI and an MCP server | ready |
 | [TKT-01M3K45MQBRESGG5HEZZSZ3FDQ](tickets/TKT-01M3K45MQBRESGG5HEZZSZ3FDQ.md) | Lake storage efficiency: smaller than the raw sessions it holds | in-progress |
 | [TKT-01M3M7KB32E2BCFEA9CN710522](draft/TKT-01M3M7KB32E2BCFEA9CN710522.md) | Lake-managed agent config: dashboard editing, push, inventory | draft |
+| [TKT-01M3MAV1XM089JPDCG5NH2RAJ6](tickets/TKT-01M3MAV1XM089JPDCG5NH2RAJ6.md) | Device fleet visibility: agent versions, upgrades and management | ready |

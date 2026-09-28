@@ -320,11 +320,12 @@ neither builds nor updates it.
   read is retried when a new generation is published.
 - **Size.** The trigram index takes roughly two to three times the indexed text
   on disk. Only the first 256 KiB of one event's text is indexed; the full text
-  stays in the transcript. A session is re-indexed whole at each new
-  generation, and the rows it replaces stay in the full-text segments until
-  they merge. After each pass that wrote rows the index merges a bounded amount
-  and returns the freed pages to the filesystem, which keeps the file near its
-  live size rather than letting it grow to several times that.
+  stays in the transcript. At each new generation of a session the index
+  compares every event with the row at its position and writes only the rows
+  that changed, so a session that grew by a few events costs those events. Rows
+  it replaces stay in the full-text segments until they merge; after a pass
+  that replaced or removed rows the index merges a bounded amount and returns
+  the freed pages to the filesystem, which keeps the file near its live size.
 - **Rebuild.** Stop serve, delete `search.db`, `search.db-wal` and
   `search.db-shm`, and start serve. The index is rebuilt in the background while
   the lake keeps serving. A file with an unknown schema version is rebuilt the

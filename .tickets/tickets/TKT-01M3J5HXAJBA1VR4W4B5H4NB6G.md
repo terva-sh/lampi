@@ -3,16 +3,16 @@ schema: 3
 id: TKT-01M3J5HXAJBA1VR4W4B5H4NB6G
 title: "Dashboard: list, revoke and set profiles for devices"
 type: task
-status: draft
+status: ready
 status_reason: null
-priority: low
+priority: normal
 due_on: null
 labels:
   - area/server
   - area/auth
 assignees: []
-milestone: null
-parent: null
+milestone: v0.2.0
+parent: TKT-01M3MAV1XM089JPDCG5NH2RAJ6
 origin: null
 dependencies:
   - TKT-01M3J5HX9FY5M7V2VF162Z9FX3
@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-27T19:30:30Z
+updated_at: 2026-09-28T15:50:08Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/e4a47e8c
+  id: agent:claude-code/03b82158
   name: ""
 extensions: {}
 ---

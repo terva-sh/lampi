@@ -110,7 +110,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 		return nil, &missingBlobsError{Missing: missing}
 	}
 
-	headIdx := headIndex(m.Artifacts)
+	headIdx := catalog.HeadIndex(m.Artifacts)
 	decisions := make([]catalog.Decision, len(m.Artifacts))
 	for i, a := range m.Artifacts {
 		prev, hasPrev := byRel[a.RelPath]
@@ -272,15 +272,6 @@ func (s *Server) installChunks(a protocol.Artifact) error {
 	}
 	_, err := s.CAS.Concat(a.SHA256, a.ChunkSHA256s, protocol.MaxBlobBytes)
 	return err
-}
-
-func headIndex(arts []protocol.Artifact) int {
-	for i, a := range arts {
-		if a.Kind == protocol.KindTranscriptJSONL {
-			return i
-		}
-	}
-	return len(arts) - 1
 }
 
 // knownHarnesses and knownKinds are the manifest values the lake
