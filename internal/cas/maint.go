@@ -1,6 +1,7 @@
 package cas
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -140,8 +141,11 @@ func (p Problem) String() string {
 }
 
 // Verify re-hashes every object and reads every logical index. Each
-// object whose bytes do not hash to its name, and each index that does
-// not parse or names a chunk that is not stored, is passed to bad.
+// object whose bytes do not hash to its name, each index that does not
+// parse or names a chunk that is not stored, and each prefix record
+// whose chain does not reach a file holding its length, is passed to
+// bad. A prefix record's bytes are not re-hashed here: they are its
+// base's.
 // Temp files are skipped. A file whose path is not a digest is a
 // problem too, named by its path under the store. checked counts the
 // entries read.
@@ -175,6 +179,18 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 			bad(Problem{Digest: digest, Logical: true, Reason: err.Error()})
 			return nil
 		}
+		if idx.PrefixOf != "" {
+			// An object under the same digest is what Open reads, so a
+			// record whose base is gone is no longer a problem once a
+			// put has restored the object.
+			if ok, err := s.Has(digest); err != nil || ok {
+				return err
+			}
+			if err := s.checkRecord(digest, idx, 0); err != nil {
+				bad(Problem{Digest: digest, Logical: true, Reason: err.Error()})
+			}
+			return nil
+		}
 		for _, c := range idx.ChunkSHA256s {
 			ok, err := s.Has(c)
 			if err != nil {
@@ -192,7 +208,8 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 // Repair removes what p names, so Has reports it missing and the next
 // put stores it again. A logical index that does not parse is removed
 // the same way. An index whose chunk is missing is kept: the chunk's
-// own put restores it. fixed is false when there was nothing to remove.
+// own put restores it. So is a prefix record whose base is missing: a
+// put of the digest installs an object, which Open prefers. fixed is false when there was nothing to remove.
 func (s *Store) Repair(p Problem) (fixed bool, err error) {
 	if !protocol.ValidDigest(p.Digest) {
 		return false, nil
@@ -259,10 +276,18 @@ func walkEntries(root string, fn func(path, digest string) error) error {
 
 // Backup copies every object and logical index into the store layout
 // under dest: sha256/ first, then logical/, so an index is not copied
-// before its chunks. Temp files and partial uploads are left out. An
-// entry already in dest with the same size is kept, so a second backup
-// into the same directory copies only what is new. Each copy is synced
-// and renamed into place.
+// before its chunks or its base. Temp files and partial uploads are
+// left out. An entry already in dest with the same size is kept, so a
+// second backup into the same directory copies only what is new. Each
+// copy is synced and renamed into place.
+//
+// Backup runs while serve runs, and ingest replaces a grown head's
+// object with a prefix record of the new object. The walk can pass the
+// new object's directory before it is written and reach the record
+// after, and an object can go between listing and copying. So an
+// object that has gone is skipped, and afterwards every prefix record
+// in dest is followed and whatever it reads from that dest lacks is
+// copied from the store.
 func (s *Store) Backup(dest string) (copied int, err error) {
 	for _, sub := range []string{"sha256", "logical"} {
 		root := filepath.Join(s.Root, sub)
@@ -272,18 +297,117 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 				return err
 			}
 			out := filepath.Join(dest, sub, rel)
-			n, err := copyIfMissing(path, out)
+			// An index is rewritten in place when a prefix record is
+			// pointed further along its chain, at the same size, so it
+			// is compared by content.
+			n, err := copyIfMissing(path, out, sub == "logical")
 			copied += n
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
 			return err
 		})
 		if err != nil {
 			return copied, err
 		}
 	}
-	return copied, nil
+	n, err := s.closeRecords(dest)
+	return copied + n, err
 }
 
-func copyIfMissing(src, dst string) (int, error) {
+// closeRecords copies into dest what dest's logical entries read from
+// and dest lacks: a prefix record's next link, or a chunk list's
+// chunk, an object or a record, until every entry resolves. An entry
+// that is damaged rather than short is left for fsck.
+func (s *Store) closeRecords(dest string) (copied int, err error) {
+	d := &Store{Root: dest}
+	// Each pass copies the next missing link of every entry, so a chain
+	// that grew many times during the walk takes as many passes. A pass
+	// that copies nothing new cannot be followed by one that does.
+	for {
+		want := map[string]bool{}
+		err := walkEntries(filepath.Join(dest, "logical"), func(_, digest string) error {
+			if digest == "" {
+				return nil
+			}
+			if m := d.firstMissing(digest); m != "" {
+				want[m] = true
+			}
+			return nil
+		})
+		if err != nil {
+			return copied, err
+		}
+		if len(want) == 0 {
+			return copied, nil
+		}
+		progress := 0
+		for m := range want {
+			n, err := s.copyEntry(m, dest)
+			copied += n
+			progress += n
+			if err != nil {
+				return copied, err
+			}
+		}
+		if progress == 0 {
+			return copied, fmt.Errorf("cas: backup: logical entries in %s still stop short", dest)
+		}
+	}
+}
+
+// firstMissing follows what base reads from, through prefix records and
+// the chunks of chunk lists, and returns the first digest the store has
+// neither an object nor a logical entry for. It is empty when every
+// file base reads from is there.
+func (s *Store) firstMissing(base string) string {
+	seen := map[string]bool{}
+	queue := []string{base}
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		if ok, err := s.Has(d); err != nil || ok {
+			continue
+		}
+		idx, err := s.readLogical(d)
+		if errors.Is(err, os.ErrNotExist) {
+			return d
+		}
+		if err != nil {
+			// Damage, not a gap: fsck reports it.
+			continue
+		}
+		if idx.PrefixOf != "" {
+			queue = append(queue, idx.PrefixOf)
+		}
+		queue = append(queue, idx.ChunkSHA256s...)
+	}
+	return ""
+}
+
+// copyEntry copies digest's object, or else its logical entry, from
+// the store into dest.
+func (s *Store) copyEntry(digest, dest string) (int, error) {
+	if !protocol.ValidDigest(digest) {
+		return 0, fmt.Errorf("cas: invalid digest %q", digest)
+	}
+	rel := filepath.Join(digest[:2], digest[2:])
+	n, err := copyIfMissing(filepath.Join(s.Root, "sha256", rel), filepath.Join(dest, "sha256", rel), false)
+	if !errors.Is(err, os.ErrNotExist) {
+		return n, err
+	}
+	n, err = copyIfMissing(filepath.Join(s.Root, "logical", rel), filepath.Join(dest, "logical", rel), true)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, fmt.Errorf("cas: backup: %s is in neither sha256/ nor logical/", digest)
+	}
+	return n, err
+}
+
+func copyIfMissing(src, dst string, compare bool) (int, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return 0, err
@@ -294,7 +418,19 @@ func copyIfMissing(src, dst string) (int, error) {
 		return 0, err
 	}
 	if have, err := os.Stat(dst); err == nil && have.Size() == st.Size() {
-		return 0, nil
+		if !compare {
+			return 0, nil
+		}
+		same, err := sameBytes(in, dst)
+		if err != nil {
+			return 0, err
+		}
+		if same {
+			return 0, nil
+		}
+		if _, err := in.Seek(0, io.SeekStart); err != nil {
+			return 0, err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return 0, err
@@ -327,4 +463,18 @@ func copyIfMissing(src, dst string) (int, error) {
 	}
 	tmpName = ""
 	return 1, nil
+}
+
+// sameBytes reports whether in, read from its start, holds the bytes of
+// the file at path. It is for the small index files.
+func sameBytes(in *os.File, path string) (bool, error) {
+	a, err := io.ReadAll(in)
+	if err != nil {
+		return false, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(a, b), nil
 }

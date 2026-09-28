@@ -68,7 +68,9 @@ contents when it starts. Those directories are mode 0700.
 
 ```text
 /var/lib/terva-lampi/cas/sha256/…     content-addressed blobs
-/var/lib/terva-lampi/cas/logical/…    chunk lists for files over 32 MiB
+/var/lib/terva-lampi/cas/logical/…    chunk lists for files over 32 MiB,
+                                      and versions kept as a prefix of the
+                                      file they grew into
 /var/lib/terva-lampi/cas/partial/…    resumable uploads in flight
 /var/lib/terva-lampi/catalog.db       SQLite catalog, plus WAL sidecars
 /var/lib/terva-lampi/normalized/      one JSONL file per session
@@ -434,15 +436,21 @@ sudo install -d -o terva-lampi -g terva-lampi -m 0700 /var/backups/terva-lampi
 sudo -u terva-lampi sqlite3 /var/lib/terva-lampi/catalog.db ".backup '/var/backups/terva-lampi/catalog.db'"
 ```
 
-Then copy the CAS. Objects are only added while `serve` runs.
-`serve purge` and `serve fsck --repair` remove objects, and both
-refuse while `serve` holds the lake. A copy taken after the catalog
-holds every object that catalog names. Leave out the `.put-*` and `.logical-*` temp files. The
-example uses `rsync`. Any copy that keeps the tree works.
+Then copy the CAS. While `serve` runs, a transcript that grows has its
+previous version's object replaced by a prefix record in
+`cas/logical`, written after the grown object it points at. Copy
+`cas/sha256`, then `cas/logical`, then `cas/sha256` again, so each
+record copied finds the object it reads from. `serve backup` does
+this and follows every record in the copy. `serve purge`
+and `serve fsck --repair` remove objects, and both refuse while
+`serve` holds the lake. Leave out the `.put-*`
+and `.logical-*` temp files. The example uses `rsync`. Any copy that
+keeps the tree works. Run `serve fsck --data` on the copy to check it.
 
 ```bash
 sudo rsync -a --exclude '.put-*' /var/lib/terva-lampi/cas/sha256 /var/backups/terva-lampi/cas/
 sudo rsync -a --exclude '.logical-*' /var/lib/terva-lampi/cas/logical /var/backups/terva-lampi/cas/
+sudo rsync -a --exclude '.put-*' /var/lib/terva-lampi/cas/sha256 /var/backups/terva-lampi/cas/
 sudo install -m 0600 -o terva-lampi -g terva-lampi /var/lib/terva-lampi/tokens /var/backups/terva-lampi/tokens
 ```
 

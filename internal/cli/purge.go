@@ -26,6 +26,9 @@ artifacts, provenance, aliases, normalize job).
 The session's blobs are its artifact digests, the chunks and tail of
 its last manifest, the chunks of its logical files, and the tail
 blobs of each file that grew. A blob another session names is kept.
+A version another session names that is stored as the first bytes of
+this session's file is rewritten as a whole object first, so the
+bytes after it go.
 A tail or chunk list from an older manifest that the catalog did not
 record is not found. A backup taken before the purge still holds the
 bytes.
@@ -89,6 +92,10 @@ func runServePurge(env Env, args []string) error {
 	}
 	fmt.Fprintf(out, "logical indexes: %d\n", len(plan.Logical))
 	for _, d := range plan.Logical {
+		fmt.Fprintf(out, "  %s\n", d)
+	}
+	fmt.Fprintf(out, "rewritten whole, named by another session: %d\n", len(plan.Materialize))
+	for _, d := range plan.Materialize {
 		fmt.Fprintf(out, "  %s\n", d)
 	}
 	fmt.Fprintf(out, "kept, named by another session: %d\n", plan.Kept)

@@ -73,7 +73,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 			}
 			continue
 		}
-		ok, err := s.CAS.Has(a.SHA256)
+		ok, err := s.CAS.Present(a.SHA256)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +131,8 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 
 // checkClient makes a's bytes readable under a.SHA256 and checks them:
 // the size, and, unless a is the current digest at its relpath, the
-// hash. A tail is assembled onto the stored prefix by streaming both.
+// hash. A tail is assembled onto the stored prefix by streaming both,
+// and the prefix is then kept as a record of the grown file.
 func (s *Server) checkClient(a protocol.Artifact, prev catalog.ArtifactRow, hasPrev bool) error {
 	if len(a.ChunkSHA256s) > 0 {
 		if err := s.installChunks(a); err != nil {
@@ -169,19 +170,12 @@ func (s *Server) checkClient(a protocol.Artifact, prev catalog.ArtifactRow, hasP
 	if a.Size != prev.Size+tail {
 		return &clientError{fmt.Errorf("artifact %q size %d does not match %d prefix + %d tail", a.RelPath, a.Size, prev.Size, tail)}
 	}
-	sum, err := s.hashStored(prev.SHA256, a.TailSHA256)
-	if err != nil {
-		return err
-	}
-	if sum != a.SHA256 {
+	// The stored head becomes a prefix record of the grown file, so the
+	// bytes they share are stored once.
+	_, err = s.CAS.Grow(a.SHA256, prev.SHA256, prev.Size, a.TailSHA256, protocol.MaxBlobBytes)
+	if errors.Is(err, cas.ErrNotGrown) {
 		return errPrefixMismatch
 	}
-	r, closeAll, err := s.openStored(prev.SHA256, a.TailSHA256)
-	if err != nil {
-		return err
-	}
-	defer closeAll()
-	_, err = s.CAS.Put(a.SHA256, r, protocol.MaxBlobBytes)
 	return err
 }
 

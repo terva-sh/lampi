@@ -425,7 +425,8 @@ func putBlob(t testing.TB, h http.Handler, sum string, body []byte) string {
 
 func readBlobBytes(t *testing.T, s *Server, sum string) []byte {
 	t.Helper()
-	f, err := s.CAS.OpenBlob(sum)
+	// Read, not OpenBlob: a version that grew is a prefix record.
+	f, err := s.CAS.Open(sum)
 	if err != nil {
 		t.Fatal(err)
 	}

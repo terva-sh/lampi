@@ -570,6 +570,12 @@ the stored head's length, or whose assembly hash is not `sha256`, is
 `409` `{"error":"prefix mismatch"}`. The client PUTs the whole file
 and posts the manifest again with prev 0.
 
+An assembled tail replaces the stored head's own blob with a prefix
+record: the head's digest is kept as the first `byte_watermark_prev`
+bytes of the grown file, so the bytes they share are stored once.
+Every version stays readable under its digest, and `blobs/check` and
+the manifest count it as stored.
+
 A 200 body is the ACK. The client may advance a watermark only after it
 sees this. `internal/watermark` enforces that. `terva-lampi sync` commits
 the cursor from this ACK and leaves it unchanged when the POST fails.
