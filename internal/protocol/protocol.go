@@ -212,9 +212,9 @@ type AgentReport struct {
 	Profile        string `json:"profile,omitempty"`
 	ProfileVersion string `json:"profile_version,omitempty"`
 	// AllowSource and DenySource say where the agent's project rules
-	// for this lake came from, as agent config prints them: "local",
-	// "lake NAME", both joined by "+", or "none". A lake's allow rules
-	// do not apply while AllowSource is local.
+	// for this lake came from: "local", "lake NAME", both joined by
+	// "+", or "none". A lake's allow rules do not apply while
+	// AllowSource is local.
 	AllowSource string           `json:"allow_source,omitempty"`
 	DenySource  string           `json:"deny_source,omitempty"`
 	LastSync    *AgentSyncReport `json:"last_sync,omitempty"`

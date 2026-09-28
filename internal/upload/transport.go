@@ -179,6 +179,23 @@ func FetchAgentConfig(ctx context.Context, opt Options) (*protocol.Signed, error
 	return &s, nil
 }
 
+// PostReport sends the agent's heartbeat to the lake.
+func PostReport(ctx context.Context, opt Options, rep protocol.AgentReport) (protocol.AgentReportResponse, error) {
+	client := opt.Client
+	if client == nil {
+		client = NewClient()
+	}
+	raw, err := json.Marshal(rep)
+	if err != nil {
+		return protocol.AgentReportResponse{}, err
+	}
+	var resp protocol.AgentReportResponse
+	if err := doJSON(ctx, client, opt, http.MethodPost, protocol.AgentReportPath, raw, &resp); err != nil {
+		return protocol.AgentReportResponse{}, err
+	}
+	return resp, nil
+}
+
 // ErrNoKeyEndpoint is FetchKeys against a lake from before identities.
 var ErrNoKeyEndpoint = errors.New("the lake has no key endpoint; upgrade the lake before registering agents with it")
 
