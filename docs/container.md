@@ -248,10 +248,17 @@ Make the directory writable by the lake's user, then run the backup:
 mkdir -p backups && sudo chown 65532:65532 backups && chmod 700 backups
 docker compose up -d
 docker compose exec lampi terva-lampi serve backup --out /backups/lake \
-  --token-file /var/lib/terva-lampi/tokens
+  --token-file /var/lib/terva-lampi/tokens --prune
 ```
 
-A second run into the same directory copies only what changed. The
+A second run into the same directory copies only what changed. A run
+only adds to it, so a session `serve purge` removed, and the versions
+`serve compact` folded away, would stay in the backup for good.
+`--prune` removes them once every copy in the run has succeeded: it
+deletes from the backup's CAS whatever the backup's own catalog no
+longer reaches, and prints what it removed. Copies of the backup made
+before the prune, such as older restic snapshots, still hold what it
+removed; forget those too after a purge. The
 backup is the lake in plaintext, so keep `backups/` on encrypted
 storage, and copy it off the host. Back up Caddy's `caddy-data` volume
 too, or Caddy requests new certificates after a restore. [VPS

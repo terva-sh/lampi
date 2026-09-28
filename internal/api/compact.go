@@ -359,46 +359,20 @@ func countFold(rep *CompactReport, wasPrefix, object bool, freed int64) {
 }
 
 // sweepUnreferenced removes objects and logical entries that nothing
-// reads from, once they are older than opt.MinAge. What is kept starts
-// at every digest the catalog and the last manifests name, and follows
-// chunk lists and prefix records down. In a dry run the planned folds
-// stand in for the records they would write.
+// reads from, once they are older than opt.MinAge. What is kept is
+// liveDigests. In a dry run the planned folds stand in for the records
+// they would write.
 func (s *Server) sweepUnreferenced(ctx context.Context, sessions []catalog.SessionInfo, bases map[string]string, opt CompactOptions, rep *CompactReport) error {
-	named, err := s.Catalog.ReferencedDigests(ctx)
+	var planned func(string) (string, bool)
+	if opt.DryRun {
+		planned = func(d string) (string, bool) {
+			base, ok := bases[d]
+			return base, ok
+		}
+	}
+	keep, _, err := liveDigests(ctx, s.Catalog, s.CAS, sessions, planned)
 	if err != nil {
-		return err
-	}
-	for _, info := range sessions {
-		for _, a := range info.Manifest.Artifacts {
-			addNamed(named, a.SHA256, a.TailSHA256, a.ChunkSHA256s...)
-		}
-	}
-	keep := make(map[string]bool, len(named))
-	queue := make([]string, 0, len(named))
-	for d := range named {
-		queue = append(queue, d)
-	}
-	for len(queue) > 0 {
-		d := queue[len(queue)-1]
-		queue = queue[:len(queue)-1]
-		if keep[d] {
-			continue
-		}
-		keep[d] = true
-		if base, ok := bases[d]; ok && opt.DryRun {
-			queue = append(queue, base)
-			continue
-		}
-		_, isLogical, links, err := s.CAS.Stored(d)
-		if err != nil {
-			return err
-		}
-		// A logical entry that does not parse hides what it reads
-		// from. Stop rather than remove what it needs.
-		if isLogical && len(links) == 0 {
-			return fmt.Errorf("compact: logical index %s is unreadable; run serve fsck", d)
-		}
-		queue = append(queue, links...)
+		return fmt.Errorf("compact: %w", err)
 	}
 
 	cutoff := time.Now().Add(-opt.MinAge)

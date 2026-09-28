@@ -167,6 +167,130 @@ func TestBackupWhileServeRuns(t *testing.T) {
 	}
 }
 
+// backupTwoSessions is a lake with two sessions and a backup of it.
+// The lake is stopped when it returns.
+func backupTwoSessions(t *testing.T) (dir, out, uid, sum, two string) {
+	t.Helper()
+	dir, lake, uid, sum := liveLake(t)
+	body := []byte(`{"type":"meta","meta":{"id":"sid-two","cwd":"/tmp","started":"2026-09-22T16:10:00Z","version":"0.1.0"}}` + "\n")
+	two, _, _ = cas.Hash(bytes.NewReader(body))
+	putBlob(t, lake.Handler(), two, body)
+	postManifest(t, lake.Handler(), manifest("sid-two", "sessions/x/sid-two.jsonl", two, int64(len(body))))
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	out = filepath.Join(t.TempDir(), "backup")
+	if err := Run([]string{"serve", "backup", "--data", dir, "--out", out}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+	releaseLive(t, dir)
+	return dir, out, uid, sum, two
+}
+
+func backupHas(t *testing.T, out, digest string) bool {
+	t.Helper()
+	object, logical, _, err := (&cas.Store{Root: filepath.Join(out, "cas")}).Stored(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return object || logical
+}
+
+// A purged session stays in a backup until --prune, which removes it
+// and nothing the backup's catalog still names.
+func TestBackupPruneRemovesWhatThePurgeRemoved(t *testing.T) {
+	dir, out, uid, sum, two := backupTwoSessions(t)
+	if err := Run([]string{"serve", "purge", "--data", dir, "--session", uid, "--yes"}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Run([]string{"serve", "backup", "--data", dir, "--out", out}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	if !backupHas(t, out, sum) {
+		t.Fatal("a backup without --prune removed the purged blob")
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"serve", "backup", "--data", dir, "--out", out, "--prune"}, Env{Stdout: &stdout, Stderr: &stderr}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "prune: removed 1 objects") || stderr.Len() != 0 {
+		t.Fatalf("stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if backupHas(t, out, sum) {
+		t.Fatal("prune kept the purged blob")
+	}
+	got, err := (&cas.Store{Root: filepath.Join(out, "cas")}).Read(two)
+	if err != nil || !strings.Contains(string(got), "sid-two") {
+		t.Fatalf("prune removed the live blob: %v", err)
+	}
+
+	// Nothing is left to remove.
+	stdout.Reset()
+	if err := Run([]string{"serve", "backup", "--data", dir, "--out", out, "--prune"}, Env{Stdout: &stdout, Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "prune: removed 0 objects") {
+		t.Fatalf("second prune:\n%s", stdout.String())
+	}
+}
+
+// A logical entry that does not parse hides what it reads from, so
+// prune stops before removing anything.
+func TestBackupPruneStopsOnAnUnreadableLogicalEntry(t *testing.T) {
+	dir, out, uid, sum, two := backupTwoSessions(t)
+	if err := Run([]string{"serve", "purge", "--data", dir, "--session", uid, "--yes"}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	lp := filepath.Join(dir, "cas", "logical", two[:2], two[2:])
+	if err := os.MkdirAll(filepath.Dir(lp), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lp, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := Run([]string{"serve", "backup", "--data", dir, "--out", out, "--prune"}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("prune past an unreadable logical entry: %v", err)
+	}
+	if !backupHas(t, out, sum) {
+		t.Fatal("a prune that failed removed the purged blob")
+	}
+}
+
+// A digest the backup's catalog names and its CAS lacks is reported.
+// Pruning cannot make it worse, so it does not stop the prune.
+func TestBackupPruneReportsAMissingDigest(t *testing.T) {
+	dir, out, uid, sum, two := backupTwoSessions(t)
+	if err := Run([]string{"serve", "purge", "--data", dir, "--session", uid, "--yes"}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	// Lost from the lake, so the next backup cannot copy it either.
+	for _, root := range []string{dir, out} {
+		p, err := (&cas.Store{Root: filepath.Join(root, "cas")}).Path(two)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stderr bytes.Buffer
+	if err := Run([]string{"serve", "backup", "--data", dir, "--out", out, "--prune"}, Env{Stdout: ioDiscard(), Stderr: &stderr}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "names 1 digests its CAS lacks, first "+two) {
+		t.Fatalf("stderr:\n%s", stderr.String())
+	}
+	if backupHas(t, out, sum) {
+		t.Fatal("prune kept the purged blob")
+	}
+}
+
 func TestFsckNamesBadObjectsAndRefusesRepairBesideServe(t *testing.T) {
 	dir, lake, _, sum := liveLake(t)
 	p, err := lake.CAS.Path(sum)
