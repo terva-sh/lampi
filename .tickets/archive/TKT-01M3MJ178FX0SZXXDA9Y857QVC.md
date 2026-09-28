@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MJ178FX0SZXXDA9Y857QVC
 title: "Flaky under load: webauth TestProviderFlowAndRotation fails to verify"
 type: bug
-status: draft
+status: archived
 status_reason: null
 priority: normal
 due_on: null
@@ -18,9 +18,12 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-09-28T18:00:01Z
+  from_status: draft
+  reason: duplicate
 created_at: 2026-09-28T17:47:03Z
-updated_at: 2026-09-28T17:47:03Z
+updated_at: 2026-09-28T18:00:01Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -39,3 +42,13 @@ It passed 30 of 30 runs with `-race` locally, so it fails only under runner load
 ## Acceptance criteria
 
 - [ ] The test passes reliably on the CI runner
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+Duplicate of TKT-01M3G3B0, which has the earlier analysis. The evidence from this ticket is copied there. Archived.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:00:01Z
+
+archived from draft: duplicate
