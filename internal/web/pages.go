@@ -101,6 +101,9 @@ type pageData struct {
 	Operator bool
 	Codes    codesView
 	Devices  devicesView
+	// Urgent names active devices whose agent matches an urgent
+	// advisory. The overview and devices pages fill it.
+	Urgent []string
 }
 
 // searchView is the search form and its results. Hits carry the
@@ -175,7 +178,15 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, err)
 		return
 	}
-	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true})
+	// The overview is where an urgent agent is seen first. Reading the
+	// devices failing does not hide the rest of the page.
+	var urgent []string
+	if dv, err := s.readDevices(ctx, s.now()); err != nil {
+		s.logError(r, "reading devices for the overview failed", err)
+	} else {
+		urgent = dv.Urgent
+	}
+	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent})
 }
 func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), true, false)

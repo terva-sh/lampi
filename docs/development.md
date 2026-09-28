@@ -89,6 +89,27 @@ back. Both workflows fail when the built binary does not name its tag.
 `just release-check` validates `.goreleaser.yaml`, and `just
 release-snapshot` builds every archive into `dist/` without a tag.
 
+### Agent advisories
+
+When a release turns out to lose, leak or corrupt data, or to stop working
+with a newer lake, add it to `internal/advisory/agents.json` in the release
+that fixes it:
+
+```json
+{"agents": [
+  {"introduced": "v0.2.0", "fixed": "v0.2.1", "severity": "urgent",
+   "reason": "Drops sessions whose transcript is renamed mid-write.",
+   "link": "https://github.com/terva-sh/lampi/releases/tag/v0.2.1"}
+]}
+```
+
+`introduced` is the first affected release and `fixed` the first without the
+problem; leave `fixed` out while there is none. `severity` is `upgrade` or
+`urgent`. An urgent one puts a banner on the dashboard for each active device
+that runs it. The reason is one sentence an operator reads beside the device.
+The file is embedded and checked by `TestShippedAdvisoriesParse`, so a lake
+built with a bad entry fails its tests rather than its start.
+
 ## Develop on a machine that runs lampi
 
 On a machine that already runs a lake or an agent, use the `dev`

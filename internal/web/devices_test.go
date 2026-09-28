@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/advisory"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/recall"
@@ -107,5 +108,75 @@ func TestVersionState(t *testing.T) {
 	}
 	if got := versionState("v0.1.0", release.Version{}, false); got != "unknown" {
 		t.Errorf("unknown lake: %s", got)
+	}
+}
+
+// TKT-01M3MAPZZY: an agent release the lake's advisories name shows its
+// reason beside the device, and an urgent one raises a banner on the
+// overview and the devices page.
+func TestUrgentAdvisoryRaisesABanner(t *testing.T) {
+	set, err := advisory.Parse([]byte(`{"agents": [
+		{"introduced": "v0.1.0", "fixed": "v0.1.4", "severity": "urgent", "reason": "Drops sessions after a restart.", "link": "https://example.test/v0.1.4"},
+		{"introduced": "v0.1.4", "fixed": "v0.2.0", "severity": "upgrade", "reason": "Uploads slowly."}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(s advisory.Set) { agentAdvisories = s }(agentAdvisories)
+	agentAdvisories = set
+
+	lake, idp, h, _ := operatorLake(t, "", "readers")
+	ctx := t.Context()
+	now := time.Now()
+	created, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{
+		{Hash: strings.Repeat("a", 64), Name: "old"},
+		{Hash: strings.Repeat("b", 64), Name: "slow"},
+		{Hash: strings.Repeat("c", 64), Name: "gone"},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, v := range []string{"v0.1.2", "v0.1.5", "v0.1.1"} {
+		if err := lake.Catalog.PutDeviceReport(ctx, created[i].ID, protocol.AgentReport{AgentVersion: v}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A revoked device's agent no longer uploads, so it is no emergency.
+	if _, err := lake.Catalog.RevokeDevice(ctx, "gone", "test", now); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+
+	var got devicesView
+	if err := json.Unmarshal(get(h, "/api/web/v1/devices", cookie).Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Urgent) != 1 || got.Urgent[0] != "old" {
+		t.Fatalf("urgent %v", got.Urgent)
+	}
+	for _, d := range got.Devices {
+		want := map[string]string{"old": "urgent", "slow": "upgrade", "gone": "urgent"}[d.Name]
+		if d.Advisory == nil || string(d.Advisory.Severity) != want {
+			t.Errorf("%s: %+v", d.Name, d.Advisory)
+		}
+	}
+	for _, path := range []string{"/", "/devices"} {
+		body := get(h, path, cookie).Body.String()
+		_, banner, _ := strings.Cut(body, `class="panel problem urgent-agents"`)
+		banner, _, _ = strings.Cut(banner, "</section>")
+		if !strings.Contains(banner, "Agents to upgrade now") || !strings.Contains(banner, "<strong>old</strong>") || strings.Contains(banner, "gone") || strings.Contains(banner, "slow") {
+			t.Errorf("%s: banner %q, want one naming only old", path, banner)
+		}
+	}
+	page := get(h, "/devices", cookie).Body.String()
+	for _, want := range []string{"advisory-urgent", "Drops sessions after a restart. Fixed in v0.1.4.", `href="https://example.test/v0.1.4"`, "advisory-upgrade"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("devices page missing %q", want)
+		}
+	}
+
+	agentAdvisories = advisory.Set{}
+	if body := get(h, "/", cookie).Body.String(); strings.Contains(body, "Agents to upgrade now") {
+		t.Error("banner with no advisories")
 	}
 }

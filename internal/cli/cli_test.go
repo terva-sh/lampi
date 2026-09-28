@@ -836,3 +836,20 @@ func xdg(cfg string) func(string) string {
 func ioDiscard() *bytes.Buffer {
 	return &bytes.Buffer{}
 }
+
+// TKT-01M3MAPZZY: requests name the agent's release, so the lake's
+// request logs show which build sent each.
+func TestUserAgentNamesTheRelease(t *testing.T) {
+	for v, want := range map[string]string{
+		"v0.1.3": "terva-lampi/0.1.3", "0.0.0": "terva-lampi/0.0.0",
+		"v0.1.4-0.20260928120000-abcdef123456": "terva-lampi/0.1.4-0.20260928120000-abcdef123456",
+		"(devel)":                              "terva-lampi/dev", "": "terva-lampi/dev", "v1 2": "terva-lampi/dev",
+	} {
+		if got := userAgent(v, ""); got != want {
+			t.Errorf("%q: %s, want %s", v, got, want)
+		}
+	}
+	if !strings.HasPrefix(upload.UserAgent, "terva-lampi/") {
+		t.Errorf("not stamped at start: %q", upload.UserAgent)
+	}
+}

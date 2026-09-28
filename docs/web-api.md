@@ -426,6 +426,11 @@ sent, compared with the lake. It takes no parameters; any parameter is
 - `profile_state` is `current` when the agent applied the profile version the
   lake would serve it now, `stale` when it applied another, and `unknown` when
   it has not said. `current_version` is what the lake would serve.
+- `advisory` is present when the agent's release matches one of the
+  advisories this lake ships with (`internal/advisory/agents.json`):
+  `severity` (`upgrade` or `urgent`), `reason`, and `fixed` and `link` when
+  known. `urgent` lists the active devices that match an urgent advisory; it
+  is empty, not absent, when none does.
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.

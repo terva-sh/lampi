@@ -20,7 +20,10 @@ other `--addr`. The client reads the token from `--token-file` and does
 not take it as an argument. The server stores a SHA-256 of each device
 token and rewrites that file to `sha256:<hex>` lines. One tenant, many
 devices: each device has its own token. The client's copy stays the
-secret; point `serve` at a copy.
+secret; point `serve` at a copy. Each request's `User-Agent` is
+`terva-lampi/VERSION`, `dev` for a build with no version, so request logs
+show which release sent it. Nothing depends on it; the agent's version of
+record is the one in its [report](#post-v1agentreport).
 
 `GET /.well-known/terva-lampi/keys` also needs no token. It publishes the
 lake's identity. Registration will add `POST /v1/register`. These and the
