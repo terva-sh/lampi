@@ -13,10 +13,10 @@ import (
 	"terva.sh/lampi/internal/protocol"
 )
 
-// tempFile reports a file an install writes before its rename: a put
+// TempFile reports a file an install writes before its rename: a put
 // or concat (.put-*), a logical index (.logical-*), or partial meta
 // (.meta-*). A crash can leave one behind. It is never an object.
-func tempFile(name string) bool {
+func TempFile(name string) bool {
 	return strings.HasPrefix(name, ".put-") || strings.HasPrefix(name, ".logical-") || strings.HasPrefix(name, ".meta-")
 }
 
@@ -76,7 +76,7 @@ func sweepTemps(root string, cutoff time.Time) (int, error) {
 			}
 			return err
 		}
-		if d.IsDir() || !tempFile(d.Name()) {
+		if d.IsDir() || !TempFile(d.Name()) {
 			return nil
 		}
 		info, err := d.Info()
@@ -239,7 +239,7 @@ func walkEntries(root string, fn func(path, digest string) error) error {
 			}
 			return err
 		}
-		if d.IsDir() || tempFile(d.Name()) {
+		if d.IsDir() || TempFile(d.Name()) {
 			return nil
 		}
 		digest := ""

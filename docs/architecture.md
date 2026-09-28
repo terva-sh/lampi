@@ -20,7 +20,8 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve identity`, `serve devices`, `serve register`), `agent`, `sync`, `status`, `register`, `lakes`, `login`, `export`, `conflicts`, `quarantine`. See [cli.md](cli.md) |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
 | Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
-| Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance, head-update history |
+| Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance, head-update history, storage samples |
+| Storage | `internal/storage` | Disk use of the lake directory by component, and the filesystem's capacity |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
 | Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata, transcript, search, excerpt and activity API; see [web-dashboard.md](web-dashboard.md) |
 | Recall | `internal/recall` | Query layer shared by the browser API and the planned MCP server: generation-pinned event pages, the `search.db` FTS5 index, deep links and excerpts; see [web-api.md](web-api.md) |
@@ -237,6 +238,23 @@ time as `head_updates_since`; earlier activity is not reconstructed.
 `serve purge` deletes the session's rows, and `serve backup` carries
 the table and the marker. The sizes are logical sizes of the head
 artifact, not bytes on the wire or in the CAS.
+
+Serve measures its own disk use at start and then hourly, off the
+request path, and writes one `storage_samples` row per measure:
+
+- each component of the lake directory, with bytes and files: the CAS,
+  uploads in progress or left over, the catalog, normalized
+  projections, parquet, the search index, the audit log, and other
+  files
+- the capacity and free space of the filesystem that holds it
+- the logical bytes the catalog references, counted once per artifact
+  row and once per distinct digest
+
+The walk does not follow symlinks. Bytes are allocated blocks where the
+platform reports them, as `du` counts them, and file size elsewhere.
+Every sample from the last 14 days is kept; older ones are thinned to
+the last of each UTC day. Recording began at schema 10, and nothing
+before it is reconstructed.
 
 A git-ticket claim does not resolve to that uid. The decision is to
 leave the claim unwired. A claim stays an opaque string in the ticket
@@ -469,6 +487,7 @@ internal/api/             HTTP
 internal/auth/            device token file
 internal/cas/             filesystem blobs
 internal/catalog/         SQLite
+internal/storage/         lake directory disk use
 internal/config/          machine id and client config
 internal/discover/        terva session walk, optional raati and tasks
 internal/adapter/         harness interface
