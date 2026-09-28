@@ -4,10 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/filelock"
 )
 
 // migrateAuditOutbox adds audit_outbox, the audit events of catalog
@@ -63,11 +67,20 @@ func (c *Catalog) QueueAudit(ctx context.Context, now time.Time, events ...audit
 // FlushAudit appends the queued audit events to audit.jsonl in dir, in
 // the order they were queued, removing each once it is written. It stops
 // at the first append that fails and returns that error; the rest stay
-// queued. Flushes in one process take turns, so they do not write one
-// event twice.
+// queued. Flushes take turns, in one process and across processes (a
+// lock file beside the log), so none writes an event another has
+// selected, and the log keeps the queue's order.
 func (c *Catalog) FlushAudit(ctx context.Context, dir string) error {
 	c.flushMu.Lock()
 	defer c.flushMu.Unlock()
+	lock, err := os.OpenFile(filepath.Join(dir, audit.FileName+".lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("catalog: audit lock: %w", err)
+	}
+	defer lock.Close()
+	if err := filelock.Lock(lock); err != nil && !errors.Is(err, filelock.ErrUnsupported) {
+		return fmt.Errorf("catalog: audit lock: %w", err)
+	}
 	for {
 		var seq int64
 		var raw string

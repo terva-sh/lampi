@@ -1,9 +1,11 @@
 package catalog
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,5 +81,49 @@ func TestRolledBackRedemptionQueuesNoAudit(t *testing.T) {
 	}
 	if n, _ := c.PendingAudit(ctx); n != 1 {
 		t.Fatalf("pending %d, want 1", n)
+	}
+}
+
+// Two handles on one catalog, as serve and a serve command would hold,
+// flush one queue into one log without losing or reordering a line.
+func TestFlushesAcrossHandlesKeepTheOrder(t *testing.T) {
+	c, path := openTemp(t)
+	other, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	ctx := t.Context()
+	dir := filepath.Dir(path)
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	const n = 60
+	for i := range n {
+		if err := c.QueueAudit(ctx, now, audit.Event{Kind: "test.event", Detail: fmt.Sprintf("n=%03d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for _, h := range []*Catalog{c, other, c, other} {
+		wg.Go(func() {
+			if err := h.FlushAudit(ctx, dir); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	raw, err := os.ReadFile(audit.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := -1
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		var i int
+		if _, err := fmt.Sscanf(line[strings.Index(line, "n=")+2:], "%03d", &i); err != nil || i <= last {
+			t.Fatalf("line out of order or repeated after %d: %s", last, line)
+		}
+		last = i
+	}
+	if last != n-1 {
+		t.Fatalf("last line %d, want %d", last, n-1)
 	}
 }
