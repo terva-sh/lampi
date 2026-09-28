@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:41:26Z
+updated_at: 2026-09-28T02:57:06Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -113,4 +113,9 @@ Review:
 
 - Rejected, with evidence: the claim that the 24-hour cutoff hides
   last-data timestamps. The cutoff only bounds the recent-update count.
-- Accepted: GET-only.
+- Accepted, and fixed:
+  - GET and HEAD only.
+  - Label values use the exposition format's escapes (backslash,
+    quote, newline) instead of Go's `%q`.
+  - Closing cancels scrapes and waits for them, so none outlives the
+    catalog. A test shows this fails without the fix.
