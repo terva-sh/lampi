@@ -14,7 +14,6 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
-	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/testidp"
@@ -38,11 +37,13 @@ func operatorLake(t *testing.T, release string, groups ...string) (*api.Server, 
 	if _, err := lake.EnsureIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
-	lake.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {}})
+	if _, _, err := lake.Catalog.PutProfile(t.Context(), "ci", []byte(`{}`), "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"readers": "viewer", "admins": "operator"}}}
 	reg := &Registrations{
 		Lake: func() registrar.Lake {
-			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir, Profiles: lake.Profiles()}
+			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir}
 		},
 		Release: release,
 	}

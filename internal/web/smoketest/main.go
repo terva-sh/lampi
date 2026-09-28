@@ -130,7 +130,7 @@ func run() error {
 			return err
 		}
 		reg = &web.Registrations{Lake: func() registrar.Lake {
-			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir, Profiles: lake.Profiles()}
+			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir}
 		}, Release: "v0.1.1"}
 	}
 	if !*empty {

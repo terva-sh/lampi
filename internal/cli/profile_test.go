@@ -36,13 +36,25 @@ func profileLake(t *testing.T) (*api.Server, string) {
 	if _, err := lake.EnsureIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
-	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+	putDefaultProfile(t, lake, config.Profile{
 		Harnesses: config.Harnesses{"codex": {Enabled: false}},
 		Projects:  config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
-	}})
+	})
 	srv := httptest.NewServer(lake.Handler())
 	t.Cleanup(srv.Close)
 	return lake, srv.URL
+}
+
+// putDefaultProfile saves p as the lake's default profile.
+func putDefaultProfile(t *testing.T, lake *api.Server, p config.Profile) {
+	t.Helper()
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := lake.Catalog.PutProfile(t.Context(), config.DefaultProfile, raw, "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // pinnedConfig is a config.json whose only lake, work, is pinned to id
@@ -211,7 +223,11 @@ func TestAgentCachesAProfileRenamedWithTheSameContent(t *testing.T) {
 	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	// The cache holds profile ci with the content the lake now serves
 	// as default, as after serve devices set-profile moved the device.
-	p := lake.Profiles()[config.DefaultProfile]
+	stored, err := lake.Catalog.ProfileByName(t.Context(), config.DefaultProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := stored.Config
 	raw, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
@@ -261,9 +277,9 @@ func TestAgentCachesAProfileRenamedWithTheSameContent(t *testing.T) {
 
 func TestAgentHoldsUploadsUntilTheFirstProfileFetchAnswers(t *testing.T) {
 	lake, _ := profileLake(t)
-	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+	putDefaultProfile(t, lake, config.Profile{
 		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
-	}})
+	})
 	// The profile answers late, so an agent that pushes before it has
 	// the lake's deny rule uploads first.
 	h := lake.Handler()
@@ -302,9 +318,9 @@ func TestAgentHoldsUploadsUntilTheFirstProfileFetchAnswers(t *testing.T) {
 
 func TestAgentHoldsUploadsWhileTheFirstProfileCannotBeSaved(t *testing.T) {
 	lake, url := profileLake(t)
-	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+	putDefaultProfile(t, lake, config.Profile{
 		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
-	}})
+	})
 	home, cfg, state, _ := agentFixture(t, url)
 	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	var buf memBuf
@@ -362,9 +378,9 @@ func TestAgentHoldsUploadsWhileTheFirstProfileCannotBeSaved(t *testing.T) {
 
 func TestAgentHoldsUploadsUntilTheReloadForANewProfileSucceeds(t *testing.T) {
 	lake, url := profileLake(t)
-	lake.SetProfiles(config.Profiles{config.DefaultProfile: {
+	putDefaultProfile(t, lake, config.Profile{
 		Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
-	}})
+	})
 	home, cfg, state, _ := agentFixture(t, url)
 	writeAgentConfig(t, cfg, pinnedConfig(url, lake.Identity()))
 	var buf memBuf

@@ -20,15 +20,16 @@ import (
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/regcode"
 	"terva.sh/lampi/internal/testharness"
 )
 
 // These drills run each lake as a real serve subprocess with a token
-// file and a profiles file, and each client with closed XDG
-// directories and explicit harness roots. No production host, no real
-// credentials, and no real harness home is read.
+// file and a default profile in its catalog, and each client with
+// closed XDG directories and explicit harness roots. No production
+// host, no real credentials, and no real harness home is read.
 
 type onboardLake struct {
 	t      *testing.T
@@ -61,8 +62,15 @@ func newOnboardLake(t *testing.T, f *goLiveFixture, name string, allow ...string
 	for _, p := range allow {
 		rules = append(rules, map[string]string{"cwd_prefix": p})
 	}
-	profiles, _ := json.Marshal(map[string]any{"profiles": map[string]any{"default": map[string]any{"projects": map[string]any{"allow": rules}}}})
-	if err := os.WriteFile(filepath.Join(l.data, "profiles.json"), profiles, 0o600); err != nil {
+	profile, _ := json.Marshal(map[string]any{"projects": map[string]any{"allow": rules}})
+	cat, err := catalog.Open(filepath.Join(l.data, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cat.PutProfile(context.Background(), "default", profile, "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := cat.Close(); err != nil {
 		t.Fatal(err)
 	}
 	l.start()

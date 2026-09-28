@@ -213,18 +213,19 @@ The agent, `sync`, and `status` read `--token-file`, then
 
 ### Profiles
 
-A lake can give its registered agents a base configuration.
-`deploy/profiles.json.example` is the shape; copy it to
-`/var/lib/terva-lampi/profiles.json` (or pass `--profiles`), then
-replace its placeholder `projects.allow` and `projects.deny` entries
-with your own projects. As copied, it allows only a placeholder
+A lake can give its registered agents a base configuration. Profiles
+live in the lake's catalog, and every save keeps a revision. A lake
+with no `default` profile serves an empty one. `serve` does not read
+`profiles.json` or `--profiles`. `deploy/profiles.json.example` shows
+the shape of a profile. As written, it allows only a placeholder
 remote, so an agent with no allow rules of its own uploads nothing.
 A profile may set harnesses on or off, the debounce, and `projects.allow` and
 `projects.deny` for uploads to this lake. It cannot set a harness root
-or `redaction.upload_hits`; a file that tries fails the load. A
+or `redaction.upload_hits`; a profile that tries is refused. A
 device gets the `default` profile unless its code named one or
 `serve devices set-profile laptop NAME` changes it. The machine's own
-`config.json` wins over every field. SIGHUP reloads the file.
+`config.json` wins over every field. A saved profile applies at each
+agent's next fetch.
 
 ## Serve on loopback
 

@@ -30,7 +30,6 @@ import (
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
-	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/protocol"
 )
@@ -55,10 +54,7 @@ type Server struct {
 	// Nil leaves the key route answering 404 and hello unsigned.
 	// SetIdentity replaces it, so serve can reload identity.json.
 	ident atomic.Pointer[identity.Identity]
-	// profiles are the base configurations agents fetch. SetProfiles
-	// replaces them; nil serves one empty default profile.
-	profiles atomic.Pointer[config.Profiles]
-	Now      func() time.Time
+	Now   func() time.Time
 	// dataDir is the lake directory, where the audit log lives. Open
 	// sets it.
 	dataDir string

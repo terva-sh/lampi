@@ -11,7 +11,6 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
-	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/registrar"
 )
 
@@ -31,7 +30,10 @@ func testLake(t *testing.T) registrar.Lake {
 	if err := s.Catalog.SetPublicURL(t.Context(), srv.URL); err != nil {
 		t.Fatal(err)
 	}
-	return registrar.Lake{Catalog: s.Catalog, Identity: s.Identity(), Dir: dir, Profiles: config.Profiles{config.DefaultProfile: {}, "ci": {}}}
+	if _, _, err := s.Catalog.PutProfile(t.Context(), "ci", []byte(`{}`), "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	return registrar.Lake{Catalog: s.Catalog, Identity: s.Identity(), Dir: dir}
 }
 
 func TestMintAndRevokeRecordTheActor(t *testing.T) {
