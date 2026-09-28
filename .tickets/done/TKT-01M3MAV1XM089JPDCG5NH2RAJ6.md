@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MAV1XM089JPDCG5NH2RAJ6
 title: "Device fleet visibility: agent versions, upgrades and management"
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T15:41:21Z
-updated_at: 2026-09-28T15:50:08Z
+updated_at: 2026-09-28T22:22:53Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
 updated_by:
-  id: agent:claude-code/03b82158
+  id: agent:claude-code/aa1afd80
   name: ""
 extensions: {}
 ---
@@ -49,5 +49,9 @@ Refusing a known-incompatible agent at the server. That belongs to protocol vers
 
 ## Acceptance criteria
 
-- [ ] Every device in the dashboard shows its agent version and upgrade state
-- [ ] Operators manage devices from the dashboard without the CLI
+- [x] Every device in the dashboard shows its agent version and upgrade state
+- [x] Operators manage devices from the dashboard without the CLI
+
+## Summary
+
+Done. Both children and the self-update ticket landed. #85 is the devices page with agent version and profile state. #90 adds the behind and urgent badges, backed by the embedded advisory list. #88 brings revoke, unbind and set-profile, so every serve devices action now works from the dashboard. #80 adds the verified self-update. What remains is TKT-01M3MGZ45 (Agent auto-update when the lake runs a newer release (opt-in)), a low-priority draft kept out of this release. Closed during v0.2.0 grooming.
