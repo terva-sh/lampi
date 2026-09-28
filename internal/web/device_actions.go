@@ -133,15 +133,19 @@ func (s *Server) deviceActionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// profile takes {"profile": NAME}; revoke and unbind take no body.
-	var req struct {
-		Profile string `json:"profile"`
-	}
+	// A pointer, so a body of null is told apart from none.
+	var req *deviceActionRequest
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
+	err := dec.Decode(&req)
+	empty := errors.Is(err, io.EOF)
+	if err != nil && !empty || !empty && req == nil || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
+	}
+	if req == nil {
+		req = &deviceActionRequest{}
 	}
 	if r.PathValue("action") != "profile" && req.Profile != "" {
 		apiError(w, http.StatusBadRequest, "invalid_request")
@@ -159,6 +163,10 @@ func (s *Server) deviceActionAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+type deviceActionRequest struct {
+	Profile string `json:"profile"`
 }
 
 // deviceProblems says what to do about each refusal the page can meet.

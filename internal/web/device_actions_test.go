@@ -53,13 +53,16 @@ func TestOperatorChangesDevices(t *testing.T) {
 		`{}`:                         "invalid_request",
 		`{"profile":"ci","extra":1}`: "invalid_request",
 		`{"profile":"ci"}{}`:         "invalid_request",
+		`null`:                       "invalid_request",
 	} {
 		if w := post(h, api+laptop.ID+"/profile", body, cookie, hdr); w.Code != 400 || !strings.Contains(w.Body.String(), want) {
 			t.Errorf("profile %s: %d %s", body, w.Code, w.Body)
 		}
 	}
-	if w := post(h, api+laptop.ID+"/unbind", `{"profile":"ci"}`, cookie, hdr); w.Code != 400 {
-		t.Errorf("unbind with a profile: %d %s", w.Code, w.Body)
+	for _, body := range []string{`{"profile":"ci"}`, `null`, `[]`, `"x"`} {
+		if w := post(h, api+laptop.ID+"/unbind", body, cookie, hdr); w.Code != 400 {
+			t.Errorf("unbind with %s: %d %s", body, w.Code, w.Body)
+		}
 	}
 
 	if w := post(h, api+laptop.ID+"/profile", `{"profile":"ci"}`, cookie, hdr); w.Code != 200 || !strings.Contains(w.Body.String(), `"profile":"ci"`) {
