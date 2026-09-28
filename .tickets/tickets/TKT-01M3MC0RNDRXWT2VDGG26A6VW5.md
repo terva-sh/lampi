@@ -31,7 +31,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T22:22:53Z
+updated_at: 2026-09-28T22:57:23Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -104,3 +104,7 @@ On PR #97, after #96 fixed main, Forgejo's 'Build Image' job passed on the real 
 **agent:claude-code/aa1afd80** at 2026-09-28T19:33:06Z
 
 terva-review on PR #97 (run ccd357a0): the verification command used only --owner terva-sh, which accepts attestations from any repository in the org. docs/container.md now uses --repo terva-sh/lampi, --signer-workflow terva-sh/lampi/.github/workflows/release.yml, --source-ref refs/tags/vX.Y.Z and --deny-self-hosted-runners, with the flag formats from the gh manual. The local gh (2.46) has no attestation command, so the command hasn't been run; it can be once a release exists.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T22:57:23Z
+
+v0.2.0-rc1 published the index with SBOM and provenance, but the post-publish --version check failed: docker run --platform against the index digest hits 'cannot overwrite digest'. The fix is on branch ci/verify-platform-digest, which runs each platform's manifest digest. Details are on TKT-01M3N1T4.
