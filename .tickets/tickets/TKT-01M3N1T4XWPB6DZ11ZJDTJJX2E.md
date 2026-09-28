@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3N1T4XWPB6DZ11ZJDTJJX2E
 title: "Release v0.2.0: notes, rc1, and the first GHCR image"
 type: task
-status: in-progress
-status_reason: null
+status: blocked
+status_reason: Waiting on the owner to set the GHCR lampi package public; then check an anonymous pull of ghcr.io/terva-sh/lampi:0.2.0.
 priority: high
 due_on: null
 labels:
@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T23:18:14Z
+updated_at: 2026-09-28T23:29:35Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -66,7 +66,7 @@ The release workflow runs `go test ./...` before it publishes. Three tests are k
 
 - [x] v0.2.0-rc1 published archives and a two-platform image that passed the checks
 - [ ] The GHCR package is public and pulls without a login
-- [ ] v0.2.0 is tagged on both forges with the notes attached
+- [x] v0.2.0 is tagged on both forges with the notes attached
 - [x] A v0.1.2 lake upgraded to the rc image and its agents still sync
 - [x] Release notes state the schema 11 to 15 migration, its rollback, and lake-before-agents
 
@@ -210,3 +210,23 @@ Why it's safe: the tag had existed for about 10 minutes when this was decided, a
 Rejected: releasing v0.2.1 and leaving v0.2.0 as a tag with no GitHub release. That avoids the rewrite, but it leaves a hole in the version history and still needs the Forgejo release deleted.
 
 The `v0.2.0-rc1` and `v0.2.0-rc2` tags and releases stay as they are.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:29:35Z
+
+### v0.2.0 published (tag at 3f71211)
+
+- **GitHub release run 36497577376 succeeded.**
+  - Five archives named `terva-lampi_0.2.0_*`, plus `checksums.txt`, published as a full release, not a prerelease.
+  - The binary check reported `terva-lampi v0.2.0 (3f71211d33db)`.
+  - The image was pushed as `0.2.0`, `0.2`, `0`, `latest` and `sha-3f71211`, with an SBOM and provenance.
+  - The exact per-platform check reported `v0.2.0 (3f71211)` for both linux/amd64 and linux/arm64.
+- **Forgejo.** The release and Buildah image build at 3f71211 succeeded. The release is not a prerelease and has the same five `0.2.0` archives.
+- **Notes.** The canonical notes from this ticket's plan now sit above the generated body on both releases.
+- **install.sh.** `install.sh` fetched from the v0.2.0 tag on raw.githubusercontent.com installed a binary reporting `terva-lampi v0.2.0 (3f71211d33db)`.
+- **Tag history.** The v0.2.0 tag was moved from 3cadf74 to 3f71211 as the owner authorized, and the misnamed Forgejo release was deleted first. `v0.2.0-rc1` and `v0.2.0-rc2` remain as prereleases.
+
+Remaining: the owner sets the `lampi` package public in GHCR, and then the image is checked to pull without a login.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:29:35Z
+
+in-progress to blocked: Waiting on the owner to set the GHCR lampi package public; then check an anonymous pull of ghcr.io/terva-sh/lampi:0.2.0.
