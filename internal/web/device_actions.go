@@ -46,18 +46,10 @@ func viewChange(d catalog.Device) deviceChange {
 // deviceByID finds a device by its id. Only ids reach here: a name
 // could match a device the operator did not see.
 func deviceByID(ctx context.Context, cat *catalog.Catalog, id string) (catalog.Device, error) {
-	if strings.HasPrefix(id, "dev_") {
-		devices, err := cat.Devices(ctx)
-		if err != nil {
-			return catalog.Device{}, err
-		}
-		for _, d := range devices {
-			if d.ID == id {
-				return d, nil
-			}
-		}
+	if !strings.HasPrefix(id, "dev_") {
+		return catalog.Device{}, catalog.ErrNoDevice
 	}
-	return catalog.Device{}, catalog.ErrNoDevice
+	return cat.DeviceByID(ctx, id)
 }
 
 // changeDevice applies action to the device id for the signed-in
@@ -85,12 +77,12 @@ func (s *Server) changeDevice(r *http.Request, id, action, profile string) (cata
 	who, now := actor(ident).Audit, s.now()
 	switch action {
 	case "revoke":
-		d, err = lake.Catalog.RevokeDevice(ctx, d.Name, who, now)
+		d, err = lake.Catalog.RevokeDeviceByID(ctx, d.ID, who, now)
 	case "unbind":
 		if d.MachineID == "" {
 			return d, http.StatusConflict, "not_bound"
 		}
-		d, err = lake.Catalog.UnbindDevice(ctx, d.Name, who, now)
+		d, err = lake.Catalog.UnbindDeviceByID(ctx, d.ID, who, now)
 		d.MachineID = ""
 	case "profile":
 		if profile == "" {
@@ -108,10 +100,10 @@ func (s *Server) changeDevice(r *http.Request, id, action, profile string) (cata
 		if stored == config.DefaultProfile {
 			stored = ""
 		}
-		d, err = lake.Catalog.SetDeviceProfile(ctx, d.Name, stored, profile, who, now)
+		d, err = lake.Catalog.SetDeviceProfileByID(ctx, d.ID, stored, profile, who, now)
 	}
 	if errors.Is(err, catalog.ErrNoDevice) {
-		// Renamed or gone between the lookup and the change.
+		// Gone between the lookup and the change.
 		return catalog.Device{}, http.StatusNotFound, "not_found"
 	}
 	if err != nil {
