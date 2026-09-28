@@ -182,9 +182,10 @@ between it and the lake. Registering again with a code checked against
 
 The lake appends to an audit log in its data directory for these events:
 creating, redeeming, expiring and revoking a code; creating, binding,
-unbinding and revoking a device; adding and retiring a key; and every
-refused redemption. Backup covers the log. It never holds a secret or a
-token.
+unbinding and revoking a device; adding and retiring a key; saving and
+deleting a profile; and every refused redemption. Backup covers the
+log. It never holds a secret or a token. A profile event names the
+revision it made; the catalog keeps every revision's document.
 
 An event that records a catalog change is queued in the catalog in the
 same transaction as the change, then appended to the log and cleared.
