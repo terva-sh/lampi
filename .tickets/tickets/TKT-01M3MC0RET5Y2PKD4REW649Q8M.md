@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T22:22:53Z
+updated_at: 2026-09-28T23:29:36Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -53,7 +53,7 @@ This changes the settings of a remote organization and package, so AGENTS.md req
 
 - [x] The image name, tag scheme, visibility, retention and Forgejo decision are recorded
 - [ ] The GHCR package is public and linked to terva-sh/lampi
-- [ ] The repository's Actions can push to the package with GITHUB_TOKEN
+- [x] The repository's Actions can push to the package with GITHUB_TOKEN
 
 ## Notes
 
@@ -77,3 +77,7 @@ Image name decided by the owner on 2026-09-28: ghcr.io/terva-sh/lampi, matching 
 ### What is left here
 
 The first push from `.github/workflows/release.yml`, with `GITHUB_TOKEN` and `packages: write`, creates the package. The image's `org.opencontainers.image.source` label links it to `terva-sh/lampi`, so the repository's Actions keep write access. GHCR creates the package private. After that first push, someone with admin on `terva-sh` sets it to public. That is the one step for a person.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:29:36Z
+
+Actions push with GITHUB_TOKEN works: v0.2.0-rc1, v0.2.0-rc2 and v0.2.0 all pushed to ghcr.io/terva-sh/lampi. The package still needs setting public by an owner.

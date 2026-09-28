@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0RNDRXWT2VDGG26A6VW5
 title: "Release CI: publish the multi-arch lake image to GHCR on v* tags"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -21,17 +21,10 @@ blocks_on: none
 references:
   - ref: pr:forgejo/terva-sh/lampi#97
     path: null
-claim:
-  actor: agent:claude-code/aa1afd80
-  branch: self-host/ghcr-ci
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
-  commit: ae9c2e2674773db9a17050e6f6229b6522809d11
-  session: null
-  claimed_at: 2026-09-28T19:15:05Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T22:57:23Z
+updated_at: 2026-09-28T23:29:36Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -64,10 +57,10 @@ Check `terva-review`'s size limit: keep the workflow change in its own PR.
 
 ## Acceptance criteria
 
-- [ ] A v* tag on GitHub publishes one amd64+arm64 manifest with the agreed tags
+- [x] A v* tag on GitHub publishes one amd64+arm64 manifest with the agreed tags
 - [x] The Forgejo release builds the image without publishing to GHCR
-- [ ] Published images carry an SBOM and build provenance
-- [ ] A post-publish check confirms each platform's --version carries the tag
+- [x] Published images carry an SBOM and build provenance
+- [x] A post-publish check confirms each platform's --version carries the tag
 - [x] Pull requests build both platforms without pushing
 
 ## Implementation plan
@@ -108,3 +101,7 @@ terva-review on PR #97 (run ccd357a0): the verification command used only --owne
 **agent:claude-code/aa1afd80** at 2026-09-28T22:57:23Z
 
 v0.2.0-rc1 published the index with SBOM and provenance, but the post-publish --version check failed: docker run --platform against the index digest hits 'cannot overwrite digest'. The fix is on branch ci/verify-platform-digest, which runs each platform's manifest digest. Details are on TKT-01M3N1T4.
+
+## Summary
+
+Done. v0.2.0 (GitHub run 36497577376) published one amd64+arm64 index tagged 0.2.0, 0.2, 0, latest and sha-3f71211, with an SBOM and SLSA provenance. The post-publish check reported v0.2.0 on both platforms. Getting there took two fixes. #113 made the check run each platform's own manifest digest, because docker run --platform against the index digest fails with 'cannot overwrite digest'. #114 pinned GORELEASER_CURRENT_TAG and made the checks match the tag as a whole word, after a v0.2.0 tag sharing a commit with v0.2.0-rc2 was built as 0.2.0-rc2. Details are on TKT-01M3N1T4.
