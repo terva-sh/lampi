@@ -474,6 +474,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		LakeID:           lakeID,
 		Proof:            proof,
 		Release:          s.Release,
+		Features:         []string{protocol.FeatureLargeTails},
 	})
 }
 

@@ -54,6 +54,10 @@ So the test is intermittent. The likeliest cause is that merge work grows with h
 
 ## Notes
 
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+More evidence (2026-09-28), filed in TKT-01M3MC40FF before this ticket was found: timed out again on Forgejo runs 696, 711 and 718 (PRs #66, #68, #71), at 9m39s-9m50s, with six pipelines running at once, and again on run 711 attempt 2. Locally, 'go test -race -count=1 -run TestReindexingKeepsTheIndexNearItsLiveSize ./internal/recall/' took 308s on an idle workstation. That is far above the package's 20s noted above, so -race makes it much slower.
+
 **agent:claude-code/2cf53976** at 2026-09-28T18:13:04Z
 
 Root cause is not an unbounded merge. indexSession wrote one DELETE and one INSERT per changed row. Each docs write fires the fts trigger inside a savepoint, and FTS5 flushes a segment at every savepoint. Merging those per-row segments was most of the cost: 53% of -race CPU went to _fts5SavepointMethod -> FlushToDisk and automatic merges, and about 13% to the explicit reclaim merge. The reclaim loop is already bounded: mergePages 2000 per pass, about 8ms a call, and the first idle pass after a forced merge finds nothing. CI runs about 13x slower than the workstation, so 22s locally is about 300s on a busy runner.

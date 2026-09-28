@@ -2,6 +2,8 @@ package cas
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -512,5 +514,83 @@ func TestGrowRetryFinishesAnInterruptedSupersede(t *testing.T) {
 	}
 	if base, _, ok, _ := s.PrefixOf(d1); !ok || base != d2 {
 		t.Fatalf("record = %s %v", base, ok)
+	}
+}
+
+// GrowParts extends a chunked file's last piece with a tail, splits it
+// at the limit, and keeps the old last piece as a record of its
+// extension, so each version reads back and the bytes are held once
+// (TKT-01M3KD7DK).
+func TestGrowPartsExtendsAndSplitsTheLastPiece(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const limit = 64
+	file := bytes.Repeat([]byte("0123456789"), 10) // 100 bytes: 64 + 36
+	prev := bindChunks(t, s, file, limit)
+	versions := map[string][]byte{prev: append([]byte(nil), file...)}
+	for _, add := range []string{"short tail\n", strings.Repeat("t", 40)} {
+		tail := mustPut(t, s, []byte(add))
+		parts, lengths, err := s.GrowParts(prev, tail, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file = append(file, add...)
+		sum := sha256.Sum256(file)
+		next := hex.EncodeToString(sum[:])
+		if _, err := s.BindLogical(next, parts, lengths); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range lengths {
+			if n > limit {
+				t.Fatalf("a piece is %d bytes, past %d", n, limit)
+			}
+		}
+		versions[next] = append([]byte(nil), file...)
+		prev = next
+	}
+	for d, want := range versions {
+		if got, err := s.Read(d); err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("version of %d bytes reads %d bytes, %v", len(want), len(got), err)
+		}
+	}
+	// 64 + 36 + 11 + 40 = 151 bytes of file; the tails stay stored too.
+	var held int64
+	err = s.Entries(func(e Entry) error {
+		if !e.Logical {
+			held += e.Size
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(len(file)) + 11 + 40; held != want {
+		t.Fatalf("objects hold %d bytes, want %d", held, want)
+	}
+	var bad []Problem
+	if _, err := s.Verify(func(p Problem) { bad = append(bad, p) }); err != nil || len(bad) != 0 {
+		t.Fatalf("verify: %v %v", bad, err)
+	}
+}
+
+// A last piece whose bytes are not its digest is not grown from.
+func TestGrowPartsRefusesADamagedLastPiece(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := bindChunks(t, s, bytes.Repeat([]byte("x"), 100), 64)
+	parts, _, _, _ := s.parts(prev)
+	p, err := s.Path(parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, bytes.Repeat([]byte("y"), 36), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.GrowParts(prev, mustPut(t, s, []byte("tail")), 64); !errors.Is(err, ErrNotGrown) {
+		t.Fatalf("grow from a damaged piece: %v", err)
 	}
 }

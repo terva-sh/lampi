@@ -103,7 +103,7 @@ func runServeNormalize(env Env, args []string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("serve normalize: %w", err)
 	}
-	cat, err := catalog.Open(path)
+	cat, err := catalog.OpenCurrent(path)
 	if err != nil {
 		return err
 	}

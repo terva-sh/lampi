@@ -388,3 +388,148 @@ func (s *Store) Materialize(digest string) error {
 	}
 	return s.removeLogicalLocked(digest)
 }
+
+// GrowParts is Grow for a file past the object cap, which is stored as a
+// list of pieces rather than one object. prev is the version grown
+// from: an object or a chunk list. It returns the pieces of the grown
+// file: prev's pieces, with the last one extended by tail up to limit
+// and the rest of tail after it. Only the last piece and the tail are
+// read. The last piece is hashed on the way and must be the bytes its
+// digest names, or it is ErrNotGrown. A last piece that is extended is
+// kept as a prefix record of its extension, so its bytes are stored
+// once.
+//
+// The caller binds the grown digest to the pieces, which checks the
+// whole file's hash. A tail that is not the rest of that file leaves
+// pieces nothing names, for compact to remove.
+func (s *Store) GrowParts(prev, tail string, limit int64) (parts []string, lengths []int64, err error) {
+	if limit <= 0 {
+		return nil, nil, fmt.Errorf("cas: grow %s: no piece limit: %w", prev, ErrRejected)
+	}
+	old, oldLen, ok, err := s.parts(prev)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok || len(old) == 0 {
+		return nil, nil, fmt.Errorf("cas: %s is not an object or a chunk list: %w", prev, ErrNotGrown)
+	}
+	tailLen, err := s.Size(tail)
+	if err != nil {
+		return nil, nil, err
+	}
+	if tailLen <= 0 || tailLen > limit {
+		return nil, nil, fmt.Errorf("cas: tail %s is %d bytes, not 1..%d: %w", tail, tailLen, limit, ErrRejected)
+	}
+	n := len(old) - 1
+	last, lastLen := old[n], oldLen[n]
+	if lastLen >= limit {
+		// A full last piece stays as it is; the tail is a piece of its own.
+		return append(append([]string(nil), old...), tail), append(append([]int64(nil), oldLen...), tailLen), nil
+	}
+
+	// Temp files sit beside the objects, as a put's do, so a crash
+	// leaves them where the start-up sweep and fsck expect them.
+	final, err := s.Path(last)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := filepath.Dir(final)
+	if err := mkdirSynced(dir); err != nil {
+		return nil, nil, err
+	}
+	type piece struct {
+		tmp  string
+		sum  string
+		size int64
+	}
+	var made []piece
+	defer func() {
+		for _, p := range made {
+			if p.tmp != "" {
+				os.Remove(p.tmp)
+			}
+		}
+	}()
+	// write copies r into a new temp file, and records it as a piece.
+	write := func(r io.Reader) error {
+		f, err := os.CreateTemp(dir, ".put-*")
+		if err != nil {
+			return fmt.Errorf("cas: %w", err)
+		}
+		made = append(made, piece{tmp: f.Name()})
+		h := sha256.New()
+		size, err := io.Copy(io.MultiWriter(f, h), r)
+		if err == nil {
+			err = f.Chmod(0o600)
+		}
+		if err == nil {
+			err = f.Sync()
+		}
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return fmt.Errorf("cas: %w", err)
+		}
+		made[len(made)-1].sum, made[len(made)-1].size = hex.EncodeToString(h.Sum(nil)), size
+		return nil
+	}
+
+	lr, err := s.Open(last)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer lr.Close()
+	tr, err := s.Open(tail)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tr.Close()
+	head := sha256.New()
+	fill := limit - lastLen
+	first := io.MultiReader(io.TeeReader(io.LimitReader(lr, lastLen), head), io.LimitReader(tr, fill))
+	if err := write(first); err != nil {
+		return nil, nil, err
+	}
+	if hex.EncodeToString(head.Sum(nil)) != last || made[0].size < lastLen {
+		return nil, nil, fmt.Errorf("cas: %s is not the %d bytes grown from: %w", last, lastLen, ErrNotGrown)
+	}
+	if tailLen > fill {
+		if err := write(tr); err != nil {
+			return nil, nil, err
+		}
+	}
+	var wrote int64
+	for _, p := range made {
+		wrote += p.size
+	}
+	if wrote-lastLen != tailLen {
+		return nil, nil, fmt.Errorf("cas: tail %s read %d bytes of %d: %w", tail, wrote-lastLen, tailLen, ErrRejected)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	parts = append([]string(nil), old[:n]...)
+	lengths = append([]int64(nil), oldLen[:n]...)
+	for i := range made {
+		p := &made[i]
+		if p.size == 0 {
+			continue
+		}
+		exists, err := s.commitFileLocked(p.sum, p.tmp, p.size)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !exists {
+			p.tmp = ""
+		}
+		parts = append(parts, p.sum)
+		lengths = append(lengths, p.size)
+	}
+	if made[0].sum != last {
+		if err := s.supersedeLocked(last, made[0].sum, lastLen); err != nil {
+			return nil, nil, err
+		}
+	}
+	return parts, lengths, nil
+}
