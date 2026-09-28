@@ -156,22 +156,22 @@ func nextURL(r *http.Request, cursor string) string {
 	q.Set("cursor", cursor)
 	return r.URL.Path + "?" + q.Encode()
 }
-func pageError(w http.ResponseWriter, err error) { fail(w, err) }
+func pageError(w http.ResponseWriter, r *http.Request, err error) { fail(w, r, err) }
 func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 {
-		pageError(w, catalog.ErrPage)
+		pageError(w, r, catalog.ErrPage)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	overview, err := s.catalog.DashboardOverview(ctx)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	recent, err := s.catalog.DashboardSessions(ctx, catalog.PageRequest{Limit: 8})
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true})
@@ -179,14 +179,14 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), true, false)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardSessions(ctx, p)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, Filters: p, AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor), Poll: p.Cursor == ""})
@@ -198,13 +198,13 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		kind = "artifacts"
 	}
 	if len(q["collection"]) > 1 {
-		pageError(w, catalog.ErrPage)
+		pageError(w, r, catalog.ErrPage)
 		return
 	}
 	q.Del("collection")
 	p, err := parsePage(q, false, kind == "artifacts")
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
@@ -212,12 +212,12 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	uid := r.PathValue("uid")
 	summary, err := s.catalog.DashboardSession(ctx, uid)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	records, err := s.catalog.DashboardRecords(ctx, uid, kind, p)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	render(w, r, pageData{Title: "Session details", View: "detail", Session: summary, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)})
@@ -225,14 +225,14 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), false, false)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardRecords(ctx, "", "conflicts", p)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor)})
@@ -246,14 +246,14 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	req, err := parseEvents(q, "at")
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	d := pageData{Title: "Transcript", View: "transcript"}
 	if q.Has("at") {
 		at, err := strconv.ParseInt(q.Get("at"), 10, 64)
 		if err != nil || at < 0 || q.Has("cursor") {
-			pageError(w, recall.ErrInvalid)
+			pageError(w, r, recall.ErrInvalid)
 			return
 		}
 		d.Target, d.HasTarget = at, true
@@ -272,7 +272,7 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	d.Transcript, err = s.events.Events(ctx, uid, req)
@@ -288,7 +288,7 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 		d.Unavailable, d.StaleGen = "stale", req.Gen
 		renderStatus(w, r, d, http.StatusConflict)
 	default:
-		pageError(w, err)
+		pageError(w, r, err)
 	}
 }
 
@@ -343,7 +343,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		renderStatus(w, r, d, http.StatusBadRequest)
 		return
 	}
-	pageError(w, err)
+	pageError(w, r, err)
 }
 
 // excerptPage serves a copy-out span as plain text, for a browser

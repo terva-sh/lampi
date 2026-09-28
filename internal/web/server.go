@@ -14,6 +14,7 @@ import (
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/recall"
+	"terva.sh/lampi/internal/reqlog"
 	"terva.sh/lampi/internal/webauth"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -80,7 +81,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
-func fail(w http.ResponseWriter, err error) {
+
+// fail writes err's status and code. A 500 keeps err for the lake's
+// access log line; the body names only the code, because the detail
+// can name a lake path.
+func fail(w http.ResponseWriter, r *http.Request, err error) {
 	status, code := 500, "read_failed"
 	body := map[string]string{}
 	var unavailable recall.UnavailableError
@@ -102,6 +107,9 @@ func fail(w http.ResponseWriter, err error) {
 		status, code = 404, "not_found"
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
 		status, code = 503, "read_unavailable"
+	}
+	if status >= 500 {
+		reqlog.Note(r, err)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -157,14 +165,14 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 }
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 {
-		fail(w, catalog.ErrPage)
+		fail(w, r, catalog.ErrPage)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardOverview(ctx)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -172,28 +180,28 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), true, false)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardSessions(ctx, p)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
 }
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 {
-		fail(w, catalog.ErrPage)
+		fail(w, r, catalog.ErrPage)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardSession(ctx, r.PathValue("uid"))
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -202,19 +210,19 @@ func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("collection")
 	p, err := parsePage(r.URL.Query(), false, kind == "artifacts")
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	uid := r.PathValue("uid")
 	if _, err := s.catalog.DashboardSession(ctx, uid); err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	v, err := s.catalog.DashboardRecords(ctx, uid, kind, p)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -222,14 +230,14 @@ func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), false, false)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.DashboardRecords(ctx, "", "conflicts", p)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -273,14 +281,14 @@ func parseActivity(q url.Values) (catalog.ActivityRequest, error) {
 func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 	req, err := parseActivity(r.URL.Query())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.catalog.Activity(ctx, req, time.Now())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -290,7 +298,7 @@ func (s *Server) guardRead(next http.HandlerFunc) http.Handler {
 	return s.auth.Guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil || len(r.URL.RawQuery) > 16384 {
-			fail(w, catalog.ErrPage)
+			fail(w, r, catalog.ErrPage)
 			return
 		}
 		next(w, r)
@@ -348,14 +356,14 @@ func parseEvents(q url.Values, extra ...string) (recall.EventRequest, error) {
 func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
 	req, err := parseEvents(r.URL.Query())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.events.Events(ctx, r.PathValue("uid"), req)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -446,19 +454,19 @@ func parseWhen(raw string, end bool) (time.Time, error) {
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	if s.index == nil {
-		fail(w, errSearchOff)
+		fail(w, r, errSearchOff)
 		return
 	}
 	req, err := parseSearch(r.URL.Query())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.index.Search(ctx, req)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -506,7 +514,7 @@ func parseExcerpt(q url.Values) (recall.ExcerptRequest, error) {
 func (s *Server) sessionExcerpt(w http.ResponseWriter, r *http.Request) {
 	req, err := parseExcerpt(r.URL.Query())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
@@ -514,7 +522,7 @@ func (s *Server) sessionExcerpt(w http.ResponseWriter, r *http.Request) {
 	req.Origin = s.origin
 	v, err := s.events.Excerpt(ctx, r.PathValue("uid"), req)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)

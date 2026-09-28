@@ -52,7 +52,7 @@ func (s *Server) activityPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	for k, v := range q {
 		if len(v) != 1 || k != "range" && k != "harness" {
-			pageError(w, catalog.ErrPage)
+			pageError(w, r, catalog.ErrPage)
 			return
 		}
 	}
@@ -67,14 +67,14 @@ func (s *Server) activityPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if preset == nil {
-		pageError(w, catalog.ErrPage)
+		pageError(w, r, catalog.ErrPage)
 		return
 	}
 	now := time.Now()
 	req := catalog.ActivityRequest{Bucket: preset.Bucket, Harness: q.Get("harness")}
 	resolved, err := req.Resolve(now)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	req.From = resolved.Until.Add(-preset.Span)
@@ -82,7 +82,7 @@ func (s *Server) activityPage(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	a, err := s.catalog.Activity(ctx, req, now)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	render(w, r, pageData{Title: "Activity", View: "activity", Poll: true, AsOf: a.AsOf, Activity: buildActivityView(a, key)})
