@@ -224,3 +224,42 @@ func TestCompactFoldsEachDivergentBranchIntoItsOwnNewest(t *testing.T) {
 	readsBack(t, s, [][]byte{a1, a2, b1, b2})
 	verifyClean(t, s)
 }
+
+// A newest version stored as a chunk list built from the older version
+// cannot hold it: the record would loop. The dry run refuses the fold
+// as the real run does, and both report the same.
+func TestCompactDryRunRefusesAFoldThatWouldLoop(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	v1 := []byte(line(1))
+	tail := []byte(line(2))
+	v2 := append(append([]byte(nil), v1...), tail...)
+	d1 := putRaw(t, h, v1)
+	postManifest(t, h, manifest("m", "sid", v1, d1, 0, d1))
+	d2 := putRaw(t, h, v2)
+	postManifest(t, h, manifest("m", "sid", v2, d2, 0, d2))
+	dt := putRaw(t, h, tail)
+	p, err := s.CAS.Path(d2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CAS.BindLogical(d2, []string{d1, dt}, []int64{int64(len(v1)), int64(len(tail))}); err != nil {
+		t.Fatal(err)
+	}
+	dry, err := s.Compact(t.Context(), CompactOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.Compact(t.Context(), CompactOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Looped != 1 || dry.Folded != 0 || fmt.Sprint(dry) != fmt.Sprint(rep) {
+		t.Fatalf("dry run %+v\nreal    %+v", dry, rep)
+	}
+	readsBack(t, s, [][]byte{v1, v2})
+	verifyClean(t, s)
+}

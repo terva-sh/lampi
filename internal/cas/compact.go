@@ -70,6 +70,15 @@ func (s *Store) Fold(digest, base string, length int64) (freed int64, err error)
 	return size, nil
 }
 
+// ReadsFrom reports whether reading from reaches target, through chunk
+// lists and prefix records at any depth: the check Fold makes, for a
+// dry run to make without folding.
+func (s *Store) ReadsFrom(from, target string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readsFromLocked(from, target)
+}
+
 // readsFromLocked reports whether reading from reaches target: through
 // chunk lists and prefix records, any depth. The caller holds s.mu.
 func (s *Store) readsFromLocked(from, target string) (bool, error) {

@@ -93,8 +93,14 @@ func (s *Server) Compact(ctx context.Context, opt CompactOptions) (CompactReport
 	}
 	sort.Strings(digests)
 	for _, d := range digests {
-		if err := s.applyFold(d, bases[d], plan[d].length, opt, &rep); err != nil {
+		folded, err := s.applyFold(d, bases[d], plan[d].length, opt, &rep)
+		if err != nil {
 			return rep, err
+		}
+		if !folded {
+			// A refused fold leaves d as it is, and the sweep must
+			// see it that way in a dry run too.
+			delete(bases, d)
 		}
 	}
 	if err := s.sweepUnreferenced(ctx, sessions, bases, opt, &rep); err != nil {
@@ -251,33 +257,43 @@ func (s *Server) foldBases(plan map[string]fold) (map[string]string, error) {
 }
 
 // applyFold makes d a prefix record of base, counting what that
-// changes. A record already pointing at base is left alone.
-func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep *CompactReport) error {
+// changes. A record already pointing at base is left alone. folded is
+// false when the fold is refused because base reads from d; a dry run
+// makes the same check.
+func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep *CompactReport) (folded bool, err error) {
 	size, object, err := s.CAS.ObjectSize(d)
 	if err != nil {
-		return err
+		return false, err
 	}
 	cur, _, isPrefix, err := s.CAS.PrefixOf(d)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if isPrefix && cur == base && !object {
-		return nil
+		return true, nil
 	}
 	if opt.DryRun {
+		loops, err := s.CAS.ReadsFrom(base, d)
+		if err != nil {
+			return false, err
+		}
+		if loops {
+			rep.Looped++
+			return false, nil
+		}
 		countFold(rep, isPrefix, object, size)
-		return nil
+		return true, nil
 	}
 	freed, err := s.CAS.Fold(d, base, length)
 	if errors.Is(err, cas.ErrWouldLoop) {
 		rep.Looped++
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	countFold(rep, isPrefix, object, freed)
-	return nil
+	return true, nil
 }
 
 func countFold(rep *CompactReport, wasPrefix, object bool, freed int64) {
