@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0RQKWEVAZX1K6RD270P
 title: "Agent heartbeat: durable last contact, sync counters, applied profile"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: high
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T14:45:05Z
+updated_at: 2026-09-28T15:12:06Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""

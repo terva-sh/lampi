@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0PMGW8JG0Y45RFPY34M
 title: "Policy: agent inventory reports, SOCIABLE default and STRICT mode"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/2cf53976
+  branch: t3code/add-agent-configuration
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
+  commit: 6677ee3e9283cfb647c3dba3170daa3179efd169
+  session: null
+  claimed_at: 2026-09-28T15:12:06Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:00:28Z
+updated_at: 2026-09-28T15:12:06Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
