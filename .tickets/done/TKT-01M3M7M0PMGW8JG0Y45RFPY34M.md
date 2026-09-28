@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0PMGW8JG0Y45RFPY34M
 title: "Policy: agent inventory reports, SOCIABLE default and STRICT mode"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: t3code/add-agent-configuration
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: 6677ee3e9283cfb647c3dba3170daa3179efd169
-  session: null
-  claimed_at: 2026-09-28T15:12:06Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:12:06Z
+updated_at: 2026-09-28T15:13:36Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -63,12 +56,20 @@ STRICT agents send the aggregate refused count and the total bytes refused, with
 
 ## Acceptance criteria
 
-- [ ] docs/policy.md records the 2026-09-28 decision and the two modes
-- [ ] docs/allowlist-and-redaction.md says what leaves the machine in each mode
+- [x] docs/policy.md records the 2026-09-28 decision and the two modes
+- [x] docs/allowlist-and-redaction.md says what leaves the machine in each mode
 - [x] The open question on STRICT's aggregate count is answered
+
+## Implementation plan
+
+Docs only. Add an 'Off-box metadata: the inventory report' section to docs/policy.md after 'Off-box raw', with the dated decision, the two modes, why the mode is local-only, and the rejected alternatives. Add a sentence to 'Base configuration' saying a profile cannot set the mode. Add a 'What leaves the machine' table to docs/allowlist-and-redaction.md, and add an upgrade note to deploy/README.md. The config key is named here as "inventory": "strict" so TKT-01M3M7M0TH implements that exact spelling.
 
 ## Notes
 
 **agent:claude-code/2cf53976** at 2026-09-28T15:00:28Z
 
 Owner decision 2026-09-28: STRICT sends aggregate refused counts with no names. A few refused sessions is expected; hundreds suggests a misconfigured allowlist, so the count is enough to prompt an operator to look. Description updated; AC 3 ticked.
+
+## Summary
+
+docs/policy.md now records the 2026-09-28 decision: SOCIABLE by default, STRICT set only in the local config.json as "inventory": "strict", and STRICT still sends the aggregate refused count and bytes. docs/allowlist-and-redaction.md has a per-mode table of what leaves the machine, and deploy/README.md tells operators to set STRICT before upgrading. The docs say the report ships with TKT-01M3M7M0TH; until then agents send nothing about refused projects.
