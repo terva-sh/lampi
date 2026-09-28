@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
@@ -152,30 +151,17 @@ func List(ctx context.Context, l Lake, actor string, now time.Time) ([]catalog.R
 	return l.Catalog.Registrations(ctx)
 }
 
-// AuditExpiries writes a registration.expired line for each code the
-// catalog has not recorded as expired yet. serve writes the same line
-// when an expired code is presented; the catalog hands each code to one
-// of them.
+// AuditExpiries records the codes that expired since the last look and
+// writes a registration.expired line for each. serve writes the same
+// line when an expired code is presented; the catalog hands each code to
+// one of them. The lines are queued in the catalog with the change, so
+// one that cannot be written now is written by the next flush.
 func AuditExpiries(ctx context.Context, l Lake, actor string, now time.Time) error {
-	regs, err := l.Catalog.RecordExpiries(ctx, now)
-	if err != nil {
+	if _, err := l.Catalog.RecordExpiries(ctx, now, actor); err != nil {
 		return err
 	}
-	// Each code is marked already, so one failed line does not stop the
-	// rest from being written.
-	var failed []string
-	var first error
-	for _, r := range regs {
-		if err := audit.Append(l.Dir, audit.Event{Time: now, Kind: audit.RegistrationExpired, Device: r.Name, Actor: actor,
-			Detail: "registration=" + r.ID + " expires=" + r.Expires.Format(time.RFC3339)}); err != nil {
-			failed = append(failed, r.ID)
-			if first == nil {
-				first = err
-			}
-		}
-	}
-	if first != nil {
-		return fmt.Errorf("writing the expiry of %s to %s failed: %w; the codes are expired either way, but these lines will not be written again; fix the audit log", strings.Join(failed, ", "), audit.FileName, first)
+	if err := l.Catalog.FlushAudit(ctx, l.Dir); err != nil {
+		return fmt.Errorf("writing to %s failed: %w; the codes are expired either way, and the lines stay queued in the catalog until the audit log can be written", audit.FileName, err)
 	}
 	return nil
 }

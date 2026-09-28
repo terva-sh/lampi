@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
@@ -112,9 +111,22 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	// so the agent can register again once the operator fixes the cause.
 	var signed *protocol.Signed
 	var signErr error
-	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device) error {
+	// The redemption's audit events commit with it and are appended
+	// after, so a failed append leaves them queued, not lost.
+	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device, spent catalog.Registration) ([]audit.Event, error) {
 		signed, signErr = s.signedProfileBy(id, d)
-		return signErr
+		if signErr != nil {
+			return nil, signErr
+		}
+		detail := "registration=" + spent.ID
+		if req.Name != "" {
+			detail += " suggested_name=" + catalog.DeviceName(req.Name)
+		}
+		return []audit.Event{
+			{Kind: audit.RegistrationRedeemed, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve", Detail: detail},
+			{Kind: audit.DeviceCreated, Device: d.Name, DeviceID: d.ID, Actor: "serve", Detail: "source=" + d.Source},
+			{Kind: audit.DeviceBound, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve"},
+		}, nil
 	})
 	switch {
 	case signErr != nil:
@@ -156,13 +168,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	detail := "registration=" + reg.ID
-	if req.Name != "" {
-		detail += " suggested_name=" + catalog.DeviceName(req.Name)
-	}
-	s.audit(audit.Event{Kind: audit.RegistrationRedeemed, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Detail: detail})
-	s.audit(audit.Event{Kind: audit.DeviceCreated, Device: d.Name, DeviceID: d.ID, Detail: "source=" + d.Source})
-	s.audit(audit.Event{Kind: audit.DeviceBound, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID})
+	s.flushAudit()
 	if info := infoOf(r); info != nil {
 		info.device, info.deviceID = d.Name, d.ID
 	}
@@ -175,15 +181,11 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 // time the lake sees it expired. The catalog hands each code out once,
 // so this route adds at most one line per code ever minted.
 func (s *Server) auditExpiry(ctx context.Context, regID string) {
-	regs, err := s.Catalog.RecordExpiries(ctx, s.now(), regID)
-	if err != nil {
+	if _, err := s.Catalog.RecordExpiries(ctx, s.now(), "serve", regID); err != nil {
 		s.logger().Error("register: record expiry", "registration", regID, "err", err)
 		return
 	}
-	for _, reg := range regs {
-		s.audit(audit.Event{Kind: audit.RegistrationExpired, Device: reg.Name,
-			Detail: "registration=" + reg.ID + " expires=" + reg.Expires.Format(time.RFC3339)})
-	}
+	s.flushAudit()
 }
 
 // secretOverlap is the shortest run of the secret a machine id may not

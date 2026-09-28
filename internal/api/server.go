@@ -188,6 +188,8 @@ func Open(dataDir string) (*Server, error) {
 		return nil, err
 	}
 	s.startNormalizeWorkers()
+	// Audit events a previous run could not append go out now.
+	s.flushAudit()
 	return s, nil
 }
 

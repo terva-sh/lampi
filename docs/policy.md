@@ -186,6 +186,16 @@ unbinding and revoking a device; adding and retiring a key; and every
 refused redemption. Backup covers the log. It never holds a secret or a
 token.
 
+An event that records a catalog change is queued in the catalog in the
+same transaction as the change, then appended to the log and cleared.
+If the log cannot be written, the event stays queued and is appended
+by the next write or the next start of `serve`. A crash between the
+append and the clear can write a line twice; no event is lost. Events
+that record no change, such as a refused redemption, take the same
+queue, so the log keeps the order things happened in. If the catalog
+cannot take the write, such an event is appended directly instead: it
+may then land ahead of an event still queued, but it is not dropped.
+
 ### Upgrade order
 
 Upgrade the lake before any agent. The new routes and `hello` fields are

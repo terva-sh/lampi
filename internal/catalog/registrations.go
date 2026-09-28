@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"terva.sh/lampi/internal/audit"
 )
 
 // migrateRegistrations adds registrations, the pending codes an operator
@@ -226,10 +228,12 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref, by string, now ti
 // can name it. keyActive says whether the key that signed the code may
 // still sign; nil accepts every key.
 //
-// finish, when not nil, runs on the new device before the transaction
-// commits. An error from it is returned as it is and rolls the redemption
-// back, so the code stays unspent and no device is left behind.
-func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, keyActive func(string) bool, now time.Time, finish func(Device) error) (Device, Registration, error) {
+// finish, when not nil, runs on the new device and the spent code before
+// the transaction commits. An error from it is returned as it is and
+// rolls the redemption back, so the code stays unspent and no device is
+// left behind. The audit events it returns are queued in the same
+// transaction, for FlushAudit.
+func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, keyActive func(string) bool, now time.Time, finish func(Device, Registration) ([]audit.Event, error)) (Device, Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Device{}, Registration{}, fmt.Errorf("catalog: %w", err)
@@ -293,7 +297,13 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
 	}
 	if finish != nil {
-		if err := finish(d); err != nil {
+		spent := r
+		spent.Used, spent.DeviceID = now.UTC(), d.ID
+		events, err := finish(d, spent)
+		if err != nil {
+			return Device{}, r, err
+		}
+		if err := queueAudit(ctx, tx, now, events...); err != nil {
 			return Device{}, r, err
 		}
 	}
@@ -305,11 +315,12 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 }
 
 // RecordExpiries marks each code that is expired at now and whose
-// expiry was not recorded yet, and returns them for the caller to audit.
-// With ids it looks only at those codes. A code is returned once across
-// every caller, so the expiry has one audit line however often it is
-// seen, and an open route that calls this writes at most once per code.
-func (c *Catalog) RecordExpiries(ctx context.Context, now time.Time, ids ...string) ([]Registration, error) {
+// expiry was not recorded yet, queues a registration.expired event for
+// each with actor, and returns them. With ids it looks only at those
+// codes. A code is marked once across every caller, so the expiry has
+// one audit line however often it is seen, and an open route that calls
+// this queues at most one per code. The caller runs FlushAudit.
+func (c *Catalog) RecordExpiries(ctx context.Context, now time.Time, actor string, ids ...string) ([]Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
@@ -354,6 +365,10 @@ func (c *Catalog) RecordExpiries(ctx context.Context, now time.Time, ids ...stri
 			return nil, fmt.Errorf("catalog: %w", err)
 		} else if n == 1 {
 			out = append(out, r)
+			if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.RegistrationExpired, Device: r.Name, Actor: actor,
+				Detail: "registration=" + r.ID + " expires=" + r.Expires.Format(time.RFC3339)}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
