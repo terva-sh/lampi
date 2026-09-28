@@ -491,7 +491,8 @@ One profile adds:
 - `revisions`, up to 50 of them, newest first, as `{id, version, note,
   deleted, created, created_by}`.
 
-A name that is not a profile is `404 not_found`. `ignored_files` lists each
+A name that is not a profile is `404 not_found`, with `latest_revision`: the
+newest revision in its history, a deletion included, or `0`. `ignored_files` lists each
 profiles file serve does not read, as `{path, import}`, where `import` is
 the command that brings it into the catalog. It is empty, not absent, when
 there is none.
@@ -505,7 +506,9 @@ anyone else, and the `X-Lampi-CSRF` header.
 - `PUT /api/web/v1/profiles/{name}` takes
   `{"document": {...}, "base_revision": N, "note": "..."}`.
   - `document` is the whole profile.
-  - `base_revision` is the `revision` you read, or `0` for a new profile.
+  - `base_revision` is the `revision` you read. For a name that is not stored
+    it is the `latest_revision` its `GET` answers alongside `404`: `0` for a
+    name never saved, else the deletion that removed it.
   - Rules are stored with `git_remote` and `git_remote_prefix` folded as the
     agent compares them.
   - It answers `200` with `{profile: {name, version, revision}}`. That is also

@@ -136,8 +136,9 @@ func (c *Catalog) PutProfile(ctx context.Context, name string, raw []byte, actor
 	return c.putProfile(ctx, name, raw, actor, note, -1, now)
 }
 
-// PutProfileIf is PutProfile for an editor that read revision base: 0
-// for a profile that did not exist. It refuses with ErrProfileChanged
+// PutProfileIf is PutProfile for an editor that read revision base. For
+// a profile that is not stored, base is LatestProfileRevision: 0 for a
+// name never saved, else the deletion that removed it. It refuses with ErrProfileChanged
 // when another save or a delete landed since, so one operator's save
 // does not silently replace another's.
 func (c *Catalog) PutProfileIf(ctx context.Context, name string, raw []byte, actor, note string, base int64, now time.Time) (Profile, bool, error) {
@@ -169,9 +170,17 @@ func (c *Catalog) putProfile(ctx context.Context, name string, raw []byte, actor
 	defer tx.Rollback()
 	cur, err := scanProfile(tx.QueryRowContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE name=?`, name))
 	existed := err == nil
-	switch {
-	case err != nil && !errors.Is(err, sql.ErrNoRows):
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return Profile{}, false, fmt.Errorf("catalog: %w", err)
+	}
+	if !existed && base >= 0 {
+		// An absent name's revision is its newest: a create and delete
+		// since the editor opened it moves it on.
+		if cur.Revision, err = latestRevision(ctx, tx, name); err != nil {
+			return Profile{}, false, err
+		}
+	}
+	switch {
 	case base >= 0 && cur.Revision != base:
 		return cur, false, fmt.Errorf("%w: %s is at revision %d, not %d", ErrProfileChanged, name, cur.Revision, base)
 	case existed && cur.Version == p.Version:
@@ -273,6 +282,25 @@ func (c *Catalog) deleteProfile(ctx context.Context, name, actor, note string, b
 		return ProfileRevision{}, fmt.Errorf("catalog: %w", err)
 	}
 	return r, nil
+}
+
+// LatestProfileRevision is the newest revision of the profile called
+// name, a deletion included, or 0 for a name never saved. An editor of
+// a profile that is not stored passes it to PutProfileIf.
+func (c *Catalog) LatestProfileRevision(ctx context.Context, name string) (int64, error) {
+	var id int64
+	if err := c.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM profile_revisions WHERE profile=?`, name).Scan(&id); err != nil {
+		return 0, fmt.Errorf("catalog: %w", err)
+	}
+	return id, nil
+}
+
+func latestRevision(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
+	var id int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM profile_revisions WHERE profile=?`, name).Scan(&id); err != nil {
+		return 0, fmt.Errorf("catalog: %w", err)
+	}
+	return id, nil
 }
 
 // ChangedProfileFields names the parts of a profile that differ between

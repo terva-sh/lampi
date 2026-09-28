@@ -292,11 +292,12 @@ func indentLines(p config.Profile) []string {
 }
 
 // currentProfile is the stored profile called name and its revision:
-// an empty profile at 0 when none is stored.
+// an empty profile at its newest revision when none is stored.
 func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, int64, bool, error) {
 	p, err := s.catalog.ProfileByName(r.Context(), name)
 	if errors.Is(err, catalog.ErrNoProfile) {
-		return config.Profile{}, 0, false, nil
+		rev, err := s.catalog.LatestProfileRevision(r.Context(), name)
+		return config.Profile{}, rev, false, err
 	}
 	if err != nil {
 		return config.Profile{}, 0, false, err

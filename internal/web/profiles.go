@@ -248,9 +248,20 @@ func (s *Server) profile(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.readProfile(ctx, r.PathValue("name"), s.now())
+	name := r.PathValue("name")
+	v, err := s.readProfile(ctx, name, s.now())
 	if errors.Is(err, catalog.ErrNoProfile) {
-		apiError(w, http.StatusNotFound, "not_found")
+		// latest_revision is the base_revision a PUT that creates it names.
+		var latest int64
+		if config.ValidProfileName(name) {
+			if latest, err = s.catalog.LatestProfileRevision(ctx, name); err != nil {
+				fail(w, r, err)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": "not_found", "latest_revision": latest})
 		return
 	}
 	if err != nil {
