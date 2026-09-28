@@ -10,5 +10,5 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3FHHBCJ12FXKNTB6Z138F6N](tickets/TKT-01M3FHHBCJ12FXKNTB6Z138F6N.md) | Agent onboarding: registration codes, lake config, many lakes | ready |
 | [TKT-01M3FPP3H592T31Y2M3N347CPB](tickets/TKT-01M3FPP3H592T31Y2M3N347CPB.md) | Session recall: one query surface for the web UI and an MCP server | ready |
 | [TKT-01M3K45MQBRESGG5HEZZSZ3FDQ](tickets/TKT-01M3K45MQBRESGG5HEZZSZ3FDQ.md) | Lake storage efficiency: smaller than the raw sessions it holds | in-progress |
-| [TKT-01M3M7KB32E2BCFEA9CN710522](draft/TKT-01M3M7KB32E2BCFEA9CN710522.md) | Lake-managed agent config: dashboard editing, push, inventory | draft |
 | [TKT-01M3MC023P4A5H7PTF662QSSM8](tickets/TKT-01M3MC023P4A5H7PTF662QSSM8.md) | Self-hosted lake: container image, registry, and operations | in-progress |
+| [TKT-01M3N22HCYT06PPNZFQP3YCCCE](draft/TKT-01M3N22HCYT06PPNZFQP3YCCCE.md) | Per-device overrides on top of agent profiles | draft |
