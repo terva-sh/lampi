@@ -190,14 +190,17 @@ func TestSearchShowsOnlyCurrentGenerations(t *testing.T) {
 func TestIndexRecoversFromPartialWritesAndBadFiles(t *testing.T) {
 	s := lake(t)
 	uid := ingest(t, s, "partial")
-	gen := publish(t, s, uid, events(5, func(i int) string { return fmt.Sprint("recover me ", i) }))
+	publish(t, s, uid, events(5, func(i int) string { return fmt.Sprint("recover me ", i) }))
 	x := openIndex(t, s)
-	// An attempt that wrote a batch and stopped before the flip.
-	if err := x.insert(t.Context(), []docRow{{uid: uid, gen: gen, pos: 0, harness: "codex", eventType: "message", content: "recover me 0", hasContent: true}}); err != nil {
-		t.Fatal(err)
+	// An attempt stopped part way writes nothing: a session is written
+	// in one transaction.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := x.Pass(ctx); err == nil {
+		t.Fatal("a stopped pass reported no error")
 	}
 	if p := search(t, x, SearchRequest{Query: "recover me"}); len(p.Items) != 0 {
-		t.Fatal("unflipped rows visible")
+		t.Fatal("rows of a stopped pass visible")
 	}
 	pass(t, x)
 	if p := search(t, x, SearchRequest{Query: "recover me"}); len(p.Items) != 5 {
