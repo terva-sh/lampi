@@ -141,6 +141,10 @@ func TestDevicesPageFormsForOperatorsOnly(t *testing.T) {
 	if w.Code != 303 || w.Header().Get("Location") != "/devices#"+id {
 		t.Fatalf("set: %d %s", w.Code, w.Header().Get("Location"))
 	}
+	// The selector shows the profile just set, before any agent applies it.
+	if page := get(h, "/devices", cookie).Body.String(); !strings.Contains(page, `<option value="ci" selected>`) {
+		t.Fatal("selector does not show the profile set")
+	}
 	w = postForm(h, "/devices/"+id+"/profile", url.Values{"csrf": {csrf}, "profile": {"gone"}}, cookie)
 	if w.Code != 400 || !strings.Contains(w.Body.String(), "not in the lake any more") {
 		t.Fatalf("unknown profile: %d", w.Code)
