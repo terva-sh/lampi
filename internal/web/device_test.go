@@ -107,7 +107,6 @@ func TestDevicePageShowsItsInventory(t *testing.T) {
 		t.Error("strict device page")
 	}
 
-
 	// The devices list and the operations machines link here.
 	for _, path := range []string{"/devices", "/operations"} {
 		if body := get(h, path, cookie).Body.String(); !strings.Contains(body, `href="/devices/`+laptop.ID+`"`) {
