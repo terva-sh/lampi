@@ -16,7 +16,9 @@ parent: TKT-01M3MC023P4A5H7PTF662QSSM8
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:forgejo/terva-sh/lampi#74
+    path: null
 claim:
   actor: agent:claude-code/aa1afd80
   branch: t3code/review-lampi-lake-containerization
@@ -27,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:56Z
-updated_at: 2026-09-28T16:06:28Z
+updated_at: 2026-09-28T16:06:48Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
