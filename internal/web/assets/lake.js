@@ -160,3 +160,33 @@ showLatest(document);
     });
   }
 })();
+
+// Theme toggle: system, light, dark, in turn. The choice is kept in
+// localStorage and applied before paint by theme.js. Without scripts
+// the button stays hidden and the page follows the system.
+(function () {
+  var button = document.getElementById("theme");
+  if (!button) return;
+  var order = ["system", "light", "dark"];
+  var root = document.documentElement;
+  function current() {
+    return root.dataset.theme === "light" || root.dataset.theme === "dark" ? root.dataset.theme : "system";
+  }
+  function show() {
+    var t = current();
+    button.textContent = "Theme: " + t;
+    button.setAttribute("aria-label", "Theme: " + t + ". Change theme");
+  }
+  button.addEventListener("click", function () {
+    var next = order[(order.indexOf(current()) + 1) % order.length];
+    try {
+      if (next === "system") localStorage.removeItem("lampi-theme");
+      else localStorage.setItem("lampi-theme", next);
+    } catch (e) {}
+    if (next === "system") delete root.dataset.theme;
+    else root.dataset.theme = next;
+    show();
+  });
+  show();
+  button.hidden = false;
+})();

@@ -187,6 +187,15 @@ harness, project and recorded date. Each result names its session and event and
 links straight to that event in the transcript. The page states how many ready
 sessions the index covers. Raw blobs and export are absent.
 
+### Theme
+
+The dashboard follows the system's light or dark setting. The theme button
+in the header cycles through system, light and dark. The choice is kept in
+the browser's local storage, not on the lake, and is applied before the
+page paints. Without scripts the button is hidden and the system setting
+applies. Both themes keep body text at WCAG AA contrast, and a test checks
+this against the colour tokens in `lake.css`.
+
 ## Registration codes
 
 An operator sees a Registrations link. `/admin/registrations` lists every
