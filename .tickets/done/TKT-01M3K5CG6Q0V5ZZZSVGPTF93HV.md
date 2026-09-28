@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K5CG6Q0V5ZZZSVGPTF93HV
 title: Run Terva reviews from the v0.5.0 reviewer image
 type: chore
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude/t3code-45332409
-  branch: ci/review-v0.5.0
-  worktree: /home/sothr/.local/state/agent-rollout/terva-review-v0.5.0/lampi
-  commit: 53da905745dcceff4a186fe5652f239fbd508aa8
-  session: null
-  claimed_at: 2026-09-28T04:46:47Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T04:46:47Z
-updated_at: 2026-09-28T04:46:47Z
+updated_at: 2026-09-28T04:49:31Z
 created_by:
   id: agent:claude/t3code-45332409
   name: ""
@@ -54,5 +47,15 @@ Part of terva-action-code-review TKT-01M3K5B2YX ('Move the consumers to the v0.5
 
 ## Acceptance criteria
 
-- [ ] The review workflow runs the v0.5.0 image by digest and reads TERVA_REVIEW_FALLBACKS
-- [ ] A review of this change from its branch is recorded
+- [x] The review workflow runs the v0.5.0 image by digest and reads TERVA_REVIEW_FALLBACKS
+- [x] A review of this change from its branch is recorded
+
+## Notes
+
+**agent:claude/t3code-45332409** at 2026-09-28T04:49:31Z
+
+PR #55 (https://git.local.sothr.com/terva-sh/lampi/pulls/55), head f993d3a. Terva review from the PR's own branch, so the v0.5.0 image reviewed its own installation: request review-v0.5.0, run 07627348-75a1-49e1-bd67-7f8ba4f8ad22, terva-review/code success with no findings. Merge authorized by the maintainer on 2026-09-28.
+
+## Summary
+
+The Terva review runs terva-action-code-review v0.5.0 (sha256:64a7ba59, commit f3a857b) and reads TERVA_REVIEW_FALLBACKS, shipped in #55. Its branch review was clean.
