@@ -114,7 +114,7 @@ func runServeDevices(env Env, args []string) error {
 		}
 		return nil
 	case "revoke", "unbind":
-		cat, err := catalog.Open(path)
+		cat, err := catalog.OpenCurrent(path)
 		if err != nil {
 			return err
 		}
@@ -149,7 +149,7 @@ func runServeDevices(env Env, args []string) error {
 		if stored == config.DefaultProfile {
 			stored = ""
 		}
-		cat, err := catalog.Open(path)
+		cat, err := catalog.OpenCurrent(path)
 		if err != nil {
 			return err
 		}

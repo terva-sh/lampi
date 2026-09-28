@@ -59,6 +59,8 @@ usage:
                                  queue sessions to be normalized again
   terva-lampi serve healthcheck [--addr ADDR] [--timeout 3s]
                                  exit 0 when a running lake answers /healthz
+  terva-lampi serve migrate [--check] [--data DIR]
+                                 upgrade the catalog schema without serving
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -181,6 +183,8 @@ func runServe(env Env, args []string) error {
 			return runServeNormalize(env, args[1:])
 		case "healthcheck":
 			return runServeHealthcheck(env, args[1:])
+		case "migrate":
+			return runServeMigrate(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, profilesFile, webConfigFile, metricsAddr string
@@ -248,6 +252,7 @@ func runServe(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	printMigration(env.stderr(), "terva-lampi serve: ", lake.Catalog.Migrated())
 	created, err := lake.EnsureIdentity(data)
 	if err != nil {
 		lake.Close()

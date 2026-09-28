@@ -108,7 +108,7 @@ func writeLocalConflicts(w io.Writer, data string) error {
 		}
 		return err
 	}
-	cat, err := catalog.Open(path)
+	cat, err := catalog.OpenCurrent(path)
 	if err != nil {
 		return err
 	}

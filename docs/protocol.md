@@ -207,9 +207,15 @@ because earlier releases ignored the body. A nonce that is not valid is
   "max_blob_bytes": 33554432,
   "lake_id": "lake_…",
   "proof": {"payload": {"lake_id": "lake_…", "nonce": "…", "server_time": "…"}, "signatures": ["…"]},
-  "release": "v0.1.3"
+  "release": "v0.1.3",
+  "features": ["large_tails"]
 }
 ```
+
+`features` names what the lake accepts beyond `protocol_versions`. A
+client uses a feature only when its lake lists it, and an older lake
+lists none. `large_tails` is a lake that grows a file past
+`max_blob_bytes` from a tail; see the artifact fields below.
 
 `release` is the lake's terva-lampi release, and is missing from a
 build that is not a release. It is not signed and is advice only.
@@ -626,9 +632,15 @@ compares it. When it does not fit, the chunks stay separate, the
 assembled bytes are not stored, and Layer B reads the concatenation.
 A length that does not match the stored object, or a hash that is not
 `sha256`, is `400`. `chunk_sha256s` is not combined with a tail: a tail
-is one blob, named by `tail_sha256`, and assembling a tail also stays
-under `max_blob_bytes`. A file over the cap is sent whole, as chunks,
-with `byte_watermark_prev` 0. A chunk may be one the lake holds as a
+is one blob, named by `tail_sha256`, under `max_blob_bytes`. To a lake
+without `large_tails`, assembling a tail also stays under
+`max_blob_bytes`, and a file over the cap is sent whole, as chunks,
+with `byte_watermark_prev` 0. A lake with `large_tails` grows a file
+over the cap from a tail: it keeps the previous version's chunks,
+extends the last one with the tail up to `max_blob_bytes` and adds the
+rest as a new chunk, and checks the whole file's hash. A tail that is
+not the rest of the file is `409` prefix mismatch, and the client sends
+the file whole. A chunk may be one the lake holds as a
 prefix record: when a chunked file replaces the version at its
 relpath, each chunk of that version the new chunk at the same place
 extends is kept as the first bytes of the new chunk.

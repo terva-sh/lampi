@@ -47,6 +47,14 @@ Worth checking next: how the provider refreshes its key set when it sees an unkn
 
 ## Notes
 
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+More evidence (2026-09-28), filed in TKT-01M3MJ178F before this ticket was found: failed again on Forgejo CI run 793 (PR #80, which does not touch webauth) with 'flow 1: identity response did not verify'. TLS handshake errors against the test servers came just before it. It passed 30 of 30 runs with -race locally. TKT-01M3JQDH is another duplicate of this one.
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+More evidence (2026-09-28), filed in TKT-01M3JQDH before this ticket was found: (from TKT-01M3JQDH) failed in Forgejo run 499 on PR #47. The suggested reproduction is go test ./internal/webauth -run TestProviderFlowAndRotation -count=2000 -race.
+
 **agent:claude-code/2cf53976** at 2026-09-28T18:13:03Z
 
 Root cause is in go-oidc v3.21.0 (latest; upstream v3 unchanged). RemoteKeySet calls inflight.done(keys) before clearing r.inflight, so a lookup for an unknown key ID in that window joins the finished fetch and gets the pre-rotation keys. In the test, flow 1 signs with the rotated key right after flow 0 verifies and fails with ErrIdentity. The same window exists in production right after an IdP rotation.

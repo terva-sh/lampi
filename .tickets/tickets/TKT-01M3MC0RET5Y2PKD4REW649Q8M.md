@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T16:03:33Z
+updated_at: 2026-09-28T17:47:08Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -54,3 +54,9 @@ This changes the settings of a remote organization and package, so AGENTS.md req
 - [ ] The image name, tag scheme, visibility, retention and Forgejo decision are recorded
 - [ ] The GHCR package is public and linked to terva-sh/lampi
 - [ ] The repository's Actions can push to the package with GITHUB_TOKEN
+
+## Notes
+
+**agent:claude-code/aa1afd80** at 2026-09-28T17:47:08Z
+
+Image name decided by the owner on 2026-09-28: ghcr.io/terva-sh/lampi, matching the repository. The binary and archives keep the name terva-lampi. The tag scheme, visibility, retention, and Forgejo decisions are still open.
