@@ -104,6 +104,8 @@ func Run(args []string, env Env) error {
 		err = runConflicts(env, args[1:])
 	case "quarantine":
 		err = runQuarantine(env, args[1:])
+	case "self-update":
+		err = runSelfUpdate(env, args[1:])
 	default:
 		fmt.Fprint(env.stdout(), rootHelp)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -229,6 +231,7 @@ usage:
   terva-lampi export    write normalized events, or an allowlisted ShareGPT trajectory
   terva-lampi conflicts list divergent_copy artifacts from the catalog
   terva-lampi quarantine list redaction hits, or allow one digest
+  terva-lampi self-update upgrade to the lake's release, verified
 
 The command is terva-lampi. An optional ` + "`lampi`" + ` symlink is not the
 primary name. Bare ` + "`lampi`" + ` collides with neurobin's LAMP installer

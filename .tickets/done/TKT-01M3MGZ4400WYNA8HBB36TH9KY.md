@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MGZ4400WYNA8HBB36TH9KY
 title: "Agent self-update: verified upgrade to the lake's release"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: agent/lake-release
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: 8578473fafbe70983872c326ffffb938f8e189a4
-  session: null
-  claimed_at: 2026-09-28T17:30:56Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T17:28:26Z
-updated_at: 2026-09-28T17:30:56Z
+updated_at: 2026-09-28T17:34:41Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -64,9 +57,9 @@ Add `terva-lampi self-update` so an installed agent can upgrade itself. Today th
 
 ## Acceptance criteria
 
-- [ ] self-update installs the lake's release, verified by checksum and a version smoke test
-- [ ] The agent's service restarts after an update unless --no-restart
-- [ ] --check exits 10/11/12 by gap; a dev build is refused
+- [x] self-update installs the lake's release, verified by checksum and a version smoke test
+- [x] The agent's service restarts after an update unless --no-restart
+- [x] --check exits 10/11/12 by gap; a dev build is refused
 - [x] status says when the agent is behind its lake's release
 
 ## Implementation plan
@@ -74,3 +67,13 @@ Add `terva-lampi self-update` so an installed agent can upgrade itself. Today th
 Two PRs stacked on #78, which added releaseVersion().
 A: the lake's release in the hello answer (api.Server.Release, set by serve from build info when it parses as a release). A new internal/release package handles parsing, comparison and gap. status prints lake_release and an upgrade line when the agent is behind its lake.
 B: terva-lampi self-update, ported from git-ticket's cli/selfupdate.go. Target: the lake's release capped at GitHub latest, or --version, or --latest. It checks the sha256 against checksums.txt, runs the staged binary's --version as a smoke test, keeps the old binary as .prev, swaps by rename, and restarts the systemd or launchd unit unless --no-restart. --check exits 10/11/12.
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:34:41Z
+
+PR B verification: a scratch binary built with -X version=0.1.1 and isolated XDG ran against the real GitHub releases. --check exited 10 (patch). --dry-run named terva-lampi_0.1.2_linux_amd64.tar.gz. The update itself (--no-restart) installed v0.1.2, verified by checksum and a smoke test, and left terva-lampi.prev beside it. The new binary printed 'terva-lampi v0.1.2 (53da905745dc)'. Restart was tested only with a stubbed runCommand, because this workstation runs a live agent unit.
+
+## Summary
+
+terva-lampi self-update installs the release the agent's lake names in hello, capped at GitHub latest, or --version/--latest. It checks the sha256 against checksums.txt, then runs the staged binary's --version as a smoke test, keeps the old binary as terva-lampi.prev, and swaps by rename. It restarts a running systemd or launchd agent service unless --no-restart. --check and --dry-run exit 10/11/12 by gap, dev builds are refused, and an agent ahead of its lake is not downgraded unless --version asks. status prints the lake's release and an upgrade line when the agent is behind. Automatic upgrades are the draft TKT-01M3MGZ45R.

@@ -34,6 +34,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi lakes` | List the lakes this machine reports to, or `remove` one. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi quarantine` | `list` the redaction hits held on this machine, or `allow` one digest to upload with an `override` stamp. See [Quarantine](allowlist-and-redaction.md#quarantine). |
+| `terva-lampi self-update` | Install the release the lake runs, capped at the newest release, checked against `checksums.txt`, and restart the agent service. `--check` exits 10, 11 or 12 when a patch, minor or major update is available. See [Upgrading an agent](../deploy/README.md#upgrading-an-agent). |
 
 ### Reading the lake
 

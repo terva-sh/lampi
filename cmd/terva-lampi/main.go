@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -18,6 +19,10 @@ func main() {
 		Getenv: os.Getenv,
 		Argv0:  os.Args[0],
 	}); err != nil {
+		var st *cli.ExitStatus
+		if errors.As(err, &st) {
+			os.Exit(st.Code)
+		}
 		fmt.Fprintln(os.Stderr, "terva-lampi:", err)
 		os.Exit(1)
 	}
