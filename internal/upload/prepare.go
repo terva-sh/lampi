@@ -389,10 +389,10 @@ func stamp(mark watermark.Mark, ok bool, prefix string, a protocol.Artifact, bod
 	// KindTail is a strict append of the stored prefix. The PUT body
 	// is only the suffix. sha256 stays the full file so the lake can
 	// check the assembly. Every other kind sends the whole file.
-	// A file past the single-object cap is sent whole. A tail cannot
-	// carry a chunk list, and assembling one onto the stored head
-	// would install an object past the cap. The upload splits it.
-	if int64(len(body)) <= protocol.MaxBlobBytes && dec.Kind == watermark.KindTail && dec.Offset > 0 && dec.Offset < int64(len(body)) && int64(dec.Offset+dec.Length) == int64(len(body)) {
+	// The tail is one blob, so it stays under the single-object cap.
+	// A file past that cap may still travel as a tail; the upload
+	// widens it when the lake does not list protocol.FeatureLargeTails.
+	if int64(len(body))-dec.Offset <= protocol.MaxBlobBytes && dec.Kind == watermark.KindTail && dec.Offset > 0 && dec.Offset < int64(len(body)) && int64(dec.Offset+dec.Length) == int64(len(body)) {
 		tail := body[dec.Offset:]
 		sum := sha256.Sum256(tail)
 		a.ByteWatermarkPrev = dec.Offset

@@ -153,7 +153,16 @@ type HelloResponse struct {
 	// for a build that is not a release. An agent upgrades to it, so it
 	// is never ahead of its lake.
 	Release string `json:"release,omitempty"`
+	// Features names what this lake accepts beyond protocol_versions. A
+	// client uses a feature only when its lake lists it.
+	Features []string `json:"features,omitempty"`
 }
+
+// FeatureLargeTails is a lake that grows a file past max_blob_bytes from
+// a tail: byte_watermark_prev may exceed max_blob_bytes, and the tail
+// blob stays under it. A lake without it answers such a manifest 400,
+// so a client sends a file past the cap whole, as chunks.
+const FeatureLargeTails = "large_tails"
 
 // HelloProof is the signed payload of HelloResponse.Proof.
 type HelloProof struct {

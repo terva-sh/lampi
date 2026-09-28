@@ -936,9 +936,44 @@ func TestSyncResumesByContentRange(t *testing.T) {
 	}
 }
 
+// A file that grows past the object cap sends only its new bytes. A lake
+// with large tails takes them as a tail; an older one gets the file as
+// chunks, of which only the new one is missing. Both store the grown
+// file as the same two pieces.
 func TestSyncSplitsFilePastBlobCap(t *testing.T) {
+	t.Run("large tails", func(t *testing.T) { testSplitsFilePastBlobCap(t, true) })
+	t.Run("older lake", func(t *testing.T) { testSplitsFilePastBlobCap(t, false) })
+}
+
+// withoutFeatures is h with hello's features removed, as a lake from
+// before they existed answers.
+func withoutFeatures(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/hello" {
+			h.ServeHTTP(w, r)
+			return
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		var hello protocol.HelloResponse
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &hello) != nil {
+			w.WriteHeader(rec.Code)
+			w.Write(rec.Body.Bytes())
+			return
+		}
+		hello.Features = nil
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(hello)
+	})
+}
+
+func testSplitsFilePastBlobCap(t *testing.T, largeTails bool) {
 	lake, _ := openLake(t)
-	srv := httptest.NewServer(lake.Handler())
+	var h http.Handler = lake.Handler()
+	if !largeTails {
+		h = withoutFeatures(h)
+	}
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	cap := wrapClient(srv.Client())
 
@@ -1004,17 +1039,23 @@ func TestSyncSplitsFilePastBlobCap(t *testing.T) {
 		t.Fatalf("manifests %+v", cap.manifests)
 	}
 	art = cap.manifests[0].Artifacts[0]
-	if art.ByteWatermarkPrev != 0 || art.SHA256 != grownSHA || art.Size != protocol.MaxBlobBytes+1 {
-		t.Fatalf("logical wire %+v", art)
+	if art.SHA256 != grownSHA || art.Size != protocol.MaxBlobBytes+1 {
+		t.Fatalf("wire %+v", art)
 	}
-	if len(art.ChunkSHA256s) != 2 || len(art.ChunkLengths) != 2 {
-		t.Fatalf("chunks %+v", art)
-	}
-	if art.ChunkSHA256s[0] != origSHA || art.ChunkSHA256s[1] != extraSHA {
-		t.Fatalf("chunk digests %+v", art.ChunkSHA256s)
-	}
-	if art.ChunkLengths[0] != protocol.MaxBlobBytes || art.ChunkLengths[1] != 1 {
-		t.Fatalf("chunk lengths %+v", art.ChunkLengths)
+	if largeTails {
+		if art.ByteWatermarkPrev != protocol.MaxBlobBytes || art.TailSHA256 != extraSHA || len(art.ChunkSHA256s) != 0 {
+			t.Fatalf("tail wire %+v", art)
+		}
+	} else {
+		if art.ByteWatermarkPrev != 0 || len(art.ChunkSHA256s) != 2 || len(art.ChunkLengths) != 2 {
+			t.Fatalf("chunk wire %+v", art)
+		}
+		if art.ChunkSHA256s[0] != origSHA || art.ChunkSHA256s[1] != extraSHA {
+			t.Fatalf("chunk digests %+v", art.ChunkSHA256s)
+		}
+		if art.ChunkLengths[0] != protocol.MaxBlobBytes || art.ChunkLengths[1] != 1 {
+			t.Fatalf("chunk lengths %+v", art.ChunkLengths)
+		}
 	}
 	if ok, err := lake.CAS.Has(grownSHA); err != nil || ok {
 		t.Fatalf("assembled object installed: has %v %v", ok, err)
@@ -1819,4 +1860,55 @@ func (c *capture) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 	return c.base.RoundTrip(req)
+}
+
+// A file already past the object cap that grows sends only what was
+// appended, not its last chunk again (TKT-01M3KD7DK).
+func TestSyncSendsOnlyTheTailOfAFilePastTheCap(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+	home := t.TempDir()
+	path := writeSizedSession(t, home, "abcd", "big.jsonl", protocol.MaxBlobBytes+4096)
+	opt := allowAll(srv, home, t.TempDir(), "/tmp/p")
+	opt.Client = cap.client
+	ctx := context.Background()
+	if _, err := Sync(ctx, opt); err != nil {
+		t.Fatal(err)
+	}
+
+	add := []byte("{\"type\":\"message\",\"text\":\"appended\"}\n")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(add); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	grown, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cap.reset()
+	if _, err := Sync(ctx, opt); err != nil {
+		t.Fatal(err)
+	}
+	var sent int
+	for _, b := range cap.putBodies {
+		sent += len(b)
+	}
+	if sent != len(add) {
+		t.Fatalf("sent %d bytes for a %d-byte append", sent, len(add))
+	}
+	art := cap.manifests[0].Artifacts[0]
+	if art.ByteWatermarkPrev != int64(len(grown)-len(add)) {
+		t.Fatalf("wire %+v", art)
+	}
+	sum := sha256.Sum256(grown)
+	if got, err := lake.CAS.Read(hex.EncodeToString(sum[:])); err != nil || !bytes.Equal(got, grown) {
+		t.Fatalf("grown file reads %d bytes, %v", len(got), err)
+	}
 }

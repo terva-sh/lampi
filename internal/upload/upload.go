@@ -269,15 +269,17 @@ func syncOnce(ctx context.Context, opt Options) (Result, error) {
 		return finish(opt, res, rejected)
 	}
 
-	// A file past the lake's cap cannot travel as a tail. The tail form
-	// would ask the lake to install the assembled object. Widen first,
-	// then split the whole file.
+	// A file past the lake's cap travels as a tail only to a lake that
+	// lists protocol.FeatureLargeTails. An older lake would try to
+	// install the assembled object and refuse it. Widen first, then
+	// split the whole file.
 	maxBlob := hello.MaxBlobBytes
 	if maxBlob <= 0 {
 		maxBlob = protocol.MaxBlobBytes
 	}
+	largeTails := slices.Contains(hello.Features, protocol.FeatureLargeTails)
 	for i := range work {
-		if sessionOverCap(&work[i], maxBlob) {
+		if sessionOverCap(&work[i], maxBlob, largeTails) {
 			widenToFullFile(&work[i])
 		}
 	}
@@ -459,9 +461,15 @@ type chunkPlan struct {
 	Lengths []int64
 }
 
-func sessionOverCap(w *prepared, max int64) bool {
+// sessionOverCap reports whether w sends a file past max as a tail the
+// lake cannot take: to a lake without large tails, or a tail that is
+// itself past max. A file sent whole is split, and needs nothing here.
+func sessionOverCap(w *prepared, max int64, largeTails bool) bool {
 	for _, a := range w.manifest.Artifacts {
-		if a.Size > max {
+		if a.Size <= max || a.ByteWatermarkPrev == 0 {
+			continue
+		}
+		if !largeTails || a.Size-a.ByteWatermarkPrev > max {
 			return true
 		}
 	}
