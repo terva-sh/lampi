@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T04:09:33Z
-updated_at: 2026-09-28T04:09:33Z
+updated_at: 2026-09-28T04:18:02Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -66,3 +66,43 @@ a stored length. The tails are likewise redundant once assembled.
 
 Measure first: how much of the store is superseded prefixes, tails, and
 current heads.
+
+## Notes
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T04:18:02Z
+
+Diagnostics, 2026-09-27. They were run without access to the live
+catalog, which needs sudo.
+
+- **The hosted lake:** 37.6 GiB of stored blobs in 9,154 files, and
+  65.7 GiB of logical bytes across 4,691 artifact rows. These figures
+  come from the new operations page.
+- **What it should hold:** the agent's watermarks give the current size
+  of every file this machine, the lake's only contributor, has
+  uploaded. That is 193 files and 0.53 GiB: 461.5 MiB claude, 78.2 MiB
+  codex, 0.1 MiB terva. The largest is 59.6 MiB, and 3 files exceed
+  the 32 MiB blob cap. So the lake stores about 70 times its current
+  data.
+- **A reproduction on a test lake.** One file was grown through tail
+  uploads with the real handler, then the CAS was measured with
+  `storage.Measure`. The stored-to-final ratio is appends/2 + 1:
+
+  | appends | final size | CAS size  | files | ratio  |
+  |---------|------------|-----------|-------|--------|
+  | 20      | 1.0 MiB    | 11.4 MiB  | 39    | 11.7×  |
+  | 100     | 4.9 MiB    | 252.7 MiB | 199   | 51.7×  |
+  | 200     | 9.8 MiB    | 994.6 MiB | 399   | 101.6× |
+
+  The file count is one tail and one assembled copy per append, which
+  matches `TestAppendTailAndUnchangedResync`.
+- **Files over the 32 MiB cap** are sent whole as fixed 32 MiB chunks.
+  Their leading chunks are shared between versions, so they grow by at
+  most one chunk per version. That is linear but still wasteful.
+
+Nothing reads a superseded version's bytes on a hot path. Normalize
+reads the head, checkClient reads the current prefix, and excerpts read
+normalized JSONL. The old bytes are kept only as history, and every one
+of them is recoverable as a prefix of its successor.
+
+The reproduction test is kept at /var/tmp/ops/growth_diag_test.go on
+the dev host, so the fix can adopt it as its regression test.
