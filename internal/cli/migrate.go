@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"terva.sh/lampi/internal/catalog"
-	"terva.sh/lampi/internal/lakelock"
 )
 
 const migrateUsage = `terva-lampi serve migrate — upgrade the catalog schema
@@ -85,9 +84,9 @@ func runServeMigrate(env Env, args []string) error {
 		}
 		return nil
 	}
-	lock, err := lakelock.Acquire(data)
+	lock, err := lockLake("serve migrate", data, "--check")
 	if err != nil {
-		return fmt.Errorf("serve migrate: %w; stop serve first, or pass --check", err)
+		return err
 	}
 	defer lock.Release()
 	cat, err := catalog.Open(path)

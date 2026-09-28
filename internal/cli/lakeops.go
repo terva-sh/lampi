@@ -15,7 +15,6 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
-	"terva.sh/lampi/internal/lakelock"
 )
 
 const backupUsage = `terva-lampi serve backup — copy the lake to a directory
@@ -279,9 +278,9 @@ func runServeFsck(env Env, args []string) error {
 		return fmt.Errorf("fsck: %w", err)
 	}
 	if repair {
-		lock, err := lakelock.Acquire(data)
+		lock, err := lockLake("fsck --repair", data, "")
 		if err != nil {
-			return fmt.Errorf("fsck --repair: %w; stop serve first", err)
+			return err
 		}
 		defer lock.Release()
 	}
