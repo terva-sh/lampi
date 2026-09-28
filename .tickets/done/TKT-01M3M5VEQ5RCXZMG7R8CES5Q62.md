@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M5VEQ5RCXZMG7R8CES5Q62
 title: A subagent transcript can become a Claude session's head
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: catalog/subagent-head
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: f50c57f752de9e634a0b5c57ab239c6c7aeff3f9
-  session: null
-  claimed_at: 2026-09-28T15:07:21Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T14:14:11Z
-updated_at: 2026-09-28T15:13:29Z
+updated_at: 2026-09-28T16:14:27Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -129,3 +122,7 @@ manifest's `history.jsonl` sits above its rollout but is not the
 session. The rule now is the directory named for the file: a companion
 of `<sid>.jsonl` is anything under `<sid>/`, which is exactly where
 Claude Code keeps subagent transcripts.
+
+## Summary
+
+Fixed on the lake in #64. A manifest's head is its first transcript that is not inside the directory named for another (<sid>/ of <sid>.jsonl), and such a companion never moves the session head. Migration 12 (migrateSubagentHeads) moves existing subagent heads back to the session's transcript, current or kept as a divergent copy, makes companion divergent copies current, and queues each changed session for normalization, so no manual --all is needed. Verify on the hosted lake: search TKT-01M396R1CX should find session 0fc11135's assistant messages from 09-24/25.

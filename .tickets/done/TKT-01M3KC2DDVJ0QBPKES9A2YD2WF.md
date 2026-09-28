@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3KC2DDVJ0QBPKES9A2YD2WF
 title: Search index grows by a third after re-normalizing every session
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: tickets/after-chunk-fold
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 0aa456e9fd9d1f24cccd77d7030ea5fc75436f5c
-  session: null
-  claimed_at: 2026-09-28T14:28:49Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T06:43:37Z
-updated_at: 2026-09-28T16:01:54Z
+updated_at: 2026-09-28T16:14:27Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -149,3 +142,7 @@ deleted to drop. FTS5's ordinary merge only merges a level that is full.
   still read the previous state under WAL.
 - The PR #64 CI failure: TestReindexingKeepsTheIndexNearItsLiveSize
   took 324 s under -race and hit the 10-minute limit. Shrunk in #72.
+
+## Summary
+
+Fixed in #63, #72 and #73. search.db opens with incremental auto-vacuum; after a pass that wrote rows it merges up to 2000 pages (forced only after deletes) and returns freed pages. Rows are keyed by position and a signature of their fields (index version 3), so a new generation writes only changed rows: this session's 16k-event transcript re-indexes in about 0.6s instead of 6s, and 20 generations leave the file at 23.7 MiB against 23.3 MiB live (main before #63 levelled near 4x). The index is rebuilt once on the first start of this release.
