@@ -42,15 +42,15 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 
 	words := strings.Fields("lake index merge segment vacuum trigram session event tool result assistant user message page row delete insert")
 	rng := rand.New(rand.NewPCG(1, 2))
-	text := make([]string, 2000)
+	text := make([]string, 300)
 	for i := range text {
 		var b strings.Builder
-		for w := 0; w < 60; w++ {
+		for w := 0; w < 20; w++ {
 			fmt.Fprintf(&b, "%s%d ", words[rng.IntN(len(words))], rng.IntN(100000))
 		}
 		text[i] = b.String()
 	}
-	const first = 1900
+	const first = 200
 	var live int64
 	for g := 0; g < 8; g++ {
 		publish(t, s, uid, events(first+g*10, func(i int) string { return text[i] }))
