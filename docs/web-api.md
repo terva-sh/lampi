@@ -521,7 +521,7 @@ anyone else, and the `X-Lampi-CSRF` header.
 | Refusal | Status and `error` |
 |---|---|
 | Another save or a delete landed after `base_revision` | `409 changed`, with the saved profile on a PUT |
-| A document an agent would refuse, such as one that sets a harness root | `400 invalid_profile`, with `message` |
+| A document an agent would refuse, such as one that sets a harness root, or over 500 allow or deny rules | `400 invalid_profile`, with `message` |
 | A body that is not one object of these fields, or no `base_revision` | `400 invalid_request` |
 | A name that is not a profile name | `400 invalid_name` |
 | A note over 500 characters | `400 invalid_note` |
