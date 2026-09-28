@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MAPZZY682F9EJY331CKAZE
 title: "Devices: show agent version, flag outdated and known-bad agents"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: web/devices-list
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: 5b41022770000297c468d9f23d4a36475aff6c9d
-  session: null
-  claimed_at: 2026-09-28T18:12:20Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T15:39:08Z
-updated_at: 2026-09-28T18:35:00Z
+updated_at: 2026-09-28T19:32:52Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
@@ -102,3 +95,7 @@ Alternatives considered:
 - **A Server field for the Set instead of a package variable.** Rejected: `New()` returns an `http.Handler` and would need another parameter only for tests.
 - **Semver range strings (`>=a <b`).** Rejected: they need a parser and allow unions that nothing needs; introduced/fixed is what OSV uses.
 - **A banner on every page.** Rejected: it would read the devices on every request. The overview and /devices are where an operator looks.
+
+## Summary
+
+Merged in #85 and #90. Devices show the agent's release with a behind/current/ahead/unstamped/unknown badge. internal/advisory/agents.json (introduced/fixed ranges, upgrade|urgent, reason, link) is embedded. A match shows beside the device, and an urgent one puts a banner on the overview and /devices. Agents send User-Agent terva-lampi/VERSION. The file ships empty, since no released agent reports its version yet. Not done: the optional gauge, and telling the agent itself about an advisory.
