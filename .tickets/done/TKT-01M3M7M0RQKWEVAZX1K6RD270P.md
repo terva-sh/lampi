@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:25:27Z
+updated_at: 2026-09-28T15:35:40Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -73,6 +73,14 @@ The report is stored as JSON rather than in columns so the report can grow new f
 **agent:claude-code/2cf53976** at 2026-09-28T15:25:27Z
 
 Slice 3 changed from the plan. It does not add a catalog read to each reader. Instead, api.Open seeds the in-memory contact map from device_reports.received_at, and noteContact keeps it current after that. The Machines table and the lampi_device_last_contact_timestamp_seconds gauge get the durable value without changing, and the value still updates on every request. The rejected approach, reading device_reports in both readers and taking the newer time, would have duplicated the merge logic and added a catalog query to each metrics scrape.
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:35:40Z
+
+Review outcomes:
+- #66, review 1170 (and 1168/1169 before the restack): medium finding-1, an older concurrent report could replace a newer one. Accepted and fixed in 8441b12: received_ns INTEGER plus a conditional upsert.
+- #67, review 1171: medium finding-1, the shutdown drain was not recorded in the report. Declined: after ctx ends there is no delivery path, and the next start reports afresh.
+- #68 review: clean.
+Dispositions were posted as PR comments, and reviews were re-dispatched on the fixed heads.
 
 ## Summary
 
