@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0RA026HX6ZKSKG89F5NA
 title: "Catalog: migrations that are safe for unattended image upgrades"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: none
 references:
   - ref: pr:forgejo/terva-sh/lampi#82
     path: null
-claim:
-  actor: agent:claude-code/aa1afd80
-  branch: self-host/migrations
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
-  commit: 9c2bf223863c9356f0ab903aa64cc8f1e66fdabe
-  session: null
-  claimed_at: 2026-09-28T17:48:15Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T18:19:43Z
+updated_at: 2026-09-28T18:26:29Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -147,3 +140,11 @@ Second terva-review on PR #82 (run with request review-fixes): the first round's
 **agent:claude-code/aa1afd80** at 2026-09-28T18:19:43Z
 
 Third terva-review on PR #82: the second round's findings were resolved. Two more, both fixed. (1) serve migrate failed on a lake with no catalog, which would block a first deploy's init container. With or without --check, it now prints 'no catalog yet; serve creates one at schema N', exits 0, and creates nothing. (2) The backup wasn't fsynced before the first step committed. The file is now fsynced (a failure removes it and stops the upgrade), then its directory, following identity.syncDir.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T18:26:29Z
+
+The fourth terva-review (run 5d07b632, head d0ad20c) repeated the third round's two findings with their old line numbers, and cited TestServeMigrateNeedsACatalog, which d0ad20c deleted. The PR diff Forgejo serves for #82 contains both fixes (the 'no catalog yet' path and syncFile(dest)). The owner chose to land over that stale verdict.
+
+## Summary
+
+Landed in PR #82. Before the first migration step, catalog.Open copies a catalog that holds data to migration-backups/catalog-<UTC>-v<old>.db. The copy is made with O_EXCL at 0600, fsynced with its directory, and retention keeps three, always including the new copy. A failed copy stops the upgrade. serve logs the schema at every start, and the backup and each step when it migrates. A partial failure's error names the version reached and the copy. serve migrate takes lake.lock and upgrades without a listener; it succeeds on a lake with no catalog; --check runs read-only beside serve. Lock-free writers (serve devices, register, profiles, normalize, conflicts, compact --dry-run) use OpenCurrent and refuse an older schema instead of migrating it under a running serve. The newer-schema error names the rollback, and docs/vps-bringup.md has an Upgrade section. Tests cover an upgrade from every earlier version. Not done: an image-level previous-tag test (no published image yet), and logging normalizer-generation changes.
