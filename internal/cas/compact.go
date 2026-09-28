@@ -31,7 +31,8 @@ func (s *Store) Terminal(digest string) (string, error) {
 	if idx.PrefixOf == "" {
 		return digest, nil
 	}
-	return s.resolvePrefix(digest, idx)
+	base, _, err := s.resolvePrefix(digest, idx)
+	return base, err
 }
 
 // Fold records digest as the first length bytes of base and removes
