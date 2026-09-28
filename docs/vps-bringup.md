@@ -614,6 +614,32 @@ may be a blob put for a manifest not yet posted. `--min-age` changes
 the window. Compact is safe to run again, and a run over a compacted
 lake changes nothing.
 
+## Upgrade
+
+Replace the binary and restart the unit. At start, `serve` brings the
+catalog to the new schema and logs a line such as `catalog schema 13 ->
+14`, one line per step, and where it put the copy it took first:
+
+```bash
+sudo systemctl restart terva-lampi-serve.service
+journalctl -u terva-lampi-serve -n 20 | grep catalog
+```
+
+The copy is in `migration-backups/` in the lake directory, and the
+newest three are kept. If the copy fails, `serve` does not migrate and
+does not start. To check a new binary first, run `terva-lampi serve
+migrate --check --data /var/lib/terva-lampi` as the service user. It
+reads beside the running lake and changes nothing.
+
+An older binary refuses a catalog that a newer one migrated. To roll
+back: stop the unit, copy the newest file in `migration-backups/` over
+`catalog.db` as the service user, delete `catalog.db-wal` and
+`catalog.db-shm` (they belong to the newer catalog, and SQLite would
+apply them to the restored file), put the older binary back, and start
+the unit. Manifests accepted since the upgrade are not in the restored
+catalog, though their blobs stay in the CAS, so roll back soon after an
+upgrade rather than days later.
+
 ## Leave out of git
 
 Do not commit the production hostname, a device token, a `sha256:`

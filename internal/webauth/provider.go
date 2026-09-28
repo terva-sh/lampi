@@ -38,7 +38,43 @@ type Identity struct {
 type discovered struct {
 	oauth    oauth2.Config
 	verifier *oidc.IDTokenVerifier
+	keys     *rotatingKeys
 }
+
+// rotatingKeys is the provider's JWKS cache. go-oidc's RemoteKeySet
+// refetches on an unknown kid, but it signals the end of a fetch before
+// it clears the fetch in flight, so a verification that misses the
+// cache in that window joins the finished fetch and gets the key set
+// from before a rotation; one joining a fetch that began before the
+// token was signed gets the same. Either rejects a valid login. When the
+// cached set fails, a new set, whose first fetch starts after this
+// token arrived, gets one more try and replaces the cache if it verifies.
+type rotatingKeys struct {
+	fresh func() oidc.KeySet
+	mu    sync.Mutex
+	cur   oidc.KeySet
+}
+
+func (k *rotatingKeys) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
+	k.mu.Lock()
+	cur := k.cur
+	k.mu.Unlock()
+	payload, err := cur.VerifySignature(ctx, jwt)
+	if err == nil {
+		return payload, nil
+	}
+	next := k.fresh()
+	if payload, err = next.VerifySignature(ctx, jwt); err != nil {
+		return nil, err
+	}
+	k.mu.Lock()
+	if k.cur == cur {
+		k.cur = next
+	}
+	k.mu.Unlock()
+	return payload, nil
+}
+
 type Provider struct {
 	cfg        webconfig.Config
 	client     *http.Client
@@ -112,7 +148,8 @@ func (p *Provider) discover(ctx context.Context) (*discovered, error) {
 		return nil, ErrProvider
 	}
 	var metadata struct {
-		JWKS string `json:"jwks_uri"`
+		Issuer string `json:"issuer"`
+		JWKS   string `json:"jwks_uri"`
 	}
 	if gp.Claims(&metadata) != nil {
 		return nil, ErrProvider
@@ -123,7 +160,10 @@ func (p *Provider) discover(ctx context.Context) (*discovered, error) {
 			return nil, ErrProvider
 		}
 	}
-	d := &discovered{oauth: oauth2.Config{ClientID: p.cfg.OIDC.ClientID, ClientSecret: p.cfg.Secret(), RedirectURL: p.cfg.CallbackURL(), Endpoint: ep, Scopes: p.cfg.OIDC.Scopes}, verifier: gp.Verifier(&oidc.Config{ClientID: p.cfg.OIDC.ClientID, SupportedSigningAlgs: []string{oidc.RS256, oidc.RS384, oidc.RS512, oidc.ES256, oidc.ES384, oidc.ES512, oidc.PS256, oidc.PS384, oidc.PS512}})}
+	keyCtx := oidc.ClientContext(context.Background(), p.client)
+	fresh := func() oidc.KeySet { return oidc.NewRemoteKeySet(keyCtx, metadata.JWKS) }
+	keys := &rotatingKeys{fresh: fresh, cur: fresh()}
+	d := &discovered{oauth: oauth2.Config{ClientID: p.cfg.OIDC.ClientID, ClientSecret: p.cfg.Secret(), RedirectURL: p.cfg.CallbackURL(), Endpoint: ep, Scopes: p.cfg.OIDC.Scopes}, verifier: oidc.NewVerifier(metadata.Issuer, keys, &oidc.Config{ClientID: p.cfg.OIDC.ClientID, SupportedSigningAlgs: []string{oidc.RS256, oidc.RS384, oidc.RS512, oidc.ES256, oidc.ES384, oidc.ES512, oidc.PS256, oidc.PS384, oidc.PS512}}), keys: keys}
 	p.discovered = d
 	return d, nil
 }

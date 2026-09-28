@@ -42,6 +42,8 @@ type Catalog struct {
 	db *sql.DB
 	// flushMu makes FlushAudit calls take turns.
 	flushMu sync.Mutex
+	// migrated is what Open did to the schema.
+	migrated Migration
 }
 
 // Decision is the merge result for one manifest artifact.
@@ -93,7 +95,10 @@ type ProvenanceRow struct {
 // Open creates the catalog file and brings its schema to the version
 // this binary knows. The file is owner-read because session rows
 // describe private transcripts. A file written by a newer binary is
-// refused, not read with a schema that may not match it.
+// refused, not read with a schema that may not match it. A file with
+// data is copied to BackupDir before the first migration step, and a
+// copy that fails stops the upgrade. Open migrates, so a caller that
+// does not hold lake.lock uses OpenCurrent.
 func Open(path string) (*Catalog, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
@@ -108,7 +113,8 @@ func Open(path string) (*Catalog, error) {
 	}
 	// One writer. The lake process is the only client of this file.
 	db.SetMaxOpenConns(1)
-	if err := upgrade(db, path); err != nil {
+	m, err := upgrade(db, path, migrations, time.Now())
+	if err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -116,7 +122,7 @@ func Open(path string) (*Catalog, error) {
 		db.Close()
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
-	return &Catalog{db: db}, nil
+	return &Catalog{db: db, migrated: m}, nil
 }
 
 // OpenReadOnly opens an existing catalog without write access, for a
@@ -204,36 +210,52 @@ var migrations = []func(*sql.Tx) error{
 	migrateProfiles,
 }
 
-// upgrade runs each migration above the file's user_version, one
-// transaction per step with the version bump inside it. A file above
-// len(migrations) is refused.
-func upgrade(db *sql.DB, path string) error {
+// upgrade runs each step above the file's user_version, one
+// transaction per step with the version bump inside it, after a backup
+// of a file that holds data. A file above len(steps) is refused. Tests
+// pass a prefix of migrations to build a file at an older version.
+func upgrade(db *sql.DB, path string, steps []func(*sql.Tx) error, now time.Time) (Migration, error) {
 	var v int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
-		return fmt.Errorf("catalog: %w", err)
+		return Migration{}, fmt.Errorf("catalog: %w", err)
 	}
-	if v > len(migrations) {
-		return fmt.Errorf("catalog: %s has schema version %d; this binary knows up to %d, so upgrade terva-lampi", path, v, len(migrations))
+	m := Migration{From: v, To: v}
+	var err error
+	if v > len(steps) {
+		return m, newerError(path, v)
 	}
-	for ; v < len(migrations); v++ {
+	if v == len(steps) {
+		return m, nil
+	}
+	if m.Created, err = isEmpty(db); err != nil {
+		return m, err
+	}
+	if !m.Created {
+		if m.Backup, err = backupBeforeMigrating(db, path, v, now); err != nil {
+			return m, err
+		}
+	}
+	for ; v < len(steps); v++ {
 		tx, err := db.Begin()
 		if err != nil {
-			return fmt.Errorf("catalog: %w", err)
+			return m, partialError(m, v+1, stepName(steps[v]), err)
 		}
-		if err := migrations[v](tx); err != nil {
+		if err := steps[v](tx); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("catalog: migration %d: %w", v+1, err)
+			return m, partialError(m, v+1, stepName(steps[v]), err)
 		}
 		// PRAGMA does not take a bound parameter. v is an int.
 		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, v+1)); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("catalog: %w", err)
+			return m, partialError(m, v+1, stepName(steps[v]), err)
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("catalog: %w", err)
+			return m, partialError(m, v+1, stepName(steps[v]), err)
 		}
+		m.To = v + 1
+		m.Steps = append(m.Steps, stepName(steps[v]))
 	}
-	return nil
+	return m, nil
 }
 
 const schema = `

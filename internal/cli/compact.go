@@ -69,6 +69,10 @@ func runServeCompact(env Env, args []string) error {
 			return fmt.Errorf("compact: %w; stop serve first, or pass --dry-run", err)
 		}
 		defer lock.Release()
+	} else if err := requireCurrentSchema(data); err != nil {
+		// A dry run does not take the lock, and opening the lake
+		// would migrate the catalog under a running serve.
+		return fmt.Errorf("compact --dry-run: %w", err)
 	}
 	lake, err := api.OpenIdle(data)
 	if err != nil {

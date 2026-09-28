@@ -95,7 +95,7 @@ func runServeRegister(env Env, args []string) error {
 	}
 	ctx := context.Background()
 	now := time.Now()
-	cat, err := catalog.Open(path)
+	cat, err := catalog.OpenCurrent(path)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func runServeIdentitySetURL(env Env, args []string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("serve identity set-url: %w", err)
 	}
-	cat, err := catalog.Open(path)
+	cat, err := catalog.OpenCurrent(path)
 	if err != nil {
 		return err
 	}

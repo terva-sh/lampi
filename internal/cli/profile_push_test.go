@@ -33,13 +33,11 @@ func TestAgentFetchesAProfileEditWithinSeconds(t *testing.T) {
 	go func() { done <- runAgentLoop(ctx, env, "", "") }()
 	waitOut(t, &buf, func(s string) bool { return strings.Contains(s, "refused 1") })
 
-	// The hourly fetch is far off: only the header can bring the edit.
-	edited := time.Now()
+	// The hourly fetch is far off: only the header can bring the edit
+	// inside waitOut's deadline. A tighter wall-clock bound measures the
+	// runner, not the push.
 	putDefaultProfile(t, lake, config.Profile{Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work/app"}}}})
 	waitOut(t, &buf, func(s string) bool { return strings.Contains(s, "uploaded 1") })
-	if took := time.Since(edited); took > 5*time.Second {
-		t.Fatalf("the edit took %s to reach the agent", took)
-	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)

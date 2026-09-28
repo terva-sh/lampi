@@ -1,0 +1,27 @@
+# TLS in front of the lake. LAMPI_DOMAIN comes from .env.
+#
+# A public name gets a Let's Encrypt certificate, which needs ports 80
+# and 443 reachable from the internet. A name under .home.arpa or
+# .internal gets one from Caddy's own CA instead, and agents then need
+# that CA's root. docs/container.md covers both, and DNS-01.
+
+{$LAMPI_DOMAIN} {
+	# A blob upload is up to 32 MiB in one request. Caddy streams the
+	# body and sets no limit, and serve refuses a larger blob itself, so
+	# no request_body limit is set here to fall out of step with it.
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# The dashboard sets these itself, with its own values. `?` fills
+		# them in only where the lake did not, as on the /v1 API.
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# Every path goes to the lake, including /v1/register and
+	# /.well-known/terva-lampi/, which serve register checks through
+	# this URL. serve logs X-Forwarded-For as Caddy sets it and trusts
+	# nothing from it.
+	reverse_proxy lampi:8787
+}
