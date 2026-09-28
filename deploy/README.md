@@ -172,8 +172,11 @@ terva-lampi self-update
 
 With no flag, it installs the release the agent's lake names, so an
 agent is never ahead of its lake. `status` prints the lake's release
-and says when the agent is behind it. `--version TAG` installs a named
-release, including an older one, and `--latest` ignores the lake.
+and says when the agent is behind it. A lake that cannot be reached, or
+one older than the release that added `self-update`, stops the update
+rather than letting the agent get ahead of it. `--version TAG` installs
+a named release, including an older one, and `--latest` ignores the
+lake.
 
 The download is checked against the release's `checksums.txt`, and
 the new binary has to report the expected version before it replaces

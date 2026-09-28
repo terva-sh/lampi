@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/release"
@@ -33,6 +34,9 @@ func fakeReleases(t *testing.T, latest string, reports map[string]string, corrup
 		gz := gzip.NewWriter(&buf)
 		tw := tar.NewWriter(gz)
 		script := []byte("#!/bin/sh\necho 'terva-lampi " + says + " (abc)'\n")
+		if says == "hang" {
+			script = []byte("#!/bin/sh\nsleep 30\n")
+		}
 		tw.WriteHeader(&tar.Header{Name: "terva-lampi", Mode: 0o755, Size: int64(len(script)), Typeflag: tar.TypeReg})
 		tw.Write(script)
 		tw.Close()
@@ -65,6 +69,8 @@ type selfUpdateRig struct {
 	out      *bytes.Buffer
 	exe      string
 	commands []string
+	// restartFails makes the service restart fail.
+	restartFails bool
 }
 
 // newSelfUpdateRig runs this binary as release running, installed at a
@@ -104,6 +110,9 @@ func newSelfUpdateRig(t *testing.T, running string, rel *httptest.Server, lakeUR
 		rig.commands = append(rig.commands, cmd)
 		if strings.Contains(cmd, "is-active") && !serviceUp {
 			return nil, errors.New("inactive")
+		}
+		if strings.Contains(cmd, " restart ") && rig.restartFails {
+			return []byte("Failed to restart"), errors.New("exit status 1")
 		}
 		return nil, nil
 	}
@@ -219,4 +228,81 @@ func TestSelfUpdateRefusals(t *testing.T) {
 		t.Fatalf("ahead: %v\n%s", err, rig.out)
 	}
 	untouched(rig)
+}
+
+func TestSelfUpdateStopsWhenTheLakeCannotSayItsRelease(t *testing.T) {
+	rel := fakeReleases(t, "v0.3.0", map[string]string{"v0.3.0": "v0.3.0"}, "")
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	for name, url := range map[string]string{"unreachable": down.URL, "no release": lakeWithRelease(t, "")} {
+		rig := newSelfUpdateRig(t, "v0.1.3", rel, url, true)
+		if err := rig.run(); err == nil || !strings.Contains(err.Error(), "--latest") {
+			t.Fatalf("%s: %v\n%s", name, err, rig.out)
+		}
+		if got, _ := os.ReadFile(rig.exe); string(got) != "old binary" {
+			t.Fatalf("%s: installed the newest release past the lake", name)
+		}
+		// --latest is the way past it.
+		if err := rig.run("--latest", "--no-restart"); err != nil {
+			t.Fatalf("%s --latest: %v\n%s", name, err, rig.out)
+		}
+	}
+	rig := newSelfUpdateRig(t, "v0.1.3", rel, lakeWithRelease(t, "v0.3.0"), true)
+	if err := rig.run("--lake", "nosuch"); err == nil {
+		t.Fatal("an unknown --lake fell back to the newest release")
+	}
+}
+
+func TestSelfUpdateKeepsTheLastRollbackCopyUntilTheSwap(t *testing.T) {
+	rel := fakeReleases(t, "v0.3.0", map[string]string{"v0.3.0": "v0.3.0", "v0.2.0": "v0.9.9"}, "")
+	rig := newSelfUpdateRig(t, "v0.1.3", rel, "", true)
+	if err := os.WriteFile(rig.exe+".prev", []byte("older binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.run("--version", "v0.2.0"); err == nil {
+		t.Fatal("a binary with the wrong version was installed")
+	}
+	if got, _ := os.ReadFile(rig.exe + ".prev"); string(got) != "older binary" {
+		t.Fatalf("a refused update replaced .prev with %q", got)
+	}
+	if err := rig.run("--no-restart"); err != nil {
+		t.Fatalf("%v\n%s", err, rig.out)
+	}
+	if got, _ := os.ReadFile(rig.exe + ".prev"); string(got) != "old binary" {
+		t.Fatalf(".prev after the update holds %q", got)
+	}
+	left, _ := filepath.Glob(filepath.Join(filepath.Dir(rig.exe), ".terva-lampi-new-*"))
+	if len(left) != 0 {
+		t.Fatalf("staging files left behind: %v", left)
+	}
+}
+
+func TestSelfUpdateReportsAFailedRestart(t *testing.T) {
+	rel := fakeReleases(t, "v0.3.0", map[string]string{"v0.3.0": "v0.3.0"}, "")
+	rig := newSelfUpdateRig(t, "v0.1.3", rel, "", true)
+	rig.restartFails = true
+	err := rig.run()
+	if err == nil || !strings.Contains(err.Error(), "still runs the old binary") {
+		t.Fatalf("restart failure: %v", err)
+	}
+	if got, _ := os.ReadFile(rig.exe); !strings.Contains(string(got), "v0.3.0") {
+		t.Fatal("the binary was not updated before the restart")
+	}
+}
+
+func TestSelfUpdateBoundsTheSmokeTest(t *testing.T) {
+	rel := fakeReleases(t, "v0.3.0", map[string]string{"v0.3.0": "hang"}, "")
+	rig := newSelfUpdateRig(t, "v0.1.3", rel, "", true)
+	defer func(d time.Duration) { smokeTimeout = d }(smokeTimeout)
+	smokeTimeout = 200 * time.Millisecond
+	start := time.Now()
+	if err := rig.run(); err == nil || !strings.Contains(err.Error(), "nothing was replaced") {
+		t.Fatalf("hung binary: %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatal("the smoke test was not bounded")
+	}
+	if got, _ := os.ReadFile(rig.exe); string(got) != "old binary" {
+		t.Fatal("a hung binary replaced the old one")
+	}
 }

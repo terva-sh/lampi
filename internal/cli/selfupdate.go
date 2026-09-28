@@ -35,8 +35,9 @@ usage:
 
 With no flag, self-update installs the release the agent's lake runs, so
 the agent is never ahead of its lake. The newest release on GitHub caps
-it, and it is the target when no lake names a release. --lake picks the
-lake to ask; the first configured lake is the default. --version TAG
+it, and is the target on a machine with no lake configured. A lake that
+cannot be reached, or that names no release, stops the update. --lake
+picks the lake to ask; the first configured lake is the default. --version TAG
 installs that release, older or newer. --latest installs the newest
 release whatever the lake runs.
 
@@ -59,6 +60,9 @@ another releases API and download base, as they do for install.sh.
 `
 
 const releaseRepo = "terva-sh/lampi"
+
+// smokeTimeout bounds the staged binary's --version run.
+var smokeTimeout = 30 * time.Second
 
 // selfExecutable is this binary's path. Tests replace it.
 var selfExecutable = func() (string, error) {
@@ -157,12 +161,16 @@ func runSelfUpdate(env Env, args []string) error {
 		}
 		target, why = newest, "the newest release"
 		if !latest {
-			if lakeV, name, ok := askLakeRelease(ctx, env, lakeFlag); ok {
-				if lakeV.Compare(newest) <= 0 {
-					target, why = lakeV, "the release lake "+name+" runs"
-				}
-			} else {
-				fmt.Fprintf(env.stderr(), "terva-lampi: no lake named its release; using %s\n", why)
+			lakeV, name, err := askLakeRelease(ctx, env, lakeFlag)
+			switch {
+			case errors.Is(err, errNoLakeRelease):
+				fmt.Fprintf(env.stderr(), "terva-lampi: no lake is configured; using %s\n", why)
+			case err != nil:
+				// Guessing would break the one promise a bare run makes:
+				// never ahead of the lake.
+				return fmt.Errorf("%w; self-update installs the lake's release, so it stops here. Pass --version TAG or --latest to choose a release yourself", err)
+			case lakeV.Compare(newest) <= 0:
+				target, why = lakeV, "the release lake "+name+" runs"
 			}
 		}
 	}
@@ -207,8 +215,7 @@ func runSelfUpdate(env Env, args []string) error {
 		fmt.Fprintln(env.stdout(), "a running agent keeps the old binary until it restarts")
 		return nil
 	}
-	restartAgentService(env)
-	return nil
+	return restartAgentService(env)
 }
 
 // latestRelease asks the releases API for the newest release. The
@@ -231,27 +238,49 @@ func latestRelease(ctx context.Context, client *http.Client, api string, cur rel
 	return v, nil
 }
 
+// errNoLakeRelease is askLakeRelease on a machine with no lake of its
+// own, the one case where a bare self-update falls back to the newest
+// release.
+var errNoLakeRelease = errors.New("no lake is configured")
+
 // askLakeRelease is the release a configured lake names in its hello
-// answer: the lake called name, or the first one.
-func askLakeRelease(ctx context.Context, env Env, name string) (release.Version, string, bool) {
+// answer: the lake called name, or the first one. A lake that cannot
+// be asked, or that names no release, is an error.
+func askLakeRelease(ctx context.Context, env Env, name string) (release.Version, string, error) {
 	cc, err := loadClientConfig(env, io.Discard, config.LakeFlags{Lake: name})
-	if err != nil || len(cc.lakes) == 0 {
-		return release.Version{}, "", false
+	if err != nil {
+		return release.Version{}, "", err
+	}
+	if len(cc.lakes) == 0 || (name == "" && !lakeConfigured(cc)) {
+		return release.Version{}, "", errNoLakeRelease
 	}
 	l := cc.lakes[0]
 	token, err := lakeToken(l)
 	if err != nil {
-		return release.Version{}, "", false
+		return release.Version{}, l.Name, fmt.Errorf("lake %s: %w", l.Name, err)
 	}
 	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	h, err := upload.Hello(hctx, upload.Options{ServerURL: l.Server.Value, Token: token})
 	if err != nil {
-		fmt.Fprintf(env.stderr(), "terva-lampi: lake %s: %v\n", l.Name, err)
-		return release.Version{}, "", false
+		return release.Version{}, l.Name, fmt.Errorf("lake %s did not say which release it runs: %w", l.Name, err)
 	}
 	v, ok := release.Parse(h.Release)
-	return v, l.Name, ok
+	if !ok {
+		return release.Version{}, l.Name, fmt.Errorf("lake %s names no release: it is older than this agent, or not a release build; upgrade the lake first", l.Name)
+	}
+	return v, l.Name, nil
+}
+
+// lakeConfigured reports whether a lake came from somewhere other than
+// the built-in loopback default: a flag, the environment, or a file.
+func lakeConfigured(cc clientConfig) bool {
+	for _, l := range cc.lakes {
+		if l.Server.Source != config.SourceDefault {
+			return true
+		}
+	}
+	return false
 }
 
 // fetchVerified downloads asset and checksums.txt from base and returns
@@ -375,7 +404,13 @@ func replaceBinary(target string, bin []byte, want release.Version) error {
 	if err := os.Chmod(stage, mode); err != nil {
 		return err
 	}
-	out, err := exec.Command(stage, "--version").Output()
+	sctx, cancel := context.WithTimeout(context.Background(), smokeTimeout)
+	defer cancel()
+	smoke := exec.CommandContext(sctx, stage, "--version")
+	// A child the binary started can hold its output open past the
+	// kill; stop waiting for it shortly after.
+	smoke.WaitDelay = time.Second
+	out, err := smoke.Output()
 	if err != nil {
 		return fmt.Errorf("the downloaded binary does not run here (%v); nothing was replaced", err)
 	}
@@ -386,52 +421,61 @@ func replaceBinary(target string, bin []byte, want release.Version) error {
 	if got != want {
 		return fmt.Errorf("the downloaded binary reports %q, not %s; nothing was replaced", strings.TrimSpace(string(out)), want)
 	}
+	// The old binary goes to a side name first. An existing .prev is
+	// replaced only once the new binary is in place, so a failed swap
+	// leaves both the binary and the last rollback copy as they were.
 	prev := target + ".prev"
-	os.Remove(prev)
+	side := stage + ".prev"
+	defer os.Remove(side)
 	if runtime.GOOS == "windows" {
-		if err := os.Rename(target, prev); err != nil {
+		if err := os.Rename(target, side); err != nil {
 			return fmt.Errorf("cannot move the running binary aside: %w", err)
 		}
-	} else if err := os.Link(target, prev); err != nil {
+	} else if err := os.Link(target, side); err != nil {
 		return fmt.Errorf("cannot keep the old binary as %s: %w; nothing was replaced", prev, err)
 	}
 	if err := os.Rename(stage, target); err != nil {
 		if runtime.GOOS == "windows" {
-			os.Rename(prev, target)
+			os.Rename(side, target)
 		}
 		return fmt.Errorf("cannot replace %s: %w; self-update does not use sudo, so run it as the user who owns it", target, err)
+	}
+	if err := os.Rename(side, prev); err != nil {
+		return fmt.Errorf("updated %s, but could not keep the old binary as %s: %w", target, prev, err)
 	}
 	return nil
 }
 
 // restartAgentService restarts the agent's user service if one is
 // running, so it runs the new binary. HUP is not enough: it reloads
-// the lakes in the old process. A stopped service stays stopped.
-func restartAgentService(env Env) {
+// the lakes in the old process. A stopped service stays stopped. A
+// restart that fails is an error: the binary is new, but the service
+// still runs the old one.
+func restartAgentService(env Env) error {
 	var name string
 	var args []string
 	switch serviceGOOS {
 	case "linux":
 		if _, err := runCommand("systemctl", "--user", "is-active", "--quiet", systemdUnitName); err != nil {
 			fmt.Fprintln(env.stdout(), "no running terva-lampi-agent service; restart any agent you run yourself")
-			return
+			return nil
 		}
 		name, args = "systemctl", []string{"--user", "restart", systemdUnitName}
 	case "darwin":
 		svc := "gui/" + strconv.Itoa(os.Getuid()) + "/" + launchdLabel
 		if _, err := runCommand("launchctl", "print", svc); err != nil {
 			fmt.Fprintln(env.stdout(), "no loaded terva-lampi agent service; restart any agent you run yourself")
-			return
+			return nil
 		}
 		name, args = "launchctl", []string{"kickstart", "-k", svc}
 	default:
 		fmt.Fprintln(env.stdout(), "restart any running terva-lampi agent so it runs the new binary")
-		return
+		return nil
 	}
 	cmd := name + " " + strings.Join(args, " ")
 	if out, err := runCommand(name, args...); err != nil {
-		fmt.Fprintf(env.stderr(), "terva-lampi: %s failed: %v: %s; run it yourself\n", cmd, err, strings.TrimSpace(string(out)))
-		return
+		return fmt.Errorf("the binary is updated, but %s failed: %v: %s; the service still runs the old binary until you restart it", cmd, err, strings.TrimSpace(string(out)))
 	}
 	fmt.Fprintf(env.stdout(), "restarted the agent service (%s)\n", cmd)
+	return nil
 }
