@@ -18,6 +18,7 @@ first run. The pages below are grouped by what you are trying to do.
 | Page | Read it when |
 |------|--------------|
 | [VPS bring-up](vps-bringup.md) | You are setting up a hosted lake: disk, loopback serve, TLS, devices, backup |
+| [Run a lake in a container](container.md) | You run the lake with Docker Compose behind Caddy, on a home server or a VPS |
 | [Serving the dashboard](web-dashboard.md) | You are turning on the OIDC browser dashboard |
 | [Packaging examples](../deploy/README.md) | You want the systemd and launchd units, the harness map, or the hook |
 | [Phase 0 policy](policy.md) | You need the placement, retention, key, and encryption decisions |

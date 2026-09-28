@@ -11,6 +11,9 @@ Phase 0 places the lake on a small VPS.
 [docs/policy.md](../docs/policy.md) is that decision: TLS in front of
 `serve`, device tokens, no TTL, and volume encryption or LUKS. The
 operator checklist is [docs/vps-bringup.md](../docs/vps-bringup.md).
+To run the lake from the container image instead, `compose/` holds a
+Compose file and a Caddyfile, and
+[docs/container.md](../docs/container.md) walks through them.
 Every example still defaults to `http://127.0.0.1:8787` and a device
 token at `~/.config/terva-lampi/token`, so a local lake works without
 a hostname in this tree. On a machine that should upload to the VPS,
