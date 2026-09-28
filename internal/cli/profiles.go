@@ -102,7 +102,7 @@ func runServeProfiles(env Env, args []string) error {
 		}
 		return showProfile(ctx, env, cat, pos[0], revisions)
 	}
-	cat, err := catalog.Open(path)
+	cat, err := catalog.OpenCurrent(path)
 	if err != nil {
 		return err
 	}
