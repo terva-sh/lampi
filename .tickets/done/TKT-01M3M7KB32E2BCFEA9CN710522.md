@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3M7KB32E2BCFEA9CN710522
 title: "Lake-managed agent config: dashboard editing, push, inventory"
 type: epic
-status: draft
-status_reason: null
+status: done
+status_reason: "Every child landed on main through PRs #65-#110; the owner asked to finish the epic and to track overrides in TKT-01M3N22HCY."
 priority: high
 due_on: null
 labels:
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:44:43Z
-updated_at: 2026-09-28T22:13:32Z
+updated_at: 2026-09-28T22:27:43Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -61,7 +61,6 @@ The device actions in TKT-01M3J5HXA (revoke, unbind, set profile) sit next to it
 - [x] Operators edit every profile field from the dashboard
 - [x] A profile change reaches agents within seconds
 - [x] Each device page shows what the agent sees, per its inventory mode
-- [ ] Per-device overrides, when built, carry an operator note saying why
 
 ## Notes
 
@@ -72,3 +71,15 @@ Owner decisions 2026-09-28: (1) STRICT sends aggregate refused counts with no na
 **agent:claude-code/2cf53976** at 2026-09-28T22:13:32Z
 
 Every child is done once #106-#110 merge: the policy, heartbeat, catalog profiles, push, profile editor, inventory report (TKT-01M3M7M0TH) and device page with Allow (TKT-01M3M7M11S). The first three criteria are met. The fourth, the operator note on per-device overrides, waits on the overrides themselves, which the owner deferred and which no ticket tracks yet. Whether to close this epic with that criterion open, or to file the overrides as a new ticket and move the criterion there, is the owner's call.
+
+**agent:claude-code/2cf53976** at 2026-09-28T22:27:33Z
+
+The fourth criterion, the operator note on per-device overrides, moved to TKT-01M3N22HCY (Per-device overrides on top of agent profiles), filed at the owner's request with children for the catalog layer, the dashboard editor and Allow's device target. Every remaining criterion here is met.
+
+**agent:claude-code/2cf53976** at 2026-09-28T22:27:43Z
+
+draft to done: Every child landed on main through PRs #65-#110; the owner asked to finish the epic and to track overrides in TKT-01M3N22HCY.
+
+## Summary
+
+Done. Operators view, add, edit, roll back and remove profiles from the dashboard. Agents fetch a changed profile within seconds of the lake naming its version. Each device has a page with its status, profile state, config sources and inventory, gated by its SOCIABLE or STRICT mode, plus an Allow action for refused projects. Per-device overrides continue in TKT-01M3N22HCY (Per-device overrides on top of agent profiles).
