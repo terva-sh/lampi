@@ -237,7 +237,21 @@ func TestProfileEditorEdges(t *testing.T) {
 	}
 	page := get(h, "/profiles/big/edit", cookie).Body.String()
 	if !strings.Contains(page, `name="allow_rows" value="500"`) {
-		t.Fatal("editor offers more rows than a post may carry")
+		t.Fatal("editor offers blank rows past the rule limit")
+	}
+	// A save past the limit is refused with the limit named, from the API
+	// and from a form posting a profile stored some other way.
+	over := `{"document":{"projects":{"allow":[` + strings.Join(rules, ",") + `,{"cwd_prefix":"/x"}]}},"base_revision":0}`
+	if w := put(h, "/api/web/v1/profiles/huge", over, cookie, map[string]string{CSRFHeader: csrf}); w.Code != 400 || !strings.Contains(w.Body.String(), "at most 500") {
+		t.Fatalf("api over the limit: %d %s", w.Code, w.Body)
+	}
+	f := editForm(csrf, "0", nil)
+	f.Set("allow_rows", "501")
+	for i := 0; i < 501; i++ {
+		f.Set("allow."+strconv.Itoa(i)+".cwd_prefix", "/w/"+strconv.Itoa(i))
+	}
+	if w := postForm(h, "/profiles/huge/preview", f, cookie); w.Code != 400 || !strings.Contains(w.Body.String(), "at most 500") {
+		t.Fatalf("form over the limit: %d", w.Code)
 	}
 
 	p, _, err := lake.Catalog.PutProfile(ctx, "gone", []byte(`{}`), "op", "", time.Now())

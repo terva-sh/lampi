@@ -25,8 +25,12 @@ const (
 	// maxProfileForm bounds a profile form or API body. A profile with
 	// a few hundred rules fits.
 	maxProfileForm = 256 << 10
-	// maxRuleRows bounds the rule rows one form may post per list.
+	// maxRuleRows bounds the rules a dashboard save stores per list.
 	maxRuleRows = 500
+	// maxFormRows bounds the rows one form may post per list: more than
+	// a save stores, so a profile stored some other way still opens and
+	// is refused with the limit named.
+	maxFormRows = 5000
 	// blankRuleRows is how many empty rows the form offers per list.
 	blankRuleRows = 3
 	// maxProfileNote bounds the note a save or delete records.
@@ -128,6 +132,9 @@ func checkProfile(raw []byte) (config.Profile, []byte, error) {
 		return config.Profile{}, nil, err
 	}
 	p = normalizeProfile(p)
+	if len(p.Projects.Allow) > maxRuleRows || len(p.Projects.Deny) > maxRuleRows {
+		return config.Profile{}, nil, fmt.Errorf("projects: at most %d allow and %d deny rules", maxRuleRows, maxRuleRows)
+	}
 	doc, err := json.Marshal(p)
 	if err != nil {
 		return config.Profile{}, nil, err
@@ -167,7 +174,7 @@ func formOf(p config.Profile, base int64) profileForm {
 // readRules reads the rows list.N.field for N below list_rows.
 func readRules(v url.Values, list string) ([]config.ProjectMatch, error) {
 	n, err := strconv.Atoi(v.Get(list + "_rows"))
-	if err != nil || n < 0 || n > maxRuleRows {
+	if err != nil || n < 0 || n > maxFormRows {
 		return nil, fmt.Errorf("%s: the form's row count is not valid", list)
 	}
 	rows := make([]config.ProjectMatch, n)
