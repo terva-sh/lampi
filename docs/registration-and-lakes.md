@@ -183,7 +183,11 @@ it was fetched under. Edit `config.json` by hand while no agent or
 
 A lake pinned in `config.json` (`lake_id`, `key_id`, `public_key`,
 which registration writes) can publish a base configuration, its
-profile. The agent fetches it at start and every hour. It checks the
+profile. The agent fetches it at start, whenever the lake names a
+different version, and every hour. The lake names its current version
+in a header on every answer. An agent that is syncing sees an edit
+within seconds, and an idle one at its next report, within a minute.
+It checks the
 copy against the pinned key and lake id, and against the entry's
 `device_id` when it has one. It keeps the last copy that passed in
 `lakes/<name>/profile.json`. A fetch that fails, or a copy signed by

@@ -38,6 +38,22 @@ func (s *Server) agentConfig(w http.ResponseWriter, r *http.Request) {
 
 // signedProfile is device d's profile, resolved from the catalog and
 // signed for the agent.
+// setProfileVersion names the version of device d's resolved profile on
+// the answer, so the agent learns of an edit at its next request. A
+// lake with no identity serves no profile and sends no header. The
+// resolve is one indexed read, beside the device read every request
+// already makes.
+func (s *Server) setProfileVersion(w http.ResponseWriter, r *http.Request, d catalog.Device) {
+	if s.Identity() == nil {
+		return
+	}
+	// A profile that does not resolve sends no header. The agent keeps
+	// its copy, and GET /v1/agent/config says why.
+	if p, err := s.Catalog.ResolveProfile(r.Context(), d); err == nil {
+		w.Header().Set(protocol.ProfileVersionHeader, p.Version)
+	}
+}
+
 func (s *Server) signedProfile(ctx context.Context, d catalog.Device) (*protocol.Signed, error) {
 	p, err := s.Catalog.ResolveProfile(ctx, d)
 	if err != nil {

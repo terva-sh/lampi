@@ -412,6 +412,11 @@ type lakeRunner struct {
 	// reported asks the report loop to send it now.
 	synced   syncOutcome
 	reported chan struct{}
+
+	// lakeVersion is the profile version the lake last named on an
+	// answer, and nudge asks watchProfile to compare it with the cache.
+	lakeVersion atomic.Pointer[string]
+	nudge       chan struct{}
 }
 
 func newLakeRunner(env Env, l agentLake) *lakeRunner {
@@ -419,7 +424,9 @@ func newLakeRunner(env Env, l agentLake) *lakeRunner {
 	// start, hashes every file. Each lake has its own, because a file
 	// pushed to one lake is not pushed to another.
 	l.opt.Memo = upload.NewMemo()
-	r := &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1), reported: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{})}
+	r := &lakeRunner{env: env, kick: make(chan struct{}, 1), reported: make(chan struct{}, 1), nudge: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{})}
+	l.opt.ProfileVersion = r.noteLakeVersion
+	r.lake = l
 	r.setLabel(l.label)
 	return r
 }

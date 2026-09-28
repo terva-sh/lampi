@@ -324,6 +324,9 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.Devices == nil || s.Devices.Empty() {
+			// No device to ask about: the default profile is what an
+			// agent here fetches.
+			s.setProfileVersion(w, r, catalog.Device{})
 			next(w, r)
 			return
 		}
@@ -361,6 +364,7 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 			info.device, info.deviceID = d.Name, d.ID
 		}
 		s.noteContact(d.ID, s.now())
+		s.setProfileVersion(w, r, d)
 		r = r.WithContext(context.WithValue(r.Context(), deviceKey{}, d))
 		next(w, r)
 	}

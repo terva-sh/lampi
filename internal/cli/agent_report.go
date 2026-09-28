@@ -14,8 +14,10 @@ import (
 )
 
 // reportEvery is how often a running agent reports to each lake when
-// no sync has finished since the last report.
-var reportEvery = 5 * time.Minute
+// no sync has finished since the last report. An idle agent learns of
+// a profile edit from the answer to its report, so this bounds how long
+// the edit takes to reach it.
+var reportEvery = time.Minute
 
 // reportTimeout bounds one report, so a lake that hangs does not hold
 // the next one back.
@@ -58,12 +60,19 @@ func (r *lakeRunner) noteSync(res upload.Result, err error, now time.Time) {
 	}
 }
 
+// agentVersion is the running release for the report. The raw version
+// variable is 0.0.0 in a goreleaser build, which links nothing in.
+func agentVersion() string {
+	v, _ := releaseVersion()
+	return v
+}
+
 // report is the heartbeat for this lake now. The profile is read from
 // the verified cache, which is the copy the rules in force came from.
 func (r *lakeRunner) report() protocol.AgentReport {
 	l := r.lake
 	rep := protocol.AgentReport{
-		AgentVersion: version,
+		AgentVersion: agentVersion(),
 		MachineID:    l.opt.MachineID,
 		AllowSource:  l.cfg.AllowFrom,
 		DenySource:   l.cfg.DenyFrom(),

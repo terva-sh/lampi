@@ -286,8 +286,25 @@ func machineFields(env Env) string {
 }
 
 // profileEvery is how often a running agent fetches each pinned lake's
-// profile, after the fetch at start.
+// profile, after the fetch at start. It is the backstop: a lake names
+// its current version on every answer, and a new one is fetched then.
 var profileEvery = time.Hour
+
+// profileNudgeGap is the least time between two fetches the lake's
+// version header asks for. A copy that keeps failing to verify would
+// otherwise be fetched on every request.
+var profileNudgeGap = 10 * time.Second
+
+// noteLakeVersion records the profile version a lake answer named and
+// asks watchProfile to look at it. It runs on request goroutines, and
+// watchProfile decides whether the version calls for a fetch.
+func (r *lakeRunner) noteLakeVersion(v string) {
+	r.lakeVersion.Store(&v)
+	select {
+	case r.nudge <- struct{}{}:
+	default:
+	}
+}
 
 // watchProfile fetches the lake's profile now and every interval until
 // ctx ends. A copy that verifies against the pin and has a new version
@@ -411,12 +428,34 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 	step()
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	var lastNudged time.Time
+	// deferred fires once the gap after a nudged fetch has passed, for a
+	// nudge that came inside it. Nil while none is waiting.
+	var deferred <-chan time.Time
+	nudged := func() {
+		if p := r.lakeVersion.Load(); p == nil || *p == have {
+			return
+		}
+		if wait := profileNudgeGap - time.Since(lastNudged); wait > 0 {
+			if deferred == nil {
+				deferred = time.After(wait)
+			}
+			return
+		}
+		lastNudged = time.Now()
+		step()
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			step()
+		case <-r.nudge:
+			nudged()
+		case <-deferred:
+			deferred = nil
+			nudged()
 		}
 	}
 }

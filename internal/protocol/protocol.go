@@ -197,6 +197,14 @@ type AgentConfigPayload struct {
 	Layers   []string        `json:"layers,omitempty"`
 }
 
+// ProfileVersionHeader carries the version of the calling device's
+// resolved profile on each authenticated answer from a lake with an
+// identity. An agent whose cached profile has another version fetches
+// AgentConfigPath at once, rather than at its next scheduled fetch.
+// The header only prompts the fetch: the signed document is still the
+// only thing the agent trusts.
+const ProfileVersionHeader = "Lampi-Profile-Version"
+
 // AgentReportPath takes the calling device's heartbeat: what the agent
 // runs, which profile it applied, and what its last sync did. It needs
 // the device token. The lake keeps the newest report per device.

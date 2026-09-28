@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T15:39:08Z
-updated_at: 2026-09-28T16:19:42Z
+updated_at: 2026-09-28T17:21:40Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
 updated_by:
-  id: agent:claude-code/03b82158
+  id: agent:claude-code/2cf53976
   name: ""
 extensions: {}
 ---
@@ -61,3 +61,9 @@ TKT-01M3M7M0RQ, Agent heartbeat: durable last contact, sync counters, applied pr
 - [ ] Tests cover semver comparison, unstamped builds and advisory range matching
 - [ ] Devices views read the version from the newest heartbeat report; no report shows as unknown
 - [ ] Agent sends its version in the User-Agent
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:21:40Z
+
+Correction from TKT-01M3M7M0Y7: goreleaser does not stamp internal/cli.version (.goreleaser.yaml links nothing in with -X). Releases get their version from build info. The heartbeat therefore reported 0.0.0 from every release agent until releaseVersion() in internal/cli/cli.go was added. Use releaseVersion() for the User-Agent as well.
