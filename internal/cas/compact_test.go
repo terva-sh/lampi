@@ -2,7 +2,10 @@ package cas
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -36,5 +39,91 @@ func TestFoldFreesTheObjectAndRefusesALoop(t *testing.T) {
 	}
 	if ok, _ := s.Has(dl); !ok {
 		t.Fatal("a refused fold removed the object")
+	}
+}
+
+// bindChunks stores file as chunks of n bytes and binds its digest to
+// them, as the lake does for a file past the object cap.
+func bindChunks(t *testing.T, s *Store, file []byte, n int) string {
+	t.Helper()
+	var parts []string
+	var lengths []int64
+	for start := 0; start < len(file); start += n {
+		end := min(start+n, len(file))
+		parts = append(parts, mustPut(t, s, file[start:end]))
+		lengths = append(lengths, int64(end-start))
+	}
+	sum := sha256.Sum256(file)
+	d := hex.EncodeToString(sum[:])
+	if _, err := s.BindLogical(d, parts, lengths); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// A chunked file that grows keeps each version readable and stores its
+// last chunk once: the previous version's last chunk becomes a record
+// of the chunk that extends it (TKT-01M3KC2DA).
+func TestFoldGrowthRecordsTheLastChunkOfAChunkedFile(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const chunk = 64
+	// The file starts past one chunk, as a file does once it is past
+	// the object cap; below it the lake grows the file from tails.
+	file := bytes.Repeat([]byte("#"), chunk+10)
+	var versions [][]byte
+	var digests []string
+	for i := 0; i < 12; i++ {
+		file = append(file, []byte(fmt.Sprintf("line %02d of the file\n", i))...)
+		d := bindChunks(t, s, file, chunk)
+		if len(digests) > 0 {
+			if _, err := s.FoldGrowth(digests[len(digests)-1], d); err != nil {
+				t.Fatal(err)
+			}
+		}
+		versions = append(versions, append([]byte(nil), file...))
+		digests = append(digests, d)
+	}
+	for i, d := range digests {
+		got, err := s.Read(d)
+		if err != nil || !bytes.Equal(got, versions[i]) {
+			t.Fatalf("version %d reads %q, %v", i, got, err)
+		}
+	}
+	// Only the newest version's chunks remain objects.
+	var held int64
+	err = s.Entries(func(e Entry) error {
+		if !e.Logical {
+			held += e.Size
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held != int64(len(file)) {
+		t.Fatalf("objects hold %d bytes for a %d-byte file", held, len(file))
+	}
+	var bad []Problem
+	if _, err := s.Verify(func(p Problem) { bad = append(bad, p) }); err != nil || len(bad) != 0 {
+		t.Fatalf("verify: %v %v", bad, err)
+	}
+}
+
+// A version that is not an append of the one before folds nothing.
+func TestFoldGrowthLeavesARewriteAlone(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := bindChunks(t, s, bytes.Repeat([]byte("a"), 100), 64)
+	next := bindChunks(t, s, bytes.Repeat([]byte("b"), 120), 64)
+	if freed, err := s.FoldGrowth(old, next); err != nil || freed != 0 {
+		t.Fatalf("fold growth = %d %v", freed, err)
+	}
+	if got, err := s.Read(old); err != nil || !bytes.Equal(got, bytes.Repeat([]byte("a"), 100)) {
+		t.Fatalf("old version reads %q %v", got, err)
 	}
 }

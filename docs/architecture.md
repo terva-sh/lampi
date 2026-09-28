@@ -312,7 +312,10 @@ Near-duplicate detection is out of scope. A file over `max_blob_bytes`
 is stored as CAS chunks of at most that size. The manifest lists the
 digests and the lengths. The single-object cap still applies to a PUT,
 a byte range, and one chunk. The logical file is not installed as one
-object.
+object. Such a file is sent whole at every sync, and the chunks two
+versions share are stored once. The previous version's last chunk,
+which the new version's chunk at the same place extends, becomes a
+prefix record of it, so a growing file keeps its bytes about once.
 
 ## Flow
 

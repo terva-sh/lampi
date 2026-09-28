@@ -171,16 +171,10 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 
 	var total int64
 	for _, p := range parts {
-		f, err := s.OpenBlob(p)
+		size, err := s.Size(p)
 		if err != nil {
 			return false, err
 		}
-		st, statErr := f.Stat()
-		f.Close()
-		if statErr != nil {
-			return false, fmt.Errorf("cas: %w", statErr)
-		}
-		size := st.Size()
 		if limit > 0 && (size < 0 || size > limit-total) {
 			return false, fmt.Errorf("cas: blob exceeds %d bytes: %w", limit, ErrRejected)
 		}
@@ -209,7 +203,7 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 	h := sha256.New()
 	w := io.MultiWriter(tmp, h)
 	for _, p := range parts {
-		f, err := s.OpenBlob(p)
+		f, err := s.Open(p)
 		if err != nil {
 			return false, err
 		}

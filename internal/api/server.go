@@ -569,7 +569,7 @@ func (s *Server) putChunks(w http.ResponseWriter, r *http.Request, digest string
 			continue
 		}
 		seen[p] = true
-		have, err := s.CAS.Has(p)
+		have, err := s.CAS.Present(p)
 		if err != nil {
 			s.fail(w, r, http.StatusInternalServerError, err)
 			return
