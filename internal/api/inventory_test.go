@@ -70,6 +70,13 @@ func TestAgentInventoryIsStoredForTheCallingDevice(t *testing.T) {
 	if got, _, _ = s.Catalog.DeviceInventoryOf(ctx, laptop.ID); got.Inventory.Mode != "strict" {
 		t.Fatal("an older inventory replaced a newer one")
 	}
+	// Nor does one generated at the same instant: the time cannot say
+	// which is newer.
+	tied := inv
+	tied.Mode, tied.GeneratedAt = protocol.InventorySociable, inv.GeneratedAt
+	if kept, err := s.Catalog.PutDeviceInventory(ctx, laptop.ID, tied, at); err != nil || kept {
+		t.Fatalf("a tie was kept: %v %v", kept, err)
+	}
 
 	// A clock running ahead counts as the lake's now, so it does not
 	// hold off the snapshots after it.
