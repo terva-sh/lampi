@@ -435,3 +435,31 @@ sent, compared with the lake. It takes no parameters; any parameter is
   sends a report. `last_contact` is the newest request, or the newest report
   from before serve started.
 - Devices are ordered active first, then by the newest contact or data.
+
+### Device actions
+
+Operators change a device by its `dev_` id, as `serve devices` does. The
+rules of [registration codes](#registration-codes) hold: the `operator` role,
+`404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
+`403 csrf_failed` without it.
+
+| Route under `/api/web/v1` | Result |
+|---|---|
+| `POST /devices/{id}/revoke` | Revokes the device. Its token stops on its next request. Final. |
+| `POST /devices/{id}/unbind` | Clears the machine it is bound to; its next upload binds it again. |
+| `POST /devices/{id}/profile` | Takes `{"profile": NAME}` and sets the profile its agent fetches. `default` goes back to the default. |
+
+`revoke` and `unbind` take no body. Each answers `200` with
+`{device: {id, name, state, profile, machine_id}}`.
+
+| Refusal | Status and `error` |
+|---|---|
+| No device has the id, or the action is not one of these | `404 not_found` |
+| A profile the lake does not hold | `400 unknown_profile` |
+| A body that is not one JSON object of these fields, or no profile | `400 invalid_request` |
+| The device is revoked | `409 revoked`, with the device |
+| Unbinding a device bound to no machine | `409 not_bound`, with the device |
+
+Each change goes to `audit.jsonl` with the operator as actor. A change whose
+audit line fails still stands, and answers `500 audit_failed` with the device;
+the line stays queued and is written at the next flush.

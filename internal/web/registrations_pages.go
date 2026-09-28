@@ -184,7 +184,7 @@ func (s *Server) revokePage(w http.ResponseWriter, r *http.Request) {
 	}
 	problem := map[string]string{
 		"not_found":     "There is no such code.",
-		"already_used":  "That code was already used. Revoke the device it made with serve devices revoke.",
+		"already_used":  "That code was already used. Revoke the device it made from Devices.",
 		"audit_failed":  "The code is cancelled, but writing it to the audit log failed. Operator logs hold the details.",
 		"revoke_failed": "Cancelling failed. Operator logs hold the details.",
 	}[code]
