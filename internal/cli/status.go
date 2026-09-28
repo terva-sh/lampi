@@ -345,7 +345,7 @@ func probeCatalog(server, token string) string {
 func lakeNormalization(n protocol.NormalizationStats) string {
 	out := fmt.Sprintf("lake_normalization: ready=%d pending=%d failed=%d unknown=%d\n",
 		n.Sessions["ready"], n.Sessions["pending"], n.Sessions["failed"], n.Sessions["unknown"])
-	out += fmt.Sprintf("lake_normalize_jobs: %d waiting, oldest %s, %d queued, %d running, %d retrying\n",
+	out += fmt.Sprintf("lake_normalize_jobs: %d outstanding, oldest queued %s ago, %d queued, %d running, %d retrying\n",
 		n.Jobs, ageString(n.OldestPendingSeconds), n.Queued, n.Running, n.Retrying)
 	if f := n.LastFailure; f != nil {
 		out += fmt.Sprintf("lake_normalize_last_failure: %s %s\n", f.At, f.SessionUID)

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,72 @@ func TestAgeStringKeepsFractions(t *testing.T) {
 		if got := ageString(secs); got != want {
 			t.Errorf("ageString(%v) = %q, want %q", secs, got, want)
 		}
+	}
+}
+
+// TKT-01M3KA702: --status reads the catalog with no serve running and
+// names failed sessions with their messages; --json prints the
+// /v1/stats normalization object.
+func TestServeNormalizeStatus(t *testing.T) {
+	data := t.TempDir()
+	cat, err := catalog.Open(filepath.Join(data, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ingest := func(id string) string {
+		ack, err := cat.Ingest(t.Context(), protocol.Manifest{
+			CaptureProtocol: protocol.Version, MachineID: "m", Harness: protocol.HarnessTerva, NativeSessionID: id,
+			Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/x/" + id + ".jsonl", Size: 1, SHA256: strings.Repeat("a", 64)}},
+		}, time.Now(), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ack.SessionUID
+	}
+	bad, waiting := ingest("bad"), ingest("waiting")
+	ingest("unknown")
+	if err := cat.SetNormalizeError(t.Context(), bad, "normalize: line 3 is not JSON"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cat.EnqueueNormalize(t.Context(), waiting, time.Now().Add(-2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	cat.Close()
+
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		env := Env{Stdout: &out, Stderr: io.Discard, Getenv: func(string) string { return "" }}
+		err := Run(append([]string{"serve", "normalize", "--data", data}, args...), env)
+		return out.String(), err
+	}
+	out, err := run("--status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"sessions: ready=0 pending=1 failed=1 unknown=1\n",
+		"jobs: 1 outstanding, queued or running, oldest queued 2m",
+		"failed " + bad + ": normalize: line 3 is not JSON\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--status lacks %q:\n%s", want, out)
+		}
+	}
+	out, err = run("--status", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st protocol.NormalizationStats
+	if err := json.Unmarshal([]byte(out), &st); err != nil {
+		t.Fatalf("--json: %v\n%s", err, out)
+	}
+	if st.Jobs != 1 || st.Sessions["failed"] != 1 || st.OldestPendingSeconds < 110 || st.Queued != 0 {
+		t.Fatalf("--json %+v", st)
+	}
+	if _, err := run("--status", "--all"); err == nil {
+		t.Error("--status with a selector succeeded")
+	}
+	if _, err := run("--json", "--all"); err == nil {
+		t.Error("--json without --status succeeded")
 	}
 }
