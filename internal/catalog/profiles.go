@@ -233,6 +233,10 @@ func (c *Catalog) deleteProfile(ctx context.Context, name, actor, note string, b
 	defer tx.Rollback()
 	var rev int64
 	err = tx.QueryRowContext(ctx, `SELECT revision FROM profiles WHERE name=?`, name).Scan(&rev)
+	if errors.Is(err, sql.ErrNoRows) && base >= 0 {
+		// The editor read a revision; a delete landed since.
+		return ProfileRevision{}, fmt.Errorf("%w: %s was deleted", ErrProfileChanged, name)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProfileRevision{}, fmt.Errorf("%w: %s", ErrNoProfile, name)
 	}
