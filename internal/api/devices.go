@@ -64,7 +64,8 @@ func (s *Server) RecordDevices(ctx context.Context, set *auth.Devices) error {
 // audit writes e, an event that records no catalog change, to the
 // lake's audit log. It goes through the catalog's outbox behind the
 // events queued before it, so the log keeps the order they happened in
-// and a line that cannot be written now is written later. A lake opened
+// and a line that cannot be written now is written later. When the
+// catalog cannot queue it, it is appended directly. A lake opened
 // without a data directory, as some tests do, keeps none. A failure is
 // logged and does not fail the request.
 func (s *Server) audit(e audit.Event) {
@@ -78,7 +79,14 @@ func (s *Server) audit(e audit.Event) {
 		e.Time = s.now()
 	}
 	if err := s.Catalog.QueueAudit(context.Background(), e.Time, e); err != nil {
-		s.logger().Error("audit: queueing", "kind", e.Kind, "err", err)
+		// A catalog that takes no write must not cost the line: append
+		// it directly, after what is queued, which may write it out of
+		// order but does not lose it.
+		s.logger().Error("audit: queueing failed; appending directly", "kind", e.Kind, "err", err)
+		s.flushAudit()
+		if err := audit.Append(s.dataDir, e); err != nil {
+			s.logger().Error("audit", "kind", e.Kind, "err", err)
+		}
 		return
 	}
 	s.flushAudit()

@@ -427,3 +427,18 @@ func TestRefusalsKeepTheirOrderAcrossAnUnwritableLog(t *testing.T) {
 		t.Fatalf("refusals missing or out of order:\n%s", raw)
 	}
 }
+
+// A refusal the catalog cannot queue is still written.
+func TestRefusalIsWrittenWhenTheCatalogCannotQueueIt(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	// A closed catalog takes no write.
+	s.Catalog.Close()
+	postRegister(t, s, protocol.RegisterRequest{Secret: strings.Repeat("x", 43), TokenSHA256: "short", MachineID: "m"})
+	raw, _ := os.ReadFile(audit.Path(dir))
+	if !strings.Contains(string(raw), "malformed token_sha256") {
+		t.Fatalf("refusal lost:\n%s", raw)
+	}
+}
