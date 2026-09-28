@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,7 +77,9 @@ func (c *Catalog) FlushAudit(ctx context.Context, dir string) error {
 		return fmt.Errorf("catalog: audit lock: %w", err)
 	}
 	defer lock.Close()
-	if err := filelock.Lock(lock); err != nil && !errors.Is(err, filelock.ErrUnsupported) {
+	// Without a lock another process's flush could duplicate or reorder
+	// lines, so where the platform has none the events stay queued.
+	if err := filelock.Lock(lock); err != nil {
 		return fmt.Errorf("catalog: audit lock: %w", err)
 	}
 	for {
