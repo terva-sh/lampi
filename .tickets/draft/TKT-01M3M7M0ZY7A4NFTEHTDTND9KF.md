@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T14:45:06Z
+updated_at: 2026-09-28T15:31:59Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -52,3 +52,9 @@ Operators view, add, edit and remove profiles from the dashboard, covering every
 - [ ] Operators edit every profile field, including all ProjectMatch fields
 - [ ] Saves show a diff and the devices reached, and are audited with the OIDC actor
 - [ ] A revision can be rolled back
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:31:59Z
+
+From TKT-01M3M7M0WC: the profiles page must show a banner while a profiles.json sits in the lake directory, or --profiles is set, saying the file is not in force and pointing to 'serve profiles import'. serve already prints the same warning at start and on SIGHUP (warnProfilesFile in internal/cli/profiles.go).

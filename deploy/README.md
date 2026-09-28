@@ -39,7 +39,10 @@ restart the agent after registering to add the lake.
 
 `profiles.json.example` shows the base configuration a lake gives the
 agents it registers. The lake keeps its profiles in the catalog and
-does not read a `profiles.json`. The example holds no hostname and no
+does not read a `profiles.json`. Load one with
+`terva-lampi serve profiles import FILE`. `serve` warns while a
+`profiles.json` sits in the lake directory, because the file is not in
+force. The example holds no hostname and no
 secret. Its `projects` rules are placeholders: replace the `allow`
 and `deny` entries with your own projects. An agent whose
 `config.json` has no allow rules of its own uploads only what the

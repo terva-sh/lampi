@@ -49,6 +49,8 @@ usage:
                                  or set the URL agents reach the lake at
   terva-lampi serve devices [list|revoke NAME|unbind NAME|set-profile NAME P] [--data DIR]
                                  list devices, or change one
+  terva-lampi serve profiles [list|show NAME|set NAME FILE|delete NAME|import FILE]
+                                 manage the profiles agents fetch
   terva-lampi serve register --name NAME [--expires 24h] [--profile P]
                                  mint a one-time registration code
                                  (--list and --revoke manage them)
@@ -108,7 +110,9 @@ Device changes go to audit.jsonl in the lake directory.
 Profiles are the base configuration agents fetch from GET
 /v1/agent/config, signed with the lake key. They live in the catalog;
 a catalog with no default profile serves one empty default profile.
---profiles, and profiles.json in the lake directory, are not read. A
+--profiles, and profiles.json in the lake directory, are not read:
+serve warns at start and on SIGHUP that such a file is not in force,
+and serve profiles import loads it. A
 profile may set harnesses (enabled only), agent.debounce,
 agent.debounce_max, projects.allow and projects.deny. Any other field,
 a harness root, or redaction.upload_hits is refused. A device gets the
@@ -161,6 +165,8 @@ func runServe(env Env, args []string) error {
 			return runServeIdentity(env, args[1:])
 		case "devices":
 			return runServeDevices(env, args[1:])
+		case "profiles":
+			return runServeProfiles(env, args[1:])
 		case "register":
 			return runServeRegister(env, args[1:])
 		case "normalize":
@@ -175,7 +181,7 @@ func runServe(env Env, args []string) error {
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file")
-		fs.StringVar(&profilesFile, "profiles", "", "not read: profiles live in the catalog")
+		fs.StringVar(&profilesFile, "profiles", "", "not read: profiles live in the catalog; serve warns that the file is not in force")
 		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
 		fs.StringVar(&metricsAddr, "metrics-addr", "", "serve Prometheus metrics on this address (off when empty)")
 		fs.BoolVar(&metricsPublic, "metrics-public", false, "allow --metrics-addr to bind a non-loopback address")
@@ -193,6 +199,7 @@ func runServe(env Env, args []string) error {
 			return err
 		}
 	}
+	warnProfilesFile(env, data, profilesFile)
 	var devices *auth.Devices
 	if tokenFile != "" {
 		devices, err = auth.LoadDevices(tokenFile)
@@ -293,6 +300,7 @@ func runServe(env Env, args []string) error {
 		}
 		reloadIdentity(env, data, lake)
 		reloadNormalizeJobs(env, lake)
+		warnProfilesFile(env, data, profilesFile)
 	})
 	return serveLake(ctx, env, lake, ln, shutdownGrace, normalizeDrain)
 }
