@@ -27,9 +27,6 @@ type Lake struct {
 	Identity *identity.Identity
 	// Dir is the lake directory, where audit.jsonl lives.
 	Dir string
-	// Profiles are the profiles a code may name. The default profile is
-	// always allowed.
-	Profiles config.Profiles
 }
 
 // Actor names who acted. Catalog goes into created_by or revoked_by,
@@ -81,10 +78,13 @@ func Mint(ctx context.Context, l Lake, name, profile string, lifetime time.Durat
 	if profile == config.DefaultProfile {
 		profile = ""
 	}
-	if profile != "" {
-		if _, ok := l.Profiles[profile]; !ok {
-			return Minted{}, fmt.Errorf("%w: %s", ErrNoProfile, profile)
-		}
+	// The default profile is always there, stored or not.
+	known, err := l.Catalog.HasProfile(ctx, profile)
+	if err != nil {
+		return Minted{}, err
+	}
+	if !known {
+		return Minted{}, fmt.Errorf("%w: %s", ErrNoProfile, profile)
 	}
 	if l.Identity == nil {
 		return Minted{}, ErrNoIdentity

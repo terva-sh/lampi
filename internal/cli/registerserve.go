@@ -23,7 +23,7 @@ import (
 const serveRegisterUsage = `terva-lampi serve register — mint, list, or revoke registration codes
 
 usage:
-  terva-lampi serve register --name NAME [--expires 24h] [--profile P] [--data DIR] [--profiles PATH]
+  terva-lampi serve register --name NAME [--expires 24h] [--profile P] [--data DIR]
   terva-lampi serve register --list [--data DIR]
   terva-lampi serve register --revoke NAME|ID [--data DIR]
 
@@ -58,12 +58,11 @@ func runServeRegister(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), serveRegisterUsage)
 		return nil
 	}
-	var data, profilesFile, name, profile, revoke string
+	var data, name, profile, revoke string
 	var list bool
 	expires := 24 * time.Hour
 	rest, err := parseFlags(env, args, serveRegisterUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
-		fs.StringVar(&profilesFile, "profiles", "", "agent profiles file (default: profiles.json in the lake directory)")
 		fs.StringVar(&name, "name", "", "device name")
 		fs.StringVar(&profile, "profile", "", "profile the device's agent fetches (default: default)")
 		fs.DurationVar(&expires, "expires", expires, "how long the code stays valid")
@@ -161,18 +160,12 @@ func runServeRegister(env Env, args []string) error {
 	if expires <= 0 || expires > registrar.MaxLifetime {
 		return fmt.Errorf("--expires %s: a code lives more than 0 and at most %s", expires, registrar.MaxLifetime)
 	}
-	if profile != "" && profile != config.DefaultProfile {
-		if profilesFile == "" {
-			profilesFile = filepath.Join(data, config.ProfilesFileName)
-		}
-		profiles, err := config.LoadProfiles(profilesFile)
-		if err != nil {
-			return err
-		}
-		if _, ok := profiles[profile]; !ok {
-			return fmt.Errorf("no profile named %s in %s", profile, profilesFile)
-		}
-		lake.Profiles = profiles
+	known, err := cat.HasProfile(ctx, profile)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return fmt.Errorf("no profile named %s in the lake's catalog", profile)
 	}
 	lake.Identity, err = identity.Load(data)
 	if errors.Is(err, os.ErrNotExist) {

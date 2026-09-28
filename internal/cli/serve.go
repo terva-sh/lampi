@@ -34,7 +34,7 @@ const serveUsage = `terva-lampi serve — run the lake
 
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
-                    [--profiles PATH] [--web-config PATH]
+                    [--web-config PATH]
                     [--metrics-addr ADDR [--metrics-public]]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
@@ -92,8 +92,8 @@ terva-lampi login writes. A line starting with # is a comment. Any
 other line is an error. Each plaintext token is hashed and the file is
 rewritten to sha256 lines, comments kept. Copy the device's token
 file first; do not point this flag at the device's only copy. The
-token is not an argument. SIGHUP reads the token file, the profiles
-file and identity.json again, and starts normalize jobs that serve
+token is not an argument. SIGHUP reads the token file and
+identity.json again, and starts normalize jobs that serve
 normalize queued. Requests
 in flight keep going. A file that does not load leaves the old tokens
 in place.
@@ -105,15 +105,15 @@ under; a manifest from another machine is 403, and so is a machine_id
 another device holds. serve devices lists, revokes and unbinds them.
 Device changes go to audit.jsonl in the lake directory.
 
---profiles is the base configuration agents fetch from GET
-/v1/agent/config, signed with the lake key. It defaults to
-profiles.json in the lake directory; a missing file serves one empty
-default profile. Its shape is {"profiles": {"default": {...}, "NAME":
-{...}}}, and a profile may set harnesses (enabled only), agent.debounce,
+Profiles are the base configuration agents fetch from GET
+/v1/agent/config, signed with the lake key. They live in the catalog;
+a catalog with no default profile serves one empty default profile.
+--profiles, and profiles.json in the lake directory, are not read. A
+profile may set harnesses (enabled only), agent.debounce,
 agent.debounce_max, projects.allow and projects.deny. Any other field,
-a harness root, or redaction.upload_hits fails the load. A device gets
-the default profile unless serve devices set-profile names another.
-An agent's own config.json wins over every field.
+a harness root, or redaction.upload_hits is refused. A device gets the
+default profile unless serve devices set-profile names another. An
+agent's own config.json wins over every field.
 
 The lake directory holds identity.json (the lake id and private
 signing keys, made on first start), cas/ (sha256 blobs), catalog.db (SQLite),
@@ -175,7 +175,7 @@ func runServe(env Env, args []string) error {
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file")
-		fs.StringVar(&profilesFile, "profiles", "", "agent profiles file (default: profiles.json in the lake directory)")
+		fs.StringVar(&profilesFile, "profiles", "", "not read: profiles live in the catalog")
 		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
 		fs.StringVar(&metricsAddr, "metrics-addr", "", "serve Prometheus metrics on this address (off when empty)")
 		fs.BoolVar(&metricsPublic, "metrics-public", false, "allow --metrics-addr to bind a non-loopback address")
@@ -192,13 +192,6 @@ func runServe(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
-	}
-	if profilesFile == "" {
-		profilesFile = filepath.Join(data, config.ProfilesFileName)
-	}
-	profiles, err := config.LoadProfiles(profilesFile)
-	if err != nil {
-		return err
 	}
 	var devices *auth.Devices
 	if tokenFile != "" {
@@ -249,7 +242,6 @@ func runServe(env Env, args []string) error {
 		}
 	}
 	lake.Devices = devices
-	lake.SetProfiles(profiles)
 	lake.Log = accessLogger(env.stderr())
 	if webCfg != nil {
 		if err := startWeb(*webCfg, data, lake); err != nil {
@@ -299,7 +291,6 @@ func runServe(env Env, args []string) error {
 		if devices != nil {
 			reloadDevices(env, tokenFile, devices, lake)
 		}
-		reloadProfiles(env, profilesFile, lake)
 		reloadIdentity(env, data, lake)
 		reloadNormalizeJobs(env, lake)
 	})
@@ -347,18 +338,6 @@ func reloadIdentity(env Env, data string, lake *api.Server) {
 	}
 	lake.SetIdentity(next)
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded identity, %d active keys\n", len(next.ActiveKeys(time.Now())))
-}
-
-// reloadProfiles reads the profiles file again. A file that no longer
-// loads keeps the profiles agents are fetching now.
-func reloadProfiles(env Env, path string, lake *api.Server) {
-	next, err := config.LoadProfiles(path)
-	if err != nil {
-		fmt.Fprintf(env.stderr(), "terva-lampi serve: profile reload failed, keeping %d profiles: %v\n", len(lake.Profiles()), err)
-		return
-	}
-	lake.SetProfiles(next)
-	fmt.Fprintf(env.stderr(), "terva-lampi serve: reloaded %d profiles\n", len(next))
 }
 
 // reloadNormalizeJobs starts the jobs in catalog.normalize_jobs that
@@ -672,7 +651,7 @@ func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
 	}
 	reg := &web.Registrations{
 		Lake: func() registrar.Lake {
-			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: data, Profiles: lake.Profiles()}
+			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: data}
 		},
 		Release: lakeRelease(),
 	}

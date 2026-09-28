@@ -20,7 +20,7 @@ usage:
   terva-lampi serve devices [list] [--data DIR]
   terva-lampi serve devices revoke NAME [--data DIR]
   terva-lampi serve devices unbind NAME [--data DIR]
-  terva-lampi serve devices set-profile NAME PROFILE [--data DIR] [--profiles PATH]
+  terva-lampi serve devices set-profile NAME PROFILE [--data DIR]
 
 list prints one line per device: name, state, source, profile, bound
 machine_id, id, and when it was made. state is active, revoked, or detached (a
@@ -35,11 +35,10 @@ unbind clears the machine_id the device is bound to, so its next
 manifest binds it again. Use it when a machine was reinstalled and has a
 new machine id.
 
-set-profile chooses the profile in the profiles file (--profiles, or
-profiles.json in the lake directory) that the device's agent fetches
-from GET /v1/agent/config. The agent picks it up at its next fetch.
-A profile the file does not hold is refused. set-profile NAME default
-goes back to the default.
+set-profile chooses the profile in the lake's catalog that the device's
+agent fetches from GET /v1/agent/config. The agent picks it up at its
+next fetch. A profile the catalog does not hold is refused.
+set-profile NAME default goes back to the default.
 
 All four run while serve runs. revoke, unbind and set-profile write to
 the catalog and append to audit.jsonl in the lake directory.
@@ -69,10 +68,9 @@ func runServeDevices(env Env, args []string) error {
 		}
 		profile, args = args[0], args[1:]
 	}
-	var data, profilesFile string
+	var data string
 	rest, err := parseFlags(env, args, devicesUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
-		fs.StringVar(&profilesFile, "profiles", "", "agent profiles file (default: profiles.json in the lake directory)")
 	})
 	if err != nil {
 		return err
@@ -147,16 +145,6 @@ func runServeDevices(env Env, args []string) error {
 		}
 		return nil
 	case "set-profile":
-		if profilesFile == "" {
-			profilesFile = filepath.Join(data, config.ProfilesFileName)
-		}
-		profiles, err := config.LoadProfiles(profilesFile)
-		if err != nil {
-			return err
-		}
-		if _, ok := profiles[profile]; !ok {
-			return fmt.Errorf("no profile named %s in %s", profile, profilesFile)
-		}
 		stored := profile
 		if stored == config.DefaultProfile {
 			stored = ""
@@ -166,6 +154,13 @@ func runServeDevices(env Env, args []string) error {
 			return err
 		}
 		defer cat.Close()
+		known, err := cat.HasProfile(context.Background(), profile)
+		if err != nil {
+			return err
+		}
+		if !known {
+			return fmt.Errorf("no profile named %s in the lake's catalog", profile)
+		}
 		now := time.Now()
 		d, err := cat.SetDeviceProfile(context.Background(), name, stored, profile, "serve devices set-profile", now)
 		if errors.Is(err, catalog.ErrNoDevice) {

@@ -82,6 +82,29 @@ func TestVerify(t *testing.T) {
 	}
 }
 
+// The envelope around the profile is read leniently: an agent accepts
+// layers, and a field a newer lake adds, while the profile itself stays
+// strict.
+func TestVerifyAcceptsLayersAndNewEnvelopeFields(t *testing.T) {
+	id, l := lake(t)
+	p := config.Profile{Agent: config.AgentConfig{Debounce: "2s"}}
+	s, err := id.Sign(identity.ContextAgentConfig, map[string]any{
+		"lake_id": id.LakeID, "profile": "default", "version": p.Version(), "issued_at": now,
+		"config": json.RawMessage(`{"agent":{"debounce":"2s"}}`),
+		"layers": []string{"profile:default", "device:laptop"}, "from_a_newer_lake": true,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Verify(s, l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(d.Payload.Layers, ",") != "profile:default,device:laptop" || d.Profile.Agent.Debounce != "2s" {
+		t.Fatalf("verified %+v", d.Payload)
+	}
+}
+
 func TestVerifyRefusesAProfileSignedForAnotherDevice(t *testing.T) {
 	id, l := lake(t)
 	l.DeviceID = "dev_mine"

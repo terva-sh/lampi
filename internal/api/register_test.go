@@ -36,7 +36,7 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	if _, err := s.EnsureIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
-	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {Agent: config.AgentConfig{Debounce: "1s"}}})
+	putProfiles(t, s, map[string]config.Profile{"ci": {Agent: config.AgentConfig{Debounce: "1s"}}})
 	secret, _ := regcode.NewSecret()
 	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", "", now, now.Add(24*time.Hour)); err != nil {
 		t.Fatal(err)
@@ -229,8 +229,7 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	if _, err := s.EnsureIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
-	// The code was minted for a profile this server does not load.
-	s.SetProfiles(config.Profiles{config.DefaultProfile: {}})
+	// The code was minted for a profile the catalog does not hold.
 	secret, _ := regcode.NewSecret()
 	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "ci", "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -267,7 +266,7 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	// With the rotation layer, a lake with no active key refuses the code
 	// at the key check, before any signing, so the missing profile is the
 	// signing failure this test can force.
-	s.SetProfiles(config.Profiles{config.DefaultProfile: {}, "ci": {}})
+	putProfiles(t, s, map[string]config.Profile{"ci": {}})
 	// Once the cause is fixed the same code redeems, with its profile.
 	rr = postRegister(t, s, req)
 	if rr.Code != http.StatusOK {
@@ -279,7 +278,7 @@ func TestRegisterLeavesTheCodeUnspentWhenItsProfileCannotBeSigned(t *testing.T) 
 	}
 
 	raw, _ := os.ReadFile(audit.Path(dir))
-	for _, reason := range []string{"reason=profile is not in the profiles file"} {
+	for _, reason := range []string{"reason=profile is not in the catalog"} {
 		if !strings.Contains(string(raw), reason) {
 			t.Fatalf("audit lacks %s:\n%s", reason, raw)
 		}

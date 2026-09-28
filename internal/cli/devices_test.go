@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/catalog"
 )
 
 func TestServeDevicesRevokeStopsARunningLake(t *testing.T) {
@@ -171,9 +173,21 @@ func TestServeDevicesSetProfile(t *testing.T) {
 	if _, err := run("set-profile", "laptop", "ci"); err == nil || !strings.Contains(err.Error(), "no profile named ci") {
 		t.Fatalf("unknown profile: %v", err)
 	}
+	// A profiles file is not read; the catalog holds the profiles.
 	if err := os.WriteFile(filepath.Join(dir, "profiles.json"), []byte(`{"profiles":{"ci":{}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := run("set-profile", "laptop", "ci"); err == nil || !strings.Contains(err.Error(), "no profile named ci") {
+		t.Fatalf("profile from profiles.json: %v", err)
+	}
+	cat, err := catalog.Open(filepath.Join(dir, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cat.PutProfile(t.Context(), "ci", []byte(`{}`), "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cat.Close()
 	if out, err := run("set-profile", "laptop", "ci"); err != nil || out != "set laptop to profile ci\n" {
 		t.Fatalf("set-profile: %q %v", out, err)
 	}
@@ -192,17 +206,5 @@ func TestServeDevicesSetProfile(t *testing.T) {
 	raw, _ := os.ReadFile(audit.Path(dir))
 	if !strings.Contains(string(raw), `"kind":"device.profile","device":"laptop"`) || !strings.Contains(string(raw), `"detail":"profile=ci"`) {
 		t.Fatalf("audit:\n%s", raw)
-	}
-}
-
-func TestServeRefusesAProfilesFileWithAFieldOutsideTheAllowedSet(t *testing.T) {
-	dir := t.TempDir()
-	bad := filepath.Join(t.TempDir(), "profiles.json")
-	if err := os.WriteFile(bad, []byte(`{"profiles":{"default":{"server":"https://elsewhere.example"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	err := Run([]string{"serve", "--data", dir, "--addr", "127.0.0.1:0", "--profiles", bad}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
-	if err == nil || !strings.Contains(err.Error(), `unknown field "server"`) {
-		t.Fatalf("serve with a bad profiles file: %v", err)
 	}
 }

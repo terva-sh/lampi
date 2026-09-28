@@ -183,7 +183,10 @@ const AgentConfigPath = "/v1/agent/config"
 
 // AgentConfigPayload is the signed payload of GET AgentConfigPath.
 // Config is the profile, the subset of config.json a lake may set.
-// Version changes when, and only when, Config does.
+// Version changes when, and only when, Config does. Layers names what
+// Config was built from, bottom first, such as "profile:default". It is
+// informational: an agent checks Config against Version and does not
+// read Layers, and a lake before it sent none.
 type AgentConfigPayload struct {
 	LakeID   string          `json:"lake_id"`
 	DeviceID string          `json:"device_id,omitempty"`
@@ -191,6 +194,7 @@ type AgentConfigPayload struct {
 	Version  string          `json:"version"`
 	IssuedAt time.Time       `json:"issued_at"`
 	Config   json.RawMessage `json:"config"`
+	Layers   []string        `json:"layers,omitempty"`
 }
 
 // AgentReportPath takes the calling device's heartbeat: what the agent
