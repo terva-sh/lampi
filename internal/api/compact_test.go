@@ -263,3 +263,37 @@ func TestCompactDryRunRefusesAFoldThatWouldLoop(t *testing.T) {
 	readsBack(t, s, [][]byte{v1, v2})
 	verifyClean(t, s)
 }
+
+// The loop check follows folds already made as well as the store, so a
+// fold that makes a base read from a version is seen before the store
+// holds it, and one that stops a base doing so frees a later fold.
+func TestCompactLoopCheckFollowsFoldsMadeSoFar(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	d := []byte("the version\n")
+	x := []byte("a middle file\n")
+	t2 := []byte("more\n")
+	r := []byte("rest\n")
+	dd, dx, dt2, dr := putRaw(t, h, d), putRaw(t, h, x), putRaw(t, h, t2), putRaw(t, h, r)
+	top := sha256Hex(append(append([]byte(nil), x...), t2...))
+	if _, err := s.CAS.BindLogical(top, []string{dx, dt2}, []int64{int64(len(x)), int64(len(t2))}); err != nil {
+		t.Fatal(err)
+	}
+	viaD := sha256Hex(append(append([]byte(nil), d...), r...))
+	if _, err := s.CAS.BindLogical(viaD, []string{dd, dr}, []int64{int64(len(d)), int64(len(r))}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		applied map[string]string
+		want    bool
+	}{
+		{nil, false},
+		{map[string]string{dx: viaD}, true},
+		{map[string]string{dx: dr}, false},
+	} {
+		got, err := s.readsFrom(top, dd, c.applied)
+		if err != nil || got != c.want {
+			t.Fatalf("applied %v: reads from = %v %v, want %v", c.applied, got, err, c.want)
+		}
+	}
+}

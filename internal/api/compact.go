@@ -92,17 +92,45 @@ func (s *Server) Compact(ctx context.Context, opt CompactOptions) (CompactReport
 		digests = append(digests, d)
 	}
 	sort.Strings(digests)
-	for _, d := range digests {
-		folded, err := s.applyFold(d, bases[d], plan[d].length, opt, &rep)
-		if err != nil {
-			return rep, err
+	// A fold can clear the way for another: a base that read from a
+	// version stops doing so once something between them is folded. So
+	// each pass checks for a loop against the store with the folds made
+	// so far laid over it, the same graph in a dry run and a real one,
+	// and refused folds are tried again until a pass folds nothing new.
+	applied := map[string]string{}
+	pending := digests
+	for len(pending) > 0 {
+		var refused []string
+		for _, d := range pending {
+			loops, err := s.readsFrom(bases[d], d, applied)
+			if err != nil {
+				return rep, err
+			}
+			if loops {
+				refused = append(refused, d)
+				continue
+			}
+			folded, err := s.applyFold(d, bases[d], plan[d].length, opt, &rep)
+			if err != nil {
+				return rep, err
+			}
+			if !folded {
+				refused = append(refused, d)
+				continue
+			}
+			applied[d] = bases[d]
 		}
-		if !folded {
-			// A refused fold leaves d as it is, and the sweep must
-			// see it that way in a dry run too.
-			delete(bases, d)
+		if len(refused) == len(pending) {
+			rep.Looped += len(refused)
+			for _, d := range refused {
+				// Left as it is, and the sweep must see it that way.
+				delete(bases, d)
+			}
+			break
 		}
+		pending = refused
 	}
+
 	if err := s.sweepUnreferenced(ctx, sessions, bases, opt, &rep); err != nil {
 		return rep, err
 	}
@@ -257,9 +285,9 @@ func (s *Server) foldBases(plan map[string]fold) (map[string]string, error) {
 }
 
 // applyFold makes d a prefix record of base, counting what that
-// changes. A record already pointing at base is left alone. folded is
-// false when the fold is refused because base reads from d; a dry run
-// makes the same check.
+// changes. A record already pointing at base is left alone. The caller
+// has found that base does not read from d. folded is false when the
+// store refuses the fold anyway.
 func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep *CompactReport) (folded bool, err error) {
 	size, object, err := s.CAS.ObjectSize(d)
 	if err != nil {
@@ -273,20 +301,11 @@ func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep
 		return true, nil
 	}
 	if opt.DryRun {
-		loops, err := s.CAS.ReadsFrom(base, d)
-		if err != nil {
-			return false, err
-		}
-		if loops {
-			rep.Looped++
-			return false, nil
-		}
 		countFold(rep, isPrefix, object, size)
 		return true, nil
 	}
 	freed, err := s.CAS.Fold(d, base, length)
 	if errors.Is(err, cas.ErrWouldLoop) {
-		rep.Looped++
 		return false, nil
 	}
 	if err != nil {
@@ -294,6 +313,40 @@ func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep
 	}
 	countFold(rep, isPrefix, object, freed)
 	return true, nil
+}
+
+// readsFrom reports whether reading from reaches target, through chunk
+// lists and prefix records, with the folds in applied standing in for
+// what those digests read from now.
+func (s *Server) readsFrom(from, target string, applied map[string]string) (bool, error) {
+	seen := map[string]bool{}
+	queue := []string{from}
+	for len(queue) > 0 {
+		d := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if d == target {
+			return true, nil
+		}
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		if base, ok := applied[d]; ok {
+			queue = append(queue, base)
+			continue
+		}
+		object, _, links, err := s.CAS.Stored(d)
+		if err != nil {
+			return false, err
+		}
+		if object {
+			// Open reads the object and nothing it might also have
+			// a record for.
+			continue
+		}
+		queue = append(queue, links...)
+	}
+	return false, nil
 }
 
 func countFold(rep *CompactReport, wasPrefix, object bool, freed int64) {
