@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3KC2DAAZSVA0XQ23XAAXSSE
 title: Transcripts past 32 MiB still grow quadratically between compactions
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,22 +18,15 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: cas/large-file-tails
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 4df2e01c039fe85adc89898bb8d9289cc036aba5
-  session: null
-  claimed_at: 2026-09-28T06:52:15Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T06:43:36Z
-updated_at: 2026-09-28T07:03:30Z
+updated_at: 2026-09-28T22:22:06Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/e4a47e8c
+  id: agent:claude-code/aa1afd80
   name: ""
 extensions: {}
 ---
@@ -117,3 +110,24 @@ client already deployed benefits.
 One hash of at most one chunk (32 MiB) per chunked ingest. Record
 chains lengthen by one per sync until the file crosses the next chunk
 boundary, as they already do for small files.
+
+## Summary
+
+Fixed on main in two parts:
+
+- **#62, "Fold the last chunk of a file past 32 MiB at ingest".** When a chunked file grows, the lake folds the previous version into a prefix record at ingest. Its old last chunk no longer waits for `serve compact`.
+- **#81, "Send only the tail of a file past 32 MiB"** (TKT-01M3KD7D, "Client re-sends the last chunk of a file past 32 MiB at every sync").
+  - The lake advertises `large_tails` in hello, and the agent then sends only the appended bytes. A 37-byte append to a 41 MiB transcript now sends 37 bytes, where it used to send about 9 MiB.
+  - Upgrade the lake before the agents.
+
+Covered by:
+- `TestGrowingChunkedFileIsStoredOnce`
+- `TestSyncSendsOnlyTheTailOfAFilePastTheCap`
+- `TestGrowParts*`
+- `TestFoldGrowth*`
+
+All four passed on main at f3b686d (2026-09-28).
+
+The hosted lake shows the fix only once it runs a build with both PRs; that upgrade belongs to TKT-01M3FP11A (Onboarding rollout: upgrade the hosted lake and register machines).
+
+Closed during release grooming. The claim by agent:claude-code/e4a47e8c had gone stale, because both PRs merged after it was taken.

@@ -11,7 +11,7 @@ labels:
   - area/ops
   - area/ci
 assignees: []
-milestone: null
+milestone: v0.2.0
 parent: TKT-01M3MC023P4A5H7PTF662QSSM8
 origin: null
 dependencies: []
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T19:08:40Z
+updated_at: 2026-09-28T22:22:53Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -51,7 +51,7 @@ This changes the settings of a remote organization and package, so AGENTS.md req
 
 ## Acceptance criteria
 
-- [ ] The image name, tag scheme, visibility, retention and Forgejo decision are recorded
+- [x] The image name, tag scheme, visibility, retention and Forgejo decision are recorded
 - [ ] The GHCR package is public and linked to terva-sh/lampi
 - [ ] The repository's Actions can push to the package with GITHUB_TOKEN
 

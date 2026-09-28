@@ -11,7 +11,7 @@ labels:
   - area/ci
   - area/ops
 assignees: []
-milestone: null
+milestone: v0.2.0
 parent: TKT-01M3MC023P4A5H7PTF662QSSM8
 origin: null
 dependencies:
@@ -31,7 +31,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T19:33:06Z
+updated_at: 2026-09-28T22:22:53Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
