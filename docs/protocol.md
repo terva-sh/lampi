@@ -457,7 +457,8 @@ changes, not on every sync.
 
 The lake keeps only each device's newest inventory, ordered by
 `generated_at` rather than by arrival, so a request that lands after a
-newer snapshot's does not replace it. A `generated_at` later than the
+newer snapshot's does not replace it, nor does one generated at the
+same instant. A `generated_at` later than the
 lake's clock counts as the lake's now, so an agent whose clock runs
 ahead does not hold off the snapshots after it. The answer is
 `{"received_at": "...", "kept": true}`, and `kept` is false when the
