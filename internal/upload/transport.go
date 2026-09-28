@@ -196,6 +196,23 @@ func PostReport(ctx context.Context, opt Options, rep protocol.AgentReport) (pro
 	return resp, nil
 }
 
+// PostInventory sends the agent's inventory to the lake.
+func PostInventory(ctx context.Context, opt Options, inv protocol.AgentInventory) (protocol.AgentInventoryResponse, error) {
+	client := opt.Client
+	if client == nil {
+		client = NewClient()
+	}
+	raw, err := json.Marshal(inv)
+	if err != nil {
+		return protocol.AgentInventoryResponse{}, err
+	}
+	var resp protocol.AgentInventoryResponse
+	if err := doJSON(ctx, client, opt, http.MethodPost, protocol.AgentInventoryPath, raw, &resp); err != nil {
+		return protocol.AgentInventoryResponse{}, err
+	}
+	return resp, nil
+}
+
 // ErrNoKeyEndpoint is FetchKeys against a lake from before identities.
 var ErrNoKeyEndpoint = errors.New("the lake has no key endpoint; upgrade the lake before registering agents with it")
 

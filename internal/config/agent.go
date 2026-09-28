@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"time"
+
+	"terva.sh/lampi/internal/protocol"
 )
 
 const (
@@ -47,4 +49,18 @@ func duration(name, s string, def time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("config: %s: %s is negative", name, s)
 	}
 	return d, nil
+}
+
+// InventoryMode is the inventory mode in force. Sociable, the default,
+// reports every project with its verdict; strict reports the allowed
+// ones and only totals the refused. Any other value is an error, so a
+// misspelled strict does not report as sociable.
+func (f File) InventoryMode() (string, error) {
+	switch f.Inventory {
+	case "", protocol.InventorySociable:
+		return protocol.InventorySociable, nil
+	case protocol.InventoryStrict:
+		return protocol.InventoryStrict, nil
+	}
+	return "", fmt.Errorf("config: inventory: %q is not sociable or strict", f.Inventory)
 }

@@ -464,7 +464,7 @@ func watchProfile(ctx context.Context, env Env, r *lakeRunner, interval time.Dur
 // reloaded settings. The label is not compared: it is set in place.
 func sameLake(a, b agentLake) bool {
 	x, y := a.opt, b.opt
-	return a.tokenPath == b.tokenPath &&
+	return a.tokenPath == b.tokenPath && a.inventory == b.inventory &&
 		a.cfg.LakeID == b.cfg.LakeID && a.cfg.KeyID == b.cfg.KeyID && a.cfg.PublicKey == b.cfg.PublicKey &&
 		x.ServerURL == y.ServerURL && x.Token == y.Token &&
 		x.MachineID == y.MachineID && x.LakeStateDir == y.LakeStateDir &&

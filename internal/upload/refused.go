@@ -3,8 +3,11 @@ package upload
 import (
 	"sort"
 	"strings"
+	"time"
 
+	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
 )
 
 // RefusedProject is one project whose sessions the allowlist keeps on
@@ -21,6 +24,23 @@ type RefusedProject struct {
 	Reason    string
 }
 
+// InventoryRow is one project on this machine, allowed or refused,
+// grouped as Refusals groups them. CWDHash is CWD's. Bytes sums the
+// sessions' artifact sizes and Newest is the newest artifact's
+// modification time. Reason is empty for an allowed project, and
+// otherwise why the allowlist refuses it.
+type InventoryRow struct {
+	CWD       string
+	CWDs      int
+	CWDHash   string
+	GitRemote string
+	Harnesses []string
+	Sessions  int
+	Bytes     int64
+	Newest    time.Time
+	Reason    string
+}
+
 // Refusals reads the harness homes in opt the way Sync does and groups
 // the sessions opt.Projects refuses by project and reason: the folded
 // remote when there is one, since allow rules name repositories, and
@@ -32,16 +52,29 @@ type RefusedProject struct {
 func Refusals(opt Options) (projects []RefusedProject, skipped []string) {
 	bundles, skipped := bundlesFor(opt)
 	defer cleanupBundles(bundles)
-	byKey := map[string]*RefusedProject{}
+	for _, r := range inventoryRows(opt, bundles) {
+		if r.Reason == "" {
+			continue
+		}
+		projects = append(projects, RefusedProject{
+			CWD: r.CWD, CWDs: r.CWDs, GitRemote: r.GitRemote,
+			Harnesses: r.Harnesses, Sessions: r.Sessions, Reason: r.Reason,
+		})
+	}
+	return projects, skipped
+}
+
+// inventoryRows groups every session in bundles by project and verdict,
+// as Refusals describes, with the allowed ones grouped the same way. It
+// is never nil, so a caller can tell an empty machine from one not read.
+func inventoryRows(opt Options, bundles []adapter.Bundle) []InventoryRow {
+	byKey := map[string]*InventoryRow{}
 	harnesses := map[string]map[string]bool{}
-	cwds := map[string]map[string]bool{}
+	cwds := map[string]map[string]string{}
 	for _, b := range bundles {
 		for _, m := range b.Manifests {
 			id := projectID(m)
 			reason := opt.Projects.Refusal(id)
-			if reason == "" {
-				continue
-			}
 			key := "cwd\x00" + id.CWD
 			if r := config.NormalizeRemote(id.GitRemote); r != "" {
 				key = "remote\x00" + r
@@ -49,16 +82,23 @@ func Refusals(opt Options) (projects []RefusedProject, skipped []string) {
 			key += "\x00" + reason
 			p := byKey[key]
 			if p == nil {
-				p = &RefusedProject{GitRemote: id.GitRemote, Reason: reason}
+				p = &InventoryRow{GitRemote: id.GitRemote, Reason: reason}
 				byKey[key] = p
 				harnesses[key] = map[string]bool{}
-				cwds[key] = map[string]bool{}
+				cwds[key] = map[string]string{}
 			}
 			p.Sessions++
+			for _, a := range m.Artifacts {
+				p.Bytes += a.Size
+				if a.MTime.After(p.Newest) {
+					p.Newest = a.MTime
+				}
+			}
 			harnesses[key][m.Harness] = true
-			cwds[key][id.CWD] = true
+			cwds[key][id.CWD] = id.CWDHash
 		}
 	}
+	rows := make([]InventoryRow, 0, len(byKey))
 	for key, p := range byKey {
 		for h := range harnesses[key] {
 			p.Harnesses = append(p.Harnesses, h)
@@ -69,18 +109,55 @@ func Refusals(opt Options) (projects []RefusedProject, skipped []string) {
 			all = append(all, c)
 		}
 		sort.Strings(all)
-		p.CWD, p.CWDs = all[0], len(all)
-		projects = append(projects, *p)
+		p.CWD, p.CWDs, p.CWDHash = all[0], len(all), cwds[key][all[0]]
+		rows = append(rows, *p)
 	}
-	sort.Slice(projects, func(i, j int) bool {
-		a, b := projects[i], projects[j]
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
 		if a.Sessions != b.Sessions {
 			return a.Sessions > b.Sessions
 		}
 		if a.CWD != b.CWD {
 			return a.CWD < b.CWD
 		}
-		return strings.Compare(a.GitRemote, b.GitRemote) < 0
+		if c := strings.Compare(a.GitRemote, b.GitRemote); c != 0 {
+			return c < 0
+		}
+		return a.Reason < b.Reason
 	})
-	return projects, skipped
+	return rows
+}
+
+// Inventory is rows as the lake takes them, in mode. A strict
+// inventory lists the allowed projects only; either mode totals the
+// refused sessions and their bytes. Remotes are folded as allow rules
+// fold them. Past protocol.MaxInventoryProjects the rest are left out
+// and Truncated is set.
+func Inventory(mode string, rows []InventoryRow, at time.Time) protocol.AgentInventory {
+	inv := protocol.AgentInventory{Mode: mode, GeneratedAt: at.UTC(), Projects: []protocol.InventoryProject{}}
+	for _, r := range rows {
+		allowed := r.Reason == ""
+		if !allowed {
+			inv.RefusedSessions += r.Sessions
+			inv.RefusedBytes += r.Bytes
+			if mode == protocol.InventoryStrict {
+				continue
+			}
+		}
+		if len(inv.Projects) == protocol.MaxInventoryProjects {
+			inv.Truncated = true
+			continue
+		}
+		p := protocol.InventoryProject{
+			GitRemote: config.NormalizeRemote(r.GitRemote),
+			CWD:       r.CWD, CWDs: r.CWDs, CWDHash: r.CWDHash,
+			Harnesses: r.Harnesses, Sessions: r.Sessions, Bytes: r.Bytes,
+			Allowed: allowed, Reason: r.Reason,
+		}
+		if !r.Newest.IsZero() {
+			p.Newest = r.Newest.UTC()
+		}
+		inv.Projects = append(inv.Projects, p)
+	}
+	return inv
 }

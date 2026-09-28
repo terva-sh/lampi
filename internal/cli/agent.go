@@ -563,6 +563,8 @@ type agentLake struct {
 	opt       upload.Options
 	tokenPath string
 	label     string
+	// inventory is the machine's inventory mode, the same for every lake.
+	inventory string
 }
 
 // loadAgent is loadAgentLakes for the first lake, for callers that
@@ -613,6 +615,10 @@ func buildAgentLakes(env Env, file config.File, src []source, resolved []config.
 	if err != nil {
 		return nil, nil, err
 	}
+	mode, err := file.InventoryMode()
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, lake := range resolved {
 		opt, err := lakeOptions(env, file, state, src, lake)
 		if err != nil {
@@ -623,7 +629,7 @@ func buildAgentLakes(env Env, file config.File, src []source, resolved []config.
 			skipped = append(skipped, lake.Name)
 			continue
 		}
-		l := agentLake{name: lake.Name, cfg: lake, opt: opt, tokenPath: lake.TokenFile.Value}
+		l := agentLake{name: lake.Name, cfg: lake, opt: opt, tokenPath: lake.TokenFile.Value, inventory: mode}
 		if len(resolved) > 1 {
 			l.label = "lake " + lake.Name + ": "
 		}
