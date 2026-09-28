@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:37:56Z
+updated_at: 2026-09-28T02:41:14Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -93,3 +93,7 @@ shows no CSP errors.
 **agent:claude-code/e4a47e8c** at 2026-09-28T02:37:56Z
 
 Review of PR #51 found the header overflowing on narrow screens. Measured in headless Chromium: the page was 524px wide at 320px and 375px. The cause was the nav row, where seven links (Operations was added in #50) cannot fit, not the theme button alone. The fix: at 650px and below the nav scrolls horizontally, and the account area may wrap under the brand. The page is now exactly viewport-wide at 320, 375, 650 and 1280.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T02:41:14Z
+
+Supersedes the previous note's fix. The second review of #51 pointed at tablet widths, and measuring showed the one-row header needs about 1215px: the page was 1040 to 1214px wide at viewports from 651 to 1200px. The nav now takes its own scrolling row below 1240px, at every width rather than only on phones. Measured page width equals viewport width at 320, 375, 650, 700, 900, 1100, 1240, 1241, 1280 and 1440.
