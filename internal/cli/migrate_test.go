@@ -80,10 +80,21 @@ func TestServeMigrateUpgradesUnderTheLock(t *testing.T) {
 	}
 }
 
-func TestServeMigrateNeedsACatalog(t *testing.T) {
-	err := Run([]string{"serve", "migrate", "--check", "--data", t.TempDir()}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
-	if err == nil || !strings.Contains(err.Error(), "no catalog") {
-		t.Fatalf("err %v", err)
+// An init container runs serve migrate before serve has ever made the
+// catalog. That must succeed, and leave the lake for serve to create.
+func TestServeMigrateOnAFreshLake(t *testing.T) {
+	for _, args := range [][]string{{"serve", "migrate"}, {"serve", "migrate", "--check"}} {
+		dir := t.TempDir()
+		var stdout bytes.Buffer
+		if err := Run(append(args, "--data", dir), Env{Stdout: &stdout, Stderr: ioDiscard()}); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if want := fmt.Sprintf("no catalog yet; serve creates one at schema %d\n", catalog.SchemaVersion()); stdout.String() != want {
+			t.Fatalf("%v printed %q", args, stdout.String())
+		}
+		if _, err := os.Stat(filepath.Join(dir, "catalog.db")); !os.IsNotExist(err) {
+			t.Fatalf("%v made a catalog: %v", args, err)
+		}
 	}
 }
 

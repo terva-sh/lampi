@@ -126,6 +126,14 @@ func backupBeforeMigrating(db *sql.DB, path string, v int, now time.Time) (strin
 		os.Remove(dest)
 		return "", fmt.Errorf("catalog: backup before migrating from version %d: %w", v, err)
 	}
+	// The first step commits with synchronous=FULL. The copy must be on
+	// disk before that, or a power cut could leave an upgraded catalog
+	// and no copy to roll back to.
+	if err := syncFile(dest); err != nil {
+		os.Remove(dest)
+		return "", fmt.Errorf("catalog: backup before migrating from version %d: %w", v, err)
+	}
+	syncDir(dir)
 	if err := pruneBackups(dir, keepBackups, filepath.Base(dest)); err != nil {
 		return "", err
 	}
@@ -155,6 +163,27 @@ func pruneBackups(dir string, keep int, made string) error {
 		names = names[1:]
 	}
 	return nil
+}
+
+func syncFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// syncDir makes a new entry in dir durable. Some platforms cannot fsync
+// a directory; the file itself is already synced.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
 }
 
 // partialError reports a step that failed after earlier ones committed.

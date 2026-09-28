@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T18:08:15Z
+updated_at: 2026-09-28T18:19:43Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -143,3 +143,7 @@ terva-review on PR #82 (run 814) raised four findings, all fixed with tests. (1)
 **agent:claude-code/aa1afd80** at 2026-09-28T18:08:15Z
 
 Second terva-review on PR #82 (run with request review-fixes): the first round's findings 1 to 3 were resolved. Two more, both fixed. (1) Retention sorted by name, so a clock that went back, or three copies dated later, would prune the copy just made. pruneBackups now always keeps the new copy and prunes the rest down to keep-1, tested with three copies dated 2027 and a new one dated 2026. (2) db.Begin and the PRAGMA user_version failures now use partialError too, so every failure after a committed step reports the version reached and the backup.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T18:19:43Z
+
+Third terva-review on PR #82: the second round's findings were resolved. Two more, both fixed. (1) serve migrate failed on a lake with no catalog, which would block a first deploy's init container. With or without --check, it now prints 'no catalog yet; serve creates one at schema N', exits 0, and creates nothing. (2) The backup wasn't fsynced before the first step committed. The file is now fsynced (a failure removes it and stops the upgrade), then its directory, following identity.syncDir.

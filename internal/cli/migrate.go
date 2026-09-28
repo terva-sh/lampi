@@ -19,7 +19,8 @@ usage:
 
 serve upgrades the catalog when it starts, so this is only needed to
 upgrade without starting the listener: a Kubernetes init container, or
-a step before switching to a new image.
+a step before switching to a new image. A lake with no catalog yet is
+not an error: serve creates the file at this binary's schema.
 
 Without --check it takes lake.lock, so stop serve first. A catalog with
 data is copied to migration-backups/ in the lake directory before the
@@ -58,12 +59,16 @@ func runServeMigrate(env Env, args []string) error {
 		return err
 	}
 	path := filepath.Join(data, "catalog.db")
+	want := catalog.SchemaVersion()
+	// A first deployment has no catalog. An init container runs this
+	// before serve ever has, so that is success: serve creates the file
+	// at this schema.
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s has no catalog; serve makes one on its first start", data)
+		fmt.Fprintf(env.stdout(), "no catalog yet; serve creates one at schema %d\n", want)
+		return nil
 	} else if err != nil {
 		return err
 	}
-	want := catalog.SchemaVersion()
 	if check {
 		v, err := catalog.FileVersion(path)
 		if err != nil {
