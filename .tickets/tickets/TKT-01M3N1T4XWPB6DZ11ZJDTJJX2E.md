@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T22:44:17Z
+updated_at: 2026-09-28T22:57:34Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -67,8 +67,8 @@ The release workflow runs `go test ./...` before it publishes. Three tests are k
 - [ ] v0.2.0-rc1 published archives and a two-platform image that passed the checks
 - [ ] The GHCR package is public and pulls without a login
 - [ ] v0.2.0 is tagged on both forges with the notes attached
-- [ ] A v0.1.2 lake upgraded to the rc image and its agents still sync
-- [ ] Release notes state the schema 11 to 15 migration, its rollback, and lake-before-agents
+- [x] A v0.1.2 lake upgraded to the rc image and its agents still sync
+- [x] Release notes state the schema 11 to 15 migration, its rollback, and lake-before-agents
 
 ## Implementation plan
 
@@ -164,3 +164,15 @@ Supersedes the previous note's schema line. A real v0.1.2 lake reports schema 11
 **agent:claude-code/aa1afd80** at 2026-09-28T22:44:17Z
 
 Supersedes both earlier release-notes drafts, including the first draft's wrong schema 10 to 14 line: the canonical notes are in the implementation plan.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T22:57:23Z
+
+### v0.2.0-rc1 (tag at e91ce6d, 2026-09-28)
+
+- **GitHub release run 36494538739.** Archives published as a prerelease with 6 assets. The image was pushed as index `sha256:5c984d6f63d6…` with an SLSA provenance attestation naming `refs/tags/v0.2.0-rc1` and `.github/workflows/release.yml`. The SBOM manifests are attached.
+- **The post-check failed.** `docker run --platform P IMAGE@INDEX_DIGEST` exits 125 with "cannot overwrite digest" in the runner's classic image store. That is a check defect; the image is fine. The fix runs each platform's own manifest digest, taken from the index with `docker buildx imagetools inspect --raw` and jq, and skips the two `unknown/unknown` attestation manifests.
+- **Forgejo run 1073.** Both the release and the Buildah image build succeeded.
+- **Checked by hand:**
+  - amd64: `terva-lampi v0.2.0-rc1 (e91ce6d)`.
+  - arm64: this host has no arm64 binfmt, so I extracted the binary instead. It's an ELF aarch64 static binary, GOARCH=arm64, stamped `v0.2.0-rc1`.
+  - Upgrade: a lake seeded by the published v0.1.2 binary, served by the rc1 image under podman, migrated 11 → 15 after taking the backup. Both the v0.1.2 agent and the new agent synced appends. `serve fsck`: 5 entries, 0 bad.

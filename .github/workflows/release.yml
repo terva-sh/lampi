@@ -162,10 +162,20 @@ jobs:
         # published image someone must look at, which beats not noticing.
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+        # DIGEST names the multi-platform index. docker run --platform
+        # against an index digest fails in the classic image store with
+        # "cannot overwrite digest", so run each platform's own manifest.
         run: |
           set -eu
+          index=$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}")
           for platform in linux/amd64 linux/arm64; do
-            got=$(docker run --rm --platform "${platform}" "${IMAGE}@${DIGEST}" --version)
+            manifest=$(printf '%s' "${index}" | jq -r --arg os "${platform%/*}" --arg arch "${platform#*/}" \
+              '.manifests[] | select(.platform.os == $os and .platform.architecture == $arch) | .digest')
+            if [ -z "${manifest}" ]; then
+              echo "::error::the index ${DIGEST} has no ${platform} manifest"
+              exit 1
+            fi
+            got=$(docker run --rm --platform "${platform}" "${IMAGE}@${manifest}" --version)
             echo "${platform}: ${got}"
             case "${got}" in
               *"${GITHUB_REF_NAME}"*) ;;
