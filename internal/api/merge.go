@@ -174,10 +174,33 @@ func (s *Server) checkClient(a protocol.Artifact, prev catalog.ArtifactRow, hasP
 	if a.Size != prev.Size+tail {
 		return &clientError{fmt.Errorf("artifact %q size %d does not match %d prefix + %d tail", a.RelPath, a.Size, prev.Size, tail)}
 	}
+	if a.Size > protocol.MaxBlobBytes {
+		return s.growParts(a, prev)
+	}
 	// The stored head becomes a prefix record of the grown file, so the
 	// bytes they share are stored once.
 	_, err = s.CAS.Grow(a.SHA256, prev.SHA256, prev.Size, a.TailSHA256, protocol.MaxBlobBytes)
 	if errors.Is(err, cas.ErrNotGrown) {
+		return errPrefixMismatch
+	}
+	return err
+}
+
+// growParts grows a file past the object cap from a tail
+// (protocol.FeatureLargeTails). The previous version's pieces are kept
+// but the last, which the tail extends, and the grown file is bound to
+// them, which hashes the whole file. A tail that is not the rest of the
+// file is a prefix mismatch, and the client sends the file whole.
+func (s *Server) growParts(a protocol.Artifact, prev catalog.ArtifactRow) error {
+	parts, lengths, err := s.CAS.GrowParts(prev.SHA256, a.TailSHA256, protocol.MaxBlobBytes)
+	if errors.Is(err, cas.ErrNotGrown) {
+		return errPrefixMismatch
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.CAS.BindLogical(a.SHA256, parts, lengths)
+	if errors.Is(err, cas.ErrRejected) {
 		return errPrefixMismatch
 	}
 	return err
