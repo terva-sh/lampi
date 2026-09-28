@@ -115,16 +115,25 @@ func Run(args []string, env Env) error {
 }
 
 func versionLine() string {
+	v, c := releaseVersion()
+	if c == "" {
+		return "terva-lampi " + v
+	}
+	return "terva-lampi " + v + " (" + c + ")"
+}
+
+// releaseVersion is this binary's version and short commit: what just
+// build linked in, or else what go build recorded, which is how a
+// goreleaser release knows its tag. Every place that names the running
+// version reads it here.
+func releaseVersion() (string, string) {
 	v, c := version, commit
 	if v == "0.0.0" && c == "" {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			v, c = buildInfoVersion(info)
 		}
 	}
-	if c == "" {
-		return "terva-lampi " + v
-	}
-	return "terva-lampi " + v + " (" + c + ")"
+	return v, c
 }
 
 // buildInfoVersion is the module version and short commit that go build

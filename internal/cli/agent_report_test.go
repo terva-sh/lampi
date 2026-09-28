@@ -58,7 +58,7 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := got.Report
-	if r.AgentVersion != version || r.MachineID == "" || r.Profile != "default" || !strings.HasPrefix(r.ProfileVersion, "sha256:") {
+	if r.AgentVersion != agentVersion() || r.MachineID == "" || r.Profile != "default" || !strings.HasPrefix(r.ProfileVersion, "sha256:") {
 		t.Fatalf("report %+v", r)
 	}
 	// work has no allow rule of its own, so the lake's rules are in force.

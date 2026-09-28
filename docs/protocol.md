@@ -343,6 +343,14 @@ set-profile` chose, or `default`. A lake with no identity answers 404,
 and so does a lake whose profiles file no longer holds the device's
 profile. The answer is `Cache-Control: no-store`.
 
+Every authenticated answer from a lake with an identity carries
+`Lampi-Profile-Version`, the `version` this endpoint would return to
+the calling device now. An agent whose cached profile has another
+version fetches this endpoint at once, at most once every ten seconds,
+and keeps its hourly fetch as a backstop. The header only prompts the
+fetch. The agent trusts the signed document and nothing else. A device
+whose profile does not resolve gets no header.
+
 A client accepts the document only from a lake whose key it pinned at
 registration, only when `lake_id` matches the pin, and only when
 `version` is the version of the `config` it carries. When the lake's
@@ -359,7 +367,8 @@ profile it applied, and what its last sync did. The lake stores it as
 the calling device's newest report and replaces the one before. The
 time it was received is the device's last contact, and it survives a
 restart of `serve`. A running agent reports to each lake once it may
-push, after each sync, and every five minutes in between. A lake that
+push, after each sync, and every minute in between. The answer's
+`Lampi-Profile-Version` is how an idle agent learns of a profile edit. A lake that
 answers 404, one from before reports, is named once in the agent's log
 and asked again at each interval.
 

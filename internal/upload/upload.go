@@ -101,6 +101,9 @@ type Options struct {
 	Client       *http.Client
 	Projects     config.Projects
 	UploadHits   bool
+	// ProfileVersion, when set, is called with the lake's
+	// protocol.ProfileVersionHeader from each answer that carries one.
+	ProfileVersion func(string)
 	// Now is the client clock for the hello skew check. Nil uses time.Now.
 	Now func() time.Time
 	// StallTimeout cancels a request that moves no bytes for this long.
@@ -1033,6 +1036,9 @@ func doRequest(ctx context.Context, client *http.Client, opt Options, method, p 
 		return wrap(err)
 	}
 	defer resp.Body.Close()
+	if v := resp.Header.Get(protocol.ProfileVersionHeader); v != "" && opt.ProfileVersion != nil {
+		opt.ProfileVersion(v)
+	}
 	watch.touch()
 	respBody, err := io.ReadAll(io.LimitReader(progressReader{r: resp.Body, w: watch}, 1<<20))
 	if err != nil {
