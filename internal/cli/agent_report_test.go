@@ -164,11 +164,15 @@ func TestInventoryIsSentWhenItChanges(t *testing.T) {
 	var buf memBuf
 	r := newLakeRunner(Env{Stdout: &buf, Stderr: &buf}, agentLake{opt: upload.Options{ServerURL: srv.URL}, inventory: protocol.InventoryStrict})
 	close(r.ready)
-	rows := []upload.InventoryRow{
-		{CWD: "/w/app", CWDs: 1, GitRemote: "git@git.example:team/app.git", Harnesses: []string{"claude"}, Sessions: 2, Bytes: 10},
-		{CWD: "/w/secret", CWDs: 1, Harnesses: []string{"codex"}, Sessions: 5, Bytes: 50, Reason: "no allow rule matches"},
+	// Each sync hands over rows of its own, as Sync does: the report
+	// loop reads the last ones while the next are built.
+	rows := func(sessions int) []upload.InventoryRow {
+		return []upload.InventoryRow{
+			{CWD: "/w/app", CWDs: 1, GitRemote: "git@git.example:team/app.git", Harnesses: []string{"claude"}, Sessions: sessions, Bytes: 10},
+			{CWD: "/w/secret", CWDs: 1, Harnesses: []string{"codex"}, Sessions: 5, Bytes: 50, Reason: "no allow rule matches"},
+		}
 	}
-	r.noteSync(upload.Result{Inventory: rows}, nil, time.Now())
+	r.noteSync(upload.Result{Inventory: rows(2)}, nil, time.Now())
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() { defer close(stopped); watchReports(ctx, r, 10*time.Millisecond) }()
@@ -196,13 +200,11 @@ func TestInventoryIsSentWhenItChanges(t *testing.T) {
 		t.Fatalf("sent %+v", inv)
 	}
 
-	rows[0].Sessions = 3
-	r.noteSync(upload.Result{Inventory: rows}, nil, time.Now())
+	r.noteSync(upload.Result{Inventory: rows(3)}, nil, time.Now())
 	waitFor("changed inventory", func() bool { return inventories.Load() == 2 })
 
 	missing.Store(true)
-	rows[0].Sessions = 4
-	r.noteSync(upload.Result{Inventory: rows}, nil, time.Now())
+	r.noteSync(upload.Result{Inventory: rows(4)}, nil, time.Now())
 	waitFor("to the older lake", func() bool { return inventories.Load() == 3 })
 	n = reports.Load()
 	waitFor("more reports", func() bool { return reports.Load() >= n+5 })
