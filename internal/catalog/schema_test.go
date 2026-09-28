@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -296,5 +297,51 @@ func TestRegistrationActorsMigration(t *testing.T) {
 	r, err := c.RevokeRegistration(t.Context(), "reg_old", ActorCLI, "test", now)
 	if err != nil || r.RevokedBy != ActorCLI {
 		t.Fatalf("revoke after migration: %+v %v", r, err)
+	}
+}
+
+func TestProfilesMigration(t *testing.T) {
+	// A schema 11 file with a device on a profile: it opens with no
+	// profiles, and the device still holds the profile it named.
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migrate := range migrations[:11] {
+		if err := migrate(tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO devices(id, name, token_sha256, source, profile, created_at) VALUES('dev_old', 'box', 'aa', 'token-file', 'ci', '2026-09-27T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`PRAGMA user_version=11`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	if list, err := c.Profiles(t.Context()); err != nil || len(list) != 0 {
+		t.Fatalf("profiles after migration: %+v %v", list, err)
+	}
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	if _, _, err := c.PutProfile(t.Context(), "ci", []byte(`{}`), ActorCLI, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteProfile(t.Context(), "ci", ActorCLI, "", now); !errors.Is(err, ErrProfileInUse) || !strings.Contains(err.Error(), "box") {
+		t.Fatalf("delete after migration: %v", err)
 	}
 }
