@@ -226,7 +226,7 @@ func TestHeadUpdatesMigrationInventsNothing(t *testing.T) {
 	p.mustPost("machine-a", "sessions/aaaa/sess-1.jsonl", []byte("{\"n\":1}\n"))
 	// Turn the file back into schema 7: a lake with a session and no
 	// history table.
-	if _, err := c.db.Exec(`DROP TABLE head_updates; DROP TABLE audit_outbox; DROP TABLE storage_samples; DROP TABLE device_reports; DROP TABLE profiles; DROP TABLE profile_revisions; DELETE FROM lake_meta WHERE key = 'head_updates_since'; PRAGMA user_version = 7`); err != nil {
+	if _, err := c.db.Exec(`DROP TABLE head_updates; DROP TABLE audit_outbox; DROP TABLE storage_samples; DROP TABLE device_reports; DROP TABLE profiles; DROP TABLE profile_revisions; DROP TABLE device_inventories; DELETE FROM lake_meta WHERE key = 'head_updates_since'; PRAGMA user_version = 7`); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Close(); err != nil {

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M11SR3XHMPNEF3H45DR6
 title: "Dashboard: per-device page with inventory and allow action"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:00:45Z
+updated_at: 2026-09-28T21:33:38Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
