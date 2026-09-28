@@ -198,14 +198,14 @@ func (s *Server) codes(r *http.Request, now time.Time) ([]codeView, error) {
 
 func (s *Server) listCodes(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
-		fail(w, catalog.ErrPage)
+		fail(w, r, catalog.ErrPage)
 		return
 	}
 	now := s.now()
 	items, err := s.codes(r, now)
 	if err != nil {
 		s.logError(r, "listing registration codes failed", err)
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, map[string]any{"items": items, "as_of": stampOf(now)})

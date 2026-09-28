@@ -136,13 +136,17 @@ func TestStructuredSearchThroughAPIAndPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bash, yes := "Bash", true
+	bash, yes, no := "Bash", true, false
 	evs := make([]normalize.Event, 6)
 	for i := range evs {
 		txt := fmt.Sprint("output ", i)
 		evs[i] = normalize.Event{SchemaVersion: 1, EventID: fmt.Sprint(i), SessionID: "s", Harness: "codex", RecordedAt: "2026-09-26T10:00:00Z", IngestedAt: "2026-09-26T10:00:01Z", Actor: normalize.ActorTool, EventType: normalize.EventToolResult, ContentText: &txt, Tool: normalize.Tool{Name: &bash}, RawType: "function_call_output", Redaction: normalize.Redaction{Status: "none"}}
-		if i == 4 {
+		switch i {
+		case 4:
 			evs[i].Tool.IsError = &yes
+		case 5:
+			// Claude Code records is_error false on a result that succeeded.
+			evs[i].Tool.IsError = &no
 		}
 	}
 	if err := lake.StoreEvents(t.Context(), uid, evs, nil); err != nil {
@@ -156,7 +160,7 @@ func TestStructuredSearchThroughAPIAndPage(t *testing.T) {
 	}
 	for q, want := range map[string]int{
 		"event_type=tool_result": 6, "tool_error=true": 1, "tool=Bash&tool_error=true&actor=tool": 1,
-		"raw_type=function_call_output": 6, "q=output+4&tool=Bash": 1, "tool=bash": 0, "tool_error=false": 0,
+		"raw_type=function_call_output": 6, "q=output+4&tool=Bash": 1, "tool=bash": 0, "tool_error=false": 1,
 	} {
 		w := get(h, "/api/web/v1/search?"+q, cookie)
 		var p recall.SearchPage
@@ -172,5 +176,34 @@ func TestStructuredSearchThroughAPIAndPage(t *testing.T) {
 	w := get(h, "/search?q=&event_type=&actor=&tool=Bash&raw_type=&tool_error=true&harness=&project=&since=&until=", cookie)
 	if w.Code != 200 || strings.Count(w.Body.String(), `<li class="hit">`) != 1 || !strings.Contains(w.Body.String(), "tool error") {
 		t.Fatal("structured page", w.Code)
+	}
+	// Only the result that failed is marked, not one recorded as not failing.
+	w = get(h, "/search?q=&event_type=tool_result&actor=&tool=Bash&raw_type=&harness=&project=&since=&until=", cookie)
+	if w.Code != 200 || strings.Count(w.Body.String(), `<li class="hit">`) != 6 || strings.Count(w.Body.String(), "tool error</span>") != 1 {
+		t.Fatal("tool error badges", w.Code, strings.Count(w.Body.String(), "tool error</span>"))
+	}
+}
+
+// A read that fails with an error the page does not recognise is a 500
+// named only read_failed, and the lake's access log line for it carries
+// the error, so the cause can be found (TKT-01M3MHBT5).
+func TestReadFailureIsLogged(t *testing.T) {
+	lake, idp, h, logs := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	if err := indexes[lake].Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := get(h, "/search?q=anything", cookie)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "read_failed") || strings.Contains(w.Body.String(), "closed") {
+		t.Fatal("page", w.Code, w.Body.String())
+	}
+	var line string
+	for _, l := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(l, "path=/search") && strings.Contains(l, "status=500") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "err=") || !strings.Contains(line, "closed") {
+		t.Fatalf("access log line %q", line)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/api"
-	"terva.sh/lampi/internal/lakelock"
 )
 
 const compactUsage = `terva-lampi serve compact — store each grown file's bytes once
@@ -64,9 +63,9 @@ func runServeCompact(env Env, args []string) error {
 		return err
 	}
 	if !dryRun {
-		lock, err := lakelock.Acquire(data)
+		lock, err := lockLake("compact", data, "--dry-run")
 		if err != nil {
-			return fmt.Errorf("compact: %w; stop serve first, or pass --dry-run", err)
+			return err
 		}
 		defer lock.Release()
 	} else if err := requireCurrentSchema(data); err != nil {
