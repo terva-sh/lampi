@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0QVMMW0TQ6RGAYDZEF82
 title: "Container: production Containerfile for the lake, amd64 and arm64"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -20,17 +20,10 @@ blocks_on: none
 references:
   - ref: pr:forgejo/terva-sh/lampi#77
     path: null
-claim:
-  actor: agent:claude-code/aa1afd80
-  branch: self-host/containerfile
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
-  commit: f7ff0599b46d967fe734cef30a928c088624413a
-  session: null
-  claimed_at: 2026-09-28T17:03:15Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T16:01:56Z
-updated_at: 2026-09-28T17:19:25Z
+updated_at: 2026-09-28T17:31:55Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -141,3 +134,7 @@ This machine has Podman 5 and no Docker, so every check below used `podman`. Doc
 **agent:claude-code/aa1afd80** at 2026-09-28T17:19:25Z
 
 terva-review on PR #77 (run 770) flagged the final-stage COPY of the lake directory: without --chown, Docker may make it 0:0, which 65532 can't enter at mode 0700. Buildah had kept the owner, which is why the Podman runs worked, but Docker documents 0:0 for COPY without --chown. Fixed by copying the directory's parent with --chown=65532:65532, so terva-lampi arrives as a copied entry with its 0700 mode and /var/lib keeps root. Putting --chown on the old whole-tree copy would have handed /var and /var/lib to 65532. --chmod on a copy of the directory itself left the directory at 0755. The mounted image shows /var and /var/lib at 0:0 755 and /var/lib/terva-lampi at 65532:65532 700. The fresh-volume and hardened runs pass again.
+
+## Summary
+
+Dockerfile at the repository root builds the lake image for linux/amd64 and linux/arm64: distroless static nonroot, both bases pinned by index digest, Go cross-compiled on the build platform with no QEMU. The lake is /var/lib/terva-lampi (the systemd path), owned by 65532 with mode 0700, and XDG_STATE_HOME=/var/lib means serve subcommands need no --data. HEALTHCHECK runs serve healthcheck with a 5-minute start period. The default command is serve --addr 0.0.0.0:8787 --token-file /var/lib/terva-lampi/tokens --behind-proxy; the new --behind-proxy flag needs a nonempty token set. just image and make image build terva-lampi:dev. Verified with Podman only; the first Docker/buildx build is the release CI ticket's. PR #77.
