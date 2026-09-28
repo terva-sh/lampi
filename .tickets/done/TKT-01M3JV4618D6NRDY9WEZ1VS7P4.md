@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV4618D6NRDY9WEZ1VS7P4
 title: "Serve: Prometheus text metrics on an opt-in listener"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/metrics
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: ca474ecf82cedfbc686337e340b3bbde7b6e459b
-  session: null
-  claimed_at: 2026-09-28T02:16:44Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:16:44Z
+updated_at: 2026-09-28T02:41:26Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -97,3 +90,27 @@ Decisions, with the alternatives each one beat:
 Checked: a throwaway serve with `--metrics-addr` answered a curl
 scrape, refused `0.0.0.0` without `--metrics-public`, and shut down
 cleanly.
+
+## Summary
+
+Landed in PR #52. `serve --metrics-addr` serves `GET /metrics` in the
+Prometheus text format on its own listener:
+
+- off by default
+- loopback only unless `--metrics-public` is also given
+- GET and HEAD only
+
+Families cover build info, start time and schema; storage by component,
+with the sample time, filesystem size and free space, and artifact
+bytes; sessions, total and by normalization state; the audit outbox;
+each device's last contact and last new data; and request and
+body-byte counters by route class.
+
+The example unit takes `LAMPI_SERVE_METRICS_ADDR`. `deploy/README.md`
+suggests alerts.
+
+Review:
+
+- Rejected, with evidence: the claim that the 24-hour cutoff hides
+  last-data timestamps. The cutoff only bounds the recent-update count.
+- Accepted: GET-only.

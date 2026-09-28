@@ -83,6 +83,11 @@ func TestMetricsExposition(t *testing.T) {
 	if w.Code != 404 {
 		t.Errorf("other path: %d", w.Code)
 	}
+	w = httptest.NewRecorder()
+	m.ServeHTTP(w, httptest.NewRequest("POST", "/metrics", nil))
+	if w.Code != 405 || w.Header().Get("Allow") != "GET, HEAD" {
+		t.Errorf("POST: %d %q", w.Code, w.Header().Get("Allow"))
+	}
 }
 
 func TestRouteClass(t *testing.T) {

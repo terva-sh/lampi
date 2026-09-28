@@ -111,6 +111,11 @@ func (s *Server) MetricsHandler(info MetricsInfo) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		var b strings.Builder
