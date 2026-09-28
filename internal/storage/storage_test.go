@@ -76,8 +76,24 @@ func TestMeasure(t *testing.T) {
 	if got[CAS].Bytes < 5010 {
 		t.Errorf("cas bytes %d, less than the data written", got[CAS].Bytes)
 	}
-	if got[Normalized].Bytes != 0 {
-		t.Errorf("followed a symlink: normalized %d bytes", got[Normalized].Bytes)
+	if got[Normalized].Bytes != 0 || got[Normalized].Files != 0 {
+		t.Errorf("followed a symlink: normalized %+v", got[Normalized])
+	}
+	if runtime.GOOS != "windows" {
+		// A lake directory reached through a symlink measures the same.
+		link := filepath.Join(t.TempDir(), "lake")
+		if err := os.Symlink(dir, link); err != nil {
+			t.Fatal(err)
+		}
+		via, err := Measure(t.Context(), link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range Components {
+			if via[c] != got[c] {
+				t.Errorf("%s through a symlink %+v, direct %+v", c, via[c], got[c])
+			}
+		}
 	}
 	if _, err := Measure(t.Context(), filepath.Join(dir, "missing")); err == nil {
 		t.Error("measuring a missing directory succeeded")

@@ -50,8 +50,11 @@ type Use struct {
 	Files int64 `json:"files"`
 }
 
-// Measure walks dir and returns the use of each component. It does not
-// follow symlinks, and a symlink occupies nothing here. A file removed
+// Measure walks dir and returns the use of each component. A symlink
+// to the lake directory is resolved, and nothing under it is followed:
+// a symlink inside the lake occupies nothing here. A directory's own
+// blocks count toward the component it holds, and Files counts
+// regular files only. A file removed
 // during the walk is skipped: the lake keeps running while it is
 // measured. Cancelling ctx stops the walk.
 func Measure(ctx context.Context, dir string) (map[string]Use, error) {
@@ -59,17 +62,21 @@ func Measure(ctx context.Context, dir string) (map[string]Use, error) {
 	for _, c := range Components {
 		out[c] = Use{}
 	}
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("storage: %w", err)
+	}
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) && path != dir {
+			if errors.Is(err, fs.ErrNotExist) && path != root {
 				return nil
 			}
 			return err
 		}
-		if !d.Type().IsRegular() {
+		if !d.Type().IsRegular() && !d.IsDir() {
 			return nil
 		}
 		info, err := d.Info()
@@ -79,14 +86,21 @@ func Measure(ctx context.Context, dir string) (map[string]Use, error) {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(dir, path)
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		c := classify(filepath.ToSlash(rel))
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			// A directory belongs with what it holds.
+			rel += "/-"
+		}
+		c := classify(rel)
 		u := out[c]
 		u.Bytes += allocated(info)
-		u.Files++
+		if !d.IsDir() {
+			u.Files++
+		}
 		out[c] = u
 		return nil
 	})
