@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:56Z
-updated_at: 2026-09-28T16:06:48Z
+updated_at: 2026-09-28T17:09:36Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -56,7 +56,7 @@ Check what `/healthz` reports during start-up. The catalog opens and migrates be
 ## Acceptance criteria
 
 - [x] A subcommand exits 0 when /healthz answers 200 and non-zero otherwise, without reading tokens or the catalog
-- [ ] The image HEALTHCHECK uses it
+- [x] The image HEALTHCHECK uses it
 - [x] /healthz does not report healthy before the catalog is open and migrated
 
 ## Implementation plan
@@ -90,3 +90,7 @@ I ran the built binary against a scratch lake on 127.0.0.1:18799, away from the 
 **Criterion 2 is unticked.** "The image HEALTHCHECK uses it" needs the production image, which doesn't exist yet. TKT-01M3MC0QV ("Container: production Containerfile for the lake, amd64 and arm64") depends on this ticket and already says to wire it in, so tick it when that lands.
 
 **Dropped a test.** I wrote a test that `HTTP_PROXY` is ignored, then removed it: Go's default transport already bypasses the proxy for loopback, so the test passed either way and proved nothing. The transport still sets `Proxy: nil`, which matters when `--addr` names a non-loopback host.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T17:09:36Z
+
+The Dockerfile added under TKT-01M3MC0QV (Container: production Containerfile for the lake, amd64 and arm64) runs serve healthcheck as its HEALTHCHECK, and podman healthcheck run reported healthy against the built image. That ticks criterion 2.
