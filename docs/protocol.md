@@ -428,6 +428,7 @@ changes, not on every sync.
 ```json
 {
   "mode": "sociable",
+  "generated_at": "2026-09-28T14:41:10Z",
   "refused_sessions": 221,
   "refused_bytes": 9437184,
   "projects": [
@@ -441,6 +442,8 @@ changes, not on every sync.
 ```
 
 - `mode` is `sociable` or `strict`; anything else is `400`.
+- `generated_at` is when the agent took the snapshot, by its own clock,
+  and is required.
 - A project is grouped as `agent refused` groups it: by the folded git
   remote when there is one, else by cwd, and apart by verdict and
   reason. `cwd` is one checkout and `cwds` counts them.
@@ -452,9 +455,13 @@ changes, not on every sync.
   `truncated`, as an agent with more does. The body is capped at 2 MiB,
   a cwd or remote at 1 KiB.
 
-The lake keeps only each device's newest inventory, and an older one
-that arrives late does not replace it. The answer is
-`{"received_at": "..."}`. A lake with no device tokens answers the same
+The lake keeps only each device's newest inventory, ordered by
+`generated_at` rather than by arrival, so a request that lands after a
+newer snapshot's does not replace it. A `generated_at` later than the
+lake's clock counts as the lake's now, so an agent whose clock runs
+ahead does not hold off the snapshots after it. The answer is
+`{"received_at": "...", "kept": true}`, and `kept` is false when the
+lake already held a snapshot generated later. A lake with no device tokens answers the same
 and keeps nothing. A lake from before the inventory answers `404`.
 
 ## POST /v1/blobs/check

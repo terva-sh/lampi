@@ -269,8 +269,12 @@ const MaxInventoryProjects = 2000
 
 // AgentInventory is the body of POST AgentInventoryPath.
 type AgentInventory struct {
-	Mode     string             `json:"mode"`
-	Projects []InventoryProject `json:"projects"`
+	Mode string `json:"mode"`
+	// GeneratedAt is when the agent took the snapshot, by its clock. The
+	// lake orders one device's inventories by it, so a request that
+	// lands late does not replace a newer snapshot. Required.
+	GeneratedAt time.Time          `json:"generated_at"`
+	Projects    []InventoryProject `json:"projects"`
 	// RefusedSessions and RefusedBytes total the sessions the allowlist
 	// refuses. In strict mode they are all the lake learns of them.
 	RefusedSessions int   `json:"refused_sessions"`
@@ -305,6 +309,9 @@ type InventoryProject struct {
 // AgentInventoryResponse answers POST AgentInventoryPath.
 type AgentInventoryResponse struct {
 	ReceivedAt time.Time `json:"received_at"`
+	// Kept is false when the lake already holds a snapshot generated
+	// later, and kept that one.
+	Kept bool `json:"kept"`
 }
 
 // AgentReportResponse answers POST AgentReportPath. ReceivedAt is the

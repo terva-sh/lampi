@@ -12,12 +12,14 @@ import (
 )
 
 // migrateDeviceInventories adds device_inventories: the newest
-// inventory each device sent, and when the lake received it, in Unix
-// nanoseconds. Paths and remotes can name a client, so an inventory
-// replaces the one before and the table holds no history.
+// inventory each device sent, when the agent generated it and when the
+// lake received it, in Unix nanoseconds. Paths and remotes can name a
+// client, so an inventory replaces the one before and the table holds
+// no history.
 func migrateDeviceInventories(tx *sql.Tx) error {
 	_, err := tx.Exec(`CREATE TABLE device_inventories (
 		device_id TEXT PRIMARY KEY REFERENCES devices(id),
+		generated_ns INTEGER NOT NULL,
 		received_ns INTEGER NOT NULL,
 		inventory TEXT NOT NULL
 	)`)
@@ -32,22 +34,33 @@ type DeviceInventory struct {
 }
 
 // PutDeviceInventory records inv as device id's newest inventory,
-// received at now. An inventory received after now stays, as for
-// reports.
-func (c *Catalog) PutDeviceInventory(ctx context.Context, id string, inv protocol.AgentInventory, now time.Time) error {
+// received at now, and reports whether it was kept. The order is the
+// agent's: an inventory generated after inv.GeneratedAt stays, however
+// the requests arrived. A GeneratedAt after now counts as now, so an
+// agent whose clock runs ahead cannot pin a snapshot the ones after it
+// never replace.
+func (c *Catalog) PutDeviceInventory(ctx context.Context, id string, inv protocol.AgentInventory, now time.Time) (bool, error) {
+	if inv.GeneratedAt.After(now) {
+		inv.GeneratedAt = now
+	}
 	raw, err := json.Marshal(inv)
 	if err != nil {
-		return fmt.Errorf("catalog: %w", err)
+		return false, fmt.Errorf("catalog: %w", err)
 	}
-	_, err = c.db.ExecContext(ctx, `
-		INSERT INTO device_inventories (device_id, received_ns, inventory) VALUES (?, ?, ?)
-		ON CONFLICT(device_id) DO UPDATE SET received_ns = excluded.received_ns, inventory = excluded.inventory
-		WHERE excluded.received_ns >= device_inventories.received_ns`,
-		id, now.UnixNano(), string(raw))
+	res, err := c.db.ExecContext(ctx, `
+		INSERT INTO device_inventories (device_id, generated_ns, received_ns, inventory) VALUES (?, ?, ?, ?)
+		ON CONFLICT(device_id) DO UPDATE SET generated_ns = excluded.generated_ns,
+			received_ns = excluded.received_ns, inventory = excluded.inventory
+		WHERE excluded.generated_ns >= device_inventories.generated_ns`,
+		id, inv.GeneratedAt.UnixNano(), now.UnixNano(), string(raw))
 	if err != nil {
-		return fmt.Errorf("catalog: %w", err)
+		return false, fmt.Errorf("catalog: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	return n > 0, nil
 }
 
 // DeviceInventoryOf returns device id's newest inventory; false when it

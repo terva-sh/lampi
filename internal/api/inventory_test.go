@@ -30,7 +30,7 @@ func TestAgentInventoryIsStoredForTheCallingDevice(t *testing.T) {
 	ctx := t.Context()
 	at := time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC)
 	s.Now = func() time.Time { return at }
-	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, RefusedSessions: 221, RefusedBytes: 9 << 20, Projects: []protocol.InventoryProject{
+	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: at.Add(-time.Second), RefusedSessions: 221, RefusedBytes: 9 << 20, Projects: []protocol.InventoryProject{
 		{GitRemote: "github.com/acme/app", CWD: "/work/app", CWDs: 2, Harnesses: []string{"claude"}, Sessions: 12, Bytes: 4096, Newest: at, Allowed: true},
 		{CWD: "/home/me/" + strings.Repeat("x", 2*maxInventoryPath), CWDs: 1, Harnesses: []string{"codex"}, Sessions: 221, Reason: "no allow rule matches"},
 	}}
@@ -50,9 +50,10 @@ func TestAgentInventoryIsStoredForTheCallingDevice(t *testing.T) {
 	// A strict inventory replaces it, and keeps no refused row even if
 	// one was sent.
 	at = at.Add(time.Minute)
-	inv.Mode = protocol.InventoryStrict
+	sociable := body
+	inv.Mode, inv.GeneratedAt = protocol.InventoryStrict, at.Add(-time.Second)
 	body, _ = json.Marshal(inv)
-	if rr := postInventory(t, s, laptopToken, body); rr.Code != http.StatusOK {
+	if rr := postInventory(t, s, laptopToken, body); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"kept":true`) {
 		t.Fatalf("strict %d %s", rr.Code, rr.Body)
 	}
 	got, _, _ = s.Catalog.DeviceInventoryOf(ctx, laptop.ID)
@@ -60,12 +61,28 @@ func TestAgentInventoryIsStoredForTheCallingDevice(t *testing.T) {
 		t.Fatalf("strict stored %+v", got.Inventory)
 	}
 
-	// An older inventory landing late does not replace a newer one.
-	if err := s.Catalog.PutDeviceInventory(ctx, laptop.ID, protocol.AgentInventory{Mode: "sociable"}, at.Add(-time.Hour)); err != nil {
-		t.Fatal(err)
+	// The sociable snapshot's request landing after the strict one's,
+	// and so received later, does not bring its refused rows back.
+	at = at.Add(time.Minute)
+	if rr := postInventory(t, s, laptopToken, sociable); rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"kept":false`) {
+		t.Fatalf("late %d %s", rr.Code, rr.Body)
 	}
 	if got, _, _ = s.Catalog.DeviceInventoryOf(ctx, laptop.ID); got.Inventory.Mode != "strict" {
 		t.Fatal("an older inventory replaced a newer one")
+	}
+
+	// A clock running ahead counts as the lake's now, so it does not
+	// hold off the snapshots after it.
+	inv.Mode, inv.GeneratedAt = protocol.InventorySociable, at.Add(24*time.Hour)
+	body, _ = json.Marshal(inv)
+	if rr := postInventory(t, s, laptopToken, body); rr.Code != http.StatusOK {
+		t.Fatalf("ahead %d %s", rr.Code, rr.Body)
+	}
+	at = at.Add(time.Minute)
+	inv.Mode, inv.GeneratedAt = protocol.InventoryStrict, at
+	body, _ = json.Marshal(inv)
+	if rr := postInventory(t, s, laptopToken, body); !strings.Contains(rr.Body.String(), `"kept":true`) {
+		t.Fatalf("after ahead %d %s", rr.Code, rr.Body)
 	}
 	desktop, _ := s.Catalog.DeviceByName(ctx, "desktop")
 	if _, ok, _ := s.Catalog.DeviceInventoryOf(ctx, desktop.ID); ok {
@@ -76,9 +93,10 @@ func TestAgentInventoryIsStoredForTheCallingDevice(t *testing.T) {
 func TestAgentInventoryRefusals(t *testing.T) {
 	s, _, _, _, _ := devicesLake(t)
 	for body, code := range map[string]int{
-		`{"mode":"loud","projects":[]}`: http.StatusBadRequest,
-		`{"projects":[]}`:               http.StatusBadRequest,
-		`{"mode":`:                      http.StatusBadRequest,
+		`{"mode":"loud","generated_at":"2026-09-28T15:00:00Z"}`: http.StatusBadRequest,
+		`{"generated_at":"2026-09-28T15:00:00Z"}`:               http.StatusBadRequest,
+		`{"mode":"strict","projects":[]}`:                       http.StatusBadRequest,
+		`{"mode":`:                                              http.StatusBadRequest,
 	} {
 		if rr := postInventory(t, s, laptopToken, []byte(body)); rr.Code != code {
 			t.Errorf("%s: %d", body, rr.Code)
@@ -96,7 +114,7 @@ func TestAgentInventoryRefusals(t *testing.T) {
 	for i := range rows {
 		rows[i] = protocol.InventoryProject{CWD: "/p", Allowed: true}
 	}
-	body, _ := json.Marshal(protocol.AgentInventory{Mode: "sociable", Projects: rows})
+	body, _ := json.Marshal(protocol.AgentInventory{Mode: "sociable", GeneratedAt: time.Now(), Projects: rows})
 	if rr := postInventory(t, s, laptopToken, body); rr.Code != http.StatusOK {
 		t.Fatalf("many rows: %d", rr.Code)
 	}

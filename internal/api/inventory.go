@@ -27,18 +27,23 @@ func (s *Server) agentInventory(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusBadRequest, errors.New("inventory: mode must be sociable or strict"))
 		return
 	}
+	if inv.GeneratedAt.IsZero() {
+		s.fail(w, r, http.StatusBadRequest, errors.New("inventory: generated_at is required"))
+		return
+	}
 	now := s.now().UTC()
 	d, ok := r.Context().Value(deviceKey{}).(catalog.Device)
 	if !ok {
-		writeJSON(w, http.StatusOK, protocol.AgentInventoryResponse{ReceivedAt: now})
+		writeJSON(w, http.StatusOK, protocol.AgentInventoryResponse{ReceivedAt: now, Kept: true})
 		return
 	}
 	clampInventory(&inv)
-	if err := s.Catalog.PutDeviceInventory(r.Context(), d.ID, inv, now); err != nil {
+	kept, err := s.Catalog.PutDeviceInventory(r.Context(), d.ID, inv, now)
+	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.AgentInventoryResponse{ReceivedAt: now})
+	writeJSON(w, http.StatusOK, protocol.AgentInventoryResponse{ReceivedAt: now, Kept: kept})
 }
 
 // clampInventory keeps what the lake stores within its caps, and holds
