@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
@@ -20,7 +21,7 @@ import (
 const backupUsage = `terva-lampi serve backup — copy the lake to a directory
 
 usage:
-  terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
+  terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH] [--prune]
 
 Writes DIR/catalog.db, then DIR/cas/sha256 and DIR/cas/logical, then
 DIR/identity.json, then DIR/audit.jsonl, then the token file. It runs while serve runs. The catalog is a VACUUM
@@ -39,6 +40,14 @@ and identity.json is missing or names another lake, the backup fails.
 --token-file is the file or directory serve reads. It is copied to
 DIR under its own name. The copy holds sha256 lines, not tokens,
 once serve has rewritten it.
+
+A backup only adds to DIR. A session serve purge removed, and the
+versions serve compact folded away, stay in it. --prune then removes
+from DIR every object and logical entry that DIR's own catalog no
+longer reaches, by the rule serve compact keeps a lake by. It runs only
+after every copy above succeeded, reads nothing from the lake, and
+changes nothing outside DIR/cas. Backups that tools such as restic
+took earlier still hold what it removed; forget those snapshots too.
 
 The backup is the lake in plaintext. Keep DIR on encrypted storage.
 `
@@ -75,10 +84,12 @@ func runServeBackup(env Env, args []string) error {
 		return nil
 	}
 	var data, out, tokenFile string
+	var prune bool
 	rest, err := parseFlags(env, args, backupUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&out, "out", "", "backup directory")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file or directory to copy")
+		fs.BoolVar(&prune, "prune", false, "afterwards, remove what the backup's catalog no longer reaches")
 	})
 	if err != nil {
 		return err
@@ -130,6 +141,19 @@ func runServeBackup(env Env, args []string) error {
 			return err
 		}
 		fmt.Fprintf(env.stdout(), "token file: %s\n", dst)
+	}
+	// Every copy above returned without error, so the catalog in out
+	// is the snapshot the CAS copy completed. A failure earlier never
+	// gets here.
+	if prune {
+		rep, err := api.PruneBackup(context.Background(), out)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(env.stdout(), "prune: removed %d objects (%.1f MiB) and %d logical entries\n", rep.Objects, float64(rep.Bytes)/(1<<20), rep.Logical)
+		if len(rep.Missing) > 0 {
+			fmt.Fprintf(env.stderr(), "terva-lampi serve backup: the backup's catalog names %d digests its CAS lacks, first %s; run serve fsck --data %s\n", len(rep.Missing), rep.Missing[0], out)
+		}
 	}
 	return nil
 }

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0S0VZDF9A9SF80WV2SWR
 title: "Ops: scheduled and off-host lake backups for container deployments"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M3MC0QVMMW0TQ6RGAYDZEF82
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/aa1afd80
+  branch: self-host/backups
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
+  commit: b3fe43033b0f2e879ffd0c78d4490b5249c911ab
+  session: null
+  claimed_at: 2026-09-28T21:35:10Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T20:35:33Z
+updated_at: 2026-09-28T21:35:10Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -68,3 +75,15 @@ Settle the dependency on TKT-01M3FBQX: the container docs should use encrypted b
 ### Open before the restore drill
 
 The derived files (`normalized/`, `parquet/`, `search.db`) aren't in a backup. The systemd drill rebuilds them with `export` before `serve` starts. Check whether `serve` or `serve normalize --all` rebuilds them in a container, where `export` needs a writable output path.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T21:35:07Z
+
+### serve backup --prune built
+
+- `internal/api/live.go` holds `liveDigests`, the reachability walk `serve compact` used inline, so compact and prune share one rule for what a lake needs. The walk starts from the catalog's referenced digests and each session's last manifest, and follows prefix records and chunk lists. Compact's dry run still passes its planned folds.
+- `api.PruneBackup(dir)` opens the backup's own `catalog.db` read-only, walks it against `dir/cas`, and removes every object and logical entry outside that set. `serve backup --prune` calls it only after the catalog, CAS, identity, audit and token copies all succeeded.
+- A logical entry that doesn't parse stops the prune before anything is removed, the same rule compact follows. A digest the catalog names and the CAS lacks is reported on stderr, but it doesn't stop the prune, because removing other things can't make it worse.
+- The alternative was to prune by comparing against the lake's CAS, removing from the backup whatever the lake no longer holds. It lost because it reads the live lake a second time, after the snapshot, and so would race uploads and compaction. Pruning against the backup's own catalog is self-contained, and it gives the same answer run later against a restored copy.
+- Compact keeps a cutoff so it doesn't remove objects uploaded but not yet named. The backup has no in-flight uploads, so prune doesn't need one.
+
+`--every` is filed separately as draft TKT-01M3MZ2G (Ops: serve backup --every for an in-container backup schedule), at the owner's request.
