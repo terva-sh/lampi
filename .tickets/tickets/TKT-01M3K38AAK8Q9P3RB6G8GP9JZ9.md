@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K38AAK8Q9P3RB6G8GP9JZ9
 title: "Lake storage grows quadratically: every grown transcript version is a full copy"
 type: bug
-status: draft
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -12,15 +12,22 @@ labels:
   - area/server
 assignees: []
 milestone: null
-parent: null
+parent: TKT-01M3K45MQBRESGG5HEZZSZ3FDQ
 origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: tickets/lake-growth
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: 166beea48329836945572e4c735c94dfd8ad82a3
+  session: null
+  claimed_at: 2026-09-28T04:25:34Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T04:09:33Z
-updated_at: 2026-09-28T04:18:02Z
+updated_at: 2026-09-28T04:25:34Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
