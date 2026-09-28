@@ -174,3 +174,27 @@ func TestStructuredSearchThroughAPIAndPage(t *testing.T) {
 		t.Fatal("structured page", w.Code)
 	}
 }
+
+// A read that fails with an error the page does not recognise is a 500
+// named only read_failed, and the lake's access log line for it carries
+// the error, so the cause can be found (TKT-01M3MHBT5).
+func TestReadFailureIsLogged(t *testing.T) {
+	lake, idp, h, logs := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	if err := indexes[lake].Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := get(h, "/search?q=anything", cookie)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "read_failed") || strings.Contains(w.Body.String(), "closed") {
+		t.Fatal("page", w.Code, w.Body.String())
+	}
+	var line string
+	for _, l := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(l, "path=/search") && strings.Contains(l, "status=500") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "err=") || !strings.Contains(line, "closed") {
+		t.Fatalf("access log line %q", line)
+	}
+}

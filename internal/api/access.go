@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/reqlog"
 )
 
 // Body caps. A JSON body over its cap is 413. blobs/check carries one
@@ -101,8 +102,14 @@ func (s *Server) serveHTTP(next http.Handler) http.Handler {
 		aw := &accessWriter{ResponseWriter: w}
 		info := &requestInfo{body: &countingBody{ReadCloser: r.Body}}
 		r = r.WithContext(context.WithValue(r.Context(), requestInfoKey{}, info))
+		r, slot := reqlog.With(r)
 		r.Body = info.body
 		next.ServeHTTP(aw, r)
+		// A handler outside this package, such as the web UI's, records
+		// its error on the slot.
+		if info.err == nil {
+			info.err = slot.Err
+		}
 		s.logRequest(r, aw, info, time.Since(start))
 	})
 }
