@@ -196,8 +196,15 @@ func TestAgentCancelSkipsFailedSyncRetry(t *testing.T) {
 		}, "", "")
 	}()
 
+	// Wait for the failed push itself: the lake counted its hello and
+	// the agent printed the refusal. A bare "503" also matched the
+	// random t.TempDir name in the terva_home line, which cancelled
+	// before the first push (TKT-01M3DMVE).
 	waitOut(t, &buf, func(s string) bool {
-		return strings.Contains(s, "503")
+		mu.Lock()
+		n := hellos
+		mu.Unlock()
+		return n >= 1 && strings.Contains(s, "POST /v1/hello: 503")
 	})
 	cancel()
 	select {
