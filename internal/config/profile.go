@@ -178,6 +178,22 @@ func LoadProfiles(path string) (Profiles, error) {
 	return out, nil
 }
 
+// ReadProfilesFile reads a profiles file for an import: each profile's
+// raw document by name, as the file holds them. Unlike LoadProfiles it
+// adds no default and leaves each document to the importer's checks.
+// A missing file is an error.
+func ReadProfilesFile(path string) (map[string]json.RawMessage, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var f profilesFile
+	if err := decodeStrict(raw, &f); err != nil {
+		return nil, fmt.Errorf("profiles: %s: %w", path, err)
+	}
+	return f.Profiles, nil
+}
+
 func decodeStrict(raw []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()

@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-28T14:45:12Z
+updated_at: 2026-09-28T15:32:00Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -110,3 +110,7 @@ AC4 is in the owner's hands: they will register NeoT, their main laptop and the 
 **agent:claude-code/2cf53976** at 2026-09-28T14:45:12Z
 
 2026-09-28: the first remote device (tehbeast, dev_5367lazjlql5ck435rvffchi44) refused all 221 sessions because the lake had no default profile allow rules. A default profile copied from brokkr's local allowlist (28 allow rules, agent debounce 5s/30s, version sha256:8427a42989cbc15f) was prepared for /var/lib/terva-lampi/profiles.json; installing it needs sudo on brokkr. Follow-up design is epic TKT-01M3M7KB32 (Lake-managed agent config: dashboard editing, push, inventory).
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:32:00Z
+
+Upgrade step for brokkr once the catalog-profiles PRs land (#69, #70 and the import PR): run 'terva-lampi serve profiles import /var/lib/terva-lampi/profiles.json --note "import from file" --data /var/lib/terva-lampi' as the terva-lampi user, then move the file aside. Until the import runs, the lake serves an empty default profile and tehbeast uploads nothing.

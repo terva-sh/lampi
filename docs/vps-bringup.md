@@ -227,6 +227,27 @@ device gets the `default` profile unless its code named one or
 `config.json` wins over every field. A saved profile applies at each
 agent's next fetch.
 
+Manage profiles with `serve profiles`, which runs while `serve` runs:
+
+```sh
+terva-lampi serve profiles import profiles.json --note "first import" --data /var/lib/terva-lampi
+terva-lampi serve profiles list --data /var/lib/terva-lampi
+terva-lampi serve profiles show default --revisions --data /var/lib/terva-lampi
+terva-lampi serve profiles set ci ci.json --note "why" --data /var/lib/terva-lampi
+terva-lampi serve profiles delete ci --data /var/lib/terva-lampi
+```
+
+`import` checks every profile in the file before it saves any, and a
+profile whose document has not changed is left alone. `delete` refuses
+`default` and a profile a device uses.
+
+**Upgrading from a lake that read `profiles.json`:** after the upgrade,
+`serve` serves an empty default profile until you import the file, and
+agents with no allow rules of their own then upload nothing. Run
+`serve profiles import` with the old file as part of the upgrade. Until
+the file is removed or moved, `serve` prints a warning at start and on
+every SIGHUP saying that it is not in force.
+
 ## Serve on loopback
 
 The default bind is `127.0.0.1:8787`. Keep it. A non-loopback
