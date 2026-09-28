@@ -26,8 +26,16 @@ const IndexFile = "search.db"
 
 // indexVersion is the search.db schema. A file with any other version
 // is deleted and rebuilt rather than migrated: it holds nothing that
-// the derived files do not.
-const indexVersion = 1
+// the derived files do not. Version 2 is version 1 with incremental
+// auto-vacuum, which a file takes only before it has any pages.
+const indexVersion = 2
+
+// mergePages bounds the full-text merge after a pass, in leaf pages.
+// Rows deleted from an FTS5 index stay in its segments until they
+// merge, so a session re-indexed at every sync grew the file to about
+// four times its live size (TKT-01M3KC2DD). One bounded merge a pass
+// keeps it near 1.4 times, at a cost that does not grow with the index.
+const mergePages = 2000
 
 // IndexContentMax is how much of one event's content_text is indexed
 // and searchable. Text past it is still in the transcript.
@@ -105,6 +113,10 @@ type Index struct {
 	// failed holds the generation that could not be indexed, so it is
 	// not read again until a newer one is published.
 	failed map[string]int64
+	// merging is set while the last reclaim still merged segments, so
+	// the next pass merges again although it wrote nothing. Only Pass
+	// reads and writes it.
+	merging bool
 	// passes counts finished passes, for tests.
 	passes int
 	passed *sync.Cond
@@ -128,7 +140,7 @@ func indexDSN(path string) (string, error) {
 		return "", err
 	}
 	q := url.Values{}
-	for _, p := range []string{"busy_timeout(5000)", "journal_mode(WAL)", "synchronous(NORMAL)"} {
+	for _, p := range []string{"auto_vacuum(INCREMENTAL)", "busy_timeout(5000)", "journal_mode(WAL)", "synchronous(NORMAL)"} {
 		q.Add("_pragma", p)
 	}
 	q.Set("_txlock", "immediate")
@@ -302,10 +314,12 @@ func (x *Index) Pass(ctx context.Context) error {
 	cov.Behind = len(todo)
 	x.cov = cov
 	x.mu.Unlock()
+	wrote := len(todo) > 0
 	for uid := range have {
 		if keep[uid] {
 			continue
 		}
+		wrote = true
 		if err := x.remove(ctx, uid); err != nil {
 			return err
 		}
@@ -339,6 +353,16 @@ func (x *Index) Pass(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+	}
+	if wrote || x.merging {
+		more, err := x.reclaim(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			x.logger().Warn("search index reclaim failed", "err", err.Error())
+		}
+		x.merging = more
 	}
 	x.mu.Lock()
 	x.passes++
@@ -408,6 +432,32 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) er
 		return err
 	}
 	return x.deleteDocs(ctx, s.UID, "gen!=?", gen)
+}
+
+// reclaim merges up to mergePages of the full-text index, which drops
+// the rows deleted from it, and returns the pages that frees to the
+// filesystem. more is true when the merge changed the index, so there
+// may be more to merge.
+func (x *Index) reclaim(ctx context.Context) (more bool, err error) {
+	conn, err := x.db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+	var before, after int64
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM fts_data`).Scan(&before); err != nil {
+		return false, err
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO fts(fts, rank) VALUES('merge', ?)`, -mergePages); err != nil {
+		return false, err
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM fts_data`).Scan(&after); err != nil {
+		return false, err
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA incremental_vacuum`); err != nil {
+		return false, err
+	}
+	return after != before, nil
 }
 
 // remove drops every row of uid.
