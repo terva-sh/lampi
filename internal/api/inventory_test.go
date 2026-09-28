@@ -78,6 +78,14 @@ func TestAgentInventoryIsStoredForTheCallingDevice(t *testing.T) {
 		t.Fatalf("a tie was kept: %v %v", kept, err)
 	}
 
+	// A time before UnixNano's range orders first rather than wrapping
+	// past every real one.
+	ancient := inv
+	ancient.GeneratedAt = time.Date(1600, 1, 1, 0, 0, 0, 0, time.UTC)
+	if kept, err := s.Catalog.PutDeviceInventory(ctx, laptop.ID, ancient, at); err != nil || kept {
+		t.Fatalf("a time from 1600 was kept: %v %v", kept, err)
+	}
+
 	// A clock running ahead counts as the lake's now, so it does not
 	// hold off the snapshots after it.
 	inv.Mode, inv.GeneratedAt = protocol.InventorySociable, at.Add(24*time.Hour)
