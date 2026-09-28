@@ -346,6 +346,41 @@ type StatsResponse struct {
 	Sessions  int `json:"sessions"`
 	Artifacts int `json:"artifacts"`
 	Machines  int `json:"machines"`
+	// Normalization is absent from a lake older than the field.
+	Normalization *NormalizationStats `json:"normalization,omitempty"`
+}
+
+// NormalizationStats is how far the lake's derived views are behind
+// its raw sessions.
+//
+// Sessions counts sessions by state: pending (a job waits), failed,
+// ready, and unknown (no job and no result for the current head). Jobs
+// is every row in the job table, OldestPendingSeconds the age of the
+// oldest. Queued, Running and Retrying are what the serving process
+// holds now: waiting for a worker, running, and waiting on a retry
+// timer. A job the process gave up on stays in Jobs until the next
+// start or serve normalize.
+//
+// LastSuccess and LastFailure are since the process started, RFC 3339
+// UTC, and absent until one happens. A failure names its session and
+// not its message: the message can name a lake path, and the server
+// log has it.
+type NormalizationStats struct {
+	Sessions             map[string]int    `json:"sessions"`
+	Jobs                 int               `json:"jobs"`
+	OldestPendingSeconds float64           `json:"oldest_pending_seconds"`
+	Queued               int               `json:"queued"`
+	Running              int               `json:"running"`
+	Retrying             int               `json:"retrying"`
+	LastSuccess          string            `json:"last_success,omitempty"`
+	LastFailure          *NormalizeFailure `json:"last_failure,omitempty"`
+}
+
+// NormalizeFailure is the session whose normalization last failed, and
+// when.
+type NormalizeFailure struct {
+	SessionUID string `json:"session_uid"`
+	At         string `json:"at"`
 }
 
 // DivergentCopy is one catalog artifact stored as divergent_copy.

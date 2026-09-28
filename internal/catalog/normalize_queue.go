@@ -124,3 +124,28 @@ func (c *Catalog) Session(ctx context.Context, sessionUID string) (SessionInfo, 
 	}
 	return list[0], true, nil
 }
+
+// NormalizeBacklog is catalog.normalize_jobs at a glance: how many jobs
+// wait, including any this process has not loaded, and when the oldest
+// was queued. Oldest is zero when none wait.
+type NormalizeBacklog struct {
+	Jobs   int
+	Oldest time.Time
+}
+
+// NormalizeBacklog reads the job table's size and oldest enqueue time.
+func (c *Catalog) NormalizeBacklog(ctx context.Context) (NormalizeBacklog, error) {
+	var b NormalizeBacklog
+	var oldest sql.NullString
+	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*), MIN(enqueued_at) FROM normalize_jobs`).Scan(&b.Jobs, &oldest); err != nil {
+		return NormalizeBacklog{}, fmt.Errorf("catalog: %w", err)
+	}
+	if oldest.Valid && oldest.String != "" {
+		t, err := time.Parse(time.RFC3339Nano, oldest.String)
+		if err != nil {
+			return NormalizeBacklog{}, fmt.Errorf("catalog: normalize_jobs.enqueued_at %q: %w", oldest.String, err)
+		}
+		b.Oldest = t
+	}
+	return b, nil
+}

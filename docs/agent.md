@@ -112,6 +112,9 @@ uploads on its next start.
   the most recent error;
 - the files that attempt skipped (`last_skipped`, with up to five named);
 - the server and the token file, each with its `source`;
-- whether `/healthz` answered, and catalog counts from `GET /v1/stats`.
+- whether `/healthz` answered, catalog counts from `GET /v1/stats`, and the
+  lake's normalization: sessions by state, the job backlog, and the last
+  failure (`lake_normalization`, `lake_normalize_jobs`,
+  `lake_normalize_last_failure`).
 
 With more than one lake, `status` prints one block per lake.

@@ -155,6 +155,57 @@ func (m *metricWriter) sample(kind, name, help string, v float64, labels ...stri
 	fmt.Fprintf(m.w, " %s\n", strconv.FormatFloat(v, 'g', -1, 64))
 }
 
+// histogram writes a histogram: cumulative counts per upper bound, then
+// +Inf, the sum and the count.
+func (m *metricWriter) histogram(name, help string, bounds []float64, cumulative []int64, sum float64, count int64) {
+	fmt.Fprintf(m.w, "# HELP %s %s\n# TYPE %s histogram\n", name, help, name)
+	for i, le := range bounds {
+		fmt.Fprintf(m.w, "%s_bucket{le=\"%s\"} %d\n", name, strconv.FormatFloat(le, 'g', -1, 64), cumulative[i])
+	}
+	fmt.Fprintf(m.w, "%s_bucket{le=\"+Inf\"} %d\n", name, count)
+	fmt.Fprintf(m.w, "%s_sum %s\n", name, strconv.FormatFloat(sum, 'g', -1, 64))
+	fmt.Fprintf(m.w, "%s_count %d\n", name, count)
+}
+
+// writeNormalizeMetrics writes the normalize queue: what the workers
+// hold now, the job table's backlog, and what the workers did since
+// this process started. The last success starts at started, so an
+// alert on its age fires for a serve that never succeeds.
+func (s *Server) writeNormalizeMetrics(ctx context.Context, m *metricWriter, started time.Time) error {
+	backlog, err := s.Catalog.NormalizeBacklog(ctx)
+	if err != nil {
+		return err
+	}
+	m.sample("gauge", "lampi_normalize_pending_jobs", "Rows in the normalize job table, including jobs this process has not loaded.", float64(backlog.Jobs))
+	age := 0.0
+	if !backlog.Oldest.IsZero() {
+		age = max(0, s.now().Sub(backlog.Oldest).Seconds())
+	}
+	m.sample("gauge", "lampi_normalize_oldest_pending_age_seconds", "Age of the oldest row in the normalize job table; 0 when none wait.", age)
+	if s.norm != nil {
+		queued, running, retrying := s.norm.depth()
+		for _, st := range []struct {
+			state string
+			n     int
+		}{{"queued", queued}, {"running", running}, {"retrying", retrying}} {
+			m.sample("gauge", "lampi_normalize_jobs", "Normalize jobs this process holds: waiting for a worker, running, or waiting on a retry timer.", float64(st.n), "state", st.state)
+		}
+	}
+	snap := s.normStats.snapshot()
+	for _, r := range normalizeResults {
+		m.sample("counter", "lampi_normalize_jobs_total", "Normalize jobs finished in this process, by result.", float64(snap.results[r]), "result", r)
+	}
+	m.histogram("lampi_normalize_duration_seconds", "Time a worker spent on one normalize job.", normalizeBuckets, snap.cumulative, snap.sum, snap.count)
+	last := snap.lastSuccess
+	if last.IsZero() {
+		last = started
+	}
+	if !last.IsZero() {
+		m.sample("gauge", "lampi_normalize_last_success_timestamp_seconds", "When a normalize job last succeeded in this process, or when it started if none has, in Unix seconds.", unix(last))
+	}
+	return nil
+}
+
 // labelEscaper applies the text format's label escapes: backslash,
 // double quote and newline. Everything else, tabs and non-ASCII
 // included, is written as it is; Go's %q escapes would not parse.
@@ -209,6 +260,9 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 	m.sample("gauge", "lampi_sessions", "Stored sessions.", float64(overview.Sessions))
 	for _, st := range []string{"pending", "failed", "ready", "unknown"} {
 		m.sample("gauge", "lampi_sessions_by_normalization", "Stored sessions by normalization state.", float64(overview.Normalization[st]), "state", st)
+	}
+	if err := s.writeNormalizeMetrics(ctx, m, info.Started); err != nil {
+		return err
 	}
 	pending, err := s.Catalog.PendingAudit(ctx)
 	if err != nil {

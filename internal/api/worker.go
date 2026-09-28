@@ -41,7 +41,9 @@ type normalizeQueue struct {
 	// delayed counts retries waiting on a timer. waitIdle waits for
 	// them too.
 	delayed int
-	closed  bool
+	// finished counts jobs done since the queue was last idle.
+	finished int
+	closed   bool
 	// held counts each job, by session and generation, that is queued,
 	// waiting on a retry timer, or running. pushNew reads it so a
 	// reload of catalog.normalize_jobs does not queue a job twice.
@@ -131,13 +133,21 @@ func (q *normalizeQueue) pop() (catalog.NormalizeJob, bool) {
 }
 
 // done ends a job pop handed out. A retry of it was counted again by
-// later.
-func (q *normalizeQueue) done(job catalog.NormalizeJob) {
+// later. batch is true when this leaves the queue idle after at least
+// drainBatch jobs.
+func (q *normalizeQueue) done(job catalog.NormalizeJob) (batch bool) {
 	q.mu.Lock()
+	defer q.mu.Unlock()
 	q.inflight--
 	q.release(job)
+	q.finished++
 	q.cond.Broadcast()
-	q.mu.Unlock()
+	if len(q.items) > 0 || q.inflight > 0 || q.delayed > 0 {
+		return false
+	}
+	batch = q.finished >= drainBatch
+	q.finished = 0
+	return batch
 }
 
 // release drops one count of job from held. q.mu is held.
@@ -240,8 +250,12 @@ func (s *Server) normalizeLoop() {
 		if !ok {
 			return
 		}
-		s.runNormalize(job)
-		s.norm.done(job)
+		start := time.Now()
+		result := s.runNormalize(job)
+		s.normStats.record(job.SessionUID, result, time.Since(start), s.now())
+		if s.norm.done(job) {
+			s.drained()
+		}
 	}
 }
 
@@ -268,11 +282,12 @@ func (s *Server) enqueueNormalize(ctx context.Context, sessionUID string) error 
 // A panic does not stop the process. It is logged, recorded as the
 // session's normalize_error, and the job row is deleted, so a restart
 // does not load the same panic again.
-func (s *Server) runNormalize(job catalog.NormalizeJob) {
+func (s *Server) runNormalize(job catalog.NormalizeJob) (result string) {
 	defer func() {
 		if r := recover(); r != nil {
 			workerLog.Printf("normalize %s: panic: %v\n%s", job.SessionUID, r, debug.Stack())
 			s.recordPanic(job, r)
+			result = resultFailed
 		}
 	}()
 	if s.beforeProject != nil {
@@ -281,26 +296,24 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 	ctx := context.Background()
 	gen, head, ok, err := s.Catalog.NormalizeVersion(ctx, job.SessionUID)
 	if err != nil {
-		s.retryNormalize(job, "generation", err)
-		return
+		return retried(s.retryNormalize(job, "generation", err))
 	}
 	if !ok || gen != job.Gen {
-		return
+		return resultSuperseded
 	}
 	info, ok, err := s.Catalog.Session(ctx, job.SessionUID)
 	if err != nil {
-		s.retryNormalize(job, "session", err)
-		return
+		return retried(s.retryNormalize(job, "session", err))
 	}
 	if !ok {
-		return
+		return resultSuperseded
 	}
 	events, nerr := s.Project(ctx, info.Manifest)
 	keepJob := false
 	if nerr != nil {
 		if isTransient(nerr) {
 			if s.retryNormalize(job, "project", nerr) {
-				return
+				return resultRetried
 			}
 			keepJob = true
 		}
@@ -310,24 +323,40 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) {
 	defer unlock()
 	gen, currentHead, ok, err := s.Catalog.NormalizeVersion(ctx, job.SessionUID)
 	if err != nil {
-		s.retryNormalize(job, "generation", err)
-		return
+		return retried(s.retryNormalize(job, "generation", err))
 	}
 	if !ok || gen != job.Gen || currentHead != head {
-		return
+		return resultSuperseded
 	}
 	if err := s.storeGeneration(ctx, job.SessionUID, job.Gen, head, events, nerr); err != nil {
-		s.retryNormalize(job, "store", err)
-		return
+		return retried(s.retryNormalize(job, "store", err))
 	}
 	if keepJob {
-		return
+		return resultFailed
 	}
 	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
+		// The result is stored; only the row stays, and the backlog
+		// shows it. The job counts by its result, not this.
 		s.logger().Error("normalize job not cleared", "session_uid", job.SessionUID, "err", err.Error())
-		return
+		if nerr != nil {
+			return resultFailed
+		}
+		return resultOK
 	}
 	s.published(job.SessionUID)
+	if nerr != nil {
+		return resultFailed
+	}
+	return resultOK
+}
+
+// retried is the result of a job retryNormalize handled: queued again,
+// or out of attempts.
+func retried(again bool) string {
+	if again {
+		return resultRetried
+	}
+	return resultFailed
 }
 
 // OnPublished sets fn to be called with a session UID once a

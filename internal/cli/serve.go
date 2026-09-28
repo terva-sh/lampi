@@ -479,10 +479,19 @@ const storageEvery = time.Hour
 // in the background, until the lake closes. The first sample runs
 // beside start-up rather than before it: a large lake takes a while to
 // walk, and requests need not wait. A failure is reported and the next
-// tick tries again.
+// tick tries again. A batch of normalize jobs draining takes a sample
+// too, so derived stores it rewrote are measured without waiting for
+// the tick.
 func sampleStorage(env Env, lake *api.Server, every time.Duration) {
 	ctx, stop := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	kick := make(chan struct{}, 1)
+	lake.OnNormalizeDrained(func() {
+		select {
+		case kick <- struct{}{}:
+		default:
+		}
+	})
 	go func() {
 		defer close(done)
 		t := time.NewTicker(every)
@@ -495,6 +504,7 @@ func sampleStorage(env Env, lake *api.Server, every time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+			case <-kick:
 			}
 		}
 	}()
