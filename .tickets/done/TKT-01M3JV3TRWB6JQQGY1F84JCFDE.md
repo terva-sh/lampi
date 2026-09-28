@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV3TRWB6JQQGY1F84JCFDE
 title: "Operations dashboard: storage, health, dark mode, design pass"
 type: epic
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/storage-samples
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 7c1576afc652fa3f46052ff1e95c0fe20aa34b40
-  session: null
-  claimed_at: 2026-09-28T02:03:25Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T01:47:17Z
-updated_at: 2026-09-28T02:03:25Z
+updated_at: 2026-09-28T03:33:10Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -53,3 +46,20 @@ This epic covers:
 - a dark theme
 - a second design pass, which starts with four directions for the owner
   to choose between
+
+## Summary
+
+Every piece of the operations dashboard has landed:
+
+- #49: storage samples by component, with filesystem capacity and
+  deduplicated bytes
+- #50: the `/operations` page and API, covering storage, growth,
+  queues, process, and machine freshness
+- #52: Prometheus metrics on an opt-in loopback listener
+- #51: a dark theme following the system, with a toggle, and WCAG AA
+  tested in both themes
+- TKT-01M3JV464: four design directions proposed; the owner chose Field
+  Notebook, implemented in #53
+
+Released as v0.1.2 and deployed to the hosted lake afterwards; see
+TKT-01M3FP11A for the rollout.

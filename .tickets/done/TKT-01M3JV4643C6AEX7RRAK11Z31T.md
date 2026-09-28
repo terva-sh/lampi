@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV4643C6AEX7RRAK11Z31T
 title: "Web design pass: propose four directions for the owner"
 type: spike
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3JV462PY0VCMJHBB3GHEAEC
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/dark-theme
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 4a0eeef70a69f094c8d1307fe3a6d4815817a36f
-  session: null
-  claimed_at: 2026-09-28T02:12:41Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:12:42Z
+updated_at: 2026-09-28T03:25:17Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -57,7 +50,7 @@ its own ticket.
 ## Acceptance criteria
 
 - [x] Four directions rendered on real pages in both themes, with screenshots
-- [ ] The owner has chosen a direction
+- [x] The owner has chosen a direction
 
 ## Notes
 
@@ -104,3 +97,11 @@ C and D would still need the account area rebalanced; B moves it into
 the sidebar.
 
 Waiting on the owner's choice. AC2 stays open until then.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T03:25:17Z
+
+The owner chose C, Field Notebook, on 2026-09-27. A, B and D are not pursued. A changed too little. B served operations at the cost of reading transcripts. D dropped the lake's identity. Implementation is filed as its own ticket.
+
+## Summary
+
+Four directions were proposed and rendered on real pages in both themes. The owner chose C, Field Notebook. Implementation continues in its own ticket.
