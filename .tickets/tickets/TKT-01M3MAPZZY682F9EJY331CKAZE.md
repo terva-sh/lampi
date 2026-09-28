@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MAPZZY682F9EJY331CKAZE
 title: "Devices: show agent version, flag outdated and known-bad agents"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/2cf53976
+  branch: web/devices-list
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
+  commit: 5b41022770000297c468d9f23d4a36475aff6c9d
+  session: null
+  claimed_at: 2026-09-28T18:12:20Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T15:39:08Z
-updated_at: 2026-09-28T17:21:40Z
+updated_at: 2026-09-28T18:12:20Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
@@ -61,6 +68,10 @@ TKT-01M3M7M0RQ, Agent heartbeat: durable last contact, sync counters, applied pr
 - [ ] Tests cover semver comparison, unstamped builds and advisory range matching
 - [ ] Devices views read the version from the newest heartbeat report; no report shows as unknown
 - [ ] Agent sends its version in the User-Agent
+
+## Implementation plan
+
+D1 shows each agent's reported release against the lake's release (behind/current/ahead/unstamped/unknown via internal/release) with a behind count, and the upgrade command in the page notes. D3 adds the known-bad mapping (internal/advisory/agents.json) and an urgent banner, and puts the release in the agent User-Agent. Version comes from the heartbeat report, not the User-Agent, because the report is already stored durably and survives a serve restart.
 
 ## Notes
 

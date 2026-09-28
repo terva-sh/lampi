@@ -20,6 +20,9 @@ import (
 type Operations struct {
 	// Version is the build version of the running binary.
 	Version string
+	// Release is the lake's release, such as v0.1.3, that agents are
+	// compared with; empty for a build that is not a release.
+	Release string
 	// Started is when this serve process started.
 	Started time.Time
 	// LakeID names the lake.

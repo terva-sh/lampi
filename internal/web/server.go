@@ -69,6 +69,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/search", s.search)
 	get("/api/web/v1/activity", s.activity)
 	get("/api/web/v1/operations", s.operations)
+	get("/api/web/v1/devices", s.devices)
 	s.pageRoutes(m)
 	s.registrationRoutes(m)
 	return webauth.Headers(m), nil

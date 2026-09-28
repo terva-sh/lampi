@@ -303,6 +303,25 @@ from the last 14 days are all kept; older ones are thinned to one per day.
 
 The [browser API contract](web-api.md#operations) gives the JSON form.
 
+## Devices
+
+`/devices` lists each device with what its agent last reported. Viewers see it;
+the device actions are operator-only and come with TKT-01M3J5HXA.
+
+- **Agent** is the release the agent runs, against this lake's release.
+  *Behind* means an older release: run `terva-lampi self-update` on that
+  machine. *Unstamped* is a build that is not a release, and *unknown* a device
+  that has not reported yet.
+- **Profile** is the profile the device uses and whether the agent applied the
+  version the lake serves now. A *stale* profile catches up within a minute
+  once the agent is running. When the allow rules come from the machine's own
+  `config.json`, the row says that the profile's allow rules do not apply.
+- **Last sync** is the outcome of the agent's last finished sync, including
+  how many sessions the allowlist refused, and its newest error.
+
+The data comes from the agents' reports. See
+[protocol.md](protocol.md#post-v1agentreport).
+
 ## Search index
 
 With web configuration, serve keeps a full-text index of normalized event text

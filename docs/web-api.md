@@ -393,3 +393,45 @@ The example shortens `components`, `points` and `machines`.
   - `freshness` is `active` within a day of the later of the two, `idle`
     within a week, `quiet` after that, and `never` when neither is known.
   - `updates_24h` counts head updates in the last 24 hours.
+
+## Devices
+
+`GET /api/web/v1/devices` lists every device with the newest report its agent
+sent, compared with the lake. It takes no parameters; any parameter is
+`400 invalid_filters_or_cursor`. The `/devices` page shows the same data.
+
+```json
+{
+  "as_of": "2026-09-28T15:02:00Z",
+  "lake_release": "v0.2.0",
+  "behind": 1,
+  "local_rules": 0,
+  "devices": [
+    {"id": "dev_...", "name": "tehbeast", "state": "active", "source": "registration",
+     "profile": "default", "machine_id": "01M3...", "created": "2026-09-28T14:18:50Z",
+     "last_contact": "2026-09-28T15:01:40Z", "last_data": "2026-09-28T14:40:02Z", "freshness": "active",
+     "reported": "2026-09-28T15:01:40Z", "agent_version": "v0.1.3", "version_state": "behind",
+     "applied_version": "sha256:8427...", "current_version": "sha256:8427...", "profile_state": "current",
+     "allow_source": "lake default", "deny_source": "none",
+     "last_sync": {"at": "2026-09-28T15:01:38Z", "uploaded": 12, "manifests": 4, "refused": 3, "quarantined": 0, "unchanged": 202}}
+  ]
+}
+```
+
+- `version_state` compares `agent_version` with `lake_release`: `current`,
+  `behind` or `ahead`. It is `unstamped` for an agent that is not a release
+  build, whatever the lake is, since that says something about the agent
+  alone. It is `unknown` when the device has sent no report, or when the agent
+  is a release build and the lake is not. `behind` counts active devices that are behind.
+- `profile_state` is `current` when the agent applied the profile version the
+  lake would serve it now, `stale` when it applied another, and `unknown` when
+  it has not said. It is `missing` if the device names a profile the lake does
+  not hold, which a delete refuses, so it means the catalog is out of step.
+  `current_version` is what the lake would serve.
+- `allow_source` is where the agent's allow rules come from. `local` means the
+  machine's `config.json` sets them and the lake's profile does not decide what
+  it uploads. `local_rules` counts active devices like that.
+- `last_sync`, `last_error` and the agent fields are absent until the device
+  sends a report. `last_contact` is the newest request, or the newest report
+  from before serve started.
+- Devices are ordered active first, then by the newest contact or data.

@@ -100,6 +100,7 @@ type pageData struct {
 	// registrations page.
 	Operator bool
 	Codes    codesView
+	Devices  devicesView
 }
 
 // searchView is the search form and its results. Hits carry the
@@ -130,7 +131,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
