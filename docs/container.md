@@ -31,6 +31,16 @@ a `Caddyfile`, and `env.example`.
   20s) and queued normalizing (up to 30s) when it stops. Docker's
   default of 10s cuts that off.
 
+## Verify the image
+
+Each release image carries build provenance signed by the GitHub
+workflow that built it. To check that an image came from this
+repository's release workflow:
+
+```bash
+gh attestation verify oci://ghcr.io/terva-sh/lampi:0.2.0 --owner terva-sh
+```
+
 ## Before you start
 
 You need Docker with the Compose plugin, a DNS name for the lake, and

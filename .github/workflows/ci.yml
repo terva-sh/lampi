@@ -54,3 +54,23 @@ jobs:
 
       - name: go build
         run: go build -o bin/terva-lampi ./cmd/terva-lampi
+
+  image:
+    name: image
+    # Builds the lake image for both platforms and pushes nothing, so a
+    # broken Dockerfile fails here and not on a release tag. The build
+    # cross-compiles, so arm64 needs no emulation.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: build linux/amd64 and linux/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          outputs: type=cacheonly
