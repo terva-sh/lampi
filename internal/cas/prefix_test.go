@@ -439,3 +439,51 @@ func TestBackupClosesALongChain(t *testing.T) {
 		}
 	}
 }
+
+// A reader of the current head keeps working while Grow replaces that
+// head's object with a record.
+func TestReadsOfAHeadSurviveItsGrowth(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := []byte("line 0\n")
+	mustPut(t, s, file)
+	heads := make(chan []byte, 1)
+	heads <- file
+	done := make(chan struct{})
+	errs := make(chan error, 1)
+	go func() {
+		defer close(errs)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			v := <-heads
+			heads <- v
+			d := digestOf(v)
+			got, err := s.Read(d)
+			if err == nil && !bytes.Equal(got, v) {
+				err = fmt.Errorf("read %d bytes, want %d", len(got), len(v))
+			}
+			if err == nil {
+				_, err = s.Size(d)
+			}
+			if err != nil {
+				errs <- err
+				return
+			}
+		}
+	}()
+	for i := 1; i <= 300; i++ {
+		file, _ = grow(t, s, file, fmt.Sprintf("line %d\n", i))
+		<-heads
+		heads <- file
+	}
+	close(done)
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+}

@@ -213,7 +213,13 @@ func (s *Store) open(digest string, depth int) (io.ReadCloser, error) {
 		return nil, err
 	}
 	if ok {
-		return s.OpenBlob(digest)
+		f, err := s.OpenBlob(digest)
+		// Grow writes the record and then removes the object, with no
+		// lock held here. An object gone since Has is read through its
+		// record instead.
+		if !errors.Is(err, os.ErrNotExist) {
+			return f, err
+		}
 	}
 	idx, err := s.readLogical(digest)
 	if err != nil {
@@ -261,16 +267,14 @@ func (s *Store) Size(digest string) (int64, error) {
 		return 0, err
 	}
 	if ok {
-		f, err := s.OpenBlob(digest)
+		size, object, err := s.ObjectSize(digest)
 		if err != nil {
 			return 0, err
 		}
-		defer f.Close()
-		st, err := f.Stat()
-		if err != nil {
-			return 0, fmt.Errorf("cas: %w", err)
+		// An object gone since Has was replaced by its record.
+		if object {
+			return size, nil
 		}
-		return st.Size(), nil
 	}
 	idx, err := s.readLogical(digest)
 	if err != nil {
