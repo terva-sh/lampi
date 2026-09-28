@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0S0VZDF9A9SF80WV2SWR
 title: "Ops: scheduled and off-host lake backups for container deployments"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T16:01:58Z
+updated_at: 2026-09-28T16:03:33Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""

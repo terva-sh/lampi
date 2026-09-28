@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0RET5Y2PKD4REW649Q8M
 title: "GHCR: set up the terva-sh container package for the lake image"
 type: chore
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T16:01:57Z
+updated_at: 2026-09-28T16:03:33Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""

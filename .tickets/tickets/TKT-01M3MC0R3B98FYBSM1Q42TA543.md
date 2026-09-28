@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0R3B98FYBSM1Q42TA543
 title: "Serve: a healthcheck subcommand for shell-less images"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/aa1afd80
+  branch: t3code/review-lampi-lake-containerization
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
+  commit: 8242424255a21e030b5e52e9f418a837b44c94b1
+  session: null
+  claimed_at: 2026-09-28T16:03:34Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:56Z
-updated_at: 2026-09-28T16:01:56Z
+updated_at: 2026-09-28T16:03:34Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
