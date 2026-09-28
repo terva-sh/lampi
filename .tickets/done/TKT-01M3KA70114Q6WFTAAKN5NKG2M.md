@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3KA70114Q6WFTAAKN5NKG2M
 title: "Normalization status: queue metrics, alert rules, /v1/stats"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/normalize-status
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: cb1279e51512c7ce8dbe4ed10547dd4c57e8622f
-  session: null
-  claimed_at: 2026-09-28T06:11:10Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T06:11:09Z
-updated_at: 2026-09-28T06:17:42Z
+updated_at: 2026-09-28T06:33:01Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -138,3 +131,23 @@ the one place to read it.
 That would make the counters survive restarts, but every job would write
 a row, and Prometheus handles counter resets already. The in-process
 counters start at zero at each serve start; the docs say so.
+
+## Summary
+
+Landed in #59.
+
+- /metrics carries the normalize backlog and its oldest age, the jobs
+  serve holds by state, results, a duration histogram, and the last
+  success. The last success starts at serve's start time, so the stalled
+  alert can fire before any success.
+- GET /v1/stats carries a normalization object, and
+  `terva-lampi status` prints it.
+- A batch of 20 or more jobs draining takes a storage sample.
+- deploy/README.md carries the alert rules.
+
+Three review rounds on v0.5.0. Three findings were fixed:
+
+- the stalled alert had no series before the first success
+- sub-second ages printed as 0s
+- a stored result counted as failed when its job row could not be
+  deleted
