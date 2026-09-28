@@ -8,7 +8,9 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"terva.sh/lampi/internal/release"
@@ -67,6 +69,9 @@ func Parse(raw []byte) (Set, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&f); err != nil {
 		return Set{}, fmt.Errorf("advisory: %w", err)
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return Set{}, errors.New("advisory: data after the object")
 	}
 	for i := range f.Agents {
 		a := &f.Agents[i]

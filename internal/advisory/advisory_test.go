@@ -42,6 +42,9 @@ func TestParseRefuses(t *testing.T) {
 		`{"agents": [{"introduced": "v0.2.0", "severity": "urgent", "reason": " "}]}`:                     "no reason",
 		`{"agents": [{"introduced": "v0.2.0", "severity": "urgent", "reason": "x", "link": "http://a"}]}`: "not https",
 		`{"agents": [{"introduced": "v0.2.0", "severity": "urgent", "reason": "x", "extra": 1}]}`:         "unknown field",
+		`{"agents": []} {"agents": []}`: "data after",
+		`{"agents": []} ]`:              "data after",
+		`{"agents": []} x`:              "data after",
 	} {
 		if _, err := Parse([]byte(raw)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want %q", raw, err, want)
