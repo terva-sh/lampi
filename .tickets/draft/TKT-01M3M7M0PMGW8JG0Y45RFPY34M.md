@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T14:45:05Z
+updated_at: 2026-09-28T15:00:28Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -50,12 +50,18 @@ A lake that could switch a machine to SOCIABLE could pull the names of projects 
 - Hashes only (`cwd_hash`): the dashboard could not show or act on what it sees.
 - Keeping the inventory local (`agent refused`): leaves the operator reading logs on each machine.
 
-### Open question
+### STRICT sends aggregate counts (owner, 2026-09-28)
 
-Does STRICT send the aggregate refused count (one number, no names)? Proposed: yes, so the device page can still say "refusing N sessions".
+STRICT agents send the aggregate refused count and the total bytes refused, with no names, paths, remotes or hashes. The counts let an operator decide whether to look at the machine: a handful of refused sessions is expected, while hundreds suggest a misconfigured allowlist.
 
 ## Acceptance criteria
 
 - [ ] docs/policy.md records the 2026-09-28 decision and the two modes
 - [ ] docs/allowlist-and-redaction.md says what leaves the machine in each mode
-- [ ] The open question on STRICT's aggregate count is answered
+- [x] The open question on STRICT's aggregate count is answered
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:00:28Z
+
+Owner decision 2026-09-28: STRICT sends aggregate refused counts with no names. A few refused sessions is expected; hundreds suggests a misconfigured allowlist, so the count is enough to prompt an operator to look. Description updated; AC 3 ticked.

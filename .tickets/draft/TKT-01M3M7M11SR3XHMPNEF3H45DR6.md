@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T14:45:06Z
+updated_at: 2026-09-28T15:00:45Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -48,3 +48,9 @@ A page per device, `/devices/{id}`, showing what the agent sees and how it is co
 - [ ] Each device shows status, counters, applied vs current profile and config sources
 - [ ] SOCIABLE devices list their projects; STRICT devices show allowlisted only
 - [ ] Allow on a refused project adds a rule to the device's profile
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:00:45Z
+
+Owner 2026-09-28: when per-device overrides land, the Allow action targeting the device layer must ask for an operator note. Until then, the Allow action should offer the optional revision note on the profile save.

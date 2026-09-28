@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:44:43Z
-updated_at: 2026-09-28T14:44:43Z
+updated_at: 2026-09-28T15:00:45Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -61,3 +61,10 @@ The device actions in TKT-01M3J5HXA (revoke, unbind, set profile) sit next to it
 - [ ] Operators edit every profile field from the dashboard
 - [ ] A profile change reaches agents within seconds
 - [ ] Each device page shows what the agent sees, per its inventory mode
+- [ ] Per-device overrides, when built, carry an operator note saying why
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:00:45Z
+
+Owner decisions 2026-09-28: (1) STRICT sends aggregate refused counts with no names, recorded on TKT-01M3M7M0PM. (2) Profiles enter the catalog only through an explicit 'serve profiles import', and a leftover profiles.json is ignored loudly, recorded on TKT-01M3M7M0WC. (3) Per-device overrides, when designed, carry an operator note so the operator remembers why they chose it. Profile revisions get the same optional note now, so the device layer can reuse it.
