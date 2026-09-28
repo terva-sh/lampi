@@ -30,35 +30,37 @@ var ErrNotGrown = errors.New("cas: not a growth of the stored prefix")
 
 // resolvePrefix follows digest's prefix record, idx, to the first file
 // in its chain that is not a prefix record: an object or a chunk list.
-func (s *Store) resolvePrefix(digest string, idx logicalIndex) (string, error) {
-	base, length := idx.PrefixOf, idx.Length
+// Each link must be longer than the one before it. last is the length
+// of the final record, which that file has to hold.
+func (s *Store) resolvePrefix(digest string, idx logicalIndex) (base string, last int64, err error) {
+	base, last = idx.PrefixOf, idx.Length
 	seen := map[string]bool{digest: true}
 	for {
 		if seen[base] {
-			return "", fmt.Errorf("cas: prefix records from %s loop at %s", digest, base)
+			return "", 0, fmt.Errorf("cas: prefix records from %s loop at %s", digest, base)
 		}
 		seen[base] = true
 		ok, err := s.Has(base)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		if ok {
-			return base, nil
+			return base, last, nil
 		}
 		next, err := s.readLogical(base)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return "", fmt.Errorf("cas: %s is a prefix of %s, which is not in the store", digest, base)
+				return "", 0, fmt.Errorf("cas: %s is a prefix of %s, which is not in the store", digest, base)
 			}
-			return "", err
+			return "", 0, err
 		}
 		if next.PrefixOf == "" {
-			return base, nil
+			return base, last, nil
 		}
-		if next.Length <= length {
-			return "", fmt.Errorf("cas: %s is a prefix of %s, which is not longer", digest, base)
+		if next.Length <= last {
+			return "", 0, fmt.Errorf("cas: %s is a prefix of %s, which is not longer", digest, base)
 		}
-		base = next.PrefixOf
+		base, last = next.PrefixOf, next.Length
 	}
 }
 
@@ -108,7 +110,7 @@ func (s *Store) Present(digest string) (bool, error) {
 // its length: a chain that does not resolve, or a file at its end that
 // holds fewer bytes. Sizes are checked and bytes are not.
 func (s *Store) checkRecord(digest string, idx logicalIndex, depth int) error {
-	base, err := s.resolvePrefix(digest, idx)
+	base, last, err := s.resolvePrefix(digest, idx)
 	if err != nil {
 		return err
 	}
@@ -116,8 +118,8 @@ func (s *Store) checkRecord(digest string, idx logicalIndex, depth int) error {
 	if err != nil {
 		return err
 	}
-	if have < idx.Length {
-		return fmt.Errorf("cas: %s is %d bytes of %s, which holds %d", digest, idx.Length, base, have)
+	if have < last {
+		return fmt.Errorf("cas: a record in the chain from %s is %d bytes of %s, which holds %d", digest, last, base, have)
 	}
 	return nil
 }

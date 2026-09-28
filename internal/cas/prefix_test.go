@@ -344,3 +344,65 @@ func TestBackupCopiesWhatARecordReadsFrom(t *testing.T) {
 		}
 	}
 }
+
+// Every link of a chain must be longer than the one before it, not only
+// longer than the first.
+func TestPrefixChainWithAShorterMiddleLinkIsRefused(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b, c := digestOf([]byte("a")), digestOf([]byte("b")), digestOf([]byte("c"))
+	obj := mustPut(t, s, bytes.Repeat([]byte("x"), 200))
+	if err := s.writeLogical(a, logicalIndex{PrefixOf: b, Length: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeLogical(b, logicalIndex{PrefixOf: c, Length: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeLogical(c, logicalIndex{PrefixOf: obj, Length: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Present(a); err != nil || ok {
+		t.Fatalf("present = %v %v", ok, err)
+	}
+	if _, err := s.Size(a); err == nil || !strings.Contains(err.Error(), "not longer") {
+		t.Fatalf("size: %v", err)
+	}
+}
+
+// A record whose chain ends at a chunk list whose chunks the backup
+// walk missed gets those chunks copied too.
+func TestBackupCopiesTheChunksARecordReadsThrough(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, c2 := []byte("chunk one\n"), []byte("chunk two\n")
+	dc1, dc2 := mustPut(t, s, c1), mustPut(t, s, c2)
+	whole := append(append([]byte(nil), c1...), c2...)
+	dw := digestOf(whole)
+	if _, err := s.BindLogical(dw, []string{dc1, dc2}, []int64{int64(len(c1)), int64(len(c2))}); err != nil {
+		t.Fatal(err)
+	}
+	dp := digestOf(whole[:5])
+	if err := s.writeLogical(dp, logicalIndex{PrefixOf: dw, Length: 5}); err != nil {
+		t.Fatal(err)
+	}
+	dest := t.TempDir()
+	// The logical walk copied the record and the list; the object walk
+	// had passed before the chunks were installed.
+	for _, d := range []string{dp, dw} {
+		src, _ := s.logicalPath(d)
+		if _, err := copyIfMissing(src, filepath.Join(dest, "logical", d[:2], d[2:]), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.closeRecords(dest); err != nil {
+		t.Fatal(err)
+	}
+	b := &Store{Root: dest}
+	if got, err := b.Read(dp); err != nil || !bytes.Equal(got, whole[:5]) {
+		t.Fatalf("backup read: %q %v", got, err)
+	}
+}

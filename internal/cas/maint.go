@@ -315,10 +315,10 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 	return copied + n, err
 }
 
-// closeRecords copies into dest what dest's prefix records read from
-// and dest lacks: the next link of each chain that stops short, an
-// object or a record, until every chain resolves. A chain that is
-// damaged rather than short is left for fsck.
+// closeRecords copies into dest what dest's logical entries read from
+// and dest lacks: a prefix record's next link, or a chunk list's
+// chunk, an object or a record, until every entry resolves. An entry
+// that is damaged rather than short is left for fsck.
 func (s *Store) closeRecords(dest string) (copied int, err error) {
 	d := &Store{Root: dest}
 	for pass := 0; pass < 64; pass++ {
@@ -327,11 +327,7 @@ func (s *Store) closeRecords(dest string) (copied int, err error) {
 			if digest == "" {
 				return nil
 			}
-			idx, err := d.readLogical(digest)
-			if err != nil || idx.PrefixOf == "" {
-				return nil
-			}
-			if m := d.firstMissing(idx.PrefixOf); m != "" {
+			if m := d.firstMissing(digest); m != "" {
 				want[m] = true
 			}
 			return nil
@@ -353,24 +349,35 @@ func (s *Store) closeRecords(dest string) (copied int, err error) {
 	return copied, fmt.Errorf("cas: backup: prefix records in %s still stop short", dest)
 }
 
-// firstMissing follows a chain from base and returns the first link
-// the store has neither an object nor a logical entry for. It is empty
-// when the chain ends at a file, or loops.
+// firstMissing follows what base reads from, through prefix records and
+// the chunks of chunk lists, and returns the first digest the store has
+// neither an object nor a logical entry for. It is empty when every
+// file base reads from is there.
 func (s *Store) firstMissing(base string) string {
 	seen := map[string]bool{}
-	for !seen[base] {
-		seen[base] = true
-		if ok, err := s.Has(base); err != nil || ok {
-			return ""
+	queue := []string{base}
+	for len(queue) > 0 {
+		d := queue[0]
+		queue = queue[1:]
+		if seen[d] {
+			continue
 		}
-		idx, err := s.readLogical(base)
+		seen[d] = true
+		if ok, err := s.Has(d); err != nil || ok {
+			continue
+		}
+		idx, err := s.readLogical(d)
 		if errors.Is(err, os.ErrNotExist) {
-			return base
+			return d
 		}
-		if err != nil || idx.PrefixOf == "" {
-			return ""
+		if err != nil {
+			// Damage, not a gap: fsck reports it.
+			continue
 		}
-		base = idx.PrefixOf
+		if idx.PrefixOf != "" {
+			queue = append(queue, idx.PrefixOf)
+		}
+		queue = append(queue, idx.ChunkSHA256s...)
 	}
 	return ""
 }

@@ -223,7 +223,7 @@ func (s *Store) open(digest string, depth int) (io.ReadCloser, error) {
 		return nil, err
 	}
 	if idx.PrefixOf != "" {
-		base, err := s.resolvePrefix(digest, idx)
+		base, _, err := s.resolvePrefix(digest, idx)
 		if err != nil {
 			return nil, err
 		}
