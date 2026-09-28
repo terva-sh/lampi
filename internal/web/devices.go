@@ -85,14 +85,14 @@ type devicesView struct {
 
 func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 {
-		fail(w, catalog.ErrPage)
+		fail(w, r, catalog.ErrPage)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readDevices(ctx, s.now())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -100,7 +100,7 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 {
-		pageError(w, catalog.ErrPage)
+		pageError(w, r, catalog.ErrPage)
 		return
 	}
 	s.renderDevices(w, r, "", http.StatusOK)
@@ -113,7 +113,7 @@ func (s *Server) renderDevices(w http.ResponseWriter, r *http.Request, problem s
 	defer cancel()
 	v, err := s.readDevices(ctx, s.now())
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	v.Problem = problem
