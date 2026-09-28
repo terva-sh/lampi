@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -16,6 +17,10 @@ import (
 // BackupDir is the directory beside catalog.db that holds the copies
 // Open makes before it migrates.
 const BackupDir = "migration-backups"
+
+// backupName matches the names backupBeforeMigrating writes, and only
+// those are pruned.
+var backupName = regexp.MustCompile(`^catalog-\d{8}T\d{6}\.\d{9}Z-v\d+\.db$`)
 
 // keepBackups is how many pre-migration copies Open leaves. The catalog
 // is small next to the CAS, and three outlast a few quick upgrades.
@@ -91,21 +96,35 @@ func isEmpty(db *sql.DB) (bool, error) {
 }
 
 // backupBeforeMigrating copies the catalog with VACUUM INTO before any
-// step runs.
+// step runs. The copy holds every session row, so the directory is kept
+// 0700 and the file is made 0600 before a byte is written to it.
 func backupBeforeMigrating(db *sql.DB, path string, v int, now time.Time) (string, error) {
 	dir := filepath.Join(filepath.Dir(path), BackupDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("catalog: backup before migrating: %w", err)
 	}
+	// MkdirAll leaves an existing directory's mode alone.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", fmt.Errorf("catalog: backup before migrating: %w", err)
+	}
 	// The time leads the name so the names sort in the order they were
 	// taken, whatever version a restore went back to.
 	dest := filepath.Join(dir, fmt.Sprintf("catalog-%s-v%d.db", now.UTC().Format("20060102T150405.000000000Z"), v))
+	// O_EXCL: a file already at this name is another copy, and is left
+	// alone. VACUUM INTO writes into an empty file, so the mode is set
+	// here and not after the data is in it.
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("catalog: backup before migrating: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(dest)
+		return "", fmt.Errorf("catalog: backup before migrating: %w", err)
+	}
 	if _, err := db.Exec(`VACUUM INTO ?`, dest); err != nil {
+		// This attempt made dest, so removing it removes nothing else.
 		os.Remove(dest)
 		return "", fmt.Errorf("catalog: backup before migrating from version %d: %w", v, err)
-	}
-	if err := os.Chmod(dest, 0o600); err != nil {
-		return "", fmt.Errorf("catalog: backup before migrating: %w", err)
 	}
 	if err := pruneBackups(dir, keepBackups); err != nil {
 		return "", err
@@ -113,8 +132,9 @@ func backupBeforeMigrating(db *sql.DB, path string, v int, now time.Time) (strin
 	return dest, nil
 }
 
-// pruneBackups removes all but the newest keep copies. Only names this
-// package writes are touched.
+// pruneBackups removes all but the newest keep copies. Only names in
+// the form this package writes are touched, so an operator's own file
+// in the directory stays.
 func pruneBackups(dir string, keep int) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -122,7 +142,7 @@ func pruneBackups(dir string, keep int) error {
 	}
 	var names []string
 	for _, e := range entries {
-		if n := e.Name(); !e.IsDir() && strings.HasPrefix(n, "catalog-") && strings.HasSuffix(n, ".db") {
+		if n := e.Name(); e.Type().IsRegular() && backupName.MatchString(n) {
 			names = append(names, n)
 		}
 	}
@@ -134,6 +154,17 @@ func pruneBackups(dir string, keep int) error {
 		names = names[1:]
 	}
 	return nil
+}
+
+// partialError reports a step that failed after earlier ones committed.
+// Open returns only the error, so it carries what the log would have:
+// the version the file reached and the copy taken before the first step.
+func partialError(m Migration, n int, name string, err error) error {
+	copyNote := "no copy was taken because the catalog was new"
+	if m.Backup != "" {
+		copyNote = "the copy taken before migrating is " + m.Backup
+	}
+	return fmt.Errorf("catalog: migration %d (%s): %w; the catalog is at schema version %d, and %s", n, name, err, m.To, copyNote)
 }
 
 // stepName is a migration's function name without its package, for the

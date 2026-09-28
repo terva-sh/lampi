@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T17:55:13Z
+updated_at: 2026-09-28T18:00:56Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -135,3 +135,7 @@ Logging normalizer-generation changes at start-up is left to the docs ticket. `s
 - The rollback doesn't recover manifests accepted after the upgrade. The docs say to roll back soon. I didn't check whether an agent re-sends such a session, so the docs don't claim it does.
 - Logging normalizer-generation changes at start is not done, as the plan said.
 - A local `just ci` failed once on `TestAgentReportsItsSyncAndProfileToTheLake` and passed on the re-run. The test isn't related to this change, and I filed it as a draft bug.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T18:00:56Z
+
+terva-review on PR #82 (run 814) raised four findings, all fixed with tests. (1) A failed VACUUM INTO removed dest even if another copy was already there. The copy is now created with O_EXCL at mode 0600 first, and only a file this attempt made is removed. (2) The copy was chmodded to 0600 only after the data was written. That pre-created file fixes it, and an existing migration-backups directory is forced back to 0700. (3) Retention pruned any catalog-*.db; it now matches only the exact generated name. (4) A later step failing after earlier ones committed lost the progress, because Open returns only the error. The error now names the failed step, the version the file reached, and the backup path.

@@ -105,9 +105,14 @@ func TestMigrationBackupsKeepTheNewestThree(t *testing.T) {
 		}
 		made = append(made, filepath.Base(b))
 	}
-	// Another file in the directory is not the package's to remove.
+	// Other files in the directory are not the package's to remove,
+	// including a database an operator named like a copy.
 	other := filepath.Join(filepath.Dir(path), BackupDir, "operator-notes.txt")
 	if err := os.WriteFile(other, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manual := filepath.Join(filepath.Dir(other), "catalog-manual.db")
+	if err := os.WriteFile(manual, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := backupBeforeMigrating(db, path, len(migrations)-1, start.Add(6*time.Hour)); err != nil {
@@ -121,7 +126,7 @@ func TestMigrationBackupsKeepTheNewestThree(t *testing.T) {
 	for _, e := range entries {
 		got = append(got, e.Name())
 	}
-	if len(got) != 4 || got[0] != made[3] || got[1] != made[4] || !strings.HasSuffix(got[2], ".db") || got[3] != "operator-notes.txt" {
+	if len(got) != 5 || got[0] != made[3] || got[1] != made[4] || !strings.HasSuffix(got[2], ".db") || got[3] != "catalog-manual.db" || got[4] != "operator-notes.txt" {
 		t.Fatalf("left %v", got)
 	}
 }
@@ -165,5 +170,85 @@ func TestNewerSchemaErrorNamesTheRollback(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), BackupDir) || !strings.Contains(err.Error(), "serve backup") {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+// A copy already at the name, as when a retry lands in the same
+// instant, is kept, and the upgrade stops.
+func TestBackupLeavesAnExistingCopyAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	catalogAt(t, path, len(migrations)-1)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	first, err := backupBeforeMigrating(db, path, len(migrations)-1, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backupBeforeMigrating(db, path, len(migrations)-1, now); err == nil {
+		t.Fatal("a second copy at the same name succeeded")
+	}
+	after, err := os.ReadFile(first)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("the existing copy changed or went away: %v", err)
+	}
+}
+
+func TestBackupDirectoryIsPrivate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "catalog.db")
+	catalogAt(t, path, len(migrations)-1)
+	if err := os.Mkdir(filepath.Join(dir, BackupDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	st, err := os.Stat(filepath.Join(dir, BackupDir))
+	if err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("backup dir %v %v", st, err)
+	}
+}
+
+// Each step commits on its own, so a later failure leaves the file
+// part-way. The error is all Open returns, and it says where the file
+// stopped and where the copy is.
+func TestFailedStepReportsTheVersionReachedAndTheCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	from := len(migrations) - 2
+	catalogAt(t, path, from)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	fail := func(*sql.Tx) error { return fmt.Errorf("disk full") }
+	steps := append(append([]func(*sql.Tx) error{}, migrations[:from+1]...), fail)
+	m, err := upgrade(db, path, steps, time.Now())
+	if err == nil {
+		t.Fatal("a failing step succeeded")
+	}
+	for _, want := range []string{
+		fmt.Sprintf("migration %d", from+2),
+		"disk full",
+		fmt.Sprintf("schema version %d", from+1),
+		m.Backup,
+	} {
+		if m.Backup == "" || !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q lacks %q (backup %q)", err, want, m.Backup)
+		}
+	}
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != from+1 {
+		t.Fatalf("file at %d (%v), want %d", v, err, from+1)
 	}
 }
