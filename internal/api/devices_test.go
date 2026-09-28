@@ -144,7 +144,7 @@ func TestADeviceBindsToItsFirstMachine(t *testing.T) {
 		t.Fatalf("audit %s", kinds)
 	}
 	// After an unbind, the next manifest binds again.
-	if _, err := s.Catalog.UnbindDevice(t.Context(), "laptop"); err != nil {
+	if _, err := s.Catalog.UnbindDevice(t.Context(), "laptop", "test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if rr := postAs(t, s, laptopToken, "machine-b", sum, size); rr.Code != http.StatusOK {
@@ -154,7 +154,7 @@ func TestADeviceBindsToItsFirstMachine(t *testing.T) {
 
 func TestRevokeTakesEffectOnTheNextRequest(t *testing.T) {
 	s, _, _, sum, size := devicesLake(t)
-	if _, err := s.Catalog.RevokeDevice(t.Context(), "laptop", time.Now()); err != nil {
+	if _, err := s.Catalog.RevokeDevice(t.Context(), "laptop", "test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	rr := postAs(t, s, laptopToken, "machine-a", sum, size)
@@ -222,8 +222,8 @@ func TestBindingIsReadFreshForEachManifest(t *testing.T) {
 		t.Fatalf("bind %d %s", rr.Code, rr.Body)
 	}
 	// An operator unbinds laptop and it binds to machine-b elsewhere.
-	d, _ := s.Catalog.UnbindDevice(t.Context(), "laptop")
-	if _, err := s.Catalog.BindMachine(t.Context(), d.ID, "machine-b"); err != nil {
+	d, _ := s.Catalog.UnbindDevice(t.Context(), "laptop", "test", time.Now())
+	if _, err := s.Catalog.BindMachine(t.Context(), d.ID, "machine-b", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if rr := postAs(t, s, laptopToken, "machine-a", sum, size); rr.Code != http.StatusForbidden {

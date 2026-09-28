@@ -119,12 +119,28 @@ func TestServeDevicesAuditFailureAdvice(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = Run([]string{"serve", "devices", "unbind", "laptop", "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
-	if err == nil || !strings.Contains(err.Error(), "Do not run unbind again") || strings.Contains(err.Error(), "only retries the record") {
+	if err == nil || !strings.Contains(err.Error(), "unbound laptop") || !strings.Contains(err.Error(), "do not run unbind again") {
 		t.Fatalf("unbind: %v", err)
 	}
 	err = Run([]string{"serve", "devices", "revoke", "desk", "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
-	if err == nil || !strings.Contains(err.Error(), "running revoke again only retries the record") {
+	if err == nil || !strings.Contains(err.Error(), "revoked desk") || !strings.Contains(err.Error(), "stays queued") {
 		t.Fatalf("revoke: %v", err)
+	}
+	// Once the log works, the next command writes both lines, once.
+	if err := os.Remove(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"serve", "devices", "set-profile", "desk", "default", "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(audit.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{audit.DeviceUnbound, audit.DeviceRevoked, audit.DeviceProfile} {
+		if strings.Count(string(raw), `"kind":"`+kind+`"`) != 1 {
+			t.Fatalf("want one %s:\n%s", kind, raw)
+		}
 	}
 }
 

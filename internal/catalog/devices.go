@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"terva.sh/lampi/internal/audit"
 )
 
 // migrateDevices adds devices: one row per device token the lake has
@@ -160,6 +162,11 @@ func (c *Catalog) syncTokens(ctx context.Context, entries []TokenEntry, source s
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
 		created = append(created, d)
+		if source == DeviceFromTokenFile {
+			if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.DeviceCreated, Device: d.Name, DeviceID: d.ID, Actor: "serve", Detail: "from the token file"}); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if source != DeviceFromTokenFile {
 		if err := tx.Commit(); err != nil {
@@ -167,25 +174,32 @@ func (c *Catalog) syncTokens(ctx context.Context, entries []TokenEntry, source s
 		}
 		return created, nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, token_sha256 FROM devices WHERE source=? AND detached_at IS NULL`, DeviceFromTokenFile)
+	rows, err := tx.QueryContext(ctx, `SELECT id, name, token_sha256 FROM devices WHERE source=? AND detached_at IS NULL`, DeviceFromTokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
-	var gone []string
+	var gone []Device
 	for rows.Next() {
-		var id, hash string
-		if err := rows.Scan(&id, &hash); err != nil {
+		var d Device
+		var hash string
+		if err := rows.Scan(&d.ID, &d.Name, &hash); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
 		if !inFile[hash] {
-			gone = append(gone, id)
+			gone = append(gone, d)
 		}
 	}
 	rows.Close()
-	for _, id := range gone {
-		if _, err := tx.ExecContext(ctx, `UPDATE devices SET detached_at=? WHERE id=?`, stamp(now), id); err != nil {
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	for _, d := range gone {
+		if _, err := tx.ExecContext(ctx, `UPDATE devices SET detached_at=? WHERE id=?`, stamp(now), d.ID); err != nil {
 			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.DeviceDetached, Device: d.Name, DeviceID: d.ID, Actor: "serve", Detail: "token left the token file"}); err != nil {
+			return nil, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -282,8 +296,8 @@ func (c *Catalog) Devices(ctx context.Context) ([]Device, error) {
 // BindMachine binds device id to machineID when it has no machine yet,
 // and reports whether this call bound it. A device bound to another
 // machine_id is ErrDeviceBound, and a machine_id bound to another device
-// is ErrMachineTaken.
-func (c *Catalog) BindMachine(ctx context.Context, id, machineID string) (bool, error) {
+// is ErrMachineTaken. A bind queues its device.bound audit event.
+func (c *Catalog) BindMachine(ctx context.Context, id, machineID string, now time.Time) (bool, error) {
 	if machineID == "" {
 		return false, errors.New("catalog: empty machine_id")
 	}
@@ -293,7 +307,8 @@ func (c *Catalog) BindMachine(ctx context.Context, id, machineID string) (bool, 
 	}
 	defer tx.Rollback()
 	var bound sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT machine_id FROM devices WHERE id=?`, id).Scan(&bound); err != nil {
+	var name string
+	if err := tx.QueryRowContext(ctx, `SELECT machine_id, name FROM devices WHERE id=?`, id).Scan(&bound, &name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, ErrNoDevice
 		}
@@ -316,34 +331,61 @@ func (c *Catalog) BindMachine(ctx context.Context, id, machineID string) (bool, 
 	if _, err := tx.ExecContext(ctx, `UPDATE devices SET machine_id=? WHERE id=?`, machineID, id); err != nil {
 		return false, fmt.Errorf("catalog: %w", err)
 	}
+	if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.DeviceBound, Device: name, DeviceID: id, MachineID: machineID, Actor: "serve"}); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("catalog: %w", err)
 	}
 	return true, nil
 }
 
+// changeDevice runs update on device id and queues e in one
+// transaction.
+func (c *Catalog) changeDevice(ctx context.Context, now time.Time, e audit.Event, update string, args ...any) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, update, args...); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	if err := queueAudit(ctx, tx, now, e); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return nil
+}
+
 // UnbindDevice clears the device's machine_id, so its next manifest
-// binds again.
-func (c *Catalog) UnbindDevice(ctx context.Context, name string) (Device, error) {
+// binds again, and queues device.unbound by actor. The device comes back
+// with the machine_id it had.
+func (c *Catalog) UnbindDevice(ctx context.Context, name, actor string, now time.Time) (Device, error) {
 	d, err := c.DeviceByName(ctx, name)
 	if err != nil {
 		return Device{}, err
 	}
-	if _, err := c.db.ExecContext(ctx, `UPDATE devices SET machine_id=NULL WHERE id=?`, d.ID); err != nil {
-		return Device{}, fmt.Errorf("catalog: %w", err)
+	e := audit.Event{Kind: audit.DeviceUnbound, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: actor}
+	if err := c.changeDevice(ctx, now, e, `UPDATE devices SET machine_id=NULL WHERE id=?`, d.ID); err != nil {
+		return Device{}, err
 	}
 	return d, nil
 }
 
-// SetDeviceProfile records the profile the device's agent fetches. An
-// empty profile is the default.
-func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile string) (Device, error) {
+// SetDeviceProfile records the profile the device's agent fetches, and
+// queues device.profile by actor. An empty profile is the default, which
+// the event names as shown.
+func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile, shown, actor string, now time.Time) (Device, error) {
 	d, err := c.DeviceByName(ctx, name)
 	if err != nil {
 		return Device{}, err
 	}
-	if _, err := c.db.ExecContext(ctx, `UPDATE devices SET profile=? WHERE id=?`, profile, d.ID); err != nil {
-		return Device{}, fmt.Errorf("catalog: %w", err)
+	e := audit.Event{Kind: audit.DeviceProfile, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: actor, Detail: "profile=" + shown}
+	if err := c.changeDevice(ctx, now, e, `UPDATE devices SET profile=? WHERE id=?`, profile, d.ID); err != nil {
+		return Device{}, err
 	}
 	d.Profile = profile
 	return d, nil
@@ -351,8 +393,9 @@ func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile string) (D
 
 // RevokeDevice marks the device revoked. Its token stops working on the
 // next request. Revoking is final; a revoked device is not restored by
-// its token reappearing in the token file.
-func (c *Catalog) RevokeDevice(ctx context.Context, name string, now time.Time) (Device, error) {
+// its token reappearing in the token file. A revoke queues
+// device.revoked by actor; a device already revoked queues nothing.
+func (c *Catalog) RevokeDevice(ctx context.Context, name, actor string, now time.Time) (Device, error) {
 	d, err := c.DeviceByName(ctx, name)
 	if err != nil {
 		return Device{}, err
@@ -360,8 +403,9 @@ func (c *Catalog) RevokeDevice(ctx context.Context, name string, now time.Time) 
 	if !d.Revoked.IsZero() {
 		return d, nil
 	}
-	if _, err := c.db.ExecContext(ctx, `UPDATE devices SET revoked_at=? WHERE id=?`, stamp(now), d.ID); err != nil {
-		return Device{}, fmt.Errorf("catalog: %w", err)
+	e := audit.Event{Kind: audit.DeviceRevoked, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: actor}
+	if err := c.changeDevice(ctx, now, e, `UPDATE devices SET revoked_at=? WHERE id=? AND revoked_at IS NULL`, stamp(now), d.ID); err != nil {
+		return Device{}, err
 	}
 	d.Revoked = now.UTC()
 	return d, nil

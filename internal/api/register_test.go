@@ -89,7 +89,7 @@ func TestRegisterRedeemsACodeOnceAndTheTokenWorks(t *testing.T) {
 	}
 
 	// A revoked registered device stops working on its next request.
-	if _, err := s.Catalog.RevokeDevice(t.Context(), "newbox", now); err != nil {
+	if _, err := s.Catalog.RevokeDevice(t.Context(), "newbox", "test", now); err != nil {
 		t.Fatal(err)
 	}
 	stats = httptest.NewRecorder()
@@ -127,7 +127,7 @@ func TestRegisterRefusesExpiredRevokedAndOpenLakes(t *testing.T) {
 	if _, err := s.Catalog.CreateRegistration(t.Context(), "gone", regcode.HashSecret(revoked), "", "", "", now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", "", now); err != nil {
+	if _, err := s.Catalog.RevokeRegistration(t.Context(), "gone", "", "test", now); err != nil {
 		t.Fatal(err)
 	}
 	for _, secret := range []string{expired, revoked, expired} {

@@ -52,19 +52,19 @@ func TestBindMachine(t *testing.T) {
 	ctx := t.Context()
 	created, _ := c.SyncTokenFile(ctx, []TokenEntry{{Hash: strings.Repeat("a", 64), Name: "a"}, {Hash: strings.Repeat("b", 64), Name: "b"}}, time.Now())
 	a, b := created[0], created[1]
-	if bound, err := c.BindMachine(ctx, a.ID, "m1"); err != nil || !bound {
+	if bound, err := c.BindMachine(ctx, a.ID, "m1", time.Now()); err != nil || !bound {
 		t.Fatalf("bind %v %v", bound, err)
 	}
-	if bound, err := c.BindMachine(ctx, a.ID, "m1"); err != nil || bound {
+	if bound, err := c.BindMachine(ctx, a.ID, "m1", time.Now()); err != nil || bound {
 		t.Fatalf("rebind same %v %v", bound, err)
 	}
-	if _, err := c.BindMachine(ctx, a.ID, "m2"); !errors.Is(err, ErrDeviceBound) {
+	if _, err := c.BindMachine(ctx, a.ID, "m2", time.Now()); !errors.Is(err, ErrDeviceBound) {
 		t.Fatalf("other machine %v", err)
 	}
-	if _, err := c.BindMachine(ctx, b.ID, "m1"); !errors.Is(err, ErrMachineTaken) {
+	if _, err := c.BindMachine(ctx, b.ID, "m1", time.Now()); !errors.Is(err, ErrMachineTaken) {
 		t.Fatalf("taken machine %v", err)
 	}
-	if _, err := c.RevokeDevice(ctx, "nope", time.Now()); !errors.Is(err, ErrNoDevice) {
+	if _, err := c.RevokeDevice(ctx, "nope", "test", time.Now()); !errors.Is(err, ErrNoDevice) {
 		t.Fatalf("revoke unknown %v", err)
 	}
 }
@@ -106,7 +106,7 @@ func TestConcurrentBindsOfOneMachineRefuseTheLosers(t *testing.T) {
 		}
 		go func(c *Catalog, id string) {
 			<-start
-			bound, err := c.BindMachine(context.Background(), id, "shared-machine")
+			bound, err := c.BindMachine(context.Background(), id, "shared-machine", time.Now())
 			out <- result{bound, err}
 		}(c, d.ID)
 	}

@@ -127,3 +127,53 @@ func TestFlushesAcrossHandlesKeepTheOrder(t *testing.T) {
 		t.Fatalf("last line %d, want %d", last, n-1)
 	}
 }
+
+// Token-file sync, bind, and the operator's device and code commands
+// queue their events with the change.
+func TestDeviceChangesQueueTheirAudit(t *testing.T) {
+	c, path := openTemp(t)
+	ctx := t.Context()
+	dir := filepath.Dir(path)
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	created, err := c.SyncTokenFile(ctx, []TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}, {Hash: strings.Repeat("b", 64), Name: "desk"}}, now)
+	if err != nil || len(created) != 2 {
+		t.Fatalf("sync: %v %v", created, err)
+	}
+	if _, err := c.SyncTokenFile(ctx, []TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.BindMachine(ctx, created[0].ID, "m1", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SetDeviceProfile(ctx, "laptop", "ci", "ci", "test", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UnbindDevice(ctx, "laptop", "test", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RevokeDevice(ctx, "laptop", "test", now); err != nil {
+		t.Fatal(err)
+	}
+	// A second revoke changes nothing and queues nothing.
+	if _, err := c.RevokeDevice(ctx, "laptop", "test", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateRegistration(ctx, "box", strings.Repeat("c", 64), "", "", ActorCLI, now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.RevokeRegistration(ctx, "box", ActorCLI, "serve register --revoke", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.FlushAudit(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(audit.Path(dir))
+	for kind, want := range map[string]int{audit.DeviceCreated: 2, audit.DeviceDetached: 1, audit.DeviceBound: 1, audit.DeviceProfile: 1, audit.DeviceUnbound: 1, audit.DeviceRevoked: 1, audit.RegistrationRevoked: 1} {
+		if n := strings.Count(string(raw), `"kind":"`+kind+`"`); n != want {
+			t.Fatalf("%d %s lines, want %d:\n%s", n, kind, want, raw)
+		}
+	}
+	if !strings.Contains(string(raw), `"kind":"device.detached","device":"desk"`) {
+		t.Fatalf("detach names the wrong device:\n%s", raw)
+	}
+}

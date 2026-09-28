@@ -175,7 +175,9 @@ func (s *Server) codes(r *http.Request, now time.Time) ([]codeView, error) {
 	id, _ := webauth.Current(r)
 	l := s.reg.Lake()
 	regs, err := registrar.List(ctx, l, actor(id).Audit, now)
-	if err != nil {
+	if errors.Is(err, registrar.ErrAuditQueued) {
+		s.logError(r, "registration expiries are queued for the audit log", err)
+	} else if err != nil {
 		return nil, err
 	}
 	devs, err := l.Catalog.Devices(ctx)

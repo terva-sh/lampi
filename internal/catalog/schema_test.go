@@ -293,7 +293,7 @@ func TestRegistrationActorsMigration(t *testing.T) {
 		t.Fatalf("registrations after migration: %+v %v", regs, err)
 	}
 	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
-	r, err := c.RevokeRegistration(t.Context(), "reg_old", ActorCLI, now)
+	r, err := c.RevokeRegistration(t.Context(), "reg_old", ActorCLI, "test", now)
 	if err != nil || r.RevokedBy != ActorCLI {
 		t.Fatalf("revoke after migration: %+v %v", r, err)
 	}

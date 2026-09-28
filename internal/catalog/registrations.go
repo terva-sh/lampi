@@ -186,8 +186,9 @@ func (c *Catalog) Registrations(ctx context.Context) ([]Registration, error) {
 // redemption in serve cannot land between them. A code that is already
 // revoked is returned with ErrRegistrationRevoked, so the caller does
 // not report or audit a revocation that did not happen. by names who
-// revoked it.
-func (c *Catalog) RevokeRegistration(ctx context.Context, ref, by string, now time.Time) (Registration, error) {
+// revoked it in the catalog, and auditActor in the registration.revoked
+// event it queues.
+func (c *Catalog) RevokeRegistration(ctx context.Context, ref, by, auditActor string, now time.Time) (Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
@@ -213,6 +214,9 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref, by string, now ti
 	}
 	if n, err := res.RowsAffected(); err != nil || n != 1 {
 		return Registration{}, fmt.Errorf("catalog: registration %s changed while it was being revoked; run serve register --list and try again", r.ID)
+	}
+	if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.RegistrationRevoked, Device: r.Name, Actor: auditActor, Detail: "registration=" + r.ID}); err != nil {
+		return Registration{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)

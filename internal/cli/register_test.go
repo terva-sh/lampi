@@ -125,7 +125,7 @@ func TestRegisterOnAFreshMachineThenSync(t *testing.T) {
 	if err := f.register(again+"\n", "--fingerprint", f.fingerprint(), "--replace"); err == nil || !strings.Contains(err.Error(), "revokes or unbinds") {
 		t.Fatalf("replace before revoke: %v", err)
 	}
-	if _, err := f.lake.Catalog.RevokeDevice(t.Context(), "newbox", time.Now()); err != nil {
+	if _, err := f.lake.Catalog.RevokeDevice(t.Context(), "newbox", "test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.register(again+"\n", "--fingerprint", f.fingerprint(), "--replace"); err != nil {
