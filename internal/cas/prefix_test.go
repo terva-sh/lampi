@@ -151,10 +151,73 @@ func TestPrefixRecordThatCannotBeReadIsReported(t *testing.T) {
 	if fixed, err := s.Repair(problems[0]); err != nil || fixed {
 		t.Fatalf("repair = %v %v", fixed, err)
 	}
-	// A put of the digest restores it, and Open prefers the object.
+	if ok, err := s.Present(d1); err != nil || ok {
+		t.Fatalf("present with no base = %v %v", ok, err)
+	}
+	// A put of the digest restores it, Open prefers the object, and
+	// fsck is clean again.
 	mustPut(t, s, v1)
 	if got, err := s.Read(d1); err != nil || !bytes.Equal(got, v1) {
 		t.Fatalf("read after put: %q %v", got, err)
+	}
+	problems = nil
+	if _, err := s.Verify(func(p Problem) { problems = append(problems, p) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("verify after the put: %v", problems)
+	}
+}
+
+func TestPresentNeedsABaseThatHoldsTheBytes(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := []byte("first line\n")
+	mustPut(t, s, v1)
+	v2, d2 := grow(t, s, v1, "second line\n")
+	d1 := digestOf(v1)
+	if ok, err := s.Present(d1); err != nil || !ok {
+		t.Fatalf("present = %v %v", ok, err)
+	}
+	// The base is cut shorter than the record: the version is missing,
+	// and a put of it is kept rather than discarded.
+	p, _ := s.Path(d2)
+	if err := os.WriteFile(p, v2[:4], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Present(d1); err != nil || ok {
+		t.Fatalf("present over a short base = %v %v", ok, err)
+	}
+	if exists, err := s.Put(d1, bytes.NewReader(v1), 0); err != nil || exists {
+		t.Fatalf("put over a short base = %v %v", exists, err)
+	}
+	if ok, _ := s.Has(d1); !ok {
+		t.Fatal("the put was discarded")
+	}
+
+	// A chunk list missing a chunk does not hold the bytes either.
+	c1, c2 := []byte("chunk one\n"), []byte("chunk two\n")
+	dc1, dc2 := mustPut(t, s, c1), mustPut(t, s, c2)
+	whole := append(append([]byte(nil), c1...), c2...)
+	dw := digestOf(whole)
+	if _, err := s.BindLogical(dw, []string{dc1, dc2}, []int64{int64(len(c1)), int64(len(c2))}); err != nil {
+		t.Fatal(err)
+	}
+	dp := digestOf(whole[:3])
+	if err := s.writeLogical(dp, logicalIndex{PrefixOf: dw, Length: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Present(dp); err != nil || !ok {
+		t.Fatalf("present over a chunk list = %v %v", ok, err)
+	}
+	cp, _ := s.Path(dc2)
+	if err := os.Remove(cp); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Present(dp); err != nil || ok {
+		t.Fatalf("present over a chunk list missing a chunk = %v %v", ok, err)
 	}
 }
 

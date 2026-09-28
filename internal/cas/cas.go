@@ -143,16 +143,16 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 		return false, fmt.Errorf("cas: %w", err)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// A version that grew is stored as a prefix record. Its bytes are
-	// already here, so the body is not kept as a second copy.
+	// already here, so the body is not kept as a second copy. This is
+	// checked under the lock, which Grow holds while it writes records.
 	if _, _, ok, _ := s.PrefixOf(digest); ok {
 		if present, err := s.Present(digest); err != nil || present {
 			return present, err
 		}
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	exists, err = s.commitFileLocked(digest, tmpName, n)
 	if err != nil {
 		return false, err

@@ -79,9 +79,14 @@ func (s *Store) PrefixOf(digest string) (base string, length int64, ok bool, err
 }
 
 // Present reports whether digest can be read: an object, or a prefix
-// record whose chain reaches a stored file. It is what the lake answers
-// a client asking whether a blob is stored, so a version that grew is
-// not sent again. A chunk list is not counted, as Has does not count it.
+// record whose chain reaches a file that holds at least its length. It
+// is what the lake answers a client asking whether a blob is stored, so
+// a version that grew is not sent again. A chunk list is not counted,
+// as Has does not count it.
+//
+// Sizes are checked and bytes are not, as Has does for an object: a
+// base that was truncated, or a chunk list missing a chunk, makes the
+// record missing, and the client's put restores the version.
 func (s *Store) Present(digest string) (bool, error) {
 	ok, err := s.Has(digest)
 	if err != nil || ok {
@@ -96,10 +101,56 @@ func (s *Store) Present(digest string) (bool, error) {
 		// follows installs the object, which Open prefers.
 		return false, nil
 	}
-	if _, err := s.resolvePrefix(digest, idx); err != nil {
+	base, err := s.resolvePrefix(digest, idx)
+	if err != nil {
 		return false, nil
 	}
-	return true, nil
+	return s.holds(base, idx.Length)
+}
+
+// holds reports whether base, an object or a chunk list, has at least
+// length bytes on disk: the object's size, or every chunk stored at its
+// recorded length.
+func (s *Store) holds(base string, length int64) (bool, error) {
+	if size, object, err := s.ObjectSize(base); err != nil || object {
+		return object && size >= length, err
+	}
+	idx, err := s.readLogical(base)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || idx.PrefixOf != "" {
+		return false, nil
+	}
+	var total int64
+	for i, c := range idx.ChunkSHA256s {
+		size, object, err := s.ObjectSize(c)
+		if err != nil {
+			return false, err
+		}
+		if !object || size != idx.ChunkLengths[i] {
+			return false, nil
+		}
+		total += size
+	}
+	return total >= length, nil
+}
+
+// ObjectSize is the size of digest's object file, and false when it has
+// none.
+func (s *Store) ObjectSize(digest string) (int64, bool, error) {
+	p, err := s.Path(digest)
+	if err != nil {
+		return 0, false, err
+	}
+	st, err := os.Lstat(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("cas: %w", err)
+	}
+	return st.Size(), true, nil
 }
 
 // prefixReader is the first left bytes of rc. A base that ends early is

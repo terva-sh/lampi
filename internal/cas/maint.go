@@ -179,6 +179,12 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 			return nil
 		}
 		if idx.PrefixOf != "" {
+			// An object under the same digest is what Open reads, so a
+			// record whose base is gone is no longer a problem once a
+			// put has restored the object.
+			if ok, err := s.Has(digest); err != nil || ok {
+				return err
+			}
 			if _, err := s.resolvePrefix(digest, idx); err != nil {
 				bad(Problem{Digest: digest, Logical: true, Reason: err.Error()})
 			}
