@@ -18,7 +18,9 @@ dependencies:
   - TKT-01M3MC0QVMMW0TQ6RGAYDZEF82
   - TKT-01M3MC0RA026HX6ZKSKG89F5NA
 blocks_on: none
-references: []
+references:
+  - ref: pr:forgejo/terva-sh/lampi#91
+    path: null
 claim:
   actor: agent:claude-code/aa1afd80
   branch: self-host/container-docs
@@ -29,7 +31,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T18:49:58Z
+updated_at: 2026-09-28T18:50:21Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
