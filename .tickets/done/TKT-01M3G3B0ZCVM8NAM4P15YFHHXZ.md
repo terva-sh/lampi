@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3G3B0ZCVM8NAM4P15YFHHXZ
 title: "OIDC: TestProviderFlowAndRotation fails rarely after a key rotation"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: tests/webauth-rotation
-  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-ab1564f7d6740b28f
-  commit: 321f24a773287afce4eb65ac05d985030029de1c
-  session: null
-  claimed_at: 2026-09-28T18:13:02Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T00:13:18Z
-updated_at: 2026-09-28T18:13:03Z
+updated_at: 2026-09-28T19:32:52Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -64,3 +57,7 @@ Evidence: unfixed with all cores busy, -race -cpu 1,2 -count=1500 gave 25/3000 f
 Fix: rotatingKeys in internal/webauth/provider.go wraps the key set. On a verify failure it builds a fresh RemoteKeySet whose first fetch starts after the token arrived, tries once more, and swaps it in on success (guarded against concurrent swaps). The verifier is built with oidc.NewVerifier using the discovered issuer and the same allowed algorithms. TestProviderRotationAfterStaleFetch forces the interleaving deterministically.
 
 Alternatives: retrying the library key set can rejoin the same stale fetch (would need timed backoff); an own JWKS client would duplicate go-oidc's unsupported-key skipping; changing only the test IdP hides a real production race; no fixed go-oidc version to pin. Cost: a genuinely bad token triggers one extra JWKS fetch, bounded by the provider's 8-call limit. Not reported upstream yet.
+
+## Summary
+
+Merged in #86. The flake was a go-oidc v3.21.0 race: a lookup right after a key rotation could join a finished JWKS fetch and get the old keys. rotatingKeys retries once with a fresh key set after a verify failure. This also fixes the production case of a refused login right after an IdP rotation.
