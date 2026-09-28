@@ -430,6 +430,11 @@ sent, compared with the lake. It takes no parameters; any parameter is
   it has not said. It is `missing` if the device names a profile the lake does
   not hold, which a delete refuses, so it means the catalog is out of step.
   `current_version` is what the lake would serve.
+- `advisory` is present when the agent's release matches one of the
+  advisories this lake ships with (`internal/advisory/agents.json`):
+  `severity` (`upgrade` or `urgent`), `reason`, and `fixed` and `link` when
+  known. `urgent` lists the active devices that match an urgent advisory; it
+  is empty, not absent, when none does.
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.
@@ -451,7 +456,7 @@ rules of [registration codes](#registration-codes) hold: the `operator` role,
 | `POST /devices/{id}/unbind` | Clears the machine it is bound to; its next upload binds it again. |
 | `POST /devices/{id}/profile` | Takes `{"profile": NAME}` and sets the profile its agent fetches. `default` goes back to the default. |
 
-`revoke` and `unbind` take no body. Each answers `200` with
+`revoke` and `unbind` take no body, or an empty object. Each answers `200` with
 `{device: {id, name, state, profile, machine_id}}`.
 
 | Refusal | Status and `error` |

@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T15:39:08Z
-updated_at: 2026-09-28T18:12:20Z
+updated_at: 2026-09-28T18:35:00Z
 created_by:
   id: agent:claude-code/03b82158
   name: ""
@@ -63,11 +63,11 @@ TKT-01M3M7M0RQ, Agent heartbeat: durable last contact, sync counters, applied pr
 
 ## Acceptance criteria
 
-- [ ] Devices views show version with a behind badge versus the server build
-- [ ] Embedded advisory mapping raises an urgent notice for matching versions, with a reason
-- [ ] Tests cover semver comparison, unstamped builds and advisory range matching
-- [ ] Devices views read the version from the newest heartbeat report; no report shows as unknown
-- [ ] Agent sends its version in the User-Agent
+- [x] Devices views show version with a behind badge versus the server build
+- [x] Embedded advisory mapping raises an urgent notice for matching versions, with a reason
+- [x] Tests cover semver comparison, unstamped builds and advisory range matching
+- [x] Devices views read the version from the newest heartbeat report; no report shows as unknown
+- [x] Agent sends its version in the User-Agent
 
 ## Implementation plan
 
@@ -78,3 +78,27 @@ D1 shows each agent's reported release against the lake's release (behind/curren
 **agent:claude-code/2cf53976** at 2026-09-28T17:21:40Z
 
 Correction from TKT-01M3M7M0Y7: goreleaser does not stamp internal/cli.version (.goreleaser.yaml links nothing in with -X). Releases get their version from build info. The heartbeat therefore reported 0.0.0 from every release agent until releaseVersion() in internal/cli/cli.go was added. Use releaseVersion() for the User-Agent as well.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:35:00Z
+
+D3 on web/agent-advisories (stacked on web/device-actions):
+
+- **Advisory file.** `internal/advisory` embeds `agents.json`, a list of `{introduced, fixed?, severity upgrade|urgent, reason, link?}`, in the OSV style of introduced and fixed.
+  - Parsing is strict: unknown fields, versions that are not releases, `fixed` not after `introduced`, a missing reason, or a link that is not https are all refused.
+  - `Match` prefers an urgent advisory. Unstamped builds match nothing.
+- **Dashboard.** Each device row gets a severity badge, the reason, the fixed release and the link. `devicesView.urgent` names active devices on an urgent release.
+  - A banner appears on the overview and on /devices.
+  - Revoked devices are left out of the banner because they no longer upload.
+- **User-Agent.** The agent sends `terva-lampi/VERSION`, or `dev` when the build has no plain version token. It is set in an init in cli from releaseVersion(). `upload.UserAgent` is a package variable because about six call sites build `upload.Options`.
+- **The file ships empty.** v0.1.3 is the newest tag and predates the heartbeat, so no field agent can report a version to match against. The first real entry belongs in the release that fixes a bad one. docs/development.md says how to add one.
+
+Not done:
+
+- The optional `lampi_device_agent_outdated` gauge.
+- Telling the agent itself about a matching advisory, one of the ticket's open questions. The report answer is the natural place for it, but that is a protocol change for another ticket.
+
+Alternatives considered:
+
+- **A Server field for the Set instead of a package variable.** Rejected: `New()` returns an `http.Handler` and would need another parameter only for tests.
+- **Semver range strings (`>=a <b`).** Rejected: they need a parser and allow unions that nothing needs; introduced/fixed is what OSV uses.
+- **A banner on every page.** Rejected: it would read the devices on every request. The overview and /devices are where an operator looks.

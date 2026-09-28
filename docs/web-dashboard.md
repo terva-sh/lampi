@@ -327,6 +327,12 @@ it made.
   *Behind* means an older release: run `terva-lampi self-update` on that
   machine. *Unstamped* is a build that is not a release, and *unknown* a device
   that has not reported yet.
+  When the lake knows something about that release, the row adds an
+  *upgrade* or *urgent* badge with the reason and the release that fixes it.
+  Any active device on an urgent release also puts a banner on the overview
+  and on this page. The advisories ship inside the lake, in
+  `internal/advisory/agents.json`, so upgrading the lake is enough to warn
+  about agents already in the field.
 - **Profile** is the profile the device uses and whether the agent applied the
   version the lake serves now. A *stale* profile catches up within a minute
   once the agent is running. When the allow rules come from the machine's own
