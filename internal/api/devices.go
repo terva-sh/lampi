@@ -68,6 +68,8 @@ func (s *Server) audit(e audit.Event) {
 	if s.dataDir == "" {
 		return
 	}
+	// Queued lines go first, so the log keeps its order.
+	s.flushAudit()
 	if e.Actor == "" {
 		e.Actor = "serve"
 	}
@@ -76,6 +78,19 @@ func (s *Server) audit(e audit.Event) {
 	}
 	if err := audit.Append(s.dataDir, e); err != nil {
 		s.logger().Error("audit", "err", err)
+	}
+}
+
+// flushAudit appends the audit events catalog changes queued. One that
+// cannot be written stays queued, is logged, and is tried again on the
+// next flush: after the next change, before the next direct line, and
+// when serve starts.
+func (s *Server) flushAudit() {
+	if s.dataDir == "" {
+		return
+	}
+	if err := s.Catalog.FlushAudit(context.Background(), s.dataDir); err != nil {
+		s.logger().Error("audit: queued events stay queued", "err", err)
 	}
 }
 

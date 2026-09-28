@@ -234,7 +234,7 @@ func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
 	}
 
 	// With ids, only those codes are looked at.
-	got, err := serve.RecordExpiries(ctx, now.Add(500*time.Millisecond), live.ID, edge.ID)
+	got, err := serve.RecordExpiries(ctx, now.Add(500*time.Millisecond), "test", live.ID, edge.ID)
 	if err != nil || len(got) != 1 || got[0].ID != edge.ID {
 		t.Fatalf("by id: %+v %v", got, err)
 	}
@@ -242,8 +242,8 @@ func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
 	var a, b []Registration
 	var aErr, bErr error
 	var wg sync.WaitGroup
-	wg.Go(func() { a, aErr = serve.RecordExpiries(ctx, now) })
-	wg.Go(func() { b, bErr = operator.RecordExpiries(ctx, now) })
+	wg.Go(func() { a, aErr = serve.RecordExpiries(ctx, now, "test") })
+	wg.Go(func() { b, bErr = operator.RecordExpiries(ctx, now, "test") })
 	wg.Wait()
 	if aErr != nil || bErr != nil {
 		t.Fatal(aErr, bErr)
@@ -253,10 +253,10 @@ func TestRecordExpiriesHandsEachExpiredCodeOutOnce(t *testing.T) {
 	}
 	// A recorded expiry is not handed out again; a code that expires
 	// later is, once.
-	if got, err := operator.RecordExpiries(ctx, now); err != nil || len(got) != 0 {
+	if got, err := operator.RecordExpiries(ctx, now, "test"); err != nil || len(got) != 0 {
 		t.Fatalf("second sweep: %+v %v", got, err)
 	}
-	if got, err := operator.RecordExpiries(ctx, now.Add(2*time.Hour)); err != nil || len(got) != 1 || got[0].ID != live.ID {
+	if got, err := operator.RecordExpiries(ctx, now.Add(2*time.Hour), "test"); err != nil || len(got) != 1 || got[0].ID != live.ID {
 		t.Fatalf("later sweep: %+v %v", got, err)
 	}
 }

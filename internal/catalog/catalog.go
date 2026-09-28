@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"terva.sh/lampi/internal/id"
@@ -37,6 +38,8 @@ import (
 // Catalog is one SQLite file.
 type Catalog struct {
 	db *sql.DB
+	// flushMu makes FlushAudit calls take turns.
+	flushMu sync.Mutex
 }
 
 // Decision is the merge result for one manifest artifact.
@@ -191,6 +194,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateRegistrations,
 	migrateRegistrationActors,
 	migrateHeadUpdates,
+	migrateAuditOutbox,
 }
 
 // upgrade runs each migration above the file's user_version, one

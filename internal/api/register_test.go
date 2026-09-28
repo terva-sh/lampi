@@ -349,3 +349,52 @@ func TestRegisterSharesTheOpenRateLimit(t *testing.T) {
 		t.Fatalf("keys after register burst: %d", rr.Code)
 	}
 }
+
+// TKT-01M3GAHSN: a redemption whose audit lines cannot be written still
+// stands, and the lines are written when the log works again, including
+// by the next serve.
+func TestRedemptionAuditSurvivesAnUnwritableLog(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return now }
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	secret, _ := regcode.NewSecret()
+	if _, err := s.Catalog.CreateRegistration(t.Context(), "newbox", regcode.HashSecret(secret), "", "", "", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(audit.Path(dir)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if rr := postRegister(t, s, protocol.RegisterRequest{Secret: secret, TokenSHA256: strings.Repeat("1", 64), MachineID: "m-new"}); rr.Code != http.StatusOK {
+		t.Fatalf("register: %d %s", rr.Code, rr.Body)
+	}
+	if n, err := s.Catalog.PendingAudit(t.Context()); err != nil || n != 3 {
+		t.Fatalf("queued %d, want 3: %v", n, err)
+	}
+	if err := os.Remove(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	raw, err := os.ReadFile(audit.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{audit.RegistrationRedeemed, audit.DeviceCreated, audit.DeviceBound} {
+		if strings.Count(string(raw), `"kind":"`+kind+`","device":"newbox"`) != 1 {
+			t.Fatalf("audit lacks one %s:\n%s", kind, raw)
+		}
+	}
+	if n, _ := again.Catalog.PendingAudit(t.Context()); n != 0 {
+		t.Fatalf("still queued: %d", n)
+	}
+}
