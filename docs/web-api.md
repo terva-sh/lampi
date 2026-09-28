@@ -373,8 +373,10 @@ The example shortens `components`, `points` and `machines`.
   - `filesystem` is the capacity of the filesystem that holds the lake. It is
     absent where the platform does not report one.
   - `referenced` is the logical bytes of every artifact row, and `unique` is
-    those of each distinct digest counted once. Their ratio is how much
-    deduplication saves.
+    those of each distinct digest counted once. Versions of a growing file are
+    distinct digests that share stored bytes, so `unique` is not what the CAS
+    holds; `components.cas` is. The page's deduplication is `referenced`
+    divided by `components.cas`.
 - **`growth`** has one point per bucket in the range. Each point carries the
   last sample taken in that bucket. A bucket with no sample is `null`, and a
   `null` means not measured, not zero.
@@ -428,6 +430,11 @@ sent, compared with the lake. It takes no parameters; any parameter is
   it has not said. It is `missing` if the device names a profile the lake does
   not hold, which a delete refuses, so it means the catalog is out of step.
   `current_version` is what the lake would serve.
+- `advisory` is present when the agent's release matches one of the
+  advisories this lake ships with (`internal/advisory/agents.json`):
+  `severity` (`upgrade` or `urgent`), `reason`, and `fixed` and `link` when
+  known. `urgent` lists the active devices that match an urgent advisory; it
+  is empty, not absent, when none does.
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.
@@ -449,7 +456,7 @@ rules of [registration codes](#registration-codes) hold: the `operator` role,
 | `POST /devices/{id}/unbind` | Clears the machine it is bound to; its next upload binds it again. |
 | `POST /devices/{id}/profile` | Takes `{"profile": NAME}` and sets the profile its agent fetches. `default` goes back to the default. |
 
-`revoke` and `unbind` take no body. Each answers `200` with
+`revoke` and `unbind` take no body, or an empty object. Each answers `200` with
 `{device: {id, name, state, profile, machine_id}}`.
 
 | Refusal | Status and `error` |

@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+
+	"terva.sh/lampi/internal/upload"
 )
 
 // version and commit are stamped with -ldflags by `just build`. 0.0.0
@@ -136,6 +138,25 @@ func releaseVersion() (string, string) {
 		}
 	}
 	return v, c
+}
+
+func init() { upload.UserAgent = userAgent(releaseVersion()) }
+
+// userAgent is terva-lampi/VERSION, VERSION without its v. A version
+// that is not a plain token, such as "(devel)", is sent as dev.
+func userAgent(v, _ string) string {
+	v = strings.TrimPrefix(v, "v")
+	ok := v != ""
+	for _, r := range v {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(".-+_", r)) {
+			ok = false
+			break
+		}
+	}
+	if !ok {
+		v = "dev"
+	}
+	return "terva-lampi/" + v
 }
 
 // runningRelease is releaseVersion's version, behind a variable so a

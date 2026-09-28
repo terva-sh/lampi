@@ -74,6 +74,11 @@ import (
 // Options selects the lake, the local terva home, and the off-box gate.
 // Projects zero value denies every project. UploadHits is the explicit
 // override that sends bytes ruleset v2 flagged.
+// UserAgent names this build on every request to a lake, so its request
+// logs show which agent release sent each one. The CLI stamps it with
+// its release at start.
+var UserAgent = "terva-lampi"
+
 type Options struct {
 	ServerURL string
 	Token     string
@@ -1043,7 +1048,7 @@ func doRequest(ctx context.Context, client *http.Client, opt Options, method, p 
 	if opt.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+opt.Token)
 	}
-	req.Header.Set("User-Agent", "terva-lampi")
+	req.Header.Set("User-Agent", UserAgent)
 	wrap := func(err error) error {
 		if errors.Is(context.Cause(rctx), errStalled) {
 			return fmt.Errorf("upload: %s %s: no bytes moved for %s", method, p, stall)

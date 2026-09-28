@@ -404,17 +404,19 @@ type opsView struct {
 	SampleAge string
 	// Rows are the components, largest first, with their share of the
 	// lake directory and the change over the range.
-	Rows       []storageRow
-	Total      string
-	FSUsed     string
-	FSFree     string
-	FSTotal    string
-	FSUsedPct  int
-	Dedup      string
-	Disk       chartView
-	Free       chartView
-	HasFree    bool
-	MachineCap int
+	Rows      []storageRow
+	Total     string
+	FSUsed    string
+	FSFree    string
+	FSTotal   string
+	FSUsedPct int
+	Dedup     string
+	// DedupStored is the stored blobs' disk use the ratio divides by.
+	DedupStored string
+	Disk        chartView
+	Free        chartView
+	HasFree     bool
+	MachineCap  int
 }
 
 type storageRow struct {
@@ -465,8 +467,13 @@ func buildOpsView(o operations, now time.Time) opsView {
 			v.FSUsed, v.FSFree, v.FSTotal = bytesIEC(int64(used)), bytesIEC(int64(fs.Free)), bytesIEC(int64(fs.Total))
 			v.FSUsedPct = int(math.Round(float64(used) / float64(fs.Total) * 100))
 		}
-		if st.Referenced != nil && st.Unique != nil && st.Unique.Bytes > 0 {
-			v.Dedup = fmt.Sprintf("%.2f×", float64(st.Referenced.Bytes)/float64(st.Unique.Bytes))
+		// Against the blobs' disk use, not the distinct digests' logical
+		// sizes: every version of a growing transcript is its own digest,
+		// but the CAS keeps the bytes versions share once, as prefix
+		// records (TKT-01M3KC68C).
+		if cas, ok := st.Components[storage.CAS]; ok && st.Referenced != nil && cas.Bytes > 0 {
+			v.Dedup = fmt.Sprintf("%.2f×", float64(st.Referenced.Bytes)/float64(cas.Bytes))
+			v.DedupStored = bytesIEC(cas.Bytes)
 		}
 	}
 	starts := make([]time.Time, len(o.Growth.Points))

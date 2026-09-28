@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"terva.sh/lampi/internal/advisory"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/release"
@@ -51,9 +52,25 @@ type deviceRow struct {
 	LastSync    *deviceSyncCounts `json:"last_sync,omitempty"`
 	LastError   string            `json:"last_error,omitempty"`
 	LastErrorAt string            `json:"last_error_at,omitempty"`
-	last        time.Time
-	contact     time.Time
+	// Advisory is what this lake knows against the agent's release.
+	Advisory *agentAdvisory `json:"advisory,omitempty"`
+	last     time.Time
+	contact  time.Time
 }
+
+// agentAdvisory is the advisory an agent's release matches.
+type agentAdvisory struct {
+	Severity advisory.Severity `json:"severity"`
+	Reason   string            `json:"reason"`
+	Link     string            `json:"link,omitempty"`
+	// Fixed is the first release without the problem; empty when there
+	// is none yet.
+	Fixed string `json:"fixed,omitempty"`
+}
+
+// agentAdvisories is what the devices view matches against: the
+// advisories this build ships, or a test's.
+var agentAdvisories = advisory.Agents
 
 type deviceSyncCounts struct {
 	At          string `json:"at"`
@@ -74,6 +91,9 @@ type devicesView struct {
 	// set.
 	Behind     int `json:"behind"`
 	LocalRules int `json:"local_rules"`
+	// Urgent names the active devices whose agent release matches an
+	// urgent advisory.
+	Urgent []string `json:"urgent"`
 	// Actions offers the operator's forms, with the CSRF token they
 	// carry and the profiles a device can be set to. Problem says why
 	// the last action was refused. The page uses these; the API does not.
@@ -124,12 +144,12 @@ func (s *Server) renderDevices(w http.ResponseWriter, r *http.Request, problem s
 			v.Profiles = []string{config.DefaultProfile}
 		}
 	}
-	renderStatus(w, r, pageData{Title: "Devices", View: "devices", AsOf: v.AsOf, Devices: v}, status)
+	renderStatus(w, r, pageData{Title: "Devices", View: "devices", AsOf: v.AsOf, Devices: v, Urgent: v.Urgent}, status)
 }
 
 func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, error) {
 	now = now.UTC()
-	v := devicesView{AsOf: now.Format(time.RFC3339Nano), Devices: []deviceRow{}}
+	v := devicesView{AsOf: now.Format(time.RFC3339Nano), Devices: []deviceRow{}, Urgent: []string{}}
 	var lakeV release.Version
 	var lakeKnown bool
 	if s.ops != nil {
@@ -209,6 +229,9 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 			if row.AllowSource == config.OriginLocal {
 				v.LocalRules++
 			}
+			if row.Advisory != nil && row.Advisory.Severity == advisory.Urgent {
+				v.Urgent = append(v.Urgent, row.Name)
+			}
 		}
 		v.Devices = append(v.Devices, row)
 	}
@@ -240,6 +263,9 @@ func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, 
 	row.AllowSource, row.DenySource = r.AllowSource, r.DenySource
 	row.AppliedVersion = r.ProfileVersion
 	row.VersionState = versionState(r.AgentVersion, lakeV, lakeKnown)
+	if a, ok := agentAdvisories.Match(r.AgentVersion); ok {
+		row.Advisory = &agentAdvisory{Severity: a.Severity, Reason: a.Reason, Link: a.Link, Fixed: a.Fixed}
+	}
 	switch {
 	case row.ProfileState == "missing", r.ProfileVersion == "":
 	case r.ProfileVersion == row.CurrentVersion:
