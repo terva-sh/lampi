@@ -1,7 +1,9 @@
 package api
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
@@ -52,5 +54,29 @@ func TestSampleStorageRecords(t *testing.T) {
 	latest, ok, err := s.Catalog.LatestStorage(t.Context())
 	if err != nil || !ok || !latest.At.Equal(got.At) || len(latest.Measures) != len(got.Measures) {
 		t.Fatalf("latest %+v %v %v", latest, ok, err)
+	}
+}
+
+// TKT-01M3JV45Z: an earlier contact arriving late does not replace a
+// later one.
+func TestNoteContactKeepsTheLatest(t *testing.T) {
+	var s Server
+	base := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	s.noteContact("d", base.Add(time.Minute))
+	s.noteContact("d", base)
+	if got := s.Contacts()["d"]; !got.Equal(base.Add(time.Minute)) {
+		t.Fatalf("contact moved back to %s", got)
+	}
+	var wg sync.WaitGroup
+	for i := range 200 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.noteContact("d", base.Add(time.Duration(i)*time.Second))
+		}()
+	}
+	wg.Wait()
+	if got := s.Contacts()["d"]; !got.Equal(base.Add(199 * time.Second)) {
+		t.Fatalf("after concurrent contacts %s", got)
 	}
 }

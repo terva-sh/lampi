@@ -84,3 +84,39 @@ func TestArtifactBytes(t *testing.T) {
 		t.Fatalf("referenced %+v unique %+v", r, u)
 	}
 }
+
+// TKT-01M3JV45Z: every machine that posted or is bound to a device is
+// listed, with its newest upload, newest head update and recent count.
+func TestMachinesActivity(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := c.db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO devices(id,name,token_sha256,source,machine_id,created_at) VALUES('d1','laptop','t1','registration','m-bound',?)`, stamp(now))
+	exec(`INSERT INTO provenance(session_uid,machine_id,sha256,relpath,ingested_at) VALUES('s1','m-old','a','r',?),('s2','m-old','b','r',?)`, stamp(now.Add(-72*time.Hour)), stamp(now.Add(-48*time.Hour)))
+	for _, at := range []time.Time{now.Add(-30 * time.Hour), now.Add(-time.Hour), now.Add(-time.Minute)} {
+		exec(`INSERT INTO head_updates(session_uid,machine_id,harness,received_ns,old_sha256,new_sha256,old_size,new_size,relation) VALUES('s1','m-old','terva',?,'','x',0,1,'head')`, at.UnixNano())
+	}
+	got, err := c.MachinesActivity(ctx, now.Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].MachineID != "m-bound" || got[1].MachineID != "m-old" {
+		t.Fatalf("machines %+v", got)
+	}
+	if b := got[0]; !b.LastUpload.IsZero() || !b.LastUpdate.IsZero() || b.Sessions != 0 {
+		t.Errorf("bound machine with no uploads %+v", b)
+	}
+	o := got[1]
+	if !o.LastUpload.Equal(now.Add(-48*time.Hour)) || !o.LastUpdate.Equal(now.Add(-time.Minute)) || o.Sessions != 2 || o.RecentUpdates != 2 {
+		t.Errorf("machine %+v", o)
+	}
+	if v, err := c.SchemaVersion(ctx); err != nil || v != len(migrations) {
+		t.Errorf("schema %d %v", v, err)
+	}
+}

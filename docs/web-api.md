@@ -29,6 +29,7 @@ raw manifests never appear in these responses.
 | `/search` | Literal text search over indexed events; see below |
 | `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
 | `/activity` | Accepted head updates per UTC hour or day; see below |
+| `/operations` | Disk use, growth, queues, the serve process and machine freshness; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
 arrays. `limit` defaults to 50 and accepts 1–200. `cursor` is opaque, bound to the
@@ -323,3 +324,72 @@ Purging a session deletes its updates, so past buckets drop them. Restoring a
 backup rewinds the history to the backup, and agents that upload again after the
 restore are counted at the time the lake accepts them.
 
+## Operations
+
+`GET /api/web/v1/operations` reports what running the lake costs and whether
+it keeps up. It takes one optional parameter, `range`, which is `7d` (hourly
+buckets, the default), `30d` or `90d` (daily buckets). As on Activity, an
+empty value takes the default. Any other value, a repeated `range`, or any
+other parameter is `400 invalid_filters_or_cursor`.
+
+```json
+{
+  "as_of": "2026-09-28T13:45:10.1Z",
+  "process": {"version": "v0.1.2 (8fea3abdf607)", "started": "2026-09-28T09:01:00Z",
+              "uptime_seconds": 17050, "schema_version": 11, "lake_id": "lake_..."},
+  "storage": {
+    "sampled_at": "2026-09-28T13:01:00Z",
+    "components": {"cas": {"bytes": 7340032, "files": 8560}, "catalog": {"bytes": 4194304, "files": 2}},
+    "total_bytes": 15728640,
+    "filesystem": {"total": 107374182400, "free": 53687091200},
+    "referenced": {"bytes": 9437184, "files": 9120},
+    "unique": {"bytes": 6291456, "files": 8560}
+  },
+  "growth": {"range": "7d", "bucket": "hour", "points": [
+    {"start": "2026-09-21T14:00:00Z", "total_bytes": null, "free_bytes": null},
+    {"start": "2026-09-28T13:00:00Z", "total_bytes": 15728640, "free_bytes": 53687091200}
+  ]},
+  "queues": {"audit_pending": 0, "normalize_pending": 0, "normalize_failed": 2,
+             "search": {"ready_sessions": 91, "indexed_sessions": 91, "behind_sessions": 0, "failed_sessions": 0, "last_reconcile": "..."},
+             "upload_files": 0, "upload_bytes": 0},
+  "machines": [
+    {"device": "laptop", "state": "active", "source": "registration", "profile": "default",
+     "machine_id": "01J...", "last_contact": "2026-09-28T13:44:02Z", "last_data": "2026-09-28T12:10:40Z",
+     "freshness": "active", "sessions": 40, "updates_24h": 17}
+  ]
+}
+```
+
+The example shortens `components`, `points` and `machines`.
+
+- **`storage`** is the newest sample serve took. Serve samples when it starts
+  and then hourly, so the figures can be up to an hour old; `sampled_at` says
+  when. Before the first sample, `storage` is `{}`.
+  - `components` holds all eight parts of the lake directory: `cas`, `uploads`,
+    `catalog`, `normalized`, `parquet`, `search`, `audit` and `other`. Bytes
+    are allocated disk blocks, as `du` counts them, including directories.
+    `files` counts regular files.
+  - `total_bytes` is their sum.
+  - `filesystem` is the capacity of the filesystem that holds the lake. It is
+    absent where the platform does not report one.
+  - `referenced` is the logical bytes of every artifact row, and `unique` is
+    those of each distinct digest counted once. Their ratio is how much
+    deduplication saves.
+- **`growth`** has one point per bucket in the range. Each point carries the
+  last sample taken in that bucket. A bucket with no sample is `null`, and a
+  `null` means not measured, not zero.
+- **`queues`**
+  - `audit_pending` is audit events committed to the catalog but not yet in
+    `audit.jsonl`.
+  - `normalize_pending` and `normalize_failed` count sessions in those states.
+  - `search` is the index coverage, and is absent when search is off.
+  - `upload_files` and `upload_bytes` come from the newest sample.
+- **`machines`** lists every device, and every machine that posted without a
+  device bound to it, which has no `device` field. Revoked devices come last;
+  the rest are ordered by how recently each was heard from.
+  - `last_contact` is the device's last authenticated request since `started`.
+    A restart clears it.
+  - `last_data` is the newest upload the lake had not seen before.
+  - `freshness` is `active` within a day of the later of the two, `idle`
+    within a week, `quiet` after that, and `never` when neither is known.
+  - `updates_24h` counts head updates in the last 24 hours.

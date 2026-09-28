@@ -66,6 +66,8 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"int64":       func(n int) int64 { return int64(n) },
 	"sub":         func(a, b float64) float64 { return a - b },
 	"signedBytes": signedBytes,
+	"bytes":       bytesIEC,
+	"permille":    func(n int64) string { return fmt.Sprintf("%.1f%%", float64(n)/10) },
 	"kib":         func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
 	"lifetimes":   func() []struct{ Value, Label string } { return codeLifetimes },
 	"revokeURL":   func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
@@ -93,6 +95,7 @@ type pageData struct {
 	HasTarget   bool
 	Search      searchView
 	Activity    activityView
+	Ops         opsView
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
 	Operator bool
@@ -127,7 +130,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")

@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -568,7 +569,18 @@ func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
 		},
 		Release: lakeRelease(),
 	}
-	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, nil, lake.Log)
+	ops := &web.Operations{
+		Version: strings.TrimPrefix(versionLine(), "terva-lampi "),
+		Started: time.Now(),
+		LakeID: func() string {
+			if id := lake.Identity(); id != nil {
+				return id.LakeID
+			}
+			return ""
+		},
+		Contacts: lake.Contacts,
+	}
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
 	return err
 }
 

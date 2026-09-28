@@ -9,3 +9,4 @@
 pre.copy{white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;background:#fafbf9;border:1px solid var(--line);border-radius:4px;padding:10px;margin:8px 0}
 .copy-button{margin:0 0 12px}.problem{border-color:#e7b3aa;background:#fdf3f1}
 .filters+.refreshbar{margin-top:10px}
+.num{text-align:right;font-variant-numeric:tabular-nums}th.num{text-align:right}.storage-table th:first-child{width:34%}.storage-table meter{max-width:160px}.machines-table th:first-child{width:28%}.badge.fresh-active{background:#e4f2e9;color:#256d46}.badge.fresh-idle{background:#fff1d7;color:#896124}.badge.fresh-quiet{background:#fce6e2;color:#a14538}.badge.fresh-never{background:#edf0f2;color:#596877}
