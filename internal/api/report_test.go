@@ -88,3 +88,17 @@ func TestAgentReportRefusals(t *testing.T) {
 		t.Fatalf("unknown field: %d %s", rr.Code, rr.Body)
 	}
 }
+
+func TestAgentReportToALakeWithNoDevicesKeepsNothing(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if rr := postReport(t, s, "", []byte(`{"agent_version":"v0.1.3"}`)); rr.Code != http.StatusOK {
+		t.Fatalf("report %d %s", rr.Code, rr.Body)
+	}
+	if all, err := s.Catalog.DeviceReports(t.Context()); err != nil || len(all) != 0 {
+		t.Fatalf("stored %v %v", all, err)
+	}
+}

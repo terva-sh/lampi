@@ -387,8 +387,8 @@ error and is empty after a sync succeeds.
 
 The body cap is 64 KiB. The lake cuts each string to 256 bytes, and
 `last_error` to 2 KiB, and does not keep a field it does not know. The
-answer is `{"received_at": "…"}`. A lake with no device tokens answers
-404.
+answer is `{"received_at": "…"}`. A lake with no device tokens takes
+any report, as it takes any upload, and keeps nothing.
 
 ## POST /v1/blobs/check
 

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -22,20 +21,21 @@ const (
 )
 
 // agentReport stores the calling device's heartbeat as its newest
-// report. A lake with no device tokens has no device to file it under
-// and answers 404.
+// report. A lake with no device tokens takes anyone's report, as it
+// takes anyone's upload, and has no device to file it under, so it
+// answers as if stored and keeps nothing.
 func (s *Server) agentReport(w http.ResponseWriter, r *http.Request) {
-	d, ok := r.Context().Value(deviceKey{}).(catalog.Device)
-	if !ok {
-		s.fail(w, r, http.StatusNotFound, errors.New("this lake has no devices to report as"))
-		return
-	}
 	var rep protocol.AgentReport
 	if !s.decodeJSON(w, r, &rep, maxReportBytes, "") {
 		return
 	}
-	clampReport(&rep)
 	now := s.now().UTC()
+	d, ok := r.Context().Value(deviceKey{}).(catalog.Device)
+	if !ok {
+		writeJSON(w, http.StatusOK, protocol.AgentReportResponse{ReceivedAt: now})
+		return
+	}
+	clampReport(&rep)
 	if err := s.Catalog.PutDeviceReport(r.Context(), d.ID, rep, now); err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
