@@ -25,7 +25,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -197,6 +199,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateAuditOutbox,
 	migrateStorageSamples,
 	migrateMachineActivity,
+	migrateSubagentHeads,
 	migrateDeviceReports,
 }
 
@@ -587,13 +590,26 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 // reviseDecisions relates each artifact to the current row at its
 // relpath. The manifest's head artifact at a relpath the session has no
 // current row for is related to the session head instead, when that
-// head is a head-bearing artifact of the same kind at another path.
-// Other artifacts stay keyed by relpath: a Claude subagent transcript,
-// a terva error sidecar, and a raati or tasks file are separate files
-// of the same session.
+// head is a head-bearing artifact of the same kind at another path:
+// the session's file moved. Other artifacts stay keyed by relpath: a
+// Claude subagent transcript, a terva error sidecar, and a raati or
+// tasks file are separate files of the same session.
+//
+// A companion of the session head never takes the head. A manifest
+// that carries a Claude subagent file and not the session's own
+// transcript, which did not change, names the subagent file as its
+// head (TKT-01M3M5VEQ). And a session's own transcript is not taken
+// for a move of a companion that holds the head.
 func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid, sessionHead string, m protocol.Manifest) ([]Decision, error) {
 	out := make([]Decision, len(m.Artifacts))
-	head := transcriptIndex(m.Artifacts)
+	head := HeadIndex(m.Artifacts)
+	row, found, err := headRow(ctx, tx, uid, sessionHead)
+	if err != nil {
+		return nil, err
+	}
+	if found && head < len(m.Artifacts) && companion(m.Artifacts[head].RelPath, row.RelPath) {
+		head = -1
+	}
 	for i, a := range m.Artifacts {
 		cur, ok, err := currentDigest(ctx, tx, uid, a.RelPath)
 		if err != nil {
@@ -601,11 +617,7 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid, ses
 		}
 		var base string
 		if !ok && i == head && headBearing(a.Kind) {
-			row, found, err := headRow(ctx, tx, uid, sessionHead)
-			if err != nil {
-				return nil, err
-			}
-			if found && row.Kind == a.Kind && row.RelPath != a.RelPath {
+			if found && row.Kind == a.Kind && row.RelPath != a.RelPath && !companion(row.RelPath, a.RelPath) {
 				cur, ok, base = row.SHA256, true, row.RelPath
 			}
 		}
@@ -725,9 +737,24 @@ func currentDigest(ctx context.Context, tx *sql.Tx, uid, rel string) (string, bo
 	return sha, true, nil
 }
 
-func transcriptIndex(arts []protocol.Artifact) int {
+// HeadIndex is the artifact in a manifest that stands for the session:
+// the first transcript that is not a companion of another transcript in
+// it, or else the last artifact. A Claude session's own transcript sits
+// beside its directory of subagent transcripts, and a walk lists that
+// directory first.
+func HeadIndex(arts []protocol.Artifact) int {
 	for i, a := range arts {
-		if a.Kind == protocol.KindTranscriptJSONL {
+		if a.Kind != protocol.KindTranscriptJSONL {
+			continue
+		}
+		inside := false
+		for _, b := range arts {
+			if b.Kind == protocol.KindTranscriptJSONL && companion(a.RelPath, b.RelPath) {
+				inside = true
+				break
+			}
+		}
+		if !inside {
 			return i
 		}
 	}
@@ -735,6 +762,14 @@ func transcriptIndex(arts []protocol.Artifact) int {
 		return 0
 	}
 	return len(arts) - 1
+}
+
+// companion reports whether rel sits under the directory named for
+// file, the way Claude Code keeps a session's subagent transcripts in
+// <session>/subagents/ beside <session>.jsonl.
+func companion(rel, file string) bool {
+	stem := strings.TrimSuffix(path.Clean(file), path.Ext(file))
+	return strings.HasPrefix(path.Clean(rel), stem+"/")
 }
 
 func lookupSession(ctx context.Context, tx *sql.Tx, harness, native string) (uid, head string, ok bool, err error) {
