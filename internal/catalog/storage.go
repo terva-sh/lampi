@@ -37,6 +37,14 @@ const (
 	// MeasureUnique sums the size of each distinct digest once: the
 	// logical bytes the CAS holds.
 	MeasureUnique = "artifacts.unique"
+	// MeasureCurrent sums the size of each path's current version: the
+	// raw bytes the machines that uploaded them hold now. It is what
+	// the stored blobs' disk use is compared with.
+	MeasureCurrent = "artifacts.current"
+	// MeasureCurrentUnique sums each distinct digest among the current
+	// versions once. What it falls short of MeasureCurrent by is files
+	// that are byte-for-byte copies of another, stored once.
+	MeasureCurrentUnique = "artifacts.current_unique"
 )
 
 // StorageUse is one measure in a sample.
@@ -133,21 +141,38 @@ func (c *Catalog) storageSamples(ctx context.Context, query string, args ...any)
 	return out, nil
 }
 
+// ArtifactUse is the logical bytes the catalog references, measured
+// four ways. Versions of a growing file are rows of their own, so
+// Referenced and Unique count every continuation in full; Current and
+// CurrentUnique count only the newest version of each path.
+type ArtifactUse struct {
+	Referenced, Unique, Current, CurrentUnique StorageUse
+}
+
 // ArtifactBytes measures the logical bytes the catalog references:
-// every artifact row, and each distinct digest once.
-// Both come from one read transaction, so an upload committed between
-// them cannot leave unique above referenced.
-func (c *Catalog) ArtifactBytes(ctx context.Context) (referenced, unique StorageUse, err error) {
+// every artifact row, each distinct digest once, and the same two for
+// the current rows only. All four come from one read transaction, so
+// an upload committed between them cannot leave a unique count above
+// its total.
+func (c *Catalog) ArtifactBytes(ctx context.Context) (ArtifactUse, error) {
+	var u ArtifactUse
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return referenced, unique, fmt.Errorf("catalog: %w", err)
+		return u, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM artifacts`).Scan(&referenced.Files, &referenced.Bytes); err != nil {
-		return referenced, unique, fmt.Errorf("catalog: %w", err)
+	for _, q := range []struct {
+		dst   *StorageUse
+		query string
+	}{
+		{&u.Referenced, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM artifacts`},
+		{&u.Unique, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM (SELECT MAX(size) AS size FROM artifacts GROUP BY sha256)`},
+		{&u.Current, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM artifacts WHERE current = 1`},
+		{&u.CurrentUnique, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM (SELECT MAX(size) AS size FROM artifacts WHERE current = 1 GROUP BY sha256)`},
+	} {
+		if err := tx.QueryRowContext(ctx, q.query).Scan(&q.dst.Files, &q.dst.Bytes); err != nil {
+			return u, fmt.Errorf("catalog: %w", err)
+		}
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM (SELECT MAX(size) AS size FROM artifacts GROUP BY sha256)`).Scan(&unique.Files, &unique.Bytes); err != nil {
-		return referenced, unique, fmt.Errorf("catalog: %w", err)
-	}
-	return referenced, unique, nil
+	return u, nil
 }

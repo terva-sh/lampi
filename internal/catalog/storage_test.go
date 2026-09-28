@@ -61,27 +61,40 @@ func TestStorageSamplesThinPastDetail(t *testing.T) {
 }
 
 // TKT-01M3JV45Y: referenced counts every artifact row, unique each
-// digest once.
+// digest once. TKT-01M3N6Y5: current counts each path's current
+// version, and current unique each of those digests once.
 func TestArtifactBytes(t *testing.T) {
 	c, _ := openTemp(t)
 	ctx := t.Context()
-	if r, u, err := c.ArtifactBytes(ctx); err != nil || r != (StorageUse{}) || u != (StorageUse{}) {
-		t.Fatalf("empty: %+v %+v %v", r, u, err)
+	if u, err := c.ArtifactBytes(ctx); err != nil || u != (ArtifactUse{}) {
+		t.Fatalf("empty: %+v %v", u, err)
 	}
 	for i, row := range []struct {
 		uid, rel, sha string
 		size          int64
-	}{{"s1", "a", "d1", 100}, {"s2", "a", "d1", 100}, {"s2", "b", "d2", 30}} {
-		if _, err := c.db.Exec(`INSERT INTO artifacts(artifact_id,session_uid,kind,relpath,sha256,size) VALUES(?,?,'transcript_jsonl',?,?,?)`, i, row.uid, row.rel, row.sha, row.size); err != nil {
+		current       int
+	}{
+		{"s1", "a", "d1", 100, 1},
+		{"s2", "a", "d1", 100, 1}, // a copy of s1's file
+		{"s2", "b", "d2", 30, 0},  // grew into d3
+		{"s2", "b", "d3", 50, 1},
+	} {
+		if _, err := c.db.Exec(`INSERT INTO artifacts(artifact_id,session_uid,kind,relpath,sha256,size,current) VALUES(?,?,'transcript_jsonl',?,?,?,?)`, i, row.uid, row.rel, row.sha, row.size, row.current); err != nil {
 			t.Fatal(err)
 		}
 	}
-	r, u, err := c.ArtifactBytes(ctx)
+	u, err := c.ArtifactBytes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r != (StorageUse{Bytes: 230, Files: 3}) || u != (StorageUse{Bytes: 130, Files: 2}) {
-		t.Fatalf("referenced %+v unique %+v", r, u)
+	want := ArtifactUse{
+		Referenced:    StorageUse{Bytes: 280, Files: 4},
+		Unique:        StorageUse{Bytes: 180, Files: 3},
+		Current:       StorageUse{Bytes: 250, Files: 3},
+		CurrentUnique: StorageUse{Bytes: 150, Files: 2},
+	}
+	if u != want {
+		t.Fatalf("got %+v, want %+v", u, want)
 	}
 }
 

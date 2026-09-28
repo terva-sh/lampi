@@ -91,6 +91,10 @@ type opsStorage struct {
 	Filesystem *storage.Filesystem `json:"filesystem,omitempty"`
 	Referenced *catalog.StorageUse `json:"referenced,omitempty"`
 	Unique     *catalog.StorageUse `json:"unique,omitempty"`
+	// Current is each path's current version, the raw files the
+	// machines hold, and CurrentUnique each of those digests once.
+	Current       *catalog.StorageUse `json:"current,omitempty"`
+	CurrentUnique *catalog.StorageUse `json:"current_unique,omitempty"`
 }
 
 // opsGrowth is the lake directory total and the filesystem's free
@@ -269,6 +273,12 @@ func storageOf(sample catalog.StorageSample) opsStorage {
 	if u, ok := sample.Measures[catalog.MeasureUnique]; ok {
 		st.Unique = &u
 	}
+	if u, ok := sample.Measures[catalog.MeasureCurrent]; ok {
+		st.Current = &u
+	}
+	if u, ok := sample.Measures[catalog.MeasureCurrentUnique]; ok {
+		st.CurrentUnique = &u
+	}
 	return st
 }
 
@@ -416,13 +426,17 @@ type opsView struct {
 	FSFree    string
 	FSTotal   string
 	FSUsedPct int
-	Dedup     string
-	// DedupStored is the stored blobs' disk use the ratio divides by.
-	DedupStored string
-	Disk        chartView
-	Free        chartView
-	HasFree     bool
-	MachineCap  int
+	// Compression is the current versions' raw bytes over the stored
+	// blobs' disk use. Raw and Stored are the two sides.
+	Compression, Raw, Stored string
+	// Duplicates is how many current files are byte-for-byte copies
+	// of another, and DuplicateBytes what they would have added. Both
+	// are empty before a sample has measured them.
+	Duplicates, DuplicateBytes string
+	Disk                       chartView
+	Free                       chartView
+	HasFree                    bool
+	MachineCap                 int
 }
 
 type storageRow struct {
@@ -473,13 +487,17 @@ func buildOpsView(o operations, now time.Time) opsView {
 			v.FSUsed, v.FSFree, v.FSTotal = bytesIEC(int64(used)), bytesIEC(int64(fs.Free)), bytesIEC(int64(fs.Total))
 			v.FSUsedPct = int(math.Round(float64(used) / float64(fs.Total) * 100))
 		}
-		// Against the blobs' disk use, not the distinct digests' logical
-		// sizes: every version of a growing transcript is its own digest,
-		// but the CAS keeps the bytes versions share once, as prefix
-		// records (TKT-01M3KC68C).
-		if cas, ok := st.Components[storage.CAS]; ok && st.Referenced != nil && cas.Bytes > 0 {
-			v.Dedup = fmt.Sprintf("%.2f×", float64(st.Referenced.Bytes)/float64(cas.Bytes))
-			v.DedupStored = bytesIEC(cas.Bytes)
+		// Against the current versions only. Every version of a growing
+		// transcript is an artifact row, and counting them all measured
+		// how many times sessions were continued, not what the lake
+		// saves (TKT-01M3N6Y5).
+		if cas, ok := st.Components[storage.CAS]; ok && st.Current != nil && cas.Bytes > 0 {
+			v.Compression = fmt.Sprintf("%.2f×", float64(st.Current.Bytes)/float64(cas.Bytes))
+			v.Raw, v.Stored = bytesIEC(st.Current.Bytes), bytesIEC(cas.Bytes)
+		}
+		if st.Current != nil && st.CurrentUnique != nil {
+			v.Duplicates = humanCount(st.Current.Files - st.CurrentUnique.Files)
+			v.DuplicateBytes = bytesIEC(st.Current.Bytes - st.CurrentUnique.Bytes)
 		}
 	}
 	starts := make([]time.Time, len(o.Growth.Points))
