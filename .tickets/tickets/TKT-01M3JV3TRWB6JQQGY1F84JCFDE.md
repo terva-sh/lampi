@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/e4a47e8c
+  branch: ops/storage-samples
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
+  commit: 7c1576afc652fa3f46052ff1e95c0fe20aa34b40
+  session: null
+  claimed_at: 2026-09-28T02:03:25Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T01:47:17Z
-updated_at: 2026-09-28T01:47:35Z
+updated_at: 2026-09-28T02:03:25Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
