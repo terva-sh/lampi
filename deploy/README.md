@@ -45,6 +45,12 @@ and `deny` entries with your own projects. An agent whose
 `config.json` has no allow rules of its own uploads only what the
 profile allows, so the example as written uploads nothing.
 
+An agent with the inventory report reports every project it sees to
+its lakes, refused ones included, unless its `config.json` sets
+`"inventory": "strict"`. On a machine whose project names should stay
+private, set that before upgrading. See
+[What leaves the machine](../docs/allowlist-and-redaction.md#what-leaves-the-machine).
+
 
 `terva-lampi register --install-service` writes a unit like the ones
 here, pointing at the binary that ran it, and enables it. It writes the

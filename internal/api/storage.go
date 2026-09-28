@@ -56,8 +56,10 @@ func clampInt64(n uint64) int64 {
 }
 
 // Contacts returns the time of each device's last authenticated
-// request, by device id. It is kept in memory: a restart empties it,
-// and a lake with no device tokens records none.
+// request, by device id. It is kept in memory and starts from each
+// device's newest stored report, so a restart falls back to the last
+// report rather than to nothing. A lake with no device tokens records
+// none.
 func (s *Server) Contacts() map[string]time.Time {
 	out := map[string]time.Time{}
 	s.contacts.Range(func(k, v any) bool {
@@ -65,6 +67,18 @@ func (s *Server) Contacts() map[string]time.Time {
 		return true
 	})
 	return out
+}
+
+// loadContacts seeds the contacts from the stored reports.
+func (s *Server) loadContacts(ctx context.Context) error {
+	reports, err := s.Catalog.DeviceReports(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range reports {
+		s.noteContact(r.DeviceID, r.Received)
+	}
+	return nil
 }
 
 // noteContact records at as the device's last contact unless a later

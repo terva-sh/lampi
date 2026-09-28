@@ -79,7 +79,7 @@ func TestAgentLogsARefusalOnce(t *testing.T) {
 	}
 	seen := &changeLog{}
 	for range 3 {
-		if err := runAgentSync(context.Background(), env, opt, "", seen); err == nil {
+		if _, err := runAgentSync(context.Background(), env, opt, "", seen); err == nil {
 			t.Fatal("pass was not refused")
 		}
 	}
@@ -89,7 +89,7 @@ func TestAgentLogsARefusalOnce(t *testing.T) {
 	if got := seen.fresh("refuse", nil); len(got) != 0 {
 		t.Fatal(got)
 	}
-	if err := runAgentSync(context.Background(), env, opt, "", seen); err == nil {
+	if _, err := runAgentSync(context.Background(), env, opt, "", seen); err == nil {
 		t.Fatal("pass was not refused")
 	}
 	if n := strings.Count(errb.String(), "not allowlisted"); n != 2 {
