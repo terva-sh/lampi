@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FBQXG8E9SDYXB9NWKGFSY5
 title: Add optional compressed age-encrypted backups and restore
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T17:20:55Z
-updated_at: 2026-09-26T17:20:55Z
+updated_at: 2026-09-28T23:50:26Z
 created_by:
   id: agent:codex/deploy
   name: ""
 updated_by:
-  id: agent:codex/deploy
+  id: agent:claude-code/d8436f9f
   name: ""
 extensions: {}
 ---
