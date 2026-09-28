@@ -135,11 +135,18 @@ func (c *Catalog) storageSamples(ctx context.Context, query string, args ...any)
 
 // ArtifactBytes measures the logical bytes the catalog references:
 // every artifact row, and each distinct digest once.
+// Both come from one read transaction, so an upload committed between
+// them cannot leave unique above referenced.
 func (c *Catalog) ArtifactBytes(ctx context.Context) (referenced, unique StorageUse, err error) {
-	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM artifacts`).Scan(&referenced.Files, &referenced.Bytes); err != nil {
+	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
 		return referenced, unique, fmt.Errorf("catalog: %w", err)
 	}
-	if err := c.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM (SELECT MAX(size) AS size FROM artifacts GROUP BY sha256)`).Scan(&unique.Files, &unique.Bytes); err != nil {
+	defer tx.Rollback()
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM artifacts`).Scan(&referenced.Files, &referenced.Bytes); err != nil {
+		return referenced, unique, fmt.Errorf("catalog: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(size), 0) FROM (SELECT MAX(size) AS size FROM artifacts GROUP BY sha256)`).Scan(&unique.Files, &unique.Bytes); err != nil {
 		return referenced, unique, fmt.Errorf("catalog: %w", err)
 	}
 	return referenced, unique, nil
