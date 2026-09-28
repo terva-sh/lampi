@@ -181,3 +181,32 @@ func TestRecentProfileRevisions(t *testing.T) {
 		t.Fatalf("all: %d %v", len(all), err)
 	}
 }
+
+// Review of #101: an editor who opened a name that was not stored loses
+// to a create and delete of that name in between.
+func TestCreateGuardedAcrossCreateAndDelete(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	opened, err := c.LatestProfileRevision(ctx, "ci")
+	if err != nil || opened != 0 {
+		t.Fatalf("never saved: %d %v", opened, err)
+	}
+	p, _, err := c.PutProfile(ctx, "ci", []byte(`{}`), "other", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteProfileIf(ctx, "ci", "other", "", p.Revision, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.PutProfileIf(ctx, "ci", []byte(`{}`), "op", "", opened, now); !errors.Is(err, ErrProfileChanged) {
+		t.Fatalf("stale create: %v", err)
+	}
+	latest, err := c.LatestProfileRevision(ctx, "ci")
+	if err != nil || latest <= p.Revision {
+		t.Fatalf("after delete: %d %v", latest, err)
+	}
+	if _, changed, err := c.PutProfileIf(ctx, "ci", []byte(`{}`), "op", "", latest, now); err != nil || !changed {
+		t.Fatalf("create after reading the deletion: %v %v", changed, err)
+	}
+}

@@ -144,6 +144,18 @@ func TestOperatorEditsAProfile(t *testing.T) {
 	if w := get(h, "/profiles/team", cookie); w.Code != 404 {
 		t.Fatalf("deleted profile: %d", w.Code)
 	}
+	// Recreating it names the deletion as the revision read.
+	w = get(h, api, cookie)
+	m = regexp.MustCompile(`"latest_revision":(\d+)`).FindStringSubmatch(w.Body.String())
+	if w.Code != 404 || m == nil || m[1] == "0" {
+		t.Fatalf("deleted profile api: %d %s", w.Code, w.Body)
+	}
+	if w := put(h, api, `{"document":{},"base_revision":0}`, cookie, hdr); w.Code != 409 {
+		t.Fatalf("recreate from a stale read: %d", w.Code)
+	}
+	if w := put(h, api, `{"document":{},"base_revision":`+m[1]+`}`, cookie, hdr); w.Code != 200 {
+		t.Fatalf("recreate: %d %s", w.Code, w.Body)
+	}
 
 	log, err := os.ReadFile(filepath.Join(dir, audit.FileName))
 	if err != nil {
