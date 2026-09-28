@@ -24,6 +24,7 @@ func (s *Server) deviceRoutes(m *http.ServeMux) {
 	op := func(h http.HandlerFunc) http.Handler { return s.auth.Guard(webauth.OperatorOnly(h)) }
 	m.Handle("POST /api/web/v1/devices/{id}/{action}", op(s.deviceActionAPI))
 	m.Handle("POST "+devicesPath+"/{id}/{action}", op(s.deviceActionPage))
+	m.Handle("POST "+devicesPath+"/{id}/allow", op(s.deviceAllowPage))
 }
 
 // deviceChange is what the API answers with after an action.

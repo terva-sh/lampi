@@ -95,6 +95,9 @@ type profileEditView struct {
 	Stored  bool
 	CSRF    string
 	Problem string
+	// Notice says why the editor opened with a change already made, as
+	// the Allow action on a device's page opens it.
+	Notice  string
 	Form    profileForm
 	Preview *profilePreview
 }

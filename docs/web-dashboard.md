@@ -360,6 +360,18 @@ refused ones than their count and size. An agent from before inventories sends
 none, and the page says to upgrade it. See
 [What leaves the machine](allowlist-and-redaction.md#what-leaves-the-machine).
 
+Operators get **Allow…** on a refused project. It adds an allow rule to the
+profile the device uses: a `git_remote` rule when the project has a remote,
+which covers every checkout of that repository, and otherwise a `cwd_prefix`
+rule. It saves nothing by itself. It opens the profile editor with the rule
+added and previewed, listing every device the profile reaches and counting
+those whose own `config.json` sets their allow rules, and a note already
+filled in that you can change or clear. Save there, as for any edit: a save
+refused because someone else changed the profile shows it again against what
+is stored now. A project a deny rule refuses has no Allow, since a deny rule
+wins over any allow rule, and neither does a session with no cwd. Allowing
+for one device alone waits for per-device overrides.
+
 ## Profiles
 
 `/profiles` lists the lake's profiles, the default first. Each shows its
