@@ -499,6 +499,9 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 // deleteProfile removes name for the signed-in operator, if it is
 // still at revision base.
 func (s *Server) deleteProfile(r *http.Request, name string, base int64, note string) (int, string) {
+	if !config.ValidProfileName(name) {
+		return http.StatusBadRequest, "invalid_name"
+	}
 	note, ok := cleanNote(note)
 	if !ok {
 		return http.StatusBadRequest, "invalid_note"
@@ -540,8 +543,12 @@ func (s *Server) profileDeletePage(w http.ResponseWriter, r *http.Request) {
 		base = -1
 	}
 	status, code := s.deleteProfile(r, name, base, r.PostForm.Get("note"))
-	if code == "" || code == "audit_failed" {
+	if code == "" {
 		http.Redirect(w, r, "/profiles", http.StatusSeeOther)
+		return
+	}
+	if code == "audit_failed" {
+		s.renderProfiles(w, r, "The profile is deleted, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.", status)
 		return
 	}
 	cur, rev, stored, cerr := s.currentProfile(r, name)
