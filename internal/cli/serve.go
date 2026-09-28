@@ -235,6 +235,8 @@ func runServe(env Env, args []string) error {
 		}
 	}
 
+	sampleStorage(env, lake, storageEvery)
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		lake.Close()
@@ -374,6 +376,44 @@ func sweepCAS(env Env, store *cas.Store, now time.Time) {
 	}
 	if n > 0 {
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: removed %d upload leftovers older than %s\n", n, sweepAge)
+	}
+}
+
+// storageEvery is how often serve measures the lake directory's disk
+// use. A sample walks every file, so it is not frequent; growth that
+// matters shows over hours.
+const storageEvery = time.Hour
+
+// sampleStorage measures the lake directory now and then every every,
+// in the background, until the lake closes. The first sample runs
+// beside start-up rather than before it: a large lake takes a while to
+// walk, and requests need not wait. A failure is reported and the next
+// tick tries again.
+func sampleStorage(env Env, lake *api.Server, every time.Duration) {
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			if _, err := lake.SampleStorage(ctx); err != nil && ctx.Err() == nil {
+				fmt.Fprintf(env.stderr(), "terva-lampi serve: storage sample: %v\n", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+	before := lake.BeforeClose
+	lake.BeforeClose = func() {
+		stop()
+		<-done
+		if before != nil {
+			before()
+		}
 	}
 }
 

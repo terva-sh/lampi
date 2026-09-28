@@ -9,3 +9,4 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ](tickets/TKT-01M3F2PGA1EFCEPEBPT1JFR3JJ.md) | Web retrieval: browse, search and export stored sessions | ready |
 | [TKT-01M3FHHBCJ12FXKNTB6Z138F6N](tickets/TKT-01M3FHHBCJ12FXKNTB6Z138F6N.md) | Agent onboarding: registration codes, lake config, many lakes | ready |
 | [TKT-01M3FPP3H592T31Y2M3N347CPB](tickets/TKT-01M3FPP3H592T31Y2M3N347CPB.md) | Session recall: one query surface for the web UI and an MCP server | ready |
+| [TKT-01M3JV3TRWB6JQQGY1F84JCFDE](tickets/TKT-01M3JV3TRWB6JQQGY1F84JCFDE.md) | Operations dashboard: storage, health, dark mode, design pass | in-progress |
