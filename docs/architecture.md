@@ -224,7 +224,9 @@ export (`opencode_export_json`) is a snapshot, so a rewrite replaces
 the head instead. A session has one head. Relpaths embed the cwd, so
 the same session from a second machine or a moved home arrives under
 a new relpath. The manifest's head artifact is then compared with the
-session head, and a move clears the old path's current flag. Other
+session head, and a move clears the old path's current flag. A file in
+the directory named for the head, such as a Claude subagent transcript
+in `<session>/subagents/`, is never the head. Other
 artifacts stay keyed by relpath. Normalize reads the head, plus the
 current rows under the head's directory for terva, Claude, and Codex:
 error sidecars and subagent transcripts sit there.
