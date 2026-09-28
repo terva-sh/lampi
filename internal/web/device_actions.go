@@ -176,10 +176,18 @@ func (s *Server) deviceActionPage(w http.ResponseWriter, r *http.Request) {
 	if !s.readForm(w, r) {
 		return
 	}
-	d, status, code := s.changeDevice(r, r.PathValue("id"), r.PathValue("action"), r.PostForm.Get("profile"))
-	if code == "" {
+	id := r.PathValue("id")
+	d, status, code := s.changeDevice(r, id, r.PathValue("action"), r.PostForm.Get("profile"))
+	// A form on the device's own page says so, and comes back to it.
+	back := r.PostForm.Get("from") == "device"
+	switch {
+	case code == "" && back:
+		http.Redirect(w, r, deviceURL(d.ID), http.StatusSeeOther)
+	case code == "":
 		http.Redirect(w, r, devicesPath+"#"+d.ID, http.StatusSeeOther)
-		return
+	case back && code != "not_found":
+		s.renderDevice(w, r, id, false, deviceProblems[code], status)
+	default:
+		s.renderDevices(w, r, deviceProblems[code], status)
 	}
-	s.renderDevices(w, r, deviceProblems[code], status)
 }

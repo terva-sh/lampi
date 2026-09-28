@@ -71,6 +71,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/activity", s.activity)
 	get("/api/web/v1/operations", s.operations)
 	get("/api/web/v1/devices", s.devices)
+	get("/api/web/v1/devices/{id}", s.device)
 	get("/api/web/v1/profiles", s.profiles)
 	get("/api/web/v1/profiles/{name}", s.profile)
 	s.pageRoutes(m)

@@ -387,7 +387,7 @@ The example shortens `components`, `points` and `machines`.
   - `search` is the index coverage, and is absent when search is off.
   - `upload_files` and `upload_bytes` come from the newest sample.
 - **`machines`** lists every device, and every machine that posted without a
-  device bound to it, which has no `device` field. Revoked devices come last;
+  device bound to it, which has no `device` or `device_id` field. Revoked devices come last;
   the rest are ordered by how recently each was heard from.
   - `last_contact` is the device's last authenticated request since `started`.
     A restart clears it.
@@ -442,6 +442,38 @@ sent, compared with the lake. It takes no parameters; any parameter is
   sends a report. `last_contact` is the newest request, or the newest report
   from before serve started.
 - Devices are ordered active first, then by the newest contact or data.
+
+### One device
+
+`GET /api/web/v1/devices/{id}` is one device by its `dev_` id: `device` is its
+row from the list above, and `inventory` is the newest inventory its agent
+sent, or `null` before it sends one. It takes no parameters. An id no device
+has is `404 not_found`. The `/devices/{id}` page shows the same data, and takes
+`?show=refused` to list the refused projects alone.
+
+```json
+{
+  "as_of": "2026-09-28T15:02:00Z",
+  "device": {"id": "dev_...", "name": "tehbeast", "state": "active", "...": "..."},
+  "inventory": {
+    "mode": "sociable", "generated_at": "2026-09-28T14:41:10Z", "received_at": "2026-09-28T14:41:11Z",
+    "allowed": 1, "refused": 1, "refused_sessions": 221, "refused_bytes": 9437184,
+    "projects": [
+      {"git_remote": "github.com/acme/app", "cwd": "/home/me/src/app", "cwds": 2,
+       "cwd_hash": "8427a42989cbc15f", "harnesses": ["claude"], "sessions": 12,
+       "bytes": 409600, "newest": "2026-09-28T14:40:02Z", "allowed": true},
+      {"cwd": "/home/me/scratch", "cwds": 1, "harnesses": ["codex"], "sessions": 221,
+       "bytes": 9437184, "allowed": false, "reason": "no allow rule matches"}
+    ]
+  }
+}
+```
+
+The projects are as the agent sent them; see
+[protocol.md](protocol.md#post-v1agentinventory). `allowed` and `refused`
+count them. A `strict` device lists allowed projects only, so its `refused` is
+0 and `refused_sessions` and `refused_bytes` are all it says of the rest.
+`truncated` is set when the agent held more projects than it could list.
 
 ### Device actions
 

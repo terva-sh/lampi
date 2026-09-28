@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M11SR3XHMPNEF3H45DR6
 title: "Dashboard: per-device page with inventory and allow action"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -19,10 +19,17 @@ dependencies:
   - TKT-01M3J5HXAJBA1VR4W4B5H4NB6G
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/2cf53976
+  branch: config/inventory-agent
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
+  commit: 8eb8b7e6a3728ae21fa112d079a5deb7e4870961
+  session: null
+  claimed_at: 2026-09-28T21:45:35Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T21:33:38Z
+updated_at: 2026-09-28T21:45:35Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
