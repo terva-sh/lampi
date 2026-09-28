@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MD4Q1CT7NQNMGM031WRXDV
 title: "Flaky under load: TestAgentCancelSkipsFailedSyncRetry sees one hello"
 type: bug
-status: draft
+status: archived
 status_reason: null
 priority: normal
 due_on: null
@@ -18,9 +18,12 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-09-28T18:00:01Z
+  from_status: draft
+  reason: duplicate
 created_at: 2026-09-28T16:21:35Z
-updated_at: 2026-09-28T17:59:55Z
+updated_at: 2026-09-28T18:00:01Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -49,3 +52,7 @@ The likely cause is that the first pass runs before the fixture's session file i
 **agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
 
 Duplicate of TKT-01M3DMVE, which has the earlier analysis. The evidence from this ticket is copied there. Archived.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:00:01Z
+
+archived from draft: duplicate

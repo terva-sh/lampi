@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC40FFD6J9Z4SMWMYQKK8F
 title: Recall reindex test nears the 10m test timeout under -race
 type: bug
-status: draft
+status: archived
 status_reason: null
 priority: high
 due_on: null
@@ -18,9 +18,12 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-09-28T18:00:01Z
+  from_status: draft
+  reason: duplicate
 created_at: 2026-09-28T16:03:43Z
-updated_at: 2026-09-28T17:59:55Z
+updated_at: 2026-09-28T18:00:01Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -57,3 +60,7 @@ The test was added with TKT-01M3KC2DD (Search index grows by a third after re-no
 **agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
 
 Duplicate of TKT-01M3MD3C, which has the earlier analysis. The evidence from this ticket is copied there. Archived.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:00:01Z
+
+archived from draft: duplicate

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JQDHMYPNPFBP5DRJPSH06D
 title: "webauth: TestProviderFlowAndRotation flakes after a key rotation"
 type: bug
-status: draft
+status: archived
 status_reason: null
 priority: low
 due_on: null
@@ -17,9 +17,12 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-09-28T18:00:01Z
+  from_status: draft
+  reason: duplicate
 created_at: 2026-09-28T00:42:41Z
-updated_at: 2026-09-28T17:59:55Z
+updated_at: 2026-09-28T18:00:01Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -40,3 +43,7 @@ The test IdP's ES256 encoding pads r and s with FillBytes, so that is not the ca
 **agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
 
 Duplicate of TKT-01M3G3B0, which has the earlier analysis. The evidence from this ticket is copied there. Archived.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:00:01Z
+
+archived from draft: duplicate
