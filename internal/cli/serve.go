@@ -54,6 +54,8 @@ usage:
                                  (--list and --revoke manage them)
   terva-lampi serve normalize [--stale] [--failed] [--session UID] [--data DIR]
                                  queue sessions to be normalized again
+  terva-lampi serve healthcheck [--addr ADDR] [--timeout 3s]
+                                 exit 0 when a running lake answers /healthz
 
 Listens for capture protocol 1. GET /healthz is open and returns no
 catalog data. GET /v1/stats returns session, artifact, and machine
@@ -163,6 +165,8 @@ func runServe(env Env, args []string) error {
 			return runServeRegister(env, args[1:])
 		case "normalize":
 			return runServeNormalize(env, args[1:])
+		case "healthcheck":
+			return runServeHealthcheck(env, args[1:])
 		}
 	}
 	var addr, data, tokenFile, profilesFile, webConfigFile, metricsAddr string
@@ -256,6 +260,9 @@ func runServe(env Env, args []string) error {
 
 	sampleStorage(env, lake, storageEvery)
 
+	// The listener opens only now, after api.Open has migrated the
+	// catalog, so /healthz and serve healthcheck fail until the lake
+	// can take requests. Keep it after every start-up step.
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		lake.Close()
