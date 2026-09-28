@@ -339,6 +339,7 @@ type LastSync struct {
 	Manifests   int       `json:"manifests"`
 	Refused     int       `json:"refused"`
 	Quarantined int       `json:"quarantined"`
+	Unchanged   int       `json:"unchanged"`
 }
 
 // LastSyncFile is the stamp path inside a lampi state directory.
@@ -403,6 +404,7 @@ func saveLastSync(opt Options, res Result) error {
 		Manifests:   res.Manifests,
 		Refused:     res.Refused,
 		Quarantined: res.Quarantined,
+		Unchanged:   res.Unchanged,
 	}, "", "  ")
 	if err != nil {
 		return err

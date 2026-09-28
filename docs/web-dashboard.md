@@ -292,7 +292,9 @@ hourly.
     contact.
   - A machine that has stopped syncing goes idle after a day and quiet after
     a week.
-  - Contacts are kept in memory, so they start empty after serve restarts.
+  - Last contact is the device's newest request. After serve restarts, it
+    starts from the device's newest agent report, which the catalog keeps,
+    until the device makes contact again.
   - A machine that uploaded before devices were recorded shows as an
     unregistered machine.
 

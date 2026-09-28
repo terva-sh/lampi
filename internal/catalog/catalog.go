@@ -197,6 +197,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateAuditOutbox,
 	migrateStorageSamples,
 	migrateMachineActivity,
+	migrateDeviceReports,
 	migrateProfiles,
 }
 
