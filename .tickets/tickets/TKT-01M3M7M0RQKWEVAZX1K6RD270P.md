@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0RQKWEVAZX1K6RD270P
 title: "Agent heartbeat: durable last contact, sync counters, applied profile"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/2cf53976
+  branch: t3code/add-agent-configuration
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
+  commit: 740d778b278d87fc0ec7d2721efb170b44665f74
+  session: null
+  claimed_at: 2026-09-28T15:12:28Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:12:06Z
+updated_at: 2026-09-28T15:12:28Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
