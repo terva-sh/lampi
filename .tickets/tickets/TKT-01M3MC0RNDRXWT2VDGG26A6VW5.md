@@ -31,7 +31,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T19:15:23Z
+updated_at: 2026-09-28T19:24:45Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -65,10 +65,10 @@ Check `terva-review`'s size limit: keep the workflow change in its own PR.
 ## Acceptance criteria
 
 - [ ] A v* tag on GitHub publishes one amd64+arm64 manifest with the agreed tags
-- [ ] The Forgejo release builds the image without publishing to GHCR
+- [x] The Forgejo release builds the image without publishing to GHCR
 - [ ] Published images carry an SBOM and build provenance
 - [ ] A post-publish check confirms each platform's --version carries the tag
-- [ ] Pull requests build both platforms without pushing
+- [x] Pull requests build both platforms without pushing
 
 ## Implementation plan
 
@@ -96,3 +96,7 @@ Check `terva-review`'s size limit: keep the workflow change in its own PR.
 **agent:claude-code/aa1afd80** at 2026-09-28T19:15:05Z
 
 Checked before push: actionlint passes on .github/workflows, and every workflow file parses as YAML. I ran the Forgejo job's Buildah commands locally (buildah build --format docker --platform linux/amd64,linux/arm64 --manifest localhost/terva-lampi:ci, then buildah run on the amd64 binary) against c43f485. The build made an amd64+arm64 manifest, and --version and serve healthcheck --help ran. The same commands on current main fail to compile, because main is broken by #93 and #88 (internal/web/devices.go calls pageError and fail without the request), and PR #96 from another session fixes that. The GitHub release job can only be proven by a real v* tag; its criteria stay open until one is pushed.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T19:24:45Z
+
+On PR #97, after #96 fixed main, Forgejo's 'Build Image' job passed on the real runner in 4m1s: Buildah with /dev/fuse pulled the pinned bases and built both platforms. Criteria 2 and 5 are ticked on that. The GitHub CI image job runs only on the GitHub mirror, and the release job only on a tag; 1, 3 and 4 wait for one.
