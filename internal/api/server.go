@@ -200,6 +200,10 @@ func Open(dataDir string) (*Server, error) {
 	s.startNormalizeWorkers()
 	// Audit events a previous run could not append go out now.
 	s.flushAudit()
+	if err := s.loadContacts(context.Background()); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 

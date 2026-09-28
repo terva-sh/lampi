@@ -25,7 +25,8 @@ type Operations struct {
 	// LakeID names the lake.
 	LakeID func() string
 	// Contacts is the time of each device's last authenticated
-	// request since Started, by device id.
+	// request, by device id, falling back to its newest report from
+	// before Started.
 	Contacts func() map[string]time.Time
 }
 
