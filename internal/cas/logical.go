@@ -69,23 +69,18 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 		if lengths[i] <= 0 {
 			return false, fmt.Errorf("cas: chunk %d is empty: %w", i, ErrRejected)
 		}
-		f, openErr := s.OpenBlob(p)
-		if openErr != nil {
-			return false, openErr
+		size, sizeErr := s.Size(p)
+		if sizeErr != nil {
+			return false, sizeErr
 		}
-		st, statErr := f.Stat()
-		f.Close()
-		if statErr != nil {
-			return false, fmt.Errorf("cas: %w", statErr)
-		}
-		if st.Size() != lengths[i] {
-			return false, fmt.Errorf("cas: chunk %d is %d bytes, index says %d: %w", i, st.Size(), lengths[i], ErrRejected)
+		if size != lengths[i] {
+			return false, fmt.Errorf("cas: chunk %d is %d bytes, index says %d: %w", i, size, lengths[i], ErrRejected)
 		}
 	}
 
 	h := sha256.New()
 	for _, p := range parts {
-		f, openErr := s.OpenBlob(p)
+		f, openErr := s.Open(p)
 		if openErr != nil {
 			return false, openErr
 		}

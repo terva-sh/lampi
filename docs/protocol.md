@@ -571,7 +571,10 @@ A length that does not match the stored object, or a hash that is not
 `sha256`, is `400`. `chunk_sha256s` is not combined with a tail: a tail
 is one blob, named by `tail_sha256`, and assembling a tail also stays
 under `max_blob_bytes`. A file over the cap is sent whole, as chunks,
-with `byte_watermark_prev` 0.
+with `byte_watermark_prev` 0. A chunk may be one the lake holds as a
+prefix record: when a chunked file replaces the version at its
+relpath, each chunk of that version the new chunk at the same place
+extends is kept as the first bytes of the new chunk.
 
 `size` is the length of the full file. A size that does not match
 the stored blob, the chunks, or the assembled tail is `400`.

@@ -437,8 +437,8 @@ sudo -u terva-lampi sqlite3 /var/lib/terva-lampi/catalog.db ".backup '/var/backu
 ```
 
 Then copy the CAS. While `serve` runs, a transcript that grows has its
-previous version's object replaced by a prefix record in
-`cas/logical`, written after the grown object it points at. Copy
+previous version's object, or for a file past 32 MiB its last chunk,
+replaced by a prefix record in `cas/logical`, written after the grown object it points at. Copy
 `cas/sha256`, then `cas/logical`, then `cas/sha256` again, so each
 record copied finds the object it reads from. `serve backup` does
 this and follows every record in the copy. `serve purge`,
@@ -561,7 +561,7 @@ sudo systemctl start terva-lampi-serve.service
 ## Compact
 
 Ingest keeps a transcript's older versions as prefix records of the
-newest, but the tails a client sent stay stored, and a lake written
+newest, and a transcript past 32 MiB its older last chunks, but the tails a client sent stay stored, and a lake written
 before prefix records holds each version whole. `serve compact` folds
 every older version that is a prefix of its file's newest into a
 record, points existing records at the newest, and removes the

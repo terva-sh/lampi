@@ -192,7 +192,7 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 			return nil
 		}
 		for _, c := range idx.ChunkSHA256s {
-			ok, err := s.Has(c)
+			ok, err := s.Present(c)
 			if err != nil {
 				return err
 			}

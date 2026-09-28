@@ -1,15 +1,19 @@
 package cas
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 // These are the store operations serve compact is built from. Compact
-// runs under lake.lock, with serve stopped.
+// runs under lake.lock, with serve stopped. FoldGrowth also runs at
+// ingest, as Grow does.
 
 // ErrWouldLoop is a Fold whose base reads from the digest being folded.
 var ErrWouldLoop = errors.New("cas: the record would loop")
@@ -146,4 +150,93 @@ func (s *Store) RemoveEntry(e Entry) error {
 		return s.removeLogicalLocked(e.Digest)
 	}
 	return s.removeObjectLocked(e.Digest)
+}
+
+// FoldGrowth keeps once the bytes next shares with prev, the version
+// it grew from, when next is a chunk list. A file past the object cap
+// is sent whole, as chunks: the chunks prev and next share are one
+// object already, and prev's last chunk, which next's chunk at the same
+// place extends, is recorded as a prefix of it. freed is the size of
+// the objects removed.
+//
+// prev is an object or a chunk list; a prefix record, or a file that is
+// not stored, folds nothing. Chunks are compared in order and folding
+// stops at the first that next does not extend, so a file that was
+// rewritten rather than appended to costs one hash of one chunk.
+func (s *Store) FoldGrowth(prev, next string) (freed int64, err error) {
+	if prev == next {
+		return 0, nil
+	}
+	old, oldLen, ok, err := s.parts(prev)
+	if err != nil || !ok {
+		return 0, err
+	}
+	idx, err := s.readLogical(next)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil || idx.PrefixOf != "" {
+		return 0, err
+	}
+	for i := 0; i < len(old) && i < len(idx.ChunkSHA256s); i++ {
+		c := idx.ChunkSHA256s[i]
+		if old[i] == c {
+			continue
+		}
+		if oldLen[i] >= idx.ChunkLengths[i] {
+			return freed, nil
+		}
+		sum, err := s.hashPrefix(c, oldLen[i])
+		if err != nil {
+			return freed, err
+		}
+		if sum != old[i] {
+			return freed, nil
+		}
+		n, err := s.Fold(old[i], c, oldLen[i])
+		if errors.Is(err, ErrWouldLoop) {
+			return freed, nil
+		}
+		if err != nil {
+			return freed, err
+		}
+		freed += n
+	}
+	return freed, nil
+}
+
+// parts is digest as a list of stored pieces: itself when it is an
+// object, or its chunks. ok is false for a prefix record or a digest
+// not in the store.
+func (s *Store) parts(digest string) (parts []string, lengths []int64, ok bool, err error) {
+	if size, object, err := s.ObjectSize(digest); err != nil || object {
+		return []string{digest}, []int64{size}, object, err
+	}
+	idx, err := s.readLogical(digest)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, false, nil
+	}
+	if err != nil || idx.PrefixOf != "" {
+		return nil, nil, false, err
+	}
+	return idx.ChunkSHA256s, idx.ChunkLengths, true, nil
+}
+
+// hashPrefix is the sha256 of the first n bytes of digest, or "" when
+// it holds fewer.
+func (s *Store) hashPrefix(digest string, n int64) (string, error) {
+	rc, err := s.Open(digest)
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	h := sha256.New()
+	got, err := io.Copy(h, io.LimitReader(rc, n))
+	if err != nil {
+		return "", fmt.Errorf("cas: %w", err)
+	}
+	if got != n {
+		return "", nil
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

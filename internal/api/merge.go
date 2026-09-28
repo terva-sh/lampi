@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -63,7 +64,7 @@ func (s *Server) resolve(ctx context.Context, m *protocol.Manifest) ([]catalog.D
 		}
 		if len(a.ChunkSHA256s) > 0 {
 			for _, c := range a.ChunkSHA256s {
-				ok, err := s.CAS.Has(c)
+				ok, err := s.CAS.Present(c)
 				if err != nil {
 					return nil, err
 				}
@@ -158,6 +159,9 @@ func (s *Server) checkClient(a protocol.Artifact, prev catalog.ArtifactRow, hasP
 		if sum != a.SHA256 {
 			return &clientError{fmt.Errorf("artifact %q sha256 does not match the stored bytes", a.RelPath)}
 		}
+		if hasPrev && len(a.ChunkSHA256s) > 0 {
+			s.foldGrowth(a.RelPath, prev.SHA256, a.SHA256)
+		}
 		return nil
 	}
 	if !hasPrev || prev.Size != a.ByteWatermarkPrev {
@@ -177,6 +181,17 @@ func (s *Server) checkClient(a protocol.Artifact, prev catalog.ArtifactRow, hasP
 		return errPrefixMismatch
 	}
 	return err
+}
+
+// foldGrowth stores once the bytes a chunked version shares with the
+// version it replaced (TKT-01M3KC2DA). Without it each sync of a file
+// past the object cap keeps another copy of the file's last chunk. The
+// new version is already stored and checked, so a fold that fails is
+// logged and the ingest goes on; serve compact reclaims those bytes.
+func (s *Server) foldGrowth(rel, prev, next string) {
+	if _, err := s.CAS.FoldGrowth(prev, next); err != nil {
+		s.logger().Warn("fold growth", slog.String("relpath", rel), slog.String("err", err.Error()))
+	}
 }
 
 // openStored reads the objects named by digests one after another. A
@@ -222,23 +237,18 @@ func (s *Server) installChunks(a protocol.Artifact) error {
 	sizes := make([]int64, len(a.ChunkSHA256s))
 	var total int64
 	for i, c := range a.ChunkSHA256s {
-		f, err := s.CAS.OpenBlob(c)
+		size, err := s.CAS.Size(c)
 		if err != nil {
 			return err
 		}
-		st, statErr := f.Stat()
-		f.Close()
-		if statErr != nil {
-			return statErr
+		if size <= 0 || size > protocol.MaxBlobBytes {
+			return &clientError{fmt.Errorf("artifact %q: chunk %d is %d bytes; a chunk must be 1..%d", a.RelPath, i, size, protocol.MaxBlobBytes)}
 		}
-		if st.Size() <= 0 || st.Size() > protocol.MaxBlobBytes {
-			return &clientError{fmt.Errorf("artifact %q: chunk %d is %d bytes; a chunk must be 1..%d", a.RelPath, i, st.Size(), protocol.MaxBlobBytes)}
-		}
-		if total > (1<<63-1)-st.Size() {
+		if total > (1<<63-1)-size {
 			return &clientError{fmt.Errorf("artifact %q: chunk list overflows", a.RelPath)}
 		}
-		sizes[i] = st.Size()
-		total += st.Size()
+		sizes[i] = size
+		total += size
 	}
 	if len(a.ChunkLengths) > 0 {
 		if len(a.ChunkLengths) != len(sizes) {
