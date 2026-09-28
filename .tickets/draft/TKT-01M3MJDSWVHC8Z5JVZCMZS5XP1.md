@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T17:53:56Z
-updated_at: 2026-09-28T17:53:56Z
+updated_at: 2026-09-28T19:54:29Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
 updated_by:
-  id: agent:claude-code/aa1afd80
+  id: agent:claude-code/2cf53976
   name: ""
 extensions: {}
 ---
@@ -43,3 +43,9 @@ Look at when the agent sends a report after a pass that follows a restart, and w
 ## Acceptance criteria
 
 - [ ] The test passes under a loaded full-suite run, or its wait is tied to the report it expects
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T19:54:29Z
+
+Seen again 2026-09-28 in a local just ci (load average 17 from other sessions' runs): failed once at 10.02s, then passed 10/10 and the whole package passed once load dropped.

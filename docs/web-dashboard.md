@@ -367,6 +367,37 @@ The full document is under a disclosure at the foot of the page. While a
 `--profiles`, both pages show a banner. The file is not read, and the
 banner gives the `serve profiles import` command that brings it in.
 
+### Editing a profile
+
+Operators get **Edit profile** on a profile's page, and a form to create one on
+`/profiles`. The editor has a row for every rule and three empty rows per list;
+preview to get more. Clearing every field of a rule removes it.
+
+**Preview** checks the profile as an agent would and shows:
+
+- the diff against what is saved;
+- which parts change;
+- the devices it reaches;
+- how many of those devices set their own allow rules, which the new allow
+  rules will not reach.
+
+`git_remote` and `git_remote_prefix` are stored in the form the agent compares,
+so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.
+
+**Save** records a revision with your note and writes `profile.put` to
+`audit.jsonl`, naming you and the parts that changed. A save names the revision
+you opened. If someone saved in between, yours is refused and shown again
+against what is saved now.
+
+**Roll back** on a revision saves that revision's document again as a new
+revision, noted `rollback to revision N`, and agents fetch it within seconds. It
+is offered for every saved revision whose document differs from the current
+one, and, like a save, it is refused if someone saved in between.
+
+A profile no active device uses can be deleted from its page. The default
+cannot. Harness roots and uploading flagged files are not in the editor:
+they stay in each machine's `config.json`.
+
 ## Search index
 
 With web configuration, serve keeps a full-text index of normalized event text

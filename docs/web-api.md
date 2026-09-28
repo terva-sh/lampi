@@ -491,7 +491,47 @@ One profile adds:
 - `revisions`, up to 50 of them, newest first, as `{id, version, note,
   deleted, created, created_by}`.
 
-A name that is not a profile is `404 not_found`. `ignored_files` lists each
+A name that is not a profile is `404 not_found`, with `latest_revision`: the
+newest revision in its history, a deletion included, or `0`. `ignored_files` lists each
 profiles file serve does not read, as `{path, import}`, where `import` is
 the command that brings it into the catalog. It is empty, not absent, when
 there is none.
+
+### Saving and deleting profiles
+
+Operators write profiles with the same rules as
+[device actions](#device-actions): the `operator` role, `404 not_found` for
+anyone else, and the `X-Lampi-CSRF` header.
+
+- `PUT /api/web/v1/profiles/{name}` takes
+  `{"document": {...}, "base_revision": N, "note": "..."}`.
+  - `document` is the whole profile.
+  - `base_revision` is the `revision` you read. For a name that is not stored
+    it is the `latest_revision` its `GET` answers alongside `404`: `0` for a
+    name never saved, else the deletion that removed it.
+  - Rules are stored with `git_remote` and `git_remote_prefix` folded as the
+    agent compares them.
+  - It answers `200` with `{profile: {name, version, revision}}`. That is also
+    the answer when the document is what is already saved.
+- `POST /api/web/v1/profiles/{name}/rollback` takes `{"revision": R,
+  "base_revision": N, "note": "..."}`. It saves revision R's document again as
+  a new revision noted `rollback to revision R`, and answers like a PUT. A
+  revision that is not this profile's is `404 not_found`, and one that records
+  a deletion is `400 deleted_revision`.
+- `DELETE /api/web/v1/profiles/{name}` takes `{"base_revision": N, "note":
+  "..."}` and answers `204`.
+
+| Refusal | Status and `error` |
+|---|---|
+| Another save or a delete landed after `base_revision` | `409 changed`, with the saved profile on a PUT |
+| A document an agent would refuse, such as one that sets a harness root, or over 500 allow or deny rules | `400 invalid_profile`, with `message` |
+| A body that is not one object of these fields, or no `base_revision` | `400 invalid_request` |
+| A name that is not a profile name | `400 invalid_name` |
+| A note over 500 characters | `400 invalid_note` |
+| Deleting the default profile | `409 default` |
+| Deleting a profile an active device uses | `409 in_use` |
+
+Each write goes to `audit.jsonl` with the operator as actor. `profile.put`
+names the parts that changed (`projects.allow`, `projects.deny`, `harnesses`,
+`agent`), and the revisions hold both documents. A write whose audit line
+fails still stands, and answers `500 audit_failed`.
