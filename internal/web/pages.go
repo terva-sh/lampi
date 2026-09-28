@@ -104,6 +104,8 @@ type pageData struct {
 	Devices  devicesView
 	Profiles profilesView
 	Profile  profileView
+	// ProfileEdit is the operator's profile editor.
+	ProfileEdit profileEditView
 	// Urgent names active devices whose agent matches an urgent
 	// advisory. The overview and devices pages fill it.
 	Urgent []string

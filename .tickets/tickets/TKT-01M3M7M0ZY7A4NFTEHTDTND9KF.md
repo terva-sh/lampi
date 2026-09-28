@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T19:47:06Z
+updated_at: 2026-09-28T19:54:29Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -56,8 +56,8 @@ Operators view, add, edit and remove profiles from the dashboard, covering every
 
 ## Acceptance criteria
 
-- [ ] Operators edit every profile field, including all ProjectMatch fields
-- [ ] Saves show a diff and the devices reached, and are audited with the OIDC actor
+- [x] Operators edit every profile field, including all ProjectMatch fields
+- [x] Saves show a diff and the devices reached, and are audited with the OIDC actor
 - [ ] A revision can be rolled back
 
 ## Implementation plan
@@ -100,3 +100,24 @@ From TKT-01M3M7M0WC: the profiles page must show a banner while a profiles.json 
 **agent:claude-code/2cf53976** at 2026-09-28T19:47:06Z
 
 P1 on web/profile-editor: read-only /profiles and /profiles/{name} with JSON at /api/web/v1/profiles[/{name}]. Adds catalog.Profile(name). serve passes Operations.IgnoredProfiles, which re-stats on each call so the banner clears once profiles.json is moved away. warnProfilesFile now uses the same ignoredProfilesFiles list, so stderr and the dashboard cannot disagree. The Devices page's profile column links to the profile. A tab row with a disabled 'Device overrides' entry reserves the layout.
+
+**agent:claude-code/2cf53976** at 2026-09-28T19:54:29Z
+
+P2 on web/profile-edit (stacked on web/profile-editor):
+
+- **Catalog.** `PutProfileIf` and `DeleteProfileIf` take the revision the editor read (0 for a new profile) and refuse with ErrProfileChanged. `profile.put`'s audit detail gains `changed=`, naming the top-level parts that changed (projects.allow, projects.deny, harnesses, agent, redaction), or `new`.
+- **Editor.** `/profiles/{name}/edit` shows existing rows plus 3 blank rows per list, three-way harness selects and debounce fields. It needs no JS.
+- **Preview.** Parses the form, normalizes (NormalizeRemote on git_remote and git_remote_prefix, lowercases cwd_hash, trims), validates with `ParseProfile`, then shows:
+  - the LCS line diff of the indented JSON;
+  - the changed parts;
+  - the devices reached, and how many set their own allow rules when the allow rules change.
+
+  The Save form carries the canonical document, which is validated again on save.
+- **Body limit.** A 256 KiB form cap, separate from readForm's 4 KiB, so large rule lists fit.
+- **API.** `PUT` and `DELETE /api/web/v1/profiles/{name}`, with `base_revision` required.
+- **Delete** is behind a disclosure on the profile page. It keeps the catalog's refusals for the default profile and for a profile in use.
+
+Decisions:
+
+- **Revision guard: optimistic, not a lock.** Locks need expiry and a way to steal them; a stale save instead re-renders against what is stored now.
+- **Rules removed by clearing their fields.** This avoids per-row delete buttons, which would need JS or one form per row.

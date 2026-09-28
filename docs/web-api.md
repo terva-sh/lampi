@@ -495,3 +495,35 @@ A name that is not a profile is `404 not_found`. `ignored_files` lists each
 profiles file serve does not read, as `{path, import}`, where `import` is
 the command that brings it into the catalog. It is empty, not absent, when
 there is none.
+
+### Saving and deleting profiles
+
+Operators write profiles with the same rules as
+[device actions](#device-actions): the `operator` role, `404 not_found` for
+anyone else, and the `X-Lampi-CSRF` header.
+
+- `PUT /api/web/v1/profiles/{name}` takes
+  `{"document": {...}, "base_revision": N, "note": "..."}`.
+  - `document` is the whole profile.
+  - `base_revision` is the `revision` you read, or `0` for a new profile.
+  - Rules are stored with `git_remote` and `git_remote_prefix` folded as the
+    agent compares them.
+  - It answers `200` with `{profile: {name, version, revision}}`. That is also
+    the answer when the document is what is already saved.
+- `DELETE /api/web/v1/profiles/{name}` takes `{"base_revision": N, "note":
+  "..."}` and answers `204`.
+
+| Refusal | Status and `error` |
+|---|---|
+| Another save or a delete landed after `base_revision` | `409 changed`, with the saved profile on a PUT |
+| A document an agent would refuse, such as one that sets a harness root | `400 invalid_profile`, with `message` |
+| A body that is not one object of these fields, or no `base_revision` | `400 invalid_request` |
+| A name that is not a profile name | `400 invalid_name` |
+| A note over 500 characters | `400 invalid_note` |
+| Deleting the default profile | `409 default` |
+| Deleting a profile an active device uses | `409 in_use` |
+
+Each write goes to `audit.jsonl` with the operator as actor. `profile.put`
+names the parts that changed (`projects.allow`, `projects.deny`, `harnesses`,
+`agent`), and the revisions hold both documents. A write whose audit line
+fails still stands, and answers `500 audit_failed`.

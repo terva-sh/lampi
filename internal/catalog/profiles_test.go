@@ -128,3 +128,38 @@ func TestDeleteProfile(t *testing.T) {
 		t.Fatalf("put after delete: %+v %v", p, err)
 	}
 }
+
+// TKT-01M3M7M0ZY: an editor's save or delete names the revision it read,
+// and loses to a write that landed since.
+func TestProfileWritesGuardedByRevision(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	if _, _, err := c.PutProfileIf(ctx, "ci", []byte(`{}`), "op", "", 3, now); !errors.Is(err, ErrProfileChanged) {
+		t.Fatalf("new profile at revision 3: %v", err)
+	}
+	p1, changed, err := c.PutProfileIf(ctx, "ci", []byte(`{}`), "op", "", 0, now)
+	if err != nil || !changed {
+		t.Fatalf("create: %v %v", changed, err)
+	}
+	if _, _, err := c.PutProfileIf(ctx, "ci", []byte(`{"agent":{"debounce":"5s"}}`), "op", "", 0, now); !errors.Is(err, ErrProfileChanged) {
+		t.Fatalf("create twice: %v", err)
+	}
+	p2, _, err := c.PutProfileIf(ctx, "ci", []byte(`{"agent":{"debounce":"5s"},"projects":{"allow":[{"cwd_prefix":"/w"}]}}`), "op", "", p1.Revision, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second editor who read p1 loses.
+	if _, _, err := c.PutProfileIf(ctx, "ci", []byte(`{}`), "op2", "", p1.Revision, now); !errors.Is(err, ErrProfileChanged) {
+		t.Fatalf("stale save: %v", err)
+	}
+	if _, err := c.DeleteProfileIf(ctx, "ci", "op2", "", p1.Revision, now); !errors.Is(err, ErrProfileChanged) {
+		t.Fatalf("stale delete: %v", err)
+	}
+	if _, err := c.DeleteProfileIf(ctx, "ci", "op", "", p2.Revision, now); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got := ChangedProfileFields(p1.Config, p2.Config); strings.Join(got, ",") != "projects.allow,agent" {
+		t.Fatalf("changed %v", got)
+	}
+}
