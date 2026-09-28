@@ -326,7 +326,8 @@ func (s *Server) readMachines(ctx context.Context, now time.Time) ([]opsMachine,
 	for _, a := range activity {
 		byMachine[a.MachineID] = a
 	}
-	var out []opsMachine
+	// Empty is [], not null: lists in this API are arrays.
+	out := []opsMachine{}
 	bound := map[string]bool{}
 	for _, d := range devices {
 		m := opsMachine{Device: d.Name, State: d.State(), Source: d.Source, Profile: d.Profile, MachineID: d.MachineID}

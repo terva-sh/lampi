@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV45ZV8XBJW0XZPZS740T4
 title: "Web: operations page with storage, growth, queues and devices"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3JV45Y7RJ7S7Y3WWW2WMEKC
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/operations-page
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 0eb79ed84a5baba615e6995f11dab5a219157aec
-  session: null
-  claimed_at: 2026-09-28T02:01:28Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:01:29Z
+updated_at: 2026-09-28T02:29:06Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -105,3 +98,27 @@ Decisions, with the alternatives each one beat:
 - **Bug found while testing:** a sample just before the window
   truncated into the first bucket, because integer division rounds
   toward zero. It is now guarded, and a test covers it.
+
+## Summary
+
+Landed in PR #50: `/operations` and `/api/web/v1/operations`. They show:
+
+- storage now, by component, with share and change over the range
+- filesystem free and total
+- deduplication
+- growth charts: 7 days hourly, or 30 or 90 days daily
+- queues: normalization, search, audit outbox, uploads
+- process: version, uptime, schema, lake id
+- every device and unbound machine, with last contact, last new data
+  and freshness
+
+Supporting pieces:
+
+- Catalog migration 11 indexes head updates by machine.
+- `api.Server` keeps each device's latest contact in memory, with a
+  compare-and-swap so that racing requests keep the later time.
+- Review fixes: that contact race, and an empty machine list returned
+  as `[]` rather than null.
+- Review rejections, with evidence: an empty range takes the default,
+  as on Activity; machines found only in head_updates cannot exist,
+  because provenance is written in the same transaction.

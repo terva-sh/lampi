@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -176,5 +177,23 @@ func TestFreshnessAndDurations(t *testing.T) {
 		if got := humanDuration(d); got != want {
 			t.Errorf("humanDuration(%s) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// TKT-01M3JV45Z: a lake with no machines lists them as [], not null.
+func TestNoMachinesIsAnEmptyArray(t *testing.T) {
+	cat, err := catalog.Open(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cat.Close() })
+	s := &Server{catalog: cat}
+	v, err := s.readOperations(t.Context(), opsRanges[0], time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(v)
+	if !strings.Contains(string(raw), `"machines":[]`) {
+		t.Fatalf("machines on an empty lake: %s", raw)
 	}
 }
