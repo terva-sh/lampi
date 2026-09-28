@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T21:36:24Z
+updated_at: 2026-09-28T21:45:16Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -91,3 +91,7 @@ Two PRs.
 **agent:claude-code/2cf53976** at 2026-09-28T21:36:24Z
 
 I1 on config/inventory-lake: POST /v1/agent/inventory with protocol.AgentInventory/InventoryProject, catalog migration 15 device_inventories (newest-wins upsert, no history), clampInventory drops refused rows from a strict inventory and cuts past MaxInventoryProjects with truncated set. Docs in protocol.md. The agent side is I2.
+
+**agent:claude-code/2cf53976** at 2026-09-28T21:45:16Z
+
+I2 is PR #107, stacked on #106. #106 took a review finding: inventories were ordered by arrival, so a late sociable request could replace a newer strict snapshot. The agent now stamps generated_at and the lake keeps the one generated latest (clamped to the lake's now), answering kept. Deviation from the plan: the last-sent hash lives in runner memory, not lake state. A restart resends one inventory, which is harmless under generated_at ordering and saves a state file.

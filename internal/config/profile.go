@@ -96,6 +96,9 @@ func forbiddenKeys(raw []byte) error {
 			}
 		}
 	}
+	if len(fields(top, "inventory")) > 0 {
+		return errors.New("inventory: a profile cannot set the inventory mode; the machine's config.json sets it")
+	}
 	for _, v := range fields(top, "redaction") {
 		var r map[string]json.RawMessage
 		if json.Unmarshal(v, &r) == nil && len(fields(r, "upload_hits")) > 0 {

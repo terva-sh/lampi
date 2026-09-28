@@ -72,6 +72,17 @@ With more than one lake, each lake has its own outbox, backoff,
 debounce ceiling, and 401 message. See
 [Registration and lakes](registration-and-lakes.md#many-lakes).
 
+## What the lake hears about the machine
+
+Besides the uploads, the agent reports to each lake after each sync
+and every minute in between: its release, the profile version it
+applied, where its rules come from, its inventory mode, and the last
+sync's counts or error. After a report it sends the inventory, the
+projects its harnesses hold, when that has changed since the last one
+the lake kept. `"inventory": "strict"` in `config.json` limits that to
+the allowed projects and a count of the refused. See
+[What leaves the machine](allowlist-and-redaction.md#what-leaves-the-machine).
+
 ## Signals and the pid file
 
 The process writes `agent.pid` in the state directory while it runs. A

@@ -68,8 +68,15 @@ Set STRICT in `config.json`. A lake profile cannot change it:
 {"inventory": "strict"}
 ```
 
-The inventory report ships with TKT-01M3M7M0TH. An agent from an
-earlier release sends nothing about refused projects. The decision and
+Any other value is an error, and the agent does not start, so a
+misspelled `strict` never reports as SOCIABLE. A profile that names
+`inventory` is refused.
+
+The running agent sends the inventory to each lake after a sync, and
+only when it differs from the last one that lake kept; one-shot `sync`
+sends none. A lake from before the inventory answers 404, which the
+agent says once. An agent from an earlier release sends nothing about
+refused projects. The decision and
 its reasons are in
 [policy.md](policy.md#off-box-metadata-the-inventory-report).
 

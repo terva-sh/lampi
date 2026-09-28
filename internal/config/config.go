@@ -37,6 +37,10 @@ type File struct {
 	Redaction RedactionConfig `json:"redaction,omitempty"`
 	Harnesses Harnesses       `json:"harnesses,omitempty"`
 	Agent     AgentConfig     `json:"agent,omitempty"`
+	// Inventory is how much this machine tells its lakes about the
+	// projects on it: sociable, the default, or strict. See
+	// InventoryMode. Only this file sets it; a lake's profile cannot.
+	Inventory string `json:"inventory,omitempty"`
 	// Lakes names more lakes than the one server describes. A map that
 	// is present and empty means no lake; a missing one means the
 	// legacy default lake. See ResolveLakes.

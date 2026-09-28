@@ -155,6 +155,10 @@ type Result struct {
 	// Skipped names each file or harness left out of this run because
 	// it could not be read. The rest of the run went ahead.
 	Skipped []string
+	// Inventory is every project the run read, allowed or refused, as
+	// Refusals groups them. It is nil when the run failed before it read
+	// the harness homes.
+	Inventory []InventoryRow
 }
 
 // Rejected is one or more sessions that stayed on the machine.
@@ -195,7 +199,7 @@ func (o Options) lakeState() string {
 	return o.StateDir
 }
 
-func syncOnce(ctx context.Context, opt Options) (Result, error) {
+func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 	if opt.ServerURL == "" {
 		return Result{}, fmt.Errorf("upload: server URL is empty")
 	}
@@ -216,6 +220,11 @@ func syncOnce(ctx context.Context, opt Options) (Result, error) {
 	bundles, skipped := bundlesFor(opt)
 	opt.Memo.end()
 	defer cleanupBundles(bundles)
+	// Every result from here on carries the inventory, a failed push's
+	// too: the rows are what is on the machine, not what reached the
+	// lake.
+	inventory := inventoryRows(opt, bundles)
+	defer func() { res.Inventory = inventory }()
 	n := 0
 	for _, b := range bundles {
 		n += len(b.Manifests)

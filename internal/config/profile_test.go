@@ -38,6 +38,8 @@ func TestLoadProfiles(t *testing.T) {
 		{`{"profiles":{"default":{}},"extra":1}`, `unknown field "extra"`},
 		{`{"profiles":{"default":{"harnesses":{"codex":{"root":"/etc"}}}}}`, "cannot set a harness root"},
 		{`{"profiles":{"default":{"redaction":{"upload_hits":true}}}}`, "cannot upload flagged files"},
+		{`{"profiles":{"default":{"inventory":"sociable"}}}`, "cannot set the inventory mode"},
+		{`{"profiles":{"default":{"Inventory":"strict"}}}`, "cannot set the inventory mode"},
 		// Forbidden means not allowed here, whatever the value.
 		{`{"profiles":{"default":{"harnesses":{"codex":{"root":""}}}}}`, "cannot set a harness root"},
 		{`{"profiles":{"default":{"redaction":{"upload_hits":false}}}}`, "cannot upload flagged files"},
