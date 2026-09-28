@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -419,16 +420,7 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		return 0, err
 	}
 	defer tx.Rollback()
-	del, err := tx.PrepareContext(ctx, `DELETE FROM docs WHERE id=?`)
-	if err != nil {
-		return 0, err
-	}
-	defer del.Close()
-	ins, err := tx.PrepareContext(ctx, `INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,tool_name,tool_error,raw_type,recorded_ns,content) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
-		return 0, err
-	}
-	defer ins.Close()
+	w := docWriter{tx: tx}
 	br := bufio.NewReaderSize(snap.f, 64<<10)
 	var pos int64
 	for {
@@ -454,21 +446,18 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 			continue
 		}
 		if had {
-			if _, err := del.ExecContext(ctx, prev.id); err != nil {
-				return 0, err
-			}
+			w.del = append(w.del, prev.id)
 			deleted++
 		}
-		var content any
-		if row.hasContent {
-			content = row.content
-		}
-		if _, err := ins.ExecContext(ctx, row.uid, row.pos, sig, row.harness, row.project, row.eventType, row.actor, row.tool, row.toolError, row.raw, row.recorded, content); err != nil {
+		if err := w.insert(ctx, &row, sig); err != nil {
 			return 0, err
 		}
 		if rerr == io.EOF {
 			break
 		}
+	}
+	if err := w.flush(ctx); err != nil {
+		return 0, err
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM docs WHERE session_uid=? AND pos>=?`, s.UID, pos)
 	if err != nil {
@@ -495,6 +484,60 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		return 0, err
 	}
 	return deleted, nil
+}
+
+// writeRows and writeBytes bound one batch of indexSession's writes.
+// FTS5 flushes the terms it holds in memory to a new segment whenever
+// a statement opens a savepoint, which every write to docs does because
+// its triggers write fts, and each flush can start an automerge. A
+// statement per row made a segment per row, and merging those was most
+// of the cost of indexing (TKT-01M3MD3C). A statement per batch flushes
+// a segment per batch.
+const (
+	writeRows  = 200
+	writeBytes = 4 << 20
+)
+
+// docWriter batches the rows indexSession deletes and inserts into one
+// statement each per writeRows rows or writeBytes of content.
+type docWriter struct {
+	tx    *sql.Tx
+	del   []any
+	ins   []any
+	rows  int
+	bytes int
+}
+
+func (w *docWriter) insert(ctx context.Context, row *docRow, sig int64) error {
+	var content any
+	if row.hasContent {
+		content = row.content
+	}
+	w.ins = append(w.ins, row.uid, row.pos, sig, row.harness, row.project, row.eventType, row.actor, row.tool, row.toolError, row.raw, row.recorded, content)
+	w.rows++
+	w.bytes += len(row.content)
+	if w.rows >= writeRows || w.bytes >= writeBytes {
+		return w.flush(ctx)
+	}
+	return nil
+}
+
+// flush writes what w holds: its deletes, then its inserts.
+func (w *docWriter) flush(ctx context.Context) error {
+	if len(w.del) > 0 {
+		if _, err := w.tx.ExecContext(ctx, `DELETE FROM docs WHERE id IN (?`+strings.Repeat(",?", len(w.del)-1)+`)`, w.del...); err != nil {
+			return err
+		}
+	}
+	if w.rows > 0 {
+		const values = "(?,?,?,?,?,?,?,?,?,?,?,?)"
+		if _, err := w.tx.ExecContext(ctx, `INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,tool_name,tool_error,raw_type,recorded_ns,content) VALUES`+values+strings.Repeat(","+values, w.rows-1), w.ins...); err != nil {
+			return err
+		}
+	}
+	clear(w.ins)
+	w.del, w.ins, w.rows, w.bytes = w.del[:0], w.ins[:0], 0, 0
+	return nil
 }
 
 type rowSig struct {
