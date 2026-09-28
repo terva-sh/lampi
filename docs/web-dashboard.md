@@ -283,7 +283,9 @@ hourly.
 - **Filesystem free** is the space left on the filesystem that holds the lake,
   whatever else shares that filesystem.
 - **Deduplication** is the logical bytes every artifact row names, divided by
-  the bytes of each distinct blob counted once.
+  the stored blobs' disk use. Every version of a growing transcript counts in
+  full in the first figure, and the lake stores the bytes versions share once,
+  so a lake of long sessions reads well above 1×.
 - **Growth charts** show the lake directory's disk use and the filesystem's
   free space: hourly over the last 7 days, or daily over 30 or 90. Hours or
   days with no sample are hatched and read "not measured".

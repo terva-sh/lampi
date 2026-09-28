@@ -373,8 +373,10 @@ The example shortens `components`, `points` and `machines`.
   - `filesystem` is the capacity of the filesystem that holds the lake. It is
     absent where the platform does not report one.
   - `referenced` is the logical bytes of every artifact row, and `unique` is
-    those of each distinct digest counted once. Their ratio is how much
-    deduplication saves.
+    those of each distinct digest counted once. Versions of a growing file are
+    distinct digests that share stored bytes, so `unique` is not what the CAS
+    holds; `components.cas` is. The page's deduplication is `referenced`
+    divided by `components.cas`.
 - **`growth`** has one point per bucket in the range. Each point carries the
   last sample taken in that bucket. A bucket with no sample is `null`, and a
   `null` means not measured, not zero.
