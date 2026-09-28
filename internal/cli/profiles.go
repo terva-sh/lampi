@@ -137,6 +137,11 @@ func runServeProfiles(env Env, args []string) error {
 		fmt.Fprintf(env.stdout(), "deleted %s revision %d\n", rev.Profile, rev.ID)
 	case "import":
 		if err := importProfiles(ctx, env, cat, pos[0], actor, note, now); err != nil {
+			// Profiles saved before the failure stand; their lines go
+			// out with the error.
+			if ferr := cat.FlushAudit(ctx, data); ferr != nil {
+				return errors.Join(err, fmt.Errorf("writing %s: %w; the lines stay queued in the catalog", audit.FileName, ferr))
+			}
 			return err
 		}
 	}
@@ -200,10 +205,22 @@ func showProfile(ctx context.Context, env Env, cat *catalog.Catalog, name string
 	return nil
 }
 
+// maxProfileDoc caps a profile document read from stdin.
+const maxProfileDoc = 1 << 20
+
 // readProfileDoc reads one profile document from path, or stdin for -.
+// Stdin past maxProfileDoc is refused, not cut: a cut document could
+// still parse as a different one.
 func readProfileDoc(env Env, path string) ([]byte, error) {
 	if path == "-" {
-		return io.ReadAll(io.LimitReader(env.stdin(), 1<<20))
+		raw, err := io.ReadAll(io.LimitReader(env.stdin(), maxProfileDoc+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) > maxProfileDoc {
+			return nil, fmt.Errorf("serve profiles set: stdin is over %d bytes", maxProfileDoc)
+		}
+		return raw, nil
 	}
 	return os.ReadFile(path)
 }
@@ -234,7 +251,7 @@ func importProfiles(ctx context.Context, env Env, cat *catalog.Catalog, path, ac
 	for _, name := range names {
 		p, changed, err := cat.PutProfile(ctx, name, docs[name], actor, note, now)
 		if err != nil {
-			return fmt.Errorf("%s: %s: %w", path, name, err)
+			return fmt.Errorf("%s: %s: %w; the profiles listed above were saved, the rest were not", path, name, err)
 		}
 		if changed {
 			fmt.Fprintf(env.stdout(), "imported %s revision %d version %s\n", p.Name, p.Revision, p.Version)

@@ -158,3 +158,11 @@ func TestServeProfilesSetUnchangedFlushesTheAuditQueue(t *testing.T) {
 		t.Fatalf("the queued line was not written:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
+
+func TestServeProfilesSetRefusesOversizedStdin(t *testing.T) {
+	_, run := profilesLake(t)
+	doc := `{}` + strings.Repeat(" ", maxProfileDoc) + `{"not":"json"`
+	if _, err := run(doc, "set", "ci", "-"); err == nil || !strings.Contains(err.Error(), "over") {
+		t.Fatalf("oversized stdin: %v", err)
+	}
+}
