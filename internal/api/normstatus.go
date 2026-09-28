@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -125,21 +126,33 @@ func (s *Server) drained() {
 	}
 }
 
-// NormalizationStatus is the lake's normalization at a glance, for
-// GET /v1/stats: sessions by state, the job backlog, what this process
-// is running, and when a job last succeeded or failed.
-func (s *Server) NormalizationStatus(ctx context.Context) (protocol.NormalizationStats, error) {
-	counts, err := s.Catalog.NormalizationCounts(ctx)
+// CatalogNormalization is the part of the normalization status the
+// catalog holds: sessions by state and the job table's backlog, aged
+// at now. What a serve process holds and did is not in it, so serve
+// normalize --status can read it with serve stopped.
+func CatalogNormalization(ctx context.Context, cat *catalog.Catalog, now time.Time) (protocol.NormalizationStats, error) {
+	counts, err := cat.NormalizationCounts(ctx)
 	if err != nil {
 		return protocol.NormalizationStats{}, err
 	}
-	backlog, err := s.Catalog.NormalizeBacklog(ctx)
+	backlog, err := cat.NormalizeBacklog(ctx)
 	if err != nil {
 		return protocol.NormalizationStats{}, err
 	}
 	out := protocol.NormalizationStats{Sessions: counts, Jobs: backlog.Jobs}
 	if !backlog.Oldest.IsZero() {
-		out.OldestPendingSeconds = max(0, s.now().Sub(backlog.Oldest).Seconds())
+		out.OldestPendingSeconds = max(0, now.Sub(backlog.Oldest).Seconds())
+	}
+	return out, nil
+}
+
+// NormalizationStatus is the lake's normalization at a glance, for
+// GET /v1/stats: sessions by state, the job backlog, what this process
+// is running, and when a job last succeeded or failed.
+func (s *Server) NormalizationStatus(ctx context.Context) (protocol.NormalizationStats, error) {
+	out, err := CatalogNormalization(ctx, s.Catalog, s.now())
+	if err != nil {
+		return protocol.NormalizationStats{}, err
 	}
 	if s.norm != nil {
 		out.Queued, out.Running, out.Retrying = s.norm.depth()
