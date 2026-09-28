@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/webauth"
 )
@@ -40,6 +41,8 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	},
 	"profileURL":    profileURL,
 	"deviceURL":     deviceURL,
+	"allowable":     allowable,
+	"denied":        func(reason string) bool { return reason == config.RefusedByDeny },
 	"sessionURL":    func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
 	"transcriptURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) + "/transcript" },
 	"fromURL": func(uid string, from int64) string {

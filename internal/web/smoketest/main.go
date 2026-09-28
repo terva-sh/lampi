@@ -22,6 +22,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/recall"
@@ -310,6 +311,23 @@ func seedDevices(ctx context.Context, lake *api.Server, now time.Time) error {
 	}
 	for i, rep := range reports {
 		if err := lake.Catalog.PutDeviceReport(ctx, created[i].ID, rep, now.Add(-time.Duration(i)*time.Minute)); err != nil {
+			return err
+		}
+	}
+	// The laptop is sociable and lists its refused projects; the desktop
+	// is strict and only counts them.
+	projects := []protocol.InventoryProject{
+		{GitRemote: "github.com/acme/app", CWD: "/home/dev/src/app", CWDs: 2, CWDHash: "8427a42989cbc15f", Harnesses: []string{"claude", "codex"}, Sessions: 12, Bytes: 409600, Newest: now.Add(-3 * time.Minute), Allowed: true},
+		{GitRemote: "github.com/acme/client-portal", CWD: "/home/dev/work/portal", CWDs: 1, Harnesses: []string{"claude"}, Sessions: 180, Bytes: 7 << 20, Newest: now.Add(-time.Hour), Reason: config.RefusedNoMatch},
+		{CWD: "/home/dev/scratch", CWDs: 1, Harnesses: []string{"codex"}, Sessions: 40, Bytes: 2 << 20, Newest: now.Add(-26 * time.Hour), Reason: config.RefusedNoMatch},
+		{CWD: "/home/dev/private", CWDs: 1, Harnesses: []string{"claude"}, Sessions: 1, Bytes: 4096, Reason: config.RefusedByDeny},
+	}
+	for i, inv := range []protocol.AgentInventory{
+		{Mode: protocol.InventorySociable, Projects: projects, RefusedSessions: 221, RefusedBytes: 9<<20 + 4096},
+		{Mode: protocol.InventoryStrict, Projects: projects[:1], RefusedSessions: 3, RefusedBytes: 12288},
+	} {
+		inv.GeneratedAt = now.Add(-3 * time.Minute)
+		if _, err := lake.Catalog.PutDeviceInventory(ctx, created[i].ID, inv, now); err != nil {
 			return err
 		}
 	}
