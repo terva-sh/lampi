@@ -51,6 +51,15 @@ func TestDeviceReportReplacesTheOneBefore(t *testing.T) {
 		t.Fatalf("last sync %+v", got.Report.LastSync)
 	}
 
+	// A report that took an earlier time but commits later does not
+	// replace the newer one.
+	if err := c.PutDeviceReport(ctx, a.ID, protocol.AgentReport{AgentVersion: "v0.1.1"}, t2.Add(-time.Nanosecond)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := c.DeviceReport(ctx, a.ID); got.Report.AgentVersion != "v0.1.3" || !got.Received.Equal(t2) {
+		t.Fatalf("an older report replaced the newer: %+v", got)
+	}
+
 	if err := c.PutDeviceReport(ctx, b.ID, protocol.AgentReport{AgentVersion: "v0.1.2"}, t1); err != nil {
 		t.Fatal(err)
 	}
