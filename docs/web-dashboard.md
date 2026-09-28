@@ -389,6 +389,11 @@ so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.
 you opened. If someone saved in between, yours is refused and shown again
 against what is saved now.
 
+**Roll back** on a revision saves that revision's document again as a new
+revision, noted `rollback to revision N`, and agents fetch it within seconds. It
+is offered for every saved revision whose document differs from the current
+one, and, like a save, it is refused if someone saved in between.
+
 A profile no active device uses can be deleted from its page. The default
 cannot. Harness roots and uploading flagged files are not in the editor:
 they stay in each machine's `config.json`.

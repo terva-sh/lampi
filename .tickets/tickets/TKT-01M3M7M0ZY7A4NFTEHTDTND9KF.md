@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T19:54:29Z
+updated_at: 2026-09-28T19:58:27Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -58,7 +58,7 @@ Operators view, add, edit and remove profiles from the dashboard, covering every
 
 - [x] Operators edit every profile field, including all ProjectMatch fields
 - [x] Saves show a diff and the devices reached, and are audited with the OIDC actor
-- [ ] A revision can be rolled back
+- [x] A revision can be rolled back
 
 ## Implementation plan
 
@@ -121,3 +121,7 @@ Decisions:
 
 - **Revision guard: optimistic, not a lock.** Locks need expiry and a way to steal them; a stale save instead re-renders against what is stored now.
 - **Rules removed by clearing their fields.** This avoids per-row delete buttons, which would need JS or one form per row.
+
+**agent:claude-code/2cf53976** at 2026-09-28T19:58:27Z
+
+P3 on web/profile-rollback (stacked on web/profile-edit): POST /profiles/{name}/rollback/{revision} (form) and POST /api/web/v1/profiles/{name}/rollback. It re-saves the revision's document through saveProfile, so it gets the same revision guard, validation, normalization and audit; the note is 'rollback to revision N[: note]'. It refuses revisions of another profile (404) and deletion revisions (400 deleted_revision). The button shows only for saved revisions whose version differs from the current one. Decision: one POST with no preview, as the ticket asks for a single action; the revision table already shows what it restores.

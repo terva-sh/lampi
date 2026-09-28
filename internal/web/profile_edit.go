@@ -45,6 +45,8 @@ func (s *Server) profileRoutes(m *http.ServeMux) {
 	m.Handle("POST /profiles/{name}/preview", op(s.profilePreviewPage))
 	m.Handle("POST /profiles/{name}/save", op(s.profileSavePage))
 	m.Handle("POST /profiles/{name}/delete", op(s.profileDeletePage))
+	m.Handle("POST /profiles/{name}/rollback/{revision}", op(s.profileRollbackPage))
+	m.Handle("POST /api/web/v1/profiles/{name}/rollback", op(s.profileRollbackAPI))
 	m.Handle("PUT /api/web/v1/profiles/{name}", op(s.profilePutAPI))
 	m.Handle("DELETE /api/web/v1/profiles/{name}", op(s.profileDeleteAPI))
 }
@@ -419,12 +421,17 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 // saved profile, an HTTP status, an error code (empty on success) and
 // a message for a refused document.
 func (s *Server) saveProfile(r *http.Request, name string, raw []byte, base int64, note string) (catalog.Profile, int, string, string) {
-	if !config.ValidProfileName(name) {
-		return catalog.Profile{}, http.StatusBadRequest, "invalid_name", ""
-	}
 	note, ok := cleanNote(note)
 	if !ok {
 		return catalog.Profile{}, http.StatusBadRequest, "invalid_note", fmt.Sprintf("A note is at most %d characters.", maxProfileNote)
+	}
+	return s.saveCleanProfile(r, name, raw, base, note)
+}
+
+// saveCleanProfile is saveProfile for a note already checked.
+func (s *Server) saveCleanProfile(r *http.Request, name string, raw []byte, base int64, note string) (catalog.Profile, int, string, string) {
+	if !config.ValidProfileName(name) {
+		return catalog.Profile{}, http.StatusBadRequest, "invalid_name", ""
 	}
 	_, doc, err := checkProfile(raw)
 	if err != nil {
@@ -641,4 +648,95 @@ func (s *Server) profileDeleteAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// rollback saves revision rev's document as the profile called name, if
+// the profile is still at revision base. The note names the revision.
+func (s *Server) rollback(r *http.Request, name string, rev, base int64, note string) (catalog.Profile, int, string) {
+	if !config.ValidProfileName(name) {
+		return catalog.Profile{}, http.StatusNotFound, "not_found"
+	}
+	old, err := s.catalog.ProfileRevisionByID(r.Context(), name, rev)
+	switch {
+	case errors.Is(err, catalog.ErrNoProfile):
+		return catalog.Profile{}, http.StatusNotFound, "not_found"
+	case err != nil:
+		s.logError(r, "reading a profile revision failed", err)
+		return catalog.Profile{}, http.StatusInternalServerError, "save_failed"
+	case old.Deleted:
+		return catalog.Profile{}, http.StatusBadRequest, "deleted_revision"
+	}
+	// The caller's note has the editor's limit; the label naming the
+	// revision comes on top of it.
+	note, ok := cleanNote(note)
+	if !ok {
+		return catalog.Profile{}, http.StatusBadRequest, "invalid_note"
+	}
+	label := "rollback to revision " + strconv.FormatInt(rev, 10)
+	if note != "" {
+		label += ": " + note
+	}
+	p, status, code, _ := s.saveCleanProfile(r, name, []byte(old.Document), base, label)
+	return p, status, code
+}
+
+func (s *Server) profileRollbackPage(w http.ResponseWriter, r *http.Request) {
+	if !s.readForm(w, r) {
+		return
+	}
+	name := r.PathValue("name")
+	rev, err1 := strconv.ParseInt(r.PathValue("revision"), 10, 64)
+	base, err2 := strconv.ParseInt(r.PostForm.Get("base"), 10, 64)
+	if err1 != nil || err2 != nil {
+		http.NotFound(w, r)
+		return
+	}
+	_, status, code := s.rollback(r, name, rev, base, r.PostForm.Get("note"))
+	if code == "" {
+		http.Redirect(w, r, profileURL(name), http.StatusSeeOther)
+		return
+	}
+	if code == "not_found" {
+		http.NotFound(w, r)
+		return
+	}
+	msg := map[string]string{
+		"changed":          "Someone saved this profile after you opened it. Nothing was rolled back; check the revisions below and try again.",
+		"deleted_revision": "That revision records a deletion; choose a saved one.",
+		"invalid_note":     fmt.Sprintf("A note is at most %d characters.", maxProfileNote),
+	}[code]
+	if msg == "" {
+		msg = profileProblems[code]
+	}
+	s.renderProfile(w, r, name, msg, status)
+}
+
+func (s *Server) profileRollbackAPI(w http.ResponseWriter, r *http.Request) {
+	if !s.auth.CheckWrite(r, r.Header.Get(CSRFHeader)) {
+		apiError(w, http.StatusForbidden, "csrf_failed")
+		return
+	}
+	var req *struct {
+		Revision     *int64 `json:"revision"`
+		BaseRevision *int64 `json:"base_revision"`
+		Note         string `json:"note"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || req == nil || req.Revision == nil || req.BaseRevision == nil || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
+		apiError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	p, status, code := s.rollback(r, r.PathValue("name"), *req.Revision, *req.BaseRevision, req.Note)
+	body := map[string]any{}
+	if p.Name != "" {
+		body["profile"] = map[string]any{"name": p.Name, "version": p.Version, "revision": p.Revision}
+	}
+	if code != "" {
+		body["error"] = code
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
 }
