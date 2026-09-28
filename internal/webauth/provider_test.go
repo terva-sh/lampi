@@ -1,6 +1,8 @@
 package webauth
 
 import (
+	"context"
+	"errors"
 	"net/url"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/webconfig"
@@ -33,6 +35,38 @@ func TestProviderFlowAndRotation(t *testing.T) {
 			t.Fatalf("flow %d: %v", n, err)
 		}
 		s.Rotate()
+	}
+}
+
+// staleKeys answers as go-oidc's key set does when a lookup for a new kid
+// joins a fetch that finished before the rotation: with the old keys only.
+type staleKeys struct{}
+
+func (staleKeys) VerifySignature(context.Context, string) ([]byte, error) {
+	return nil, errors.New("failed to verify id token signature")
+}
+
+// TestProviderRotationAfterStaleFetch forces the interleaving that made
+// TestProviderFlowAndRotation flake: the key set answers a rotated kid
+// from a fetch that predates the rotation.
+func TestProviderRotationAfterStaleFetch(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	p, err := NewProvider(providerConfig(s), s.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Exchange(t.Context(), s.Issue("nonce", "verifier", "lake"), "nonce", "verifier"); err != nil {
+		t.Fatal(err)
+	}
+	s.Rotate()
+	keys := p.discovered.keys
+	keys.cur = staleKeys{}
+	if _, err := p.Exchange(t.Context(), s.Issue("nonce", "verifier", "lake"), "nonce", "verifier"); err != nil {
+		t.Fatalf("rotated key refused after a stale fetch: %v", err)
+	}
+	if _, stale := keys.cur.(staleKeys); stale {
+		t.Fatal("stale key set kept after a fresh one verified")
 	}
 }
 func TestProviderRefusesInvalidIdentity(t *testing.T) {
