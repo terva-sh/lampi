@@ -340,24 +340,33 @@ func (c *Catalog) BindMachine(ctx context.Context, id, machineID string, now tim
 	return true, nil
 }
 
-// changeDevice runs update on device id and queues e in one
-// transaction.
-func (c *Catalog) changeDevice(ctx context.Context, now time.Time, e audit.Event, update string, args ...any) error {
+// changeDevice runs update and, when it changed a row, queues e in the
+// same transaction. It reports whether a row changed, so a change that
+// another caller made first is not audited twice.
+func (c *Catalog) changeDevice(ctx context.Context, now time.Time, e audit.Event, update string, args ...any) (bool, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("catalog: %w", err)
+		return false, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, update, args...); err != nil {
-		return fmt.Errorf("catalog: %w", err)
+	res, err := tx.ExecContext(ctx, update, args...)
+	if err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	if n == 0 {
+		return false, nil
 	}
 	if err := queueAudit(ctx, tx, now, e); err != nil {
-		return err
+		return false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("catalog: %w", err)
+		return false, fmt.Errorf("catalog: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // UnbindDevice clears the device's machine_id, so its next manifest
@@ -369,7 +378,7 @@ func (c *Catalog) UnbindDevice(ctx context.Context, name, actor string, now time
 		return Device{}, err
 	}
 	e := audit.Event{Kind: audit.DeviceUnbound, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: actor}
-	if err := c.changeDevice(ctx, now, e, `UPDATE devices SET machine_id=NULL WHERE id=?`, d.ID); err != nil {
+	if _, err := c.changeDevice(ctx, now, e, `UPDATE devices SET machine_id=NULL WHERE id=?`, d.ID); err != nil {
 		return Device{}, err
 	}
 	return d, nil
@@ -384,7 +393,7 @@ func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile, shown, ac
 		return Device{}, err
 	}
 	e := audit.Event{Kind: audit.DeviceProfile, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: actor, Detail: "profile=" + shown}
-	if err := c.changeDevice(ctx, now, e, `UPDATE devices SET profile=? WHERE id=?`, profile, d.ID); err != nil {
+	if _, err := c.changeDevice(ctx, now, e, `UPDATE devices SET profile=? WHERE id=?`, profile, d.ID); err != nil {
 		return Device{}, err
 	}
 	d.Profile = profile
@@ -404,8 +413,13 @@ func (c *Catalog) RevokeDevice(ctx context.Context, name, actor string, now time
 		return d, nil
 	}
 	e := audit.Event{Kind: audit.DeviceRevoked, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: actor}
-	if err := c.changeDevice(ctx, now, e, `UPDATE devices SET revoked_at=? WHERE id=? AND revoked_at IS NULL`, stamp(now), d.ID); err != nil {
+	changed, err := c.changeDevice(ctx, now, e, `UPDATE devices SET revoked_at=? WHERE id=? AND revoked_at IS NULL`, stamp(now), d.ID)
+	if err != nil {
 		return Device{}, err
+	}
+	if !changed {
+		// Another revoke got there first; it queued the event.
+		return c.DeviceByName(ctx, name)
 	}
 	d.Revoked = now.UTC()
 	return d, nil

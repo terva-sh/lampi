@@ -177,3 +177,31 @@ func TestDeviceChangesQueueTheirAudit(t *testing.T) {
 		t.Fatalf("detach names the wrong device:\n%s", raw)
 	}
 }
+
+// Revokes of one device at once queue one event between them.
+func TestConcurrentDeviceRevokesQueueOneEvent(t *testing.T) {
+	c, path := openTemp(t)
+	other, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	ctx := t.Context()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	if _, err := c.SyncTokenFile(ctx, []TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := c.PendingAudit(ctx)
+	var wg sync.WaitGroup
+	for _, h := range []*Catalog{c, other, c, other} {
+		wg.Go(func() {
+			if d, err := h.RevokeDevice(ctx, "laptop", "test", now); err != nil || d.Revoked.IsZero() {
+				t.Errorf("revoke: %+v %v", d, err)
+			}
+		})
+	}
+	wg.Wait()
+	if after, _ := c.PendingAudit(ctx); after-before != 1 {
+		t.Fatalf("%d revoke events queued, want 1", after-before)
+	}
+}
