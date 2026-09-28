@@ -43,3 +43,21 @@ func TestSampleStorageRunsUntilClose(t *testing.T) {
 		t.Errorf("stderr: %s", stderr.String())
 	}
 }
+
+// TKT-01M3JV461: metrics bind loopback unless the operator opts in.
+func TestCheckMetricsAddr(t *testing.T) {
+	for _, c := range []struct {
+		addr   string
+		public bool
+		ok     bool
+	}{
+		{"", false, true}, {"", true, false},
+		{"127.0.0.1:9187", false, true}, {"[::1]:9187", false, true},
+		{"0.0.0.0:9187", false, false}, {"0.0.0.0:9187", true, true},
+		{":9187", false, false}, {"nonsense", false, false},
+	} {
+		if err := checkMetricsAddr(c.addr, c.public); (err == nil) != c.ok {
+			t.Errorf("checkMetricsAddr(%q, %v) = %v", c.addr, c.public, err)
+		}
+	}
+}

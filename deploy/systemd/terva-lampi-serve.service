@@ -36,8 +36,10 @@ Environment=LAMPI_SERVE_DATA=/var/lib/terva-lampi
 Environment=LAMPI_SERVE_TOKEN_FILE=/var/lib/terva-lampi/tokens
 # Empty disables the optional browser UI. The value is a config path, not a secret.
 Environment=LAMPI_SERVE_WEB_CONFIG=
+# Empty disables the Prometheus metrics listener. Keep it on loopback.
+Environment=LAMPI_SERVE_METRICS_ADDR=
 EnvironmentFile=-/etc/terva-lampi/serve.env
-ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE} --web-config=${LAMPI_SERVE_WEB_CONFIG}
+ExecStart=/usr/local/bin/terva-lampi serve --addr ${LAMPI_SERVE_ADDR} --data ${LAMPI_SERVE_DATA} --token-file ${LAMPI_SERVE_TOKEN_FILE} --web-config=${LAMPI_SERVE_WEB_CONFIG} --metrics-addr=${LAMPI_SERVE_METRICS_ADDR}
 # SIGHUP reloads tokens, profiles and identity, and starts normalize jobs
 # serve normalize queued. With this line, systemctl reload sends it.
 ExecReload=/bin/kill -HUP $MAINPID

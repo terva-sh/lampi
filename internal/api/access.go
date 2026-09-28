@@ -115,6 +115,7 @@ func (s *Server) logRequest(r *http.Request, aw *accessWriter, info *requestInfo
 	if status == 0 {
 		status = http.StatusOK
 	}
+	s.requests.add(routeClass(r), status, info.body.n)
 	if r.URL.Path == "/healthz" && status == http.StatusOK {
 		return
 	}
