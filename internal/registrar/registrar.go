@@ -118,7 +118,7 @@ func Mint(ctx context.Context, l Lake, name, profile string, lifetime time.Durat
 	}
 	if err := audit.Append(l.Dir, audit.Event{Time: now, Kind: audit.RegistrationCreated, Device: reg.Name, Actor: by.Audit,
 		Detail: fmt.Sprintf("registration=%s profile=%s expires=%s", reg.ID, prof, reg.Expires.Format(time.RFC3339))}); err != nil {
-		if _, rerr := l.Catalog.RevokeRegistration(ctx, reg.ID, by.Catalog, now); rerr != nil {
+		if _, rerr := l.Catalog.RevokeRegistration(ctx, reg.ID, by.Catalog, by.Audit, now); rerr != nil {
 			return Minted{}, fmt.Errorf("writing the mint of %s to %s failed: %w; the code was not printed, but revoking it also failed: %v; run serve register --revoke %s", reg.ID, audit.FileName, err, rerr, reg.ID)
 		}
 		return Minted{}, fmt.Errorf("writing the mint of %s to %s failed: %w; the code was revoked and not printed; fix the audit log and mint again", reg.ID, audit.FileName, err)
@@ -129,39 +129,53 @@ func Mint(ctx context.Context, l Lake, name, profile string, lifetime time.Durat
 // Revoke revokes a pending code by id or device name and audits it. A
 // code that was already revoked comes back with
 // catalog.ErrRegistrationRevoked and is not audited again. The revoke
-// stands even when the audit line fails; the error says so.
+// and its audit event commit together; when the line cannot be written
+// now, the revoke stands, the event stays queued, and the error says so.
 func Revoke(ctx context.Context, l Lake, ref string, by Actor, now time.Time) (catalog.Registration, error) {
-	r, err := l.Catalog.RevokeRegistration(ctx, ref, by.Catalog, now)
+	r, err := l.Catalog.RevokeRegistration(ctx, ref, by.Catalog, by.Audit, now)
 	if err != nil {
 		return r, err
 	}
-	if err := audit.Append(l.Dir, audit.Event{Time: now, Kind: audit.RegistrationRevoked, Device: r.Name, Actor: by.Audit, Detail: "registration=" + r.ID}); err != nil {
-		return r, fmt.Errorf("revoked %s, but writing it to %s failed: %w; the change stands", r.ID, audit.FileName, err)
+	if err := l.Catalog.FlushAudit(ctx, l.Dir); err != nil {
+		return r, fmt.Errorf("revoked %s, but writing it to %s failed: %w; the change stands, and the line stays queued until the audit log can be written (%w)", r.ID, audit.FileName, err, ErrAuditQueued)
 	}
 	return r, nil
 }
 
+// ErrAuditQueued marks a change that stands and was recorded, whose
+// audit lines could not be written yet: they stay queued in the catalog
+// and the next flush writes them. It is a warning, not a failure.
+var ErrAuditQueued = errors.New("audit lines stay queued")
+
 // List records the expiries since the last look, then returns every
 // code, newest first. Nothing runs in the background to notice an
-// expiry, so each look records it.
+// expiry, so each look records it. When the audit lines cannot be
+// written, the codes are still returned, with an error that matches
+// ErrAuditQueued.
 func List(ctx context.Context, l Lake, actor string, now time.Time) ([]catalog.Registration, error) {
-	if err := AuditExpiries(ctx, l, actor, now); err != nil {
+	warn := AuditExpiries(ctx, l, actor, now)
+	if warn != nil && !errors.Is(warn, ErrAuditQueued) {
+		return nil, warn
+	}
+	regs, err := l.Catalog.Registrations(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.Catalog.Registrations(ctx)
+	return regs, warn
 }
 
 // AuditExpiries records the codes that expired since the last look and
 // writes a registration.expired line for each. serve writes the same
 // line when an expired code is presented; the catalog hands each code to
 // one of them. The lines are queued in the catalog with the change, so
-// one that cannot be written now is written by the next flush.
+// one that cannot be written now is written by the next flush; that
+// error matches ErrAuditQueued.
 func AuditExpiries(ctx context.Context, l Lake, actor string, now time.Time) error {
 	if _, err := l.Catalog.RecordExpiries(ctx, now, actor); err != nil {
 		return err
 	}
 	if err := l.Catalog.FlushAudit(ctx, l.Dir); err != nil {
-		return fmt.Errorf("writing to %s failed: %w; the codes are expired either way, and the lines stay queued in the catalog until the audit log can be written", audit.FileName, err)
+		return fmt.Errorf("%w: writing to %s failed: %w; they are written once the audit log can be", ErrAuditQueued, audit.FileName, err)
 	}
 	return nil
 }

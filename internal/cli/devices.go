@@ -123,12 +123,11 @@ func runServeDevices(env Env, args []string) error {
 		defer cat.Close()
 		now := time.Now()
 		var d catalog.Device
-		kind := audit.DeviceUnbound
+		actor := "serve devices " + sub
 		if sub == "revoke" {
-			kind = audit.DeviceRevoked
-			d, err = cat.RevokeDevice(context.Background(), name, now)
+			d, err = cat.RevokeDevice(context.Background(), name, actor, now)
 		} else {
-			d, err = cat.UnbindDevice(context.Background(), name)
+			d, err = cat.UnbindDevice(context.Background(), name, actor, now)
 		}
 		if errors.Is(err, catalog.ErrNoDevice) {
 			return fmt.Errorf("no device named %s; serve devices list shows them", name)
@@ -138,15 +137,13 @@ func runServeDevices(env Env, args []string) error {
 		}
 		// The change is committed. Say so before anything else, so a
 		// failed audit write is not read as a revoke that did not happen.
-		fmt.Fprintf(env.stdout(), "%sd %s\n", sub, d.Name)
-		if err := audit.Append(data, audit.Event{Time: now, Kind: kind, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve devices " + sub}); err != nil {
-			// revoke is final, so running it again changes nothing but the
-			// record. unbind is not: the device may have bound again since,
-			// and a second unbind would clear that binding.
-			if sub == "revoke" {
-				return fmt.Errorf("revoked %s, but writing it to %s failed: %w; the change stands, and running revoke again only retries the record", d.Name, audit.FileName, err)
-			}
-			return fmt.Errorf("unbound %s (it was bound to machine %s), but writing it to %s failed: %w; the change stands. Do not run unbind again to retry the record: the device may have bound again since, and a second unbind would clear that", d.Name, d.MachineID, audit.FileName, err)
+		done := map[string]string{"revoke": "revoked", "unbind": "unbound"}[sub]
+		fmt.Fprintf(env.stdout(), "%s %s\n", done, d.Name)
+		// The event committed with the change. A line that cannot be
+		// written now stays queued, and the next serve or serve command
+		// writes it: running the command again is not how to retry it.
+		if err := cat.FlushAudit(context.Background(), data); err != nil {
+			return fmt.Errorf("%s %s, but writing it to %s failed: %w; the change stands, and the line stays queued in the catalog until the audit log can be written: do not run %s again to retry it", done, d.Name, audit.FileName, err, sub)
 		}
 		return nil
 	case "set-profile":
@@ -170,7 +167,7 @@ func runServeDevices(env Env, args []string) error {
 		}
 		defer cat.Close()
 		now := time.Now()
-		d, err := cat.SetDeviceProfile(context.Background(), name, stored)
+		d, err := cat.SetDeviceProfile(context.Background(), name, stored, profile, "serve devices set-profile", now)
 		if errors.Is(err, catalog.ErrNoDevice) {
 			return fmt.Errorf("no device named %s; serve devices list shows them", name)
 		}
@@ -178,8 +175,8 @@ func runServeDevices(env Env, args []string) error {
 			return err
 		}
 		fmt.Fprintf(env.stdout(), "set %s to profile %s\n", d.Name, profile)
-		if err := audit.Append(data, audit.Event{Time: now, Kind: audit.DeviceProfile, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve devices set-profile", Detail: "profile=" + profile}); err != nil {
-			return fmt.Errorf("set %s to profile %s, but writing it to %s failed: %w; the change stands", d.Name, profile, audit.FileName, err)
+		if err := cat.FlushAudit(context.Background(), data); err != nil {
+			return fmt.Errorf("set %s to profile %s, but writing it to %s failed: %w; the change stands, and the line stays queued until the audit log can be written", d.Name, profile, audit.FileName, err)
 		}
 		return nil
 	default:

@@ -70,7 +70,7 @@ func TestAgentConfigIsTheDevicesProfileSigned(t *testing.T) {
 		t.Fatalf("laptop payload %+v", p)
 	}
 
-	if _, err := s.Catalog.SetDeviceProfile(t.Context(), "laptop", "ci"); err != nil {
+	if _, err := s.Catalog.SetDeviceProfile(t.Context(), "laptop", "ci", "ci", "test", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	_, p = getAgentConfig(t, s, laptopToken)

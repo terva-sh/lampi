@@ -107,7 +107,9 @@ func runServeRegister(env Env, args []string) error {
 	// that expired since the last look; List does that too.
 	if list {
 		regs, err := registrar.List(ctx, lake, "serve register", now)
-		if err != nil {
+		if errors.Is(err, registrar.ErrAuditQueued) {
+			fmt.Fprintf(env.stderr(), "terva-lampi serve register: %v\n", err)
+		} else if err != nil {
 			return err
 		}
 		for _, r := range regs {
@@ -132,7 +134,12 @@ func runServeRegister(env Env, args []string) error {
 		}
 		return nil
 	}
-	if err := registrar.AuditExpiries(ctx, lake, "serve register", now); err != nil {
+	// Queued lines that cannot be written yet do not stop the command:
+	// they stay queued, and a mint still refuses to show a code whose
+	// own line is not written.
+	if err := registrar.AuditExpiries(ctx, lake, "serve register", now); errors.Is(err, registrar.ErrAuditQueued) {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve register: %v\n", err)
+	} else if err != nil {
 		return err
 	}
 	if revoke != "" {

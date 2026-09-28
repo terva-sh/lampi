@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3GAHSNWKB00S1RMSF0K693W
 title: "Registration codes: audit events after a commit can be lost"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: audit/outbox
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 323f321d9cfb94a76d00bb54644dbb98f2696b4f
-  session: null
-  claimed_at: 2026-09-28T00:24:34Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T02:19:20Z
-updated_at: 2026-09-28T00:24:34Z
+updated_at: 2026-09-28T00:47:03Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -64,3 +57,11 @@ So the general problem is that every audit event written after its catalog commi
 **agent:claude-code/e4a47e8c** at 2026-09-27T22:38:20Z
 
 Deferred behind open PR #40 (catalog/head-updates, TKT-01M3F2RKG), which adds catalog schema 8. The outbox this ticket needs is a catalog migration too, and two branches each appending schema 8 would collide. Picking it up once #40 lands, on top of it. Plan: an audit_outbox table written in the same transaction as the catalog change (expiry marks, redemption, device binding), appended and cleared after commit, retried on the next write and at serve start: at-least-once, with a duplicate line accepted and a lost one not.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T00:47:03Z
+
+Review of part 1 (#47) drove three changes beyond the plan: direct lines (refusals) also go through the outbox so the log keeps its order; FlushAudit takes audit.jsonl.lock (filelock) as well as the in-process mutex, since serve and a serve command are separate processes, and keeps events queued where there is no file lock; a line the catalog cannot queue is appended directly rather than dropped (the one case where order can slip, documented in policy.md; the reviewer's later objection to that was rejected with this reason). Part 2: a flush that fails is a warning (registrar.ErrAuditQueued), not a failure, so serve register --list and the dashboard still list, and a mint still goes ahead and refuses on its own line. serve devices revoke/unbind no longer suggest re-running to retry the record: the line is queued. Filed TKT-01M3JQDHM for a webauth test flake seen in CI on #47.
+
+## Summary
+
+Audit events no longer get lost after a catalog commit. Catalog schema 9 adds audit_outbox. Every catalog change that is audited queues its events in its own transaction: expiry, redemption (redeemed, device created, bound), token-file sync (created, detached), first-upload bind, serve devices revoke/unbind/set-profile, and code revoke. Catalog.FlushAudit then appends them in order, under a lock shared across processes, and deletes each once written. A line that cannot be written stays queued and goes out on the next write or the next serve start. Lines that record no change, such as refusals, take the same queue. PRs: #47 (outbox, expiry, redemption) and this one (devices and revoke). Mint keeps audit-then-show.

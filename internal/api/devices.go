@@ -34,30 +34,12 @@ func (s *Server) RecordDevices(ctx context.Context, set *auth.Devices) error {
 	for _, e := range set.Entries() {
 		entries = append(entries, catalog.TokenEntry{Hash: e.Hash, Name: e.Name})
 	}
-	before, err := s.Catalog.Devices(ctx)
-	if err != nil {
+	// The catalog queues device.created and device.detached with the
+	// change; they are appended here, or by a later flush.
+	if _, err := s.Catalog.SyncTokenFile(ctx, entries, s.now()); err != nil {
 		return err
 	}
-	created, err := s.Catalog.SyncTokenFile(ctx, entries, s.now())
-	if err != nil {
-		return err
-	}
-	for _, d := range created {
-		s.audit(audit.Event{Kind: audit.DeviceCreated, Device: d.Name, DeviceID: d.ID, Detail: "from the token file"})
-	}
-	after, err := s.Catalog.Devices(ctx)
-	if err != nil {
-		return err
-	}
-	was := map[string]bool{}
-	for _, d := range before {
-		was[d.ID] = !d.Detached.IsZero()
-	}
-	for _, d := range after {
-		if !d.Detached.IsZero() && !was[d.ID] {
-			s.audit(audit.Event{Kind: audit.DeviceDetached, Device: d.Name, DeviceID: d.ID, Detail: "token left the token file"})
-		}
-	}
+	s.flushAudit()
 	return nil
 }
 
@@ -131,7 +113,7 @@ func (s *Server) bindDevice(w http.ResponseWriter, r *http.Request, machineID st
 	if d.MachineID != "" {
 		return s.refuseDevice(w, r, d, machineID, fmt.Errorf("device %s is bound to another machine_id; an operator can run serve devices unbind %s", d.Name, d.Name))
 	}
-	bound, err := s.Catalog.BindMachine(r.Context(), d.ID, machineID)
+	bound, err := s.Catalog.BindMachine(r.Context(), d.ID, machineID, s.now())
 	switch {
 	case errors.Is(err, catalog.ErrMachineTaken):
 		return s.refuseDevice(w, r, d, machineID, fmt.Errorf("machine_id %s belongs to another device", machineID))
@@ -142,7 +124,7 @@ func (s *Server) bindDevice(w http.ResponseWriter, r *http.Request, machineID st
 		return false
 	}
 	if bound {
-		s.audit(audit.Event{Kind: audit.DeviceBound, Device: d.Name, DeviceID: d.ID, MachineID: machineID})
+		s.flushAudit()
 	}
 	return true
 }
