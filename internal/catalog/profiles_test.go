@@ -206,6 +206,12 @@ func TestCreateGuardedAcrossCreateAndDelete(t *testing.T) {
 	if err != nil || latest <= p.Revision {
 		t.Fatalf("after delete: %d %v", latest, err)
 	}
+	if _, err := c.DeleteProfileIf(ctx, "ci", "op", "", latest, now); !errors.Is(err, ErrNoProfile) {
+		t.Fatalf("delete of an absent profile read as absent: %v", err)
+	}
+	if _, err := c.DeleteProfileIf(ctx, "never", "op", "", 7, now); !errors.Is(err, ErrNoProfile) {
+		t.Fatalf("delete of a name never saved: %v", err)
+	}
 	if _, changed, err := c.PutProfileIf(ctx, "ci", []byte(`{}`), "op", "", latest, now); err != nil || !changed {
 		t.Fatalf("create after reading the deletion: %v %v", changed, err)
 	}

@@ -243,8 +243,15 @@ func (c *Catalog) deleteProfile(ctx context.Context, name, actor, note string, b
 	var rev int64
 	err = tx.QueryRowContext(ctx, `SELECT revision FROM profiles WHERE name=?`, name).Scan(&rev)
 	if errors.Is(err, sql.ErrNoRows) && base >= 0 {
-		// The editor read a revision; a delete landed since.
-		return ProfileRevision{}, fmt.Errorf("%w: %s was deleted", ErrProfileChanged, name)
+		// Absent now: a lost race only if the name's history moved on
+		// from the revision the editor read.
+		latest, lerr := latestRevision(ctx, tx, name)
+		if lerr != nil {
+			return ProfileRevision{}, lerr
+		}
+		if latest != 0 && latest != base {
+			return ProfileRevision{}, fmt.Errorf("%w: %s was deleted", ErrProfileChanged, name)
+		}
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProfileRevision{}, fmt.Errorf("%w: %s", ErrNoProfile, name)
