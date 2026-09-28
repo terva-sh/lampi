@@ -34,7 +34,8 @@ newer than this binary is an error: that binary cannot run the lake.
 
 To roll back an upgrade, stop serve, copy the newest file in
 migration-backups/ (or catalog.db from a serve backup taken before it)
-over catalog.db, and start the older version.
+over catalog.db, delete catalog.db-wal and catalog.db-shm, and start
+the older version.
 `
 
 func runServeMigrate(env Env, args []string) error {

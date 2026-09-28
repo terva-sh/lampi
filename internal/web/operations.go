@@ -20,6 +20,9 @@ import (
 type Operations struct {
 	// Version is the build version of the running binary.
 	Version string
+	// Release is the lake's release, such as v0.1.3, that agents are
+	// compared with; empty for a build that is not a release.
+	Release string
 	// Started is when this serve process started.
 	Started time.Time
 	// LakeID names the lake.
@@ -155,14 +158,14 @@ func parseOpsRange(r *http.Request) (opsRange, error) {
 func (s *Server) operations(w http.ResponseWriter, r *http.Request) {
 	rg, err := parseOpsRange(r)
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readOperations(ctx, rg, s.now())
 	if err != nil {
-		fail(w, err)
+		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
@@ -171,14 +174,14 @@ func (s *Server) operations(w http.ResponseWriter, r *http.Request) {
 func (s *Server) operationsPage(w http.ResponseWriter, r *http.Request) {
 	rg, err := parseOpsRange(r)
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readOperations(ctx, rg, s.now())
 	if err != nil {
-		pageError(w, err)
+		pageError(w, r, err)
 		return
 	}
 	render(w, r, pageData{Title: "Operations", View: "operations", AsOf: v.AsOf, Ops: buildOpsView(v, s.now())})

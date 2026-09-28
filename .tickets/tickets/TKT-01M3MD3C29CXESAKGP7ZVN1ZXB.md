@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MD3C29CXESAKGP7ZVN1ZXB
 title: Recall reclaim test can run past the CI timeout on a busy runner
 type: bug
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/2cf53976
+  branch: tests/recall-reclaim
+  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-ac8d4c4471fe969f0
+  commit: ba571e14ea179aae042f50a8fb290cac4dcff1a2
+  session: null
+  claimed_at: 2026-09-28T18:13:04Z
+  expires_at: null
 archive: null
 created_at: 2026-09-28T16:20:51Z
-updated_at: 2026-09-28T17:59:55Z
+updated_at: 2026-09-28T18:13:04Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -50,3 +57,11 @@ So the test is intermittent. The likeliest cause is that merge work grows with h
 **agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
 
 More evidence (2026-09-28), filed in TKT-01M3MC40FF before this ticket was found: timed out again on Forgejo runs 696, 711 and 718 (PRs #66, #68, #71), at 9m39s-9m50s, with six pipelines running at once, and again on run 711 attempt 2. Locally, 'go test -race -count=1 -run TestReindexingKeepsTheIndexNearItsLiveSize ./internal/recall/' took 308s on an idle workstation. That is far above the package's 20s noted above, so -race makes it much slower.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:13:04Z
+
+Root cause is not an unbounded merge. indexSession wrote one DELETE and one INSERT per changed row. Each docs write fires the fts trigger inside a savepoint, and FTS5 flushes a segment at every savepoint. Merging those per-row segments was most of the cost: 53% of -race CPU went to _fts5SavepointMethod -> FlushToDisk and automatic merges, and about 13% to the explicit reclaim merge. The reclaim loop is already bounded: mergePages 2000 per pass, about 8ms a call, and the first idle pass after a forced merge finds nothing. CI runs about 13x slower than the workstation, so 22s locally is about 300s on a busy runner.
+
+Fix: docWriter in internal/recall/index.go batches deletes into DELETE ... WHERE id IN (...) and inserts into a multi-row INSERT. A batch holds up to 200 rows or 4 MiB. TestIndexScale went from 13.0s to 4.6s with the same 3 MiB peak heap. The reclaim test now runs 4 generations instead of 8, because with batching 8 generations no longer caught a missing forced merge (ordinary merge ended at 1.31x). With 4 generations: forced merge 1.2x passes, ordinary merge 2.9x fails, no merge 3.3x fails. The run is deterministic. Under -race the test went from 22-29s to 3-4s, and the whole package from about 35s to about 12s.
+
+Alternatives: capping merge steps per pass would not help, since the merge is already bounded. Skipping under -race would hide a real production inefficiency. Keeping 8 generations would lose the regression check. Only shrinking the corpus leaves the per-row cost in production. Explicit batched writes to fts would change the schema (indexVersion bump and rebuild) for the same result.

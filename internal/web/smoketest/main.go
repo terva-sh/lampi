@@ -137,9 +137,12 @@ func run() error {
 		if err := seedStorage(ctx, lake, time.Now()); err != nil {
 			return err
 		}
+		if err := seedDevices(ctx, lake, time.Now()); err != nil {
+			return err
+		}
 	}
 	started := time.Now().Add(-26 * time.Hour)
-	ops := &web.Operations{Version: "v0.0.0-smoke", Started: started, LakeID: func() string { return "lake_synthetic_smoke" }, Contacts: lake.Contacts}
+	ops := &web.Operations{Version: "v0.0.0-smoke", Release: "v0.2.0", Started: started, LakeID: func() string { return "lake_synthetic_smoke" }, Contacts: lake.Contacts}
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, idp.Client())
 	if err != nil {
 		return err
@@ -280,4 +283,35 @@ func seedStorage(ctx context.Context, lake *api.Server, now time.Time) error {
 	}
 	_, err = lake.SampleStorage(ctx)
 	return err
+}
+
+// seedDevices adds devices whose reports cover each state the devices
+// page shows: behind, current, unstamped with local rules and an error,
+// and one that has never reported.
+func seedDevices(ctx context.Context, lake *api.Server, now time.Time) error {
+	h := func(b string) string { return strings.Repeat(b, 64) }
+	created, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{
+		{Hash: h("1"), Name: "laptop"}, {Hash: h("2"), Name: "desktop"}, {Hash: h("3"), Name: "ci-runner"}, {Hash: h("4"), Name: "spare"},
+	}, now)
+	if err != nil {
+		return err
+	}
+	eff, err := lake.Catalog.ResolveProfile(ctx, created[0])
+	if err != nil {
+		return err
+	}
+	reports := []protocol.AgentReport{
+		{AgentVersion: "v0.1.3", ProfileVersion: eff.Version, AllowSource: "lake default", DenySource: "none", Inventory: "sociable",
+			LastSync: &protocol.AgentSyncReport{At: now.Add(-3 * time.Minute), Checked: 240, Uploaded: 12, Manifests: 4, Refused: 221, Unchanged: 7}},
+		{AgentVersion: "v0.2.0", ProfileVersion: eff.Version, AllowSource: "lake default", DenySource: "local+lake default", Inventory: "strict",
+			LastSync: &protocol.AgentSyncReport{At: now.Add(-40 * time.Second), Checked: 18, Uploaded: 1, Unchanged: 17}},
+		{AgentVersion: "0.0.0", ProfileVersion: "sha256:0000000000000000", AllowSource: "local", DenySource: "local",
+			LastError: "upload: POST /v1/hello: 503 Service Unavailable", LastErrorAt: now.Add(-2 * time.Hour)},
+	}
+	for i, rep := range reports {
+		if err := lake.Catalog.PutDeviceReport(ctx, created[i].ID, rep, now.Add(-time.Duration(i)*time.Minute)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

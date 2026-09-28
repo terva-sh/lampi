@@ -61,7 +61,7 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 		// A minted code is shown however the list fares: it cannot be
 		// shown again.
 		if v.Minted == nil {
-			fail(w, err)
+			fail(w, r, err)
 			return
 		}
 		v.Problem = "The code was minted, but the list of codes could not be read. Operator logs hold the details."
@@ -94,7 +94,7 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 
 func (s *Server) codesPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
-		fail(w, catalog.ErrPage)
+		fail(w, r, catalog.ErrPage)
 		return
 	}
 	s.renderCodes(w, r, codesView{Form: mintRequest{Expires: codeLifetimes[0].Value}}, http.StatusOK)
@@ -184,7 +184,7 @@ func (s *Server) revokePage(w http.ResponseWriter, r *http.Request) {
 	}
 	problem := map[string]string{
 		"not_found":     "There is no such code.",
-		"already_used":  "That code was already used. Revoke the device it made with serve devices revoke.",
+		"already_used":  "That code was already used. Revoke the device it made from Devices.",
 		"audit_failed":  "The code is cancelled, but writing it to the audit log failed. Operator logs hold the details.",
 		"revoke_failed": "Cancelling failed. Operator logs hold the details.",
 	}[code]

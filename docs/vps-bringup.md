@@ -633,7 +633,9 @@ reads beside the running lake and changes nothing.
 
 An older binary refuses a catalog that a newer one migrated. To roll
 back: stop the unit, copy the newest file in `migration-backups/` over
-`catalog.db` as the service user, put the older binary back, and start
+`catalog.db` as the service user, delete `catalog.db-wal` and
+`catalog.db-shm` (they belong to the newer catalog, and SQLite would
+apply them to the restored file), put the older binary back, and start
 the unit. Manifests accepted since the upgrade are not in the restored
 catalog, though their blobs stay in the CAS, so roll back soon after an
 upgrade rather than days later.

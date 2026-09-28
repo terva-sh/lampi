@@ -1,0 +1,61 @@
+# A lake behind Caddy, for a home server. docs/container.md walks
+# through it. Copy this directory, copy env.example to .env and edit it,
+# then:
+#
+#	docker compose up -d
+#
+# Only the proxy publishes ports. The lake is reachable on the compose
+# network and nowhere else.
+
+name: lampi
+
+services:
+  lampi:
+    # Pin a release, never latest: a release can migrate the catalog,
+    # and rolling back needs the copy serve takes first.
+    image: ${LAMPI_IMAGE:-ghcr.io/terva-sh/lampi}:${LAMPI_VERSION:?set LAMPI_VERSION in .env}
+    restart: unless-stopped
+    # serve drains requests for up to 20s and normalizing for up to 30s.
+    # Docker's default of 10s would cut that off.
+    stop_grace_period: 60s
+    # The image's command: listen on the compose network, device tokens
+    # from the volume, TLS in the proxy.
+    #   serve --addr 0.0.0.0:8787 --token-file /var/lib/terva-lampi/tokens --behind-proxy
+    # docs/container.md shows how to add --web-config or --metrics-addr.
+    read_only: true
+    tmpfs:
+      # SQLite may spill temp files here during large sorts and backups.
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - lake:/var/lib/terva-lampi
+
+  proxy:
+    image: docker.io/library/caddy:2.11
+    restart: unless-stopped
+    depends_on:
+      lampi:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      LAMPI_DOMAIN: ${LAMPI_DOMAIN:?set LAMPI_DOMAIN in .env}
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account. Back this up with the lake,
+      # or Caddy asks for new certificates after a restore.
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  lake:
+  caddy-data:
+  caddy-config:

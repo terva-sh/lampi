@@ -690,6 +690,7 @@ func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
 	}
 	ops := &web.Operations{
 		Version: strings.TrimPrefix(versionLine(), "terva-lampi "),
+		Release: lake.Release,
 		Started: time.Now(),
 		LakeID: func() string {
 			if id := lake.Identity(); id != nil {
