@@ -55,6 +55,14 @@ See [Architecture](architecture.md#mvp-acceptance-gate).
 The Playwright dashboard smoke, the synthetic container image, and the
 opt-in go-live drills are in [e2e/README.md](../e2e/README.md).
 
+### The lake image
+
+`Dockerfile` at the repository root builds the image that runs `serve`,
+for `linux/amd64` and `linux/arm64`. `just image` builds it for this
+machine and tags `terva-lampi:dev`; `CONTAINER_ENGINE=podman just image`
+builds with Podman. Nothing is pushed. The synthetic image in `e2e/` is a
+test fixture and is separate.
+
 ## Releases
 
 A release follows the other terva-sh repositories. Pushing a `v*` tag

@@ -11,7 +11,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 
 | Command | What it does |
 |---------|--------------|
-| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check and put, manifests, and the dashboard when `--web-config` is set. `--metrics-addr` adds a loopback Prometheus listener. |
+| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check and put, manifests, and the dashboard when `--web-config` is set. `--metrics-addr` adds a loopback Prometheus listener. `--behind-proxy` says TLS terminates in a proxy in front, as in a container on a private network: a non-loopback `--addr` then logs one line instead of the plaintext warning. It needs `--token-file` with at least one token. |
 | `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. |
 | `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
 | `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind`, or `set-profile` one by name. Runs while `serve` runs. A revoke takes effect on the next request. |
@@ -33,6 +33,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi lakes` | List the lakes this machine reports to, or `remove` one. |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi quarantine` | `list` the redaction hits held on this machine, or `allow` one digest to upload with an `override` stamp. See [Quarantine](allowlist-and-redaction.md#quarantine). |
+| `terva-lampi self-update` | Install the release the lake runs, capped at the newest release, checked against `checksums.txt`, and restart the agent service. `--check` exits 10, 11 or 12 when a patch, minor or major update is available. See [Upgrading an agent](../deploy/README.md#upgrading-an-agent). |
 
 ### Reading the lake
 
