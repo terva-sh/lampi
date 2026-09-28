@@ -206,9 +206,15 @@ because earlier releases ignored the body. A nonce that is not valid is
   "protocol_versions": [1],
   "max_blob_bytes": 33554432,
   "lake_id": "lake_…",
-  "proof": {"payload": {"lake_id": "lake_…", "nonce": "…", "server_time": "…"}, "signatures": ["…"]}
+  "proof": {"payload": {"lake_id": "lake_…", "nonce": "…", "server_time": "…"}, "signatures": ["…"]},
+  "release": "v0.1.3"
 }
 ```
+
+`release` is the lake's terva-lampi release, and is missing from a
+build that is not a release. It is not signed and is advice only.
+`status` names it and says when the agent is behind it, and
+`self-update` installs it, so an agent is never ahead of its lake.
 
 `lake_id` and `proof` are there when the lake has an identity. A
 registered client sends a nonce on every hello and pushes nothing

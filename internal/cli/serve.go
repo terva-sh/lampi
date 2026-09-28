@@ -26,6 +26,7 @@ import (
 	"terva.sh/lampi/internal/lakelock"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/registrar"
+	"terva.sh/lampi/internal/release"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -250,6 +251,9 @@ func runServe(env Env, args []string) error {
 	}
 	lake.Devices = devices
 	lake.Log = accessLogger(env.stderr())
+	if _, ok := release.Parse(lakeRelease()); ok {
+		lake.Release = lakeRelease()
+	}
 	if webCfg != nil {
 		if err := startWeb(*webCfg, data, lake); err != nil {
 			lake.Close()

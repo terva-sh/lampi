@@ -863,6 +863,17 @@ func nextVersion() int64 {
 	return v
 }
 
+// Hello asks the lake for its hello answer, with no pin check. status
+// and self-update read the lake's release from it.
+func Hello(ctx context.Context, opt Options) (protocol.HelloResponse, error) {
+	client := opt.Client
+	if client == nil {
+		client = NewClient()
+	}
+	opt.Pin = nil
+	return postHello(ctx, client, opt)
+}
+
 func postHello(ctx context.Context, client *http.Client, opt Options) (protocol.HelloResponse, error) {
 	var out protocol.HelloResponse
 	body := []byte("{}")

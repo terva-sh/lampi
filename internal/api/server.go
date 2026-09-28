@@ -36,6 +36,9 @@ import (
 
 // Server is one lake process's HTTP API.
 type Server struct {
+	// Release is this lake's release, which hello tells agents. Empty
+	// for a build that is not a release.
+	Release string
 	// Web is the optional browser handler. Nil leaves browser routes disabled.
 	// It runs inside the same deadlines, access log and shutdown accounting.
 	Web     http.Handler
@@ -470,6 +473,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		MaxBlobBytes:     protocol.MaxBlobBytes,
 		LakeID:           lakeID,
 		Proof:            proof,
+		Release:          s.Release,
 	})
 }
 

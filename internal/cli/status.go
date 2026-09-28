@@ -14,6 +14,7 @@ import (
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/release"
 	"terva.sh/lampi/internal/upload"
 	"terva.sh/lampi/internal/watermark"
 )
@@ -167,7 +168,32 @@ func writeLakeStatus(env Env, state string, lake config.Lake) error {
 	writeEndpoint(w, lake.Server, lake.TokenFile)
 	fmt.Fprintf(w, "health: %s\n", probeHealth(lake.Server.Value))
 	fmt.Fprint(w, probeCatalog(lake.Server.Value, token))
+	fmt.Fprint(w, probeRelease(lake.Server.Value, token))
 	return nil
+}
+
+// probeRelease names the lake's release and says when this agent is
+// behind it. A lake from before hello carried its release, or one that
+// is not a release build, prints nothing.
+func probeRelease(server, token string) string {
+	if upload.CheckToken(server, token) != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	h, err := upload.Hello(ctx, upload.Options{ServerURL: server, Token: token})
+	if err != nil {
+		return ""
+	}
+	lakeV, ok := release.Parse(h.Release)
+	if !ok {
+		return ""
+	}
+	out := "lake_release: " + lakeV.String() + "\n"
+	if v, ok := release.Parse(runningRelease()); ok && v.Compare(lakeV) < 0 {
+		out += fmt.Sprintf("upgrade: this agent runs %s, behind its lake; run terva-lampi self-update\n", v)
+	}
+	return out
 }
 
 // writeEndpoint prints the server and token file with the layer that
