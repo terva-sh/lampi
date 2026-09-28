@@ -102,6 +102,9 @@ func TestDevicePageShowsItsInventory(t *testing.T) {
 		t.Error("refused only with nothing refused")
 	}
 	strict := get(h, "/devices/"+vault.ID, cookie).Body.String()
+	if body := get(h, "/devices/"+vault.ID+"?show=refused", cookie).Body.String(); strings.Contains(body, "No project on this machine is refused") || !strings.Contains(body, "git.example/team/app") {
+		t.Error("a strict device's refused view claims nothing is refused")
+	}
 	if !strings.Contains(strict, "git.example/team/app") || strings.Contains(strict, "/home/me/scratch") ||
 		!strings.Contains(strict, "This device is strict") || strings.Contains(strict, "Refused only") {
 		t.Error("strict device page")

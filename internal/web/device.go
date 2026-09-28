@@ -98,6 +98,11 @@ func (s *Server) renderDevice(w http.ResponseWriter, r *http.Request, id string,
 		pageError(w, r, err)
 		return
 	}
+	// A strict device lists no refused project, so it has no refused
+	// view: filtering would claim nothing is refused.
+	if v.Inventory != nil && v.Inventory.Strict() {
+		refused = false
+	}
 	v.RefusedOnly, v.Problem = refused, problem
 	if iv := v.Inventory; iv != nil {
 		iv.Shown = iv.Projects
