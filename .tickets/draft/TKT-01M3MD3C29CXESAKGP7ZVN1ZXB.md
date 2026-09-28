@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:20:51Z
-updated_at: 2026-09-28T16:20:51Z
+updated_at: 2026-09-28T17:59:55Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
 updated_by:
-  id: agent:claude-code/aa1afd80
+  id: agent:claude-code/2cf53976
   name: ""
 extensions: {}
 ---
@@ -44,3 +44,9 @@ So the test is intermittent. The likeliest cause is that merge work grows with h
 
 - [ ] TestReindexingKeepsTheIndexNearItsLiveSize finishes well inside the CI timeout under concurrent jobs
 - [ ] The reclaim loop's merge work is bounded, or the reason it need not be is recorded
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+More evidence (2026-09-28), filed in TKT-01M3MC40FF before this ticket was found: timed out again on Forgejo runs 696, 711 and 718 (PRs #66, #68, #71), at 9m39s-9m50s, with six pipelines running at once, and again on run 711 attempt 2. Locally, 'go test -race -count=1 -run TestReindexingKeepsTheIndexNearItsLiveSize ./internal/recall/' took 308s on an idle workstation. That is far above the package's 20s noted above, so -race makes it much slower.
