@@ -27,12 +27,12 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-28T15:32:00Z
+updated_at: 2026-09-28T23:40:49Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/2cf53976
+  id: agent:claude-code/aa1afd80
   name: ""
 extensions: {}
 ---
@@ -114,3 +114,7 @@ AC4 is in the owner's hands: they will register NeoT, their main laptop and the 
 **agent:claude-code/2cf53976** at 2026-09-28T15:32:00Z
 
 Upgrade step for brokkr once the catalog-profiles PRs land (#69, #70 and the import PR): run 'terva-lampi serve profiles import /var/lib/terva-lampi/profiles.json --note "import from file" --data /var/lib/terva-lampi' as the terva-lampi user, then move the file aside. Until the import runs, the lake serves an empty default profile and tehbeast uploads nothing.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:40:49Z
+
+The lake and workstation agent are now on v0.2.0 (TKT-01M3N5R5, 2026-09-28). The profiles import from note 6 has run: the default profile is at revision 1, from serve profiles import at 2026-09-28T18:27:31Z.
