@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-28T18:12:20Z
+updated_at: 2026-09-28T18:18:27Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -58,3 +58,7 @@ Three PRs. D1 (this branch, web/devices-list): read-only /devices page and GET /
 **agent:claude-code/2cf53976** at 2026-09-28T18:12:20Z
 
 D1 on web/devices-list: /devices lists every device with agent version, profile state (current/stale/unknown against the version the lake would serve now), allow-rule source (warns when config.json allow rules override the profile), last sync counts incl. refused, last error and freshness. Also JSON at /api/web/v1/devices. Actions are D2.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:18:27Z
+
+D2 on web/device-actions (stacked on web/devices-list): POST /devices/{id}/{revoke,unbind,profile} as forms and POST /api/web/v1/devices/{id}/{action} as JSON, operator-only (404 otherwise), CSRF-checked, actor web:SUBJECT (DISPLAY), audit flushed before answering; audit_failed when the change stands but the line stays queued. Addressed by dev_ id only, never name, as the code revoke does. Refuses any change to a revoked device (409 revoked) and unbind of an unbound one (409 not_bound). Decision: no fresh-login requirement, unlike mint. Mint creates a credential that is shown once, while these match the code-cancel action and serve devices on the host; revoke is put behind a <details> disclosure instead. Alternative considered: a typed-name confirm for revoke. Rejected because it needs JS or a second page and adds nothing a disclosure does not already give.

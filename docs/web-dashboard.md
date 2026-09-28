@@ -231,8 +231,8 @@ Copy one of two things:
   the binary. Paste it at the prompt or pipe it on stdin, never as a command
   argument.
 
-Cancel stops a pending code. A used code made a device, and
-`serve devices revoke` on the lake host stops that. The dashboard mints at most
+Cancel stops a pending code. A used code made a device, which its link opens
+on [Devices](#devices), where an operator can revoke it. The dashboard mints at most
 5 codes at once and one more every 12 seconds. The
 [browser API](web-api.md#registration-codes) has the same actions as JSON.
 
@@ -305,8 +305,21 @@ The [browser API contract](web-api.md#operations) gives the JSON form.
 
 ## Devices
 
-`/devices` lists each device with what its agent last reported. Viewers see it;
-the device actions are operator-only and come with TKT-01M3J5HXA.
+`/devices` lists each device with what its agent last reported. Viewers see
+the list. Operators also get each device's actions, the ones
+`serve devices` has on the lake host:
+
+- **Set** chooses the profile the device's agent fetches. The agent picks it up
+  within a minute.
+- **Unbind** clears the machine the device is bound to, so its next upload
+  binds it again. Use it when a machine was reinstalled. It shows only for a
+  bound device.
+- **Revoke** stops the device's token on its next request. It is final, and
+  sits behind a disclosure so it is not pressed by accident.
+
+A revoked device offers no actions. Each change goes to `audit.jsonl` with the
+operator as actor. A used code on the registrations page links to the device
+it made.
 
 - **Agent** is the release the agent runs, against this lake's release.
   *Behind* means an older release: run `terva-lampi self-update` on that

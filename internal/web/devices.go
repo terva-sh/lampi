@@ -9,6 +9,7 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/release"
+	"terva.sh/lampi/internal/webauth"
 )
 
 // deviceRow is one device as the devices page shows it: the catalog's
@@ -71,6 +72,13 @@ type devicesView struct {
 	// set.
 	Behind     int `json:"behind"`
 	LocalRules int `json:"local_rules"`
+	// Actions offers the operator's forms, with the CSRF token they
+	// carry and the profiles a device can be set to. Problem says why
+	// the last action was refused. The page uses these; the API does not.
+	Actions  bool     `json:"-"`
+	CSRF     string   `json:"-"`
+	Profiles []string `json:"-"`
+	Problem  string   `json:"-"`
 }
 
 func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +101,12 @@ func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, catalog.ErrPage)
 		return
 	}
+	s.renderDevices(w, r, "", http.StatusOK)
+}
+
+// renderDevices lists the devices, with the operator's forms for an
+// operator, and problem when an action was refused.
+func (s *Server) renderDevices(w http.ResponseWriter, r *http.Request, problem string, status int) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readDevices(ctx, s.now())
@@ -100,7 +114,15 @@ func (s *Server) devicesPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, err)
 		return
 	}
-	render(w, r, pageData{Title: "Devices", View: "devices", AsOf: v.AsOf, Devices: v})
+	v.Problem = problem
+	if id, csrf := webauth.Current(r); id.Operator && s.reg != nil {
+		v.Actions, v.CSRF = true, csrf
+		if v.Profiles, err = s.reg.Lake().Catalog.ProfileNames(ctx); err != nil {
+			s.logError(r, "listing profiles failed", err)
+			v.Profiles = []string{config.DefaultProfile}
+		}
+	}
+	renderStatus(w, r, pageData{Title: "Devices", View: "devices", AsOf: v.AsOf, Devices: v}, status)
 }
 
 func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, error) {
