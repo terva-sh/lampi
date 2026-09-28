@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T16:03:33Z
+updated_at: 2026-09-28T20:35:33Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -53,3 +53,18 @@ Settle the dependency on TKT-01M3FBQX: the container docs should use encrypted b
 - [ ] Off-host copy to an encrypted target is documented
 - [ ] A container restore drill was run and documented
 - [ ] The relationship to TKT-01M3FBQX is recorded
+
+## Notes
+
+**agent:claude-code/aa1afd80** at 2026-09-28T20:35:33Z
+
+### Decisions (owner, 2026-09-28)
+
+- **Scheduling: a host timer.** A systemd timer (or cron) on the host runs `docker compose exec -T lampi terva-lampi serve backup ...`, then the restic step, in that order and never overlapping. A scheduler container that mounts the Docker socket is ruled out, because the socket grants root on the host. Whether `serve backup --every` is also built is still open; see the note on its cost.
+- **Prune: build `serve backup --prune`.** `cas.Store.Backup` only adds to the backup directory. So `serve purge` never reaches a backup, and the space `serve compact` saves never does either: the backup keeps every object the lake ever held. `--prune` removes from the backup every object that the new catalog snapshot doesn't reference, and only after a copy that fully succeeded. Old restic snapshots still need `restic forget`, and the docs say so after a purge.
+- **Off-host: restic as the documented example,** pointed at the backup directory and run after `serve backup`. It encrypts before data leaves the host, keeps deduplicated snapshots, and runs `forget --prune` with a suggested 7 daily, 4 weekly, 6 monthly. `rclone crypt` and Borg get a mention.
+- **TKT-01M3FBQX (Add optional compressed age-encrypted backups and restore) is optional, not a dependency.** Restic covers encryption and compression on this path. Age archives stay useful for anyone who wants encrypted archives without a backup tool.
+
+### Open before the restore drill
+
+The derived files (`normalized/`, `parquet/`, `search.db`) aren't in a backup. The systemd drill rebuilds them with `export` before `serve` starts. Check whether `serve` or `serve normalize --all` rebuilds them in a container, where `export` needs a writable output path.
