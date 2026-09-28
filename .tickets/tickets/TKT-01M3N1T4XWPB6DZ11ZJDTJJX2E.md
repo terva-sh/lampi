@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T22:38:34Z
+updated_at: 2026-09-28T22:40:00Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -56,7 +56,7 @@ This ticket drives two others to done, and so does not depend on them:
 4. Check the rc:
    - pull the image and run `--version` on amd64 and arm64;
    - verify the attestation as in `docs/container.md`;
-   - upgrade a schema-10 lake from a v0.1.2 image.
+   - upgrade a schema-11 lake seeded by the v0.1.2 binary.
 5. An owner sets the `lampi` package public in GHCR, which closes TKT-01M3MC0RE.
 6. Tag `v0.2.0`, attach the notes to both releases, then upgrade the hosted lake before the agents (TKT-01M3FP11A, "Onboarding rollout: upgrade the hosted lake and register machines").
 
@@ -67,8 +67,8 @@ The release workflow runs `go test ./...` before it publishes. Three tests are k
 - [ ] v0.2.0-rc1 published archives and a two-platform image that passed the checks
 - [ ] The GHCR package is public and pulls without a login
 - [ ] v0.2.0 is tagged on both forges with the notes attached
-- [ ] Release notes state the schema 10 to 14 migration, its rollback, and lake-before-agents
 - [ ] A v0.1.2 lake upgraded to the rc image and its agents still sync
+- [ ] Release notes state the schema 11 to 15 migration, its rollback, and lake-before-agents
 
 ## Notes
 
@@ -81,6 +81,35 @@ These get prepended to the GitHub and Forgejo release bodies, above goreleaser's
 #### Upgrading from v0.1.2
 
 - **The catalog migrates from schema 10 to 14.** The migrations add subagent heads, device reports, agent profiles with revisions, and device inventories. `serve` migrates when it starts, after copying `catalog.db` into `migration-backups/` in the lake directory. `serve migrate` does the same without starting the listener, and `serve migrate --check` reports what's pending. v0.1.2 can't open a migrated catalog, so rolling back means stopping `serve`, restoring that copy, deleting `catalog.db-wal` and `catalog.db-shm`, and then starting v0.1.2.
+- **Upgrade the lake before the agents.** A new agent sends only the bytes appended to a transcript past 32 MiB, but only to a lake that advertises `large_tails`. Against a v0.1.2 lake it still works, sending whole chunks as before. A new lake also folds a grown file's old last chunk at ingest, so such transcripts no longer grow the lake quadratically between compactions.
+
+#### New
+
+- **A container image** at `ghcr.io/terva-sh/lampi`, for linux/amd64 and linux/arm64, with an SBOM and build provenance. It runs distroless as a non-root user, and a compose example puts Caddy in front of it. See `docs/container.md`. New commands: `serve healthcheck`, `serve migrate`, `serve --behind-proxy`, and `serve backup --prune`, which drops from a backup what a purge or compact removed from the lake.
+- **Device fleet on the dashboard.**
+  - Each device shows its agent version, with a badge when it's behind or on a release with a known problem.
+  - Devices can be revoked, unbound and given a profile from the dashboard.
+  - Each device has a page with its reported inventory.
+  - Agents gain `terva-lampi self-update`, which installs the lake's release after verifying it.
+- **Agent profiles in the lake.** `serve profiles` imports, lists, sets and deletes profiles. The dashboard edits them, keeps each revision and rolls back. Edits reach connected agents within seconds.
+
+#### Fixes
+
+- The search index is reclaimed after each pass, and a new generation writes only changed rows.
+- A Claude session keeps its own transcript as its head when it has subagents.
+- Search marks only failed tool results as tool errors.
+- The deduplication tile divides by the blobs actually on disk.
+- Web UI 500s log their cause.
+- A rotated IdP key verifies despite a stale JWKS fetch.
+- Lake lock errors say to stop `serve` only when `serve` holds the lock.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T22:40:00Z
+
+Supersedes the previous note's schema line. A real v0.1.2 lake reports schema 11, not 10; the source count missed migrate1. Main is at 15, adding device reports, profiles and device inventories after subagent heads. The corrected notes follow.
+
+#### Upgrading from v0.1.2
+
+- **The catalog migrates from schema 11 to 15.** The migrations add subagent heads, device reports, agent profiles with revisions, and device inventories. `serve` migrates when it starts, after copying `catalog.db` into `migration-backups/` in the lake directory. `serve migrate` does the same without starting the listener, and `serve migrate --check` reports what's pending. v0.1.2 can't open a migrated catalog, so rolling back means stopping `serve`, restoring that copy, deleting `catalog.db-wal` and `catalog.db-shm`, and then starting v0.1.2.
 - **Upgrade the lake before the agents.** A new agent sends only the bytes appended to a transcript past 32 MiB, but only to a lake that advertises `large_tails`. Against a v0.1.2 lake it still works, sending whole chunks as before. A new lake also folds a grown file's old last chunk at ingest, so such transcripts no longer grow the lake quadratically between compactions.
 
 #### New
