@@ -629,12 +629,16 @@ sends the tail form when the local watermark is a strict prefix of the
 file. The example above is that form.
 
 The lake compares the full bytes to the stored head for that path.
-The manifest's head artifact (see `head_sha256` below) under a path
-the session has no current artifact for is compared with the session
-head instead, when that head is the same kind. Relpaths embed the
-cwd, so this is the same session from a second machine or a moved
-home. A move then clears the old path, and the session keeps one
-head. Other artifacts are compared per path:
+The manifest's head artifact (see `head_sha256` below) is its first
+`transcript_jsonl` that does not sit in the directory named for another
+transcript in the manifest: a Claude session's own `<session>.jsonl`,
+not a file under `<session>/subagents/`. A file in the directory named
+for the session head never moves the head. Under a path the session
+has no current artifact for, the manifest's head artifact of the same
+kind as the session head is compared with the session head instead. Relpaths embed the cwd, so this is the
+same session from a second machine or a moved home. A move then clears
+the old path, and the session keeps one head. Other artifacts are
+compared per path:
 
 | Client bytes | Result |
 |--------------|--------|
