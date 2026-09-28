@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3KC68CBVY58XFATP28W3CQT
 title: Deduplication tile ignores prefix records and reads 1.00x
 type: bug
-status: draft
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T06:45:42Z
-updated_at: 2026-09-28T14:14:21Z
+updated_at: 2026-09-28T19:03:12Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -54,3 +54,7 @@ stores.
 - Or have the storage sample sum physical bytes by resolving each digest
   to what the CAS holds for it (whole object, record, chunk list). That
   costs a walk the sampler already does.
+
+## Summary
+
+The Operations tile divides referenced bytes by the stored blobs' measured disk use (components.cas) instead of the distinct digests' logical sizes, and reads '<referenced> referenced, <cas> on disk'. On the hosted lake that is about 53x rather than 1.00x. The unique measure and lampi_artifact_unique_bytes stay, with their help text saying they are not the CAS's disk use.

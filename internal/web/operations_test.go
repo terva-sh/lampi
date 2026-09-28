@@ -197,3 +197,29 @@ func TestNoMachinesIsAnEmptyArray(t *testing.T) {
 		t.Fatalf("machines on an empty lake: %s", raw)
 	}
 }
+
+// Deduplication divides the referenced bytes by the stored blobs' disk
+// use. Versions of a growing transcript are distinct digests that share
+// stored bytes, so dividing by the distinct digests' sizes read 1.00x
+// on a lake that kept 74 GiB of versions in 1.4 GiB (TKT-01M3KC68C).
+func TestDeduplicationIsAgainstStoredBlobs(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	sample := catalog.StorageSample{At: time.Now(), Measures: map[string]catalog.StorageUse{
+		storage.CAS:               {Bytes: 100 << 20, Files: 10},
+		catalog.MeasureReferenced: {Bytes: 5000 << 20, Files: 50},
+		catalog.MeasureUnique:     {Bytes: 5000 << 20, Files: 50},
+	}}
+	if err := lake.Catalog.RecordStorage(t.Context(), sample); err != nil {
+		t.Fatal(err)
+	}
+	body := get(h, "/operations", cookie).Body.String()
+	for _, want := range []string{"50.00×", "4.9 GiB referenced, 100.0 MiB on disk"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	if strings.Contains(body, "stored once") {
+		t.Error("page still says stored once")
+	}
+}

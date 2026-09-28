@@ -249,7 +249,7 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 			m.sample("gauge", "lampi_artifact_referenced_bytes", "Logical bytes named by every artifact row.", float64(u.Bytes))
 		}
 		if u, ok := latest.Measures[catalog.MeasureUnique]; ok {
-			m.sample("gauge", "lampi_artifact_unique_bytes", "Logical bytes of each distinct artifact digest counted once.", float64(u.Bytes))
+			m.sample("gauge", "lampi_artifact_unique_bytes", "Logical bytes of each distinct artifact digest counted once. Versions of a growing file are distinct digests that share stored bytes, so this is not the CAS's disk use; lampi_storage_bytes{component=\"cas\"} is.", float64(u.Bytes))
 		}
 	}
 
