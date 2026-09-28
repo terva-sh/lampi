@@ -215,3 +215,82 @@ func send(h http.Handler, method, path, body string, c *http.Cookie, headers map
 	h.ServeHTTP(w, r)
 	return w
 }
+
+// TKT-01M3M7M0ZY: rolling back to an earlier revision is one action,
+// recorded as a new revision that names the one it restores.
+func TestOperatorRollsBackAProfile(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	now := time.Now()
+	first, _, err := lake.Catalog.PutProfile(ctx, "team", []byte(`{"agent":{"debounce":"1s"}}`), "op", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := lake.Catalog.PutProfile(ctx, "team", []byte(`{"agent":{"debounce":"2s"}}`), "op", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := lake.Catalog.PutProfile(ctx, "other", []byte(`{"agent":{"debounce":"3s"}}`), "op", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	page := get(h, "/profiles/team", cookie).Body.String()
+	if !strings.Contains(page, "/profiles/team/rollback/"+strconvI(first.Revision)) || strings.Contains(page, "/profiles/team/rollback/"+strconvI(second.Revision)) {
+		t.Fatal("roll back offered for the wrong revisions")
+	}
+	back := func(rev, base int64) *httptest.ResponseRecorder {
+		return postForm(h, "/profiles/team/rollback/"+strconvI(rev), url.Values{"csrf": {csrf}, "base": {strconvI(base)}, "note": {"bad debounce"}}, cookie)
+	}
+	if w := back(other.Revision, second.Revision); w.Code != 404 {
+		t.Fatalf("another profile's revision: %d", w.Code)
+	}
+	if w := back(first.Revision, first.Revision); w.Code != 409 || !strings.Contains(w.Body.String(), "Nothing was rolled back") {
+		t.Fatalf("stale rollback: %d", w.Code)
+	}
+	if w := back(first.Revision, second.Revision); w.Code != 303 {
+		t.Fatalf("rollback: %d %s", w.Code, w.Body)
+	}
+	got, err := lake.Catalog.ProfileByName(ctx, "team")
+	if err != nil || got.Config.Agent.Debounce != "1s" || got.Version != first.Version {
+		t.Fatalf("after rollback: %+v %v", got, err)
+	}
+	revs, _ := lake.Catalog.ProfileRevisions(ctx, "team")
+	if revs[0].Note != "rollback to revision "+strconvI(first.Revision)+": bad debounce" || !strings.HasPrefix(revs[0].CreatedBy, "web:") {
+		t.Fatalf("revision %+v", revs[0])
+	}
+
+	hdr := map[string]string{CSRFHeader: csrf}
+	api := "/api/web/v1/profiles/team/rollback"
+	body := `{"revision":` + strconvI(second.Revision) + `,"base_revision":` + strconvI(got.Revision) + `}`
+	if w := post(h, api, body, cookie, hdr); w.Code != 200 || !strings.Contains(w.Body.String(), second.Version) {
+		t.Fatalf("api rollback: %d %s", w.Code, w.Body)
+	}
+	for b, code := range map[string]int{`{"revision":1}`: 400, `{"revision":999,"base_revision":1}`: 404, body: 409} {
+		if w := post(h, api, b, cookie, hdr); w.Code != code {
+			t.Errorf("%s: %d, want %d", b, w.Code, code)
+		}
+	}
+	if _, err := lake.Catalog.DeleteProfile(ctx, "other", "op", "", now); err != nil {
+		t.Fatal(err)
+	}
+	revs, _ = lake.Catalog.ProfileRevisions(ctx, "other")
+	if w := postForm(h, "/profiles/other/rollback/"+strconvI(revs[0].ID), url.Values{"csrf": {csrf}, "base": {"0"}}, cookie); w.Code != 404 {
+		// A deleted profile has no page; its deletion is not a document.
+		t.Errorf("deletion revision: %d", w.Code)
+	}
+	again, _, err := lake.Catalog.PutProfile(ctx, "other", []byte(`{}`), "op", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := postForm(h, "/profiles/other/rollback/"+strconvI(revs[0].ID), url.Values{"csrf": {csrf}, "base": {strconvI(again.Revision)}}, cookie); w.Code != 400 || !strings.Contains(w.Body.String(), "records a deletion") {
+		t.Errorf("rollback to a deletion: %d", w.Code)
+	}
+
+	_, vidp, vh, _ := operatorLake(t, "", "readers")
+	viewer, _ := signIn(t, vidp, vh)
+	if w := postForm(vh, "/profiles/ci/rollback/1", url.Values{"csrf": {csrfOf(t, vh, viewer)}, "base": {"1"}}, viewer); w.Code != 404 {
+		t.Errorf("viewer rollback: %d", w.Code)
+	}
+}

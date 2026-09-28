@@ -510,6 +510,11 @@ anyone else, and the `X-Lampi-CSRF` header.
     agent compares them.
   - It answers `200` with `{profile: {name, version, revision}}`. That is also
     the answer when the document is what is already saved.
+- `POST /api/web/v1/profiles/{name}/rollback` takes `{"revision": R,
+  "base_revision": N, "note": "..."}`. It saves revision R's document again as
+  a new revision noted `rollback to revision R`, and answers like a PUT. A
+  revision that is not this profile's is `404 not_found`, and one that records
+  a deletion is `400 deleted_revision`.
 - `DELETE /api/web/v1/profiles/{name}` takes `{"base_revision": N, "note":
   "..."}` and answers `204`.
 

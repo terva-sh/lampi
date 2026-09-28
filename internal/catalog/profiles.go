@@ -323,6 +323,23 @@ func (c *Catalog) ProfileRevisions(ctx context.Context, name string) ([]ProfileR
 	return c.RecentProfileRevisions(ctx, name, -1)
 }
 
+// ProfileRevisionByID is revision id of the profile called name, or
+// ErrNoProfile when name has no such revision.
+func (c *Catalog) ProfileRevisionByID(ctx context.Context, name string, id int64) (ProfileRevision, error) {
+	var r ProfileRevision
+	var created string
+	err := c.db.QueryRowContext(ctx, `SELECT id, profile, document, version, note, deleted, created_at, created_by
+		FROM profile_revisions WHERE profile=? AND id=?`, name, id).Scan(&r.ID, &r.Profile, &r.Document, &r.Version, &r.Note, &r.Deleted, &created, &r.CreatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ProfileRevision{}, fmt.Errorf("%w: %s revision %d", ErrNoProfile, name, id)
+	}
+	if err != nil {
+		return ProfileRevision{}, fmt.Errorf("catalog: %w", err)
+	}
+	r.Created = parseStamp(created)
+	return r, nil
+}
+
 // RecentProfileRevisions is ProfileRevisions cut to the newest n; a
 // negative n is every revision.
 func (c *Catalog) RecentProfileRevisions(ctx context.Context, name string, n int) ([]ProfileRevision, error) {
