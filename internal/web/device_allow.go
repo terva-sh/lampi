@@ -8,6 +8,7 @@ import (
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
 )
 
 // The Allow action on a device's page: an allow rule for a project the
@@ -55,9 +56,24 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 		s.renderDevice(w, r, id, false, deviceProblems["revoked"], http.StatusConflict)
 		return
 	}
-	rule, ok := allowRule(r.PostForm.Get("git_remote"), r.PostForm.Get("cwd"))
+	// The form names a row of the page; the row must still be a refused
+	// project an allow rule can let through, in the newest inventory the
+	// device sent. The fields alone prove nothing about its verdict.
+	row, found, err := s.refusedRow(r, d.ID, r.PostForm.Get("git_remote"), r.PostForm.Get("cwd"))
+	switch {
+	case err != nil:
+		pageError(w, r, err)
+		return
+	case !found:
+		s.renderDevice(w, r, id, false, "That project is not refused in the newest inventory "+d.Name+" sent. Reload the page to see what it holds now.", http.StatusConflict)
+		return
+	case !allowable(row.Reason):
+		s.renderDevice(w, r, id, false, "An allow rule cannot let that project through: "+row.Reason+".", http.StatusConflict)
+		return
+	}
+	rule, ok := allowRule(row.GitRemote, row.CWD)
 	if !ok {
-		s.renderDevice(w, r, id, false, "Choose a project with a git remote or a cwd to allow.", http.StatusBadRequest)
+		s.renderDevice(w, r, id, false, "That project has no git remote or cwd to allow.", http.StatusBadRequest)
 		return
 	}
 	name := d.Profile
@@ -69,7 +85,9 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	if slices.Contains(normalizeRules(cur.Projects.Allow), rule) {
+	// A rule already there may cover it, as a cwd prefix above it or a
+	// remote prefix does, without being the rule this would add.
+	if (config.Projects{Allow: cur.Projects.Allow}).Permitted(config.ProjectID{CWD: row.CWD, CWDHash: row.CWDHash, GitRemote: row.GitRemote}) {
 		s.renderDevice(w, r, id, false, "Profile "+name+" already allows that project. The device picks the rule up with its next profile fetch, unless its own config.json sets its allow rules.", http.StatusConflict)
 		return
 	}
@@ -89,6 +107,21 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderEditor(w, r, v, http.StatusOK)
+}
+
+// refusedRow is the refused project in device id's newest inventory
+// with this remote and cwd; false when there is none.
+func (s *Server) refusedRow(r *http.Request, id, remote, cwd string) (protocol.InventoryProject, bool, error) {
+	inv, ok, err := s.catalog.DeviceInventoryOf(r.Context(), id)
+	if err != nil || !ok {
+		return protocol.InventoryProject{}, false, err
+	}
+	for _, p := range inv.Inventory.Projects {
+		if !p.Allowed && p.GitRemote == remote && p.CWD == cwd {
+			return p, true, nil
+		}
+	}
+	return protocol.InventoryProject{}, false, nil
 }
 
 // ruleText names a rule the way a note or a notice says it.

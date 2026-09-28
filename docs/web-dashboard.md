@@ -369,8 +369,12 @@ those whose own `config.json` sets their allow rules, and a note already
 filled in that you can change or clear. Save there, as for any edit: a save
 refused because someone else changed the profile shows it again against what
 is stored now. A project a deny rule refuses has no Allow, since a deny rule
-wins over any allow rule, and neither does a session with no cwd. Allowing
-for one device alone waits for per-device overrides.
+wins over any allow rule, and neither does a session with no cwd. Allow
+checks the project against the newest inventory the device sent, and says so
+instead of opening the editor when the project is no longer refused there, or
+when a rule in the profile already covers it, such as a `cwd_prefix` above it:
+the device picks that rule up with its next profile fetch. Allowing for one
+device alone waits for per-device overrides.
 
 ## Profiles
 

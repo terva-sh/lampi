@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,16 +82,37 @@ func TestAllowARefusedProjectFromTheDevicePage(t *testing.T) {
 		t.Fatalf("profile %+v %v", p.Config.Projects, err)
 	}
 
-	// A project with no remote gets a cwd rule; one already allowed, a
-	// revoked device, no project and no CSRF token are refused.
+	// A project with no remote gets a cwd rule.
 	if code, editor := allow(laptop.ID, url.Values{"cwd": {"/home/me/scratch"}}); code != 200 || !strings.Contains(hiddenValue(t, editor, "document"), `"cwd_prefix":"/home/me/scratch"`) {
 		t.Fatalf("cwd rule: %d", code)
 	}
-	if code, body := allow(laptop.ID, url.Values{"git_remote": {"git@git.example:team/app.git"}}); code != 409 || !strings.Contains(body, "already allows") {
+	// The app is allowed now, though the inventory still says refused
+	// until the agent syncs again.
+	if code, body := allow(laptop.ID, url.Values{"git_remote": {"git.example/team/app"}, "cwd": {"/work/app"}}); code != 409 || !strings.Contains(body, "already allows") {
 		t.Fatalf("already allowed: %d", code)
 	}
-	if code, _ := allow(laptop.ID, url.Values{}); code != 400 {
-		t.Fatalf("nothing to allow: %d", code)
+	// A rule that covers the project without being the one Allow would
+	// add counts as allowing it.
+	doc = `{"projects":{"allow":[{"git_remote":"git.example/team/app"},{"cwd_prefix":"/home/me"}]}}`
+	cur, _ := lake.Catalog.ProfileByName(ctx, config.DefaultProfile)
+	if w := postForm(h, "/profiles/default/save", url.Values{"csrf": {csrf}, "base": {strconv.FormatInt(cur.Revision, 10)}, "document": {doc}}, cookie); w.Code != 303 {
+		t.Fatalf("save prefix: %d %s", w.Code, w.Body)
+	}
+	if code, body := allow(laptop.ID, url.Values{"cwd": {"/home/me/scratch"}}); code != 409 || !strings.Contains(body, "already allows") {
+		t.Fatalf("covered by a prefix: %d", code)
+	}
+	// What the form names must be a refused project the device sent: not
+	// an allowed one, not a denied one, not one it never sent.
+	for _, v := range []url.Values{
+		{"cwd": {"/work/ok"}},
+		{"cwd": {"/home/me/secret"}},
+		{"cwd": {"/somewhere/else"}},
+		{"git_remote": {"git.example/team/app"}},
+		{},
+	} {
+		if code, _ := allow(laptop.ID, v); code != 409 {
+			t.Errorf("%v: %d", v, code)
+		}
 	}
 	if _, err := lake.Catalog.RevokeDevice(ctx, gone.Name, "test", now); err != nil {
 		t.Fatal(err)
