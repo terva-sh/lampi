@@ -298,7 +298,7 @@ func TestOperatorRollsBackAProfile(t *testing.T) {
 // Review of #101: an empty new profile can be saved, a full rule list
 // still posts, and a delete that lost to another delete is a conflict.
 func TestProfileEditorEdges(t *testing.T) {
-	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	lake, idp, h, dir := operatorLake(t, "", "readers", "admins")
 	ctx := t.Context()
 	cookie, _ := signIn(t, idp, h)
 	csrf := csrfOf(t, h, cookie)
@@ -326,8 +326,31 @@ func TestProfileEditorEdges(t *testing.T) {
 	if _, err := lake.Catalog.DeleteProfile(ctx, "gone", "op", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	if w := del(h, "/api/web/v1/profiles/Bad!", `{"base_revision":3}`, cookie, map[string]string{CSRFHeader: csrf}); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_name") {
+		t.Fatalf("delete a bad name: %d %s", w.Code, w.Body)
+	}
 	w := del(h, "/api/web/v1/profiles/gone", `{"base_revision":`+strconvI(p.Revision)+`}`, cookie, map[string]string{CSRFHeader: csrf})
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "changed") {
 		t.Fatalf("delete after a delete: %d %s", w.Code, w.Body)
+	}
+
+	// A delete whose audit line cannot be written stands, and says so.
+	q, _, err := lake.Catalog.PutProfile(ctx, "quiet", []byte(`{}`), "op", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, audit.FileName)
+	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(logPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w = postForm(h, "/profiles/quiet/delete", url.Values{"csrf": {csrf}, "base": {strconvI(q.Revision)}}, cookie)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "The profile is deleted, but writing it to the audit log failed") {
+		t.Fatalf("audit failure: %d", w.Code)
+	}
+	if _, err := lake.Catalog.ProfileByName(ctx, "quiet"); err == nil {
+		t.Fatal("the delete did not stand")
 	}
 }
