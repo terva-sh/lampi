@@ -353,7 +353,7 @@ func (s *Server) authed(next http.HandlerFunc) http.HandlerFunc {
 		if info := infoOf(r); info != nil {
 			info.device, info.deviceID = d.Name, d.ID
 		}
-		s.contacts.Store(d.ID, s.now())
+		s.noteContact(d.ID, s.now())
 		r = r.WithContext(context.WithValue(r.Context(), deviceKey{}, d))
 		next(w, r)
 	}

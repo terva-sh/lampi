@@ -66,3 +66,18 @@ func (s *Server) Contacts() map[string]time.Time {
 	})
 	return out
 }
+
+// noteContact records at as the device's last contact unless a later
+// one is already there: two requests can take their times in one order
+// and arrive here in the other.
+func (s *Server) noteContact(id string, at time.Time) {
+	for {
+		prev, loaded := s.contacts.LoadOrStore(id, at)
+		if !loaded || !at.After(prev.(time.Time)) {
+			return
+		}
+		if s.contacts.CompareAndSwap(id, prev, at) {
+			return
+		}
+	}
+}

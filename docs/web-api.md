@@ -328,8 +328,9 @@ restore are counted at the time the lake accepts them.
 
 `GET /api/web/v1/operations` reports what running the lake costs and whether
 it keeps up. It takes one optional parameter, `range`, which is `7d` (hourly
-buckets, the default), `30d` or `90d` (daily buckets). Any other value, a
-repeated `range`, or any other parameter is `400 invalid_filters_or_cursor`.
+buckets, the default), `30d` or `90d` (daily buckets). As on Activity, an
+empty value takes the default. Any other value, a repeated `range`, or any
+other parameter is `400 invalid_filters_or_cursor`.
 
 ```json
 {
