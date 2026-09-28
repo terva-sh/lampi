@@ -1,6 +1,7 @@
 package cas
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -140,8 +141,10 @@ func (p Problem) String() string {
 }
 
 // Verify re-hashes every object and reads every logical index. Each
-// object whose bytes do not hash to its name, and each index that does
-// not parse or names a chunk that is not stored, is passed to bad.
+// object whose bytes do not hash to its name, each index that does not
+// parse or names a chunk that is not stored, and each prefix record
+// whose chain does not reach a stored file, is passed to bad. A prefix
+// record's bytes are not re-hashed here: they are its base's.
 // Temp files are skipped. A file whose path is not a digest is a
 // problem too, named by its path under the store. checked counts the
 // entries read.
@@ -175,6 +178,12 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 			bad(Problem{Digest: digest, Logical: true, Reason: err.Error()})
 			return nil
 		}
+		if idx.PrefixOf != "" {
+			if _, err := s.resolvePrefix(digest, idx); err != nil {
+				bad(Problem{Digest: digest, Logical: true, Reason: err.Error()})
+			}
+			return nil
+		}
 		for _, c := range idx.ChunkSHA256s {
 			ok, err := s.Has(c)
 			if err != nil {
@@ -192,7 +201,8 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 // Repair removes what p names, so Has reports it missing and the next
 // put stores it again. A logical index that does not parse is removed
 // the same way. An index whose chunk is missing is kept: the chunk's
-// own put restores it. fixed is false when there was nothing to remove.
+// own put restores it. So is a prefix record whose base is missing: a
+// put of the digest installs an object, which Open prefers. fixed is false when there was nothing to remove.
 func (s *Store) Repair(p Problem) (fixed bool, err error) {
 	if !protocol.ValidDigest(p.Digest) {
 		return false, nil
@@ -259,7 +269,7 @@ func walkEntries(root string, fn func(path, digest string) error) error {
 
 // Backup copies every object and logical index into the store layout
 // under dest: sha256/ first, then logical/, so an index is not copied
-// before its chunks. Temp files and partial uploads are left out. An
+// before its chunks or its base. Temp files and partial uploads are left out. An
 // entry already in dest with the same size is kept, so a second backup
 // into the same directory copies only what is new. Each copy is synced
 // and renamed into place.
@@ -272,7 +282,10 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 				return err
 			}
 			out := filepath.Join(dest, sub, rel)
-			n, err := copyIfMissing(path, out)
+			// An index is rewritten in place when a prefix record is
+			// pointed further along its chain, at the same size, so it
+			// is compared by content.
+			n, err := copyIfMissing(path, out, sub == "logical")
 			copied += n
 			return err
 		})
@@ -283,7 +296,7 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 	return copied, nil
 }
 
-func copyIfMissing(src, dst string) (int, error) {
+func copyIfMissing(src, dst string, compare bool) (int, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return 0, err
@@ -294,7 +307,19 @@ func copyIfMissing(src, dst string) (int, error) {
 		return 0, err
 	}
 	if have, err := os.Stat(dst); err == nil && have.Size() == st.Size() {
-		return 0, nil
+		if !compare {
+			return 0, nil
+		}
+		same, err := sameBytes(in, dst)
+		if err != nil {
+			return 0, err
+		}
+		if same {
+			return 0, nil
+		}
+		if _, err := in.Seek(0, io.SeekStart); err != nil {
+			return 0, err
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return 0, err
@@ -327,4 +352,18 @@ func copyIfMissing(src, dst string) (int, error) {
 	}
 	tmpName = ""
 	return 1, nil
+}
+
+// sameBytes reports whether in, read from its start, holds the bytes of
+// the file at path. It is for the small index files.
+func sameBytes(in *os.File, path string) (bool, error) {
+	a, err := io.ReadAll(in)
+	if err != nil {
+		return false, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(a, b), nil
 }

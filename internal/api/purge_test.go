@@ -59,17 +59,25 @@ func TestPurgeRemovesSessionAndUnsharedBlobs(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("plan ok=%v err=%v", ok, err)
 	}
-	want := []string{d2, d3, dt1, dt2, de, dc1, dc2}
+	// v1 and v2 grew, so they are prefix records of v3. Session B's
+	// v1 is written out whole, so v3 and the leaked line after v1 go.
+	want := []string{d3, dt1, dt2, de, dc1, dc2}
 	sort.Strings(want)
 	if strings.Join(plan.Objects, ",") != strings.Join(want, ",") {
 		t.Fatalf("objects\n%v\nwant\n%v", plan.Objects, want)
 	}
-	if len(plan.Logical) != 1 || plan.Logical[0] != de || plan.Kept != 1 {
+	wantLogical := []string{d2, de}
+	sort.Strings(wantLogical)
+	if strings.Join(plan.Logical, ",") != strings.Join(wantLogical, ",") || plan.Kept != 1 {
 		t.Fatalf("logical %v kept %d", plan.Logical, plan.Kept)
 	}
-	if ok, _ := s.CAS.Has(d2); !ok {
+	if len(plan.Materialize) != 1 || plan.Materialize[0] != d1 {
+		t.Fatalf("materialize %v, want [%s]", plan.Materialize, d1)
+	}
+	if ok, _ := s.CAS.Has(d3); !ok {
 		t.Fatal("planning removed a blob")
 	}
+	want = append(want, d2)
 
 	if err := s.Purge(t.Context(), plan); err != nil {
 		t.Fatal(err)
@@ -81,6 +89,22 @@ func TestPurgeRemovesSessionAndUnsharedBlobs(t *testing.T) {
 	}
 	if got, err := s.CAS.Read(d1); err != nil || string(got) != string(v1) {
 		t.Fatalf("shared blob: %v", err)
+	}
+	if ok, _ := s.CAS.Has(d1); !ok {
+		t.Fatal("the shared version is not its own object")
+	}
+	err = filepath.WalkDir(filepath.Join(s.dataDir, "cas"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(b), "sk-live-leaked") {
+			t.Errorf("%s still holds the purged line", path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, ok, _ := s.Catalog.Session(t.Context(), ackA.SessionUID); ok {
 		t.Fatal("session row kept")

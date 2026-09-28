@@ -480,7 +480,7 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[d] = true
-		ok, err := s.CAS.Has(d)
+		ok, err := s.CAS.Present(d)
 		if err != nil {
 			s.fail(w, r, http.StatusInternalServerError, err)
 			return

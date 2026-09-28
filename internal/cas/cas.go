@@ -85,8 +85,8 @@ func (s *Store) Has(digest string) (bool, error) {
 // Put stores r under digest. The bytes are hashed while they are written
 // to a temp file, with no lock held, so a slow body does not stall other
 // writers. If the hash does not equal digest, nothing is kept. If the
-// object is already present and intact, the new file is discarded and
-// exists is true. A present object whose size or hash is wrong is
+// object is already present and intact, or is a prefix record that
+// reads, the new file is discarded and exists is true. A present object whose size or hash is wrong is
 // replaced by the new file.
 //
 // limit is the maximum accepted size. A read one byte past limit fails
@@ -143,6 +143,14 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 		return false, fmt.Errorf("cas: %w", err)
 	}
 
+	// A version that grew is stored as a prefix record. Its bytes are
+	// already here, so the body is not kept as a second copy.
+	if _, _, ok, _ := s.PrefixOf(digest); ok {
+		if present, err := s.Present(digest); err != nil || present {
+			return present, err
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	exists, err = s.commitFileLocked(digest, tmpName, n)
@@ -185,8 +193,21 @@ func (s *Store) intactLocked(digest string, size int64) (bool, error) {
 
 // Open opens digest for reading. A stored object is that file. A logical
 // file, whose chunks are stored and whose concatenation is not installed,
-// is those chunks in order. The caller closes the reader.
+// is those chunks in order. A prefix record is the first bytes of the
+// file it grew into. The caller closes the reader.
 func (s *Store) Open(digest string) (io.ReadCloser, error) {
+	return s.open(digest, 0)
+}
+
+// maxNesting bounds how deep logical files and prefix records may name
+// one another. A store that ingest and compact wrote nests at most
+// twice: a prefix of a logical file whose chunk is itself a prefix.
+const maxNesting = 8
+
+func (s *Store) open(digest string, depth int) (io.ReadCloser, error) {
+	if depth > maxNesting {
+		return nil, fmt.Errorf("cas: %s nests more than %d records deep", digest, maxNesting)
+	}
 	ok, err := s.Has(digest)
 	if err != nil {
 		return nil, err
@@ -201,7 +222,18 @@ func (s *Store) Open(digest string) (io.ReadCloser, error) {
 		}
 		return nil, err
 	}
-	return &logicalReader{s: s, parts: idx.ChunkSHA256s}, nil
+	if idx.PrefixOf != "" {
+		base, err := s.resolvePrefix(digest, idx)
+		if err != nil {
+			return nil, err
+		}
+		rc, err := s.open(base, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return &prefixReader{rc: rc, digest: digest, left: idx.Length}, nil
+	}
+	return &logicalReader{s: s, parts: idx.ChunkSHA256s, depth: depth + 1}, nil
 }
 
 // Read returns the stored bytes for digest. A logical file is the
@@ -221,7 +253,8 @@ func (s *Store) Read(digest string) ([]byte, error) {
 }
 
 // Size is the length of the stored bytes for digest, without reading
-// them: the object's size, or the sum of a logical file's chunks.
+// them: the object's size, the sum of a logical file's chunks, or a
+// prefix record's length.
 func (s *Store) Size(digest string) (int64, error) {
 	ok, err := s.Has(digest)
 	if err != nil {
@@ -245,6 +278,9 @@ func (s *Store) Size(digest string) (int64, error) {
 			return 0, fmt.Errorf("cas: blob %s is not in the store", digest)
 		}
 		return 0, err
+	}
+	if idx.PrefixOf != "" {
+		return idx.Length, nil
 	}
 	var n int64
 	for _, l := range idx.ChunkLengths {

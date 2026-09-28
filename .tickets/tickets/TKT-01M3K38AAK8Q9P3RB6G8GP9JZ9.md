@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:09:33Z
-updated_at: 2026-09-28T04:25:34Z
+updated_at: 2026-09-28T04:37:56Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -74,6 +74,37 @@ a stored length. The tails are likewise redundant once assembled.
 Measure first: how much of the store is superseded prefixes, tails, and
 current heads.
 
+## Implementation plan
+
+Store a superseded version as a prefix record, `{prefix_of, length}`,
+under cas/logical/ beside the chunk lists, instead of as a whole copy.
+
+- **Ingest:** `Store.Grow` assembles the stored head and the tail in one
+  streamed pass. It hashes both the prefix and the whole, installs the
+  grown object, then writes the head's record and removes its object.
+  This replaces the hash-then-copy pair, which read the head twice.
+- **Reads:** Open, Read and Size follow record chains, and chunk lists
+  open their parts through the store. Each link must be strictly
+  longer, and a visited set stops loops. A base that ends early is
+  ErrUnexpectedEOF, never a short read. Nesting is capped at 8.
+- **Stored or not:** `Present` (an object, or a record that resolves)
+  answers blobs/check and the manifest's missing check, and Put
+  discards a body whose digest is a record that reads. A client that
+  re-sends an old version therefore does not store a second copy.
+- **fsck:** reports a record whose chain does not resolve. Repair keeps
+  it, because a put of the digest restores an object and Open prefers
+  the object.
+- **Backup:** compares logical/ entries by content. Records are
+  re-pointed at the same size.
+- **Purge:** the keep set follows chains transitively. A kept record
+  whose base belongs to the purged session is written out whole
+  (`Materialize`) before the base is removed, so a purge still removes
+  the bytes after the shared prefix.
+- **Left to `serve compact`:** folding existing whole copies, flattening
+  chains, and dropping tails. Tails are not deleted at ingest because
+  another artifact may name the same bytes, and only a whole-lake view
+  under the lake lock can tell.
+
 ## Notes
 
 **agent:claude-code/e4a47e8c** at 2026-09-28T04:18:02Z
@@ -113,3 +144,36 @@ of them is recoverable as a prefix of its successor.
 
 The reproduction test is kept at /var/tmp/ops/growth_diag_test.go on
 the dev host, so the fix can adopt it as its regression test.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T04:37:56Z
+
+### Alternatives rejected
+
+- **Delete tails at ingest.** A tail digest can equal another
+  artifact's whole bytes, or a tail another session is about to
+  reference. Deciding that needs the catalog and every logical index.
+  Compact does it under the lake lock.
+- **Rewrite every record in a chain on each append, keeping chains
+  flat.** That costs O(n) writes per append. Reads of old versions are
+  rare, and compact flattens. Ingest keeps one write per append.
+- **Keep `Has` false for records and let clients re-upload.** That
+  self-heals but stores a second full copy each time. The purge test
+  exposed this, since a second session posts v1 whole. `Present` is
+  used instead.
+- **Keep a purged session's newest file alive because another session's
+  record reads from it.** That defeats purge, which exists to remove
+  leaked text. The purge test's leaked line survived. `Materialize` is
+  used instead.
+
+### Measured
+
+The same diagnostic as before, one file grown by tails, shows the CAS
+at 2.3×, 2.3× and 2.2× the final file after 20, 100 and 200 appends,
+against 11×, 51× and 101× before. What remains is the head plus the
+tails, which is compact's job.
+
+### Rollback
+
+A binary older than this one reads a prefix record as a malformed
+logical index. After this ships, rolling back needs compact's inverse,
+which does not exist. Treat this as forward-only.

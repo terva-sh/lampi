@@ -13,14 +13,18 @@ import (
 )
 
 // PurgePlan is what Purge removes for one session. Objects and Logical
-// are the CAS objects and logical indexes that no other session names.
-// Kept counts the session's digests that another session still names.
+// are the CAS objects and logical indexes, prefix records among them,
+// that no other session names. Kept counts the session's digests that
+// another session still names. Materialize is the prefix records
+// another session names whose bytes are stored in this session's files:
+// each is written out as its own object before those files go.
 type PurgePlan struct {
-	Session   catalog.SessionInfo
-	Artifacts int
-	Objects   []string
-	Logical   []string
-	Kept      int
+	Session     catalog.SessionInfo
+	Artifacts   int
+	Objects     []string
+	Logical     []string
+	Materialize []string
+	Kept        int
 }
 
 // PlanPurge works out what purging sessionUID removes. It reads the
@@ -71,7 +75,24 @@ func (s *Server) PlanPurge(ctx context.Context, sessionUID string) (PurgePlan, b
 			addNamed(keep, a.SHA256, a.TailSHA256, a.ChunkSHA256s...)
 		}
 	}
+	// What a kept file reads from is kept too, down the chain. A kept
+	// prefix record whose base is this session's own is written out
+	// whole instead, so the purge still removes the bytes that version
+	// grew into.
+	reach, err := s.reachable(named)
+	if err != nil {
+		return PurgePlan{}, false, err
+	}
+	direct := make(map[string]bool, len(keep))
+	pending := make([]string, 0, len(keep))
 	for d := range keep {
+		direct[d] = true
+		pending = append(pending, d)
+	}
+	materialize := map[string]bool{}
+	for len(pending) > 0 {
+		d := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
 		_, isLogical, chunks, err := s.CAS.Stored(d)
 		if err != nil {
 			return PurgePlan{}, false, err
@@ -81,7 +102,20 @@ func (s *Server) PlanPurge(ctx context.Context, sessionUID string) (PurgePlan, b
 		if isLogical && len(chunks) == 0 {
 			return PurgePlan{}, false, fmt.Errorf("purge: logical index %s is unreadable; run serve fsck", d)
 		}
-		addNamed(keep, "", "", chunks...)
+		base, _, isPrefix, err := s.CAS.PrefixOf(d)
+		if err != nil {
+			return PurgePlan{}, false, err
+		}
+		if isPrefix && reach[base] && !direct[base] {
+			materialize[d] = true
+			continue
+		}
+		for _, c := range chunks {
+			if !keep[c] {
+				keep[c] = true
+				pending = append(pending, c)
+			}
+		}
 	}
 
 	plan := PurgePlan{Session: info, Artifacts: len(arts)}
@@ -119,7 +153,36 @@ func (s *Server) PlanPurge(ctx context.Context, sessionUID string) (PurgePlan, b
 	sort.Strings(objects)
 	sort.Strings(logical)
 	plan.Objects, plan.Logical = objects, logical
+	for d := range materialize {
+		plan.Materialize = append(plan.Materialize, d)
+	}
+	sort.Strings(plan.Materialize)
 	return plan, true, nil
+}
+
+// reachable is every digest the named ones read from: themselves, the
+// chunks of their logical files, and the bases of their prefix records,
+// down each chain.
+func (s *Server) reachable(named map[string]bool) (map[string]bool, error) {
+	out := make(map[string]bool, len(named))
+	queue := make([]string, 0, len(named))
+	for d := range named {
+		queue = append(queue, d)
+	}
+	for len(queue) > 0 {
+		d := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if out[d] {
+			continue
+		}
+		out[d] = true
+		_, _, chunks, err := s.CAS.Stored(d)
+		if err != nil {
+			return nil, err
+		}
+		queue = append(queue, chunks...)
+	}
+	return out, nil
 }
 
 func addNamed(set map[string]bool, digest, tail string, chunks ...string) {
@@ -179,12 +242,17 @@ func (s *Server) spanDigests(rows []catalog.ArtifactRow) []string {
 	return out
 }
 
-// Purge removes what plan names: CAS objects and logical indexes
-// first, then the session's derived files, then its catalog rows. A
+// Purge removes what plan names: it writes out the prefix records to
+// materialize, then removes CAS objects and logical indexes, then the session's derived files, then its catalog rows. A
 // purge that stops part way can be run again; the catalog rows are the
 // last thing to go. The caller holds lake.lock, so no worker or
 // request is running.
 func (s *Server) Purge(ctx context.Context, plan PurgePlan) error {
+	for _, d := range plan.Materialize {
+		if err := s.CAS.Materialize(d); err != nil {
+			return err
+		}
+	}
 	for _, d := range append(append([]string(nil), plan.Objects...), plan.Logical...) {
 		if err := s.CAS.Remove(d); err != nil {
 			return err

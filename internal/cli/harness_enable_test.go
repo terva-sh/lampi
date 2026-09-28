@@ -87,7 +87,8 @@ func TestDisabledHarnessLeavesWatermarkAndCAS(t *testing.T) {
 	}
 	casBefore := casSnapshot(t, filepath.Join(data, "cas"))
 	origSHA := claudeMark.sum
-	if ok, err := lake.CAS.Has(origSHA); err != nil || !ok {
+	// The original grew, so it is a prefix record of the grown file.
+	if ok, err := lake.CAS.Present(origSHA); err != nil || !ok {
 		t.Fatalf("original blob missing ok=%v err=%v", ok, err)
 	}
 
@@ -152,7 +153,8 @@ func TestDisabledHarnessLeavesWatermarkAndCAS(t *testing.T) {
 	if got := readCursor(t, watermark.File(stateDir), machine, protocol.HarnessTerva, tervaHome, "sessions/abcd/sess-1.jsonl"); !sameCursor(got, tervaMark) {
 		t.Fatalf("terva cursor moved on claude resume: %+v", got)
 	}
-	if ok, err := lake.CAS.Has(origSHA); err != nil || !ok {
+	// The original grew, so it is a prefix record of the grown file.
+	if ok, err := lake.CAS.Present(origSHA); err != nil || !ok {
 		t.Fatalf("original blob gone ok=%v err=%v", ok, err)
 	}
 	if ok, err := lake.CAS.Has(tailSHA); err != nil || !ok {

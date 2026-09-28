@@ -68,7 +68,9 @@ contents when it starts. Those directories are mode 0700.
 
 ```text
 /var/lib/terva-lampi/cas/sha256/…     content-addressed blobs
-/var/lib/terva-lampi/cas/logical/…    chunk lists for files over 32 MiB
+/var/lib/terva-lampi/cas/logical/…    chunk lists for files over 32 MiB,
+                                      and versions kept as a prefix of the
+                                      file they grew into
 /var/lib/terva-lampi/cas/partial/…    resumable uploads in flight
 /var/lib/terva-lampi/catalog.db       SQLite catalog, plus WAL sidecars
 /var/lib/terva-lampi/normalized/      one JSONL file per session

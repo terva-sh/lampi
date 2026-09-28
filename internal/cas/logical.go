@@ -13,12 +13,19 @@ import (
 	"terva.sh/lampi/internal/protocol"
 )
 
-// logicalIndex is the on-disk record of a file whose chunks are stored
-// and whose concatenation is not installed as one object. The digest of
-// that concatenation is the index's name, not a blob key.
+// logicalIndex is the on-disk record of a file that is not installed as
+// one object. The digest of the file is the index's name, not a blob
+// key. It is one of two forms:
+//
+//   - a chunk list: the file is the concatenation of ChunkSHA256s,
+//     each a stored object of ChunkLengths[i] bytes
+//   - a prefix record: the file is the first Length bytes of PrefixOf,
+//     a longer file it grew into (see prefix.go)
 type logicalIndex struct {
-	ChunkSHA256s []string `json:"chunk_sha256s"`
-	ChunkLengths []int64  `json:"chunk_lengths"`
+	ChunkSHA256s []string `json:"chunk_sha256s,omitempty"`
+	ChunkLengths []int64  `json:"chunk_lengths,omitempty"`
+	PrefixOf     string   `json:"prefix_of,omitempty"`
+	Length       int64    `json:"length,omitempty"`
 }
 
 // BindLogical records digest as the concatenation of parts without
@@ -112,8 +119,9 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 	return false, nil
 }
 
-// removeObjectLocked deletes the installed object for digest, if any. The
-// caller has found it damaged and holds s.mu.
+// removeObjectLocked deletes the installed object for digest, if any:
+// one found damaged, or one a prefix record now stands for. The caller
+// holds s.mu.
 func (s *Store) removeObjectLocked(digest string) error {
 	p, err := s.Path(digest)
 	if err != nil {
@@ -129,6 +137,9 @@ func (s *Store) removeObjectLocked(digest string) error {
 }
 
 func sameLogical(a, b logicalIndex) bool {
+	if a.PrefixOf != b.PrefixOf || a.Length != b.Length {
+		return false
+	}
 	if len(a.ChunkSHA256s) != len(b.ChunkSHA256s) || len(a.ChunkLengths) != len(b.ChunkLengths) {
 		return false
 	}
@@ -162,6 +173,12 @@ func (s *Store) readLogical(digest string) (logicalIndex, error) {
 	var idx logicalIndex
 	if err := json.Unmarshal(b, &idx); err != nil {
 		return logicalIndex{}, fmt.Errorf("cas: logical index: %w", err)
+	}
+	if idx.PrefixOf != "" {
+		if len(idx.ChunkSHA256s) > 0 || !protocol.ValidDigest(idx.PrefixOf) || idx.PrefixOf == digest || idx.Length <= 0 {
+			return logicalIndex{}, fmt.Errorf("cas: prefix record for %s is malformed", digest)
+		}
+		return idx, nil
 	}
 	if len(idx.ChunkSHA256s) == 0 || len(idx.ChunkSHA256s) != len(idx.ChunkLengths) {
 		return logicalIndex{}, fmt.Errorf("cas: logical index for %s is incomplete", digest)
@@ -212,12 +229,15 @@ func (s *Store) writeLogical(digest string, idx logicalIndex) error {
 	return syncDir(filepath.Dir(p))
 }
 
-// logicalReader reads chunks in order, one open file at a time.
+// logicalReader reads chunks in order, one open file at a time. A
+// chunk is opened through the store, so a chunk that is itself a
+// prefix record still reads. depth is the nesting of the chunks.
 type logicalReader struct {
 	s     *Store
 	parts []string
+	depth int
 	i     int
-	cur   *os.File
+	cur   io.ReadCloser
 }
 
 func (r *logicalReader) Close() error {
@@ -238,7 +258,7 @@ func (r *logicalReader) Read(p []byte) (int, error) {
 			if r.i >= len(r.parts) {
 				return 0, io.EOF
 			}
-			f, err := r.s.OpenBlob(r.parts[r.i])
+			f, err := r.s.open(r.parts[r.i], r.depth)
 			r.i++
 			if err != nil {
 				return 0, err
