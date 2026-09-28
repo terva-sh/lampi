@@ -89,6 +89,20 @@ back. Both workflows fail when the built binary does not name its tag.
 `just release-check` validates `.goreleaser.yaml`, and `just
 release-snapshot` builds every archive into `dist/` without a tag.
 
+Operators pin a version and read the release notes before they pull
+it, and an image upgrade may run with nobody watching. So the notes for
+a release say:
+
+- whether it appends to `migrations` in `internal/catalog/catalog.go`,
+  and from which schema version to which. `serve` migrates at start and
+  copies the catalog to `migration-backups/` first. An older release
+  cannot open the result, so rolling back means restoring that copy;
+- whether it changes how a normalizer writes events, so that sessions
+  are queued for normalizing again after the upgrade.
+
+`git diff vPREVIOUS -- internal/catalog/catalog.go internal/normalize`
+shows both.
+
 ## Develop on a machine that runs lampi
 
 On a machine that already runs a lake or an agent, use the `dev`
