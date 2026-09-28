@@ -2,6 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"io"
+	"net"
+	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,5 +63,45 @@ func TestCheckMetricsAddr(t *testing.T) {
 		if err := checkMetricsAddr(c.addr, c.public); (err == nil) != c.ok {
 			t.Errorf("checkMetricsAddr(%q, %v) = %v", c.addr, c.public, err)
 		}
+	}
+}
+
+// TKT-01M3JV461: closing the lake cancels a scrape still running after
+// the grace period and waits for its handler, so no scrape reads a
+// closed catalog.
+func TestMetricsScrapeEndsBeforeCatalogCloses(t *testing.T) {
+	old := metricsGrace
+	metricsGrace = 50 * time.Millisecond
+	t.Cleanup(func() { metricsGrace = old })
+	lake, err := api.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	var finished atomic.Bool
+	var catalogOpen atomic.Bool
+	catalogOpen.Store(true)
+	lake.BeforeClose = func() { catalogOpen.Store(false) }
+	slow := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		time.Sleep(20 * time.Millisecond)
+		if !catalogOpen.Load() {
+			t.Error("the scrape ran on after the catalog closed")
+		}
+		finished.Store(true)
+	})
+	serveMetrics(Env{Stdout: io.Discard, Stderr: io.Discard}, lake, ln, slow)
+	go func() { _, _ = http.Get("http://" + ln.Addr().String() + "/metrics") }()
+	<-started
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !finished.Load() {
+		t.Fatal("Close returned before the scrape's handler finished")
 	}
 }

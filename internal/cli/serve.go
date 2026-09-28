@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -263,7 +264,7 @@ func runServe(env Env, args []string) error {
 			lake.Close()
 			return err
 		}
-		serveMetrics(env, lake, mln, api.MetricsInfo{Version: strings.TrimPrefix(versionLine(), "terva-lampi "), Started: time.Now()})
+		serveMetrics(env, lake, mln, lake.MetricsHandler(api.MetricsInfo{Version: strings.TrimPrefix(versionLine(), "terva-lampi "), Started: time.Now()}))
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: metrics on %s/metrics\n", mln.Addr())
 	}
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: listening on %s\n", ln.Addr())
@@ -422,10 +423,25 @@ func checkMetricsAddr(addr string, public bool) error {
 	return nil
 }
 
-// serveMetrics serves the metrics handler on ln until the lake closes.
-// It stops before the catalog does, so no scrape reads a closed one.
-func serveMetrics(env Env, lake *api.Server, ln net.Listener, info api.MetricsInfo) {
-	srv := &http.Server{Handler: lake.MetricsHandler(info), ReadHeaderTimeout: 10 * time.Second}
+// metricsGrace is how long closing waits for scrapes to finish before
+// cancelling them. Tests shorten it.
+var metricsGrace = 5 * time.Second
+
+// serveMetrics serves h on ln until the lake closes.
+// Closing cancels scrapes still reading the catalog and waits for
+// their handlers, so none outlives the catalog.
+func serveMetrics(env Env, lake *api.Server, ln net.Listener, h http.Handler) {
+	base, cancel := context.WithCancel(context.Background())
+	var inflight sync.WaitGroup
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			inflight.Add(1)
+			defer inflight.Done()
+			h.ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return base },
+	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -435,12 +451,15 @@ func serveMetrics(env Env, lake *api.Server, ln net.Listener, info api.MetricsIn
 	}()
 	before := lake.BeforeClose
 	lake.BeforeClose = func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(ctx); err != nil {
+		shut, stop := context.WithTimeout(context.Background(), metricsGrace)
+		defer stop()
+		if err := srv.Shutdown(shut); err != nil {
+			cancel()
 			_ = srv.Close()
 		}
+		cancel()
 		<-done
+		inflight.Wait()
 		if before != nil {
 			before()
 		}
