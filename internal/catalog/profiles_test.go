@@ -161,6 +161,9 @@ func TestProfileWritesGuardedByRevision(t *testing.T) {
 	}
 	if got := ChangedProfileFields(p1.Config, p2.Config); strings.Join(got, ",") != "projects.allow,agent" {
 		t.Fatalf("changed %v", got)
+	}
+}
+
 func TestRecentProfileRevisions(t *testing.T) {
 	c, _ := openTemp(t)
 	ctx := t.Context()
