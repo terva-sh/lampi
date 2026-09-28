@@ -3,6 +3,7 @@ package cas
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -404,5 +405,37 @@ func TestBackupCopiesTheChunksARecordReadsThrough(t *testing.T) {
 	b := &Store{Root: dest}
 	if got, err := b.Read(dp); err != nil || !bytes.Equal(got, whole[:5]) {
 		t.Fatalf("backup read: %q %v", got, err)
+	}
+}
+
+// A chain that grew many times while the backup walked is closed link
+// by link, however long it is.
+func TestBackupClosesALongChain(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := []byte("line 0\n")
+	mustPut(t, s, file)
+	first := digestOf(file)
+	var versions [][]byte
+	versions = append(versions, file)
+	for i := 1; i <= 100; i++ {
+		file, _ = grow(t, s, file, fmt.Sprintf("line %d\n", i))
+		versions = append(versions, file)
+	}
+	dest := t.TempDir()
+	src, _ := s.logicalPath(first)
+	if _, err := copyIfMissing(src, filepath.Join(dest, "logical", first[:2], first[2:]), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.closeRecords(dest); err != nil {
+		t.Fatal(err)
+	}
+	b := &Store{Root: dest}
+	for _, v := range []int{0, 50, 100} {
+		if got, err := b.Read(digestOf(versions[v])); err != nil || !bytes.Equal(got, versions[v]) {
+			t.Fatalf("backup read of version %d: %v", v, err)
+		}
 	}
 }

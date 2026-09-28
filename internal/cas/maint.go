@@ -321,7 +321,10 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 // that is damaged rather than short is left for fsck.
 func (s *Store) closeRecords(dest string) (copied int, err error) {
 	d := &Store{Root: dest}
-	for pass := 0; pass < 64; pass++ {
+	// Each pass copies the next missing link of every entry, so a chain
+	// that grew many times during the walk takes as many passes. A pass
+	// that copies nothing new cannot be followed by one that does.
+	for {
 		want := map[string]bool{}
 		err := walkEntries(filepath.Join(dest, "logical"), func(_, digest string) error {
 			if digest == "" {
@@ -338,15 +341,19 @@ func (s *Store) closeRecords(dest string) (copied int, err error) {
 		if len(want) == 0 {
 			return copied, nil
 		}
+		progress := 0
 		for m := range want {
 			n, err := s.copyEntry(m, dest)
 			copied += n
+			progress += n
 			if err != nil {
 				return copied, err
 			}
 		}
+		if progress == 0 {
+			return copied, fmt.Errorf("cas: backup: logical entries in %s still stop short", dest)
+		}
 	}
-	return copied, fmt.Errorf("cas: backup: prefix records in %s still stop short", dest)
 }
 
 // firstMissing follows what base reads from, through prefix records and
