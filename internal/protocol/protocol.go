@@ -149,6 +149,10 @@ type HelloResponse struct {
 	MaxBlobBytes     int64     `json:"max_blob_bytes"`
 	LakeID           string    `json:"lake_id,omitempty"`
 	Proof            *Signed   `json:"proof,omitempty"`
+	// Release is the lake's terva-lampi release, such as v0.1.3; empty
+	// for a build that is not a release. An agent upgrades to it, so it
+	// is never ahead of its lake.
+	Release string `json:"release,omitempty"`
 }
 
 // HelloProof is the signed payload of HelloResponse.Proof.

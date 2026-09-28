@@ -136,6 +136,13 @@ func releaseVersion() (string, string) {
 	return v, c
 }
 
+// runningRelease is releaseVersion's version, behind a variable so a
+// test binary, which reports 0.0.0, can stand in for a release.
+var runningRelease = func() string {
+	v, _ := releaseVersion()
+	return v
+}
+
 // buildInfoVersion is the module version and short commit that go build
 // records. A release is built by goreleaser in a checkout at its tag
 // with nothing linked in, so the tag comes from here, as it does for
