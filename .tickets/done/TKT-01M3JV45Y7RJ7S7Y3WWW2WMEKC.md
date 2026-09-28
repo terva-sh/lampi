@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV45Y7RJ7S7Y3WWW2WMEKC
 title: "Lake storage: sample disk use by component and record growth"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/storage-samples
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 8fea3abdf6076b070ce78f94ae51a7130695ec9b
-  session: null
-  claimed_at: 2026-09-28T01:47:35Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T01:52:15Z
+updated_at: 2026-09-28T02:03:17Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -114,3 +107,25 @@ Decisions, with the alternatives each one beat:
 - **Export `cas.TempFile` instead of copying the prefix list.** An
   install temp file then counts as uploads in both places without the
   two lists drifting apart.
+
+## Summary
+
+Landed in PR #49. Serve now measures the lake directory's disk use:
+
+- at start, then hourly, off the request path
+- by component: cas, uploads, catalog, normalized, parquet, search,
+  audit, other
+- as allocated blocks, including directories; a symlinked lake root is
+  resolved, and nothing inside the lake is followed
+
+With each sample it records the filesystem's total and free bytes, and
+the referenced and unique artifact bytes, read from one snapshot.
+Samples live in `storage_samples` (catalog migration 10). Those older
+than 14 days are thinned to one per UTC day.
+
+Review rounds fixed:
+
+- the symlinked root
+- directory blocks
+- the Windows free-space path separator
+- the paired artifact queries
