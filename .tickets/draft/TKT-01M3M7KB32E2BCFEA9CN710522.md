@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:44:43Z
-updated_at: 2026-09-28T15:00:45Z
+updated_at: 2026-09-28T22:13:32Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -58,9 +58,9 @@ The device actions in TKT-01M3J5HXA (revoke, unbind, set profile) sit next to it
 
 ## Acceptance criteria
 
-- [ ] Operators edit every profile field from the dashboard
-- [ ] A profile change reaches agents within seconds
-- [ ] Each device page shows what the agent sees, per its inventory mode
+- [x] Operators edit every profile field from the dashboard
+- [x] A profile change reaches agents within seconds
+- [x] Each device page shows what the agent sees, per its inventory mode
 - [ ] Per-device overrides, when built, carry an operator note saying why
 
 ## Notes
@@ -68,3 +68,7 @@ The device actions in TKT-01M3J5HXA (revoke, unbind, set profile) sit next to it
 **agent:claude-code/2cf53976** at 2026-09-28T15:00:45Z
 
 Owner decisions 2026-09-28: (1) STRICT sends aggregate refused counts with no names, recorded on TKT-01M3M7M0PM. (2) Profiles enter the catalog only through an explicit 'serve profiles import', and a leftover profiles.json is ignored loudly, recorded on TKT-01M3M7M0WC. (3) Per-device overrides, when designed, carry an operator note so the operator remembers why they chose it. Profile revisions get the same optional note now, so the device layer can reuse it.
+
+**agent:claude-code/2cf53976** at 2026-09-28T22:13:32Z
+
+Every child is done once #106-#110 merge: the policy, heartbeat, catalog profiles, push, profile editor, inventory report (TKT-01M3M7M0TH) and device page with Allow (TKT-01M3M7M11S). The first three criteria are met. The fourth, the operator note on per-device overrides, waits on the overrides themselves, which the owner deferred and which no ticket tracks yet. Whether to close this epic with that criterion open, or to file the overrides as a new ticket and move the criterion there, is the owner's call.

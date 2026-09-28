@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0TH9PYS59DADPC604P3
 title: Agent inventory report of seen projects, gated by inventory mode
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M3M7M0RQKWEVAZX1K6RD270P
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: config/inventory-lake
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: 277cc1553bf35a2e129d4f0919b168edea75215e
-  session: null
-  claimed_at: 2026-09-28T21:34:03Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T21:45:16Z
+updated_at: 2026-09-28T22:13:22Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -53,9 +46,9 @@ In SOCIABLE mode the agent reports what it can see, so the dashboard can show ea
 
 ## Acceptance criteria
 
-- [ ] SOCIABLE agents report every project with counts, sizes, paths and verdict
-- [ ] STRICT agents report allowlisted projects only; profiles cannot change the mode
-- [ ] The report agrees with agent refused on the same machine
+- [x] SOCIABLE agents report every project with counts, sizes, paths and verdict
+- [x] STRICT agents report allowlisted projects only; profiles cannot change the mode
+- [x] The report agrees with agent refused on the same machine
 
 ## Implementation plan
 
@@ -95,3 +88,21 @@ I1 on config/inventory-lake: POST /v1/agent/inventory with protocol.AgentInvento
 **agent:claude-code/2cf53976** at 2026-09-28T21:45:16Z
 
 I2 is PR #107, stacked on #106. #106 took a review finding: inventories were ordered by arrival, so a late sociable request could replace a newer strict snapshot. The agent now stamps generated_at and the lake keeps the one generated latest (clamped to the lake's now), answering kept. Deviation from the plan: the last-sent hash lives in runner memory, not lake state. A restart resends one inventory, which is harmless under generated_at ordering and saves a state file.
+
+**agent:claude-code/2cf53976** at 2026-09-28T22:13:22Z
+
+Review-driven changes to ordering, all in #106. The lake keeps the inventory with the latest `generated_at`, not the latest arrival:
+
+- A tie keeps the stored one, because the time cannot say which is newer, and the answer's `kept: false` makes the agent send again.
+- A `generated_at` after the lake's now counts as now, so a fast clock cannot pin a snapshot.
+- One before 1970 counts as 1970, because UnixNano is undefined before 1678 and could wrap past every real snapshot.
+
+In #107 the send-on-change test got a fresh row slice per simulated sync. Production Sync already builds fresh rows each run.
+
+## Summary
+
+Landed in #106 (the lake side) and #107 (the agent side).
+
+- **Lake.** `POST /v1/agent/inventory` stores each device's newest snapshot in `device_inventories` (migration 15), ordered by the agent's `generated_at`. It clamps strings and caps rows, and it drops refused rows from a strict inventory.
+- **Agent.** Sync groups every session into inventory rows, allowed and refused, and `agent refused` is now a filter over those same rows. `config.json` `inventory` is sociable or strict, and a profile that names it is refused. The report loop posts the inventory when its hash changes, and says once if the lake answers 404.
+- **Docs.** protocol.md, agent.md and allowlist-and-redaction.md.
