@@ -8,7 +8,7 @@ status_reason: null
 priority: low
 due_on: null
 labels:
-  - area/cli
+  - area/ops
 assignees: []
 milestone: null
 parent: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:01:47Z
-updated_at: 2026-09-28T14:01:47Z
+updated_at: 2026-09-28T14:14:21Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
