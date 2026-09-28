@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3KA702JPYHHZWAFA8BE5RK3
 title: "serve normalize --status: local normalization view"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3KA70114Q6WFTAAKN5NKG2M
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/normalize-status-cli
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 5973a320865c2f381b090c1fc7eddc8515f154bd
-  session: null
-  claimed_at: 2026-09-28T06:23:21Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T06:11:10Z
-updated_at: 2026-09-28T06:23:21Z
+updated_at: 2026-09-28T06:43:37Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -78,3 +71,10 @@ device token.
 and retrying fields are 0, because they belong to a serve process and
 this command does not ask one; the usage says so. `--status` refuses
 selectors and `--dry-run`, and `--json` needs `--status`.
+
+## Summary
+
+Landed in #60 and deployed on the hosted lake at 2e9459c. On
+2026-09-28 it printed ready=93 with 0 outstanding, run as the service
+user. Two review rounds; one finding was fixed: the job-table count is
+called outstanding rather than waiting.
