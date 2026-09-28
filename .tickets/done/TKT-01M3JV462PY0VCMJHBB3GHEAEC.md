@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3JV462PY0VCMJHBB3GHEAEC
 title: "Web: dark theme following the system, with a toggle"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/dark-theme
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: c1515832c43cda466c3a488175c6a0c6453f5b7e
-  session: null
-  claimed_at: 2026-09-28T02:09:42Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:41:14Z
+updated_at: 2026-09-28T02:44:51Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -97,3 +90,17 @@ Review of PR #51 found the header overflowing on narrow screens. Measured in hea
 **agent:claude-code/e4a47e8c** at 2026-09-28T02:41:14Z
 
 Supersedes the previous note's fix. The second review of #51 pointed at tablet widths, and measuring showed the one-row header needs about 1215px: the page was 1040 to 1214px wide at viewports from 651 to 1200px. The nav now takes its own scrolling row below 1240px, at every width rather than only on phones. Measured page width equals viewport width at 320, 375, 650, 700, 900, 1100, 1240, 1241, 1280 and 1440.
+
+## Summary
+
+Landed in PR #51.
+
+- Every colour in lake.css is now a token.
+- The dark set follows `prefers-color-scheme`. A header toggle (system,
+  light, dark) is remembered in localStorage and applied before paint
+  by a blocking `theme.js`, with the CSP unchanged.
+- A contrast test holds both themes to WCAG AA. It led to darkening the
+  light theme's muted text.
+- Review found the header overflowing. Measurement showed the one-row
+  header needs about 1215px, so below 1240px the nav now takes its own
+  scrolling row. Checked from 320 to 1440px.
