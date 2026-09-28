@@ -8,8 +8,8 @@ status_reason: null
 priority: low
 due_on: null
 labels:
-  - area/web
   - area/server
+  - area/ops
 assignees: []
 milestone: null
 parent: TKT-01M3K45MQBRESGG5HEZZSZ3FDQ
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T06:45:42Z
-updated_at: 2026-09-28T06:45:42Z
+updated_at: 2026-09-28T14:14:21Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
