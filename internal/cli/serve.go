@@ -271,7 +271,7 @@ func runServe(env Env, args []string) error {
 		lake.Release = lakeRelease()
 	}
 	if webCfg != nil {
-		if err := startWeb(*webCfg, data, lake); err != nil {
+		if err := startWeb(*webCfg, data, profilesFile, lake); err != nil {
 			lake.Close()
 			return err
 		}
@@ -663,7 +663,7 @@ func listenLoopback(addr string) (bool, error) {
 // behind it. The index follows publication through OnPublished and
 // stops in BeforeClose, before the catalog closes. Without web config
 // nothing reads the index, so it is neither built nor kept.
-func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
+func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server) error {
 	reader := recall.NewReader(lake.Catalog, lake.Normalized)
 	index, err := recall.OpenIndex(filepath.Join(data, recall.IndexFile), reader)
 	if err != nil {
@@ -699,6 +699,9 @@ func startWeb(cfg webconfig.Config, data string, lake *api.Server) error {
 			return ""
 		},
 		Contacts: lake.Contacts,
+		IgnoredProfiles: func() []web.IgnoredProfiles {
+			return ignoredProfilesFiles(data, profilesFile)
+		},
 	}
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
 	return err

@@ -94,6 +94,18 @@ func scanProfile(row interface{ Scan(...any) error }) (Profile, error) {
 	return p, nil
 }
 
+// Profile is the stored profile called name, or ErrNoProfile.
+func (c *Catalog) Profile(ctx context.Context, name string) (Profile, error) {
+	p, err := scanProfile(c.db.QueryRowContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE name=?`, name))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Profile{}, fmt.Errorf("%w: %s", ErrNoProfile, name)
+	}
+	if err != nil {
+		return Profile{}, fmt.Errorf("catalog: %w", err)
+	}
+	return p, nil
+}
+
 // Profiles lists every profile by name.
 func (c *Catalog) Profiles(ctx context.Context) ([]Profile, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT `+profileCols+` FROM profiles ORDER BY name`)

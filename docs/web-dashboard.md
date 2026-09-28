@@ -343,6 +343,30 @@ it made.
 The data comes from the agents' reports. See
 [protocol.md](protocol.md#post-v1agentreport).
 
+## Profiles
+
+`/profiles` lists the lake's profiles, the default first. Each shows its
+version, the revision that saved it, who saved it and when, and how many
+active devices fetch it. A default no one has saved is listed as not saved
+yet; the lake serves it empty.
+
+`/profiles/NAME` shows what the profile sends to agents:
+
+- **Allow** and **Deny** rules, with every field a rule can set:
+  `cwd_prefix`, `git_remote`, `git_remote_prefix` and `cwd_hash`. Every
+  field set on a rule must match.
+- **Harnesses** it turns on or off. One it does not set keeps the agent's
+  own setting.
+- **Agent** `debounce` and `debounce_max`.
+- **Devices** that fetch it. A device whose `config.json` sets its own allow
+  rules is marked, since this profile's allow rules do not reach it.
+- **Revisions**, newest first, with who saved each and the note they left.
+
+The full document is under a disclosure at the foot of the page. While a
+`profiles.json` sits in the lake directory, or serve was started with
+`--profiles`, both pages show a banner. The file is not read, and the
+banner gives the `serve profiles import` command that brings it in.
+
 ## Search index
 
 With web configuration, serve keeps a full-text index of normalized event text

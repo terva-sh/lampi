@@ -17,6 +17,7 @@ import (
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/web"
 )
 
 const profilesUsage = `terva-lampi serve profiles — manage the profiles agents fetch
@@ -267,6 +268,15 @@ func importProfiles(ctx context.Context, env Env, cat *catalog.Catalog, path, ac
 // serve calls it at start and on each SIGHUP, the moments an operator
 // who edited the file expects it to apply.
 func warnProfilesFile(env Env, data, flagPath string) {
+	for _, f := range ignoredProfilesFiles(data, flagPath) {
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: WARNING: %s is NOT in force. Profiles live in the catalog, and serve does not read this file. Run: %s\n", f.Path, f.Import)
+	}
+}
+
+// ignoredProfilesFiles is each profiles file serve would once have read:
+// the --profiles path, and profiles.json in the lake directory while it
+// exists. The dashboard shows the same list.
+func ignoredProfilesFiles(data, flagPath string) []web.IgnoredProfiles {
 	var paths []string
 	if flagPath != "" {
 		paths = append(paths, flagPath)
@@ -275,9 +285,11 @@ func warnProfilesFile(env Env, data, flagPath string) {
 	if _, err := os.Stat(def); err == nil && def != flagPath {
 		paths = append(paths, def)
 	}
+	out := make([]web.IgnoredProfiles, 0, len(paths))
 	for _, p := range paths {
-		fmt.Fprintf(env.stderr(), "terva-lampi serve: WARNING: %s is NOT in force. Profiles live in the catalog, and serve does not read this file. Run: terva-lampi serve profiles import %s --data %s\n", p, shellQuote(p), shellQuote(data))
+		out = append(out, web.IgnoredProfiles{Path: p, Import: "terva-lampi serve profiles import " + shellQuote(p) + " --data " + shellQuote(data)})
 	}
+	return out
 }
 
 // shellQuote makes s one POSIX shell word, so a suggested command
