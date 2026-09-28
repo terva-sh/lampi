@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T23:16:51Z
+updated_at: 2026-09-28T23:18:14Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -194,3 +194,19 @@ v0.2.0-rc2 at 3cadf74, with the #113 verify fix. GitHub release run 36495897095 
   - All three version checks match the tag as a whole word.
   - A local goreleaser run at 3cadf74 with the pin built `terva-lampi_0.2.0_linux_amd64.tar.gz`.
 - **Open.** The v0.2.0 tag still points at 3cadf74, which has the old workflow, so a re-run fails the same way. Fixing that needs the owner's decision: move the tag, or release v0.2.1. The Forgejo v0.2.0 release has to go in either case.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:18:14Z
+
+### Decision (owner, 2026-09-28): move the v0.2.0 tag
+
+The owner chose to rewrite the v0.2.0 tag rather than skip to v0.2.1. After #114 merges:
+
+1. Delete the Forgejo `v0.2.0` release. Its archives are misnamed `0.2.0-rc2`.
+2. Delete the `v0.2.0` tag on Forgejo and on GitHub, and locally.
+3. Tag `v0.2.0` on the #114 merge commit and push it to both forges.
+
+Why it's safe: the tag had existed for about 10 minutes when this was decided, and GitHub never published a release or an image for it. Forgejo's release is the only artifact.
+
+Rejected: releasing v0.2.1 and leaving v0.2.0 as a tag with no GitHub release. That avoids the rewrite, but it leaves a hole in the version history and still needs the Forgejo release deleted.
+
+The `v0.2.0-rc1` and `v0.2.0-rc2` tags and releases stay as they are.
