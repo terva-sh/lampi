@@ -418,6 +418,53 @@ The body cap is 64 KiB. The lake cuts each string to 256 bytes, and
 answer is `{"received_at": "…"}`. A lake with no device tokens takes
 any report, as it takes any upload, and keeps nothing.
 
+## POST /v1/agent/inventory
+
+The calling device's inventory: the projects its harnesses hold, as far
+as its inventory mode allows. [policy.md](policy.md#off-box-metadata-the-inventory-report)
+records the modes and why. An agent sends one when its inventory
+changes, not on every sync.
+
+```json
+{
+  "mode": "sociable",
+  "generated_at": "2026-09-28T14:41:10Z",
+  "refused_sessions": 221,
+  "refused_bytes": 9437184,
+  "projects": [
+    {"git_remote": "github.com/acme/app", "cwd": "/home/me/src/app", "cwds": 2,
+     "cwd_hash": "8427a42989cbc15f", "harnesses": ["claude"], "sessions": 12,
+     "bytes": 409600, "newest": "2026-09-28T14:40:02Z", "allowed": true},
+    {"cwd": "/home/me/scratch", "cwds": 1, "harnesses": ["codex"], "sessions": 221,
+     "bytes": 9437184, "allowed": false, "reason": "no allow rule matches"}
+  ]
+}
+```
+
+- `mode` is `sociable` or `strict`; anything else is `400`.
+- `generated_at` is when the agent took the snapshot, by its own clock,
+  and is required.
+- A project is grouped as `agent refused` groups it: by the folded git
+  remote when there is one, else by cwd, and apart by verdict and
+  reason. `cwd` is one checkout and `cwds` counts them.
+- `refused_sessions` and `refused_bytes` total the refused sessions. In
+  strict mode they are all the lake learns about them: a strict agent
+  lists allowed projects only, and the lake drops any refused row a
+  strict inventory carries.
+- At most 2000 projects. The lake keeps the first 2000 and sets
+  `truncated`, as an agent with more does. The body is capped at 2 MiB,
+  a cwd or remote at 1 KiB.
+
+The lake keeps only each device's newest inventory, ordered by
+`generated_at` rather than by arrival, so a request that lands after a
+newer snapshot's does not replace it, nor does one generated at the
+same instant. A `generated_at` later than the
+lake's clock counts as the lake's now, so an agent whose clock runs
+ahead does not hold off the snapshots after it. The answer is
+`{"received_at": "...", "kept": true}`, and `kept` is false when the
+lake already held a snapshot generated later. A lake with no device tokens answers the same
+and keeps nothing. A lake from before the inventory answers `404`.
+
 ## POST /v1/blobs/check
 
 Request body is a JSON array of lowercase sha256 hex digests, not an object.

@@ -249,6 +249,71 @@ type AgentReport struct {
 	LastErrorAt time.Time `json:"last_error_at,omitzero"`
 }
 
+// AgentInventoryPath takes the calling device's inventory: the projects
+// its harnesses hold, as far as its inventory mode allows. An agent
+// sends it when it changes, not on every sync. See docs/policy.md.
+const AgentInventoryPath = "/v1/agent/inventory"
+
+// Inventory modes, set in the agent's config.json and never by a lake.
+const (
+	// InventorySociable reports every project, allowed or refused.
+	InventorySociable = "sociable"
+	// InventoryStrict reports allowlisted projects only, and refused
+	// sessions as totals with no name, path, remote or hash.
+	InventoryStrict = "strict"
+)
+
+// MaxInventoryProjects caps the projects one inventory lists. An agent
+// with more sends the ones with the most sessions and sets Truncated.
+const MaxInventoryProjects = 2000
+
+// AgentInventory is the body of POST AgentInventoryPath.
+type AgentInventory struct {
+	Mode string `json:"mode"`
+	// GeneratedAt is when the agent took the snapshot, by its clock. The
+	// lake orders one device's inventories by it, so a request that
+	// lands late does not replace a newer snapshot. Required.
+	GeneratedAt time.Time          `json:"generated_at"`
+	Projects    []InventoryProject `json:"projects"`
+	// RefusedSessions and RefusedBytes total the sessions the allowlist
+	// refuses. In strict mode they are all the lake learns of them.
+	RefusedSessions int   `json:"refused_sessions"`
+	RefusedBytes    int64 `json:"refused_bytes"`
+	// Truncated is set when projects were left out to stay under
+	// MaxInventoryProjects.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// InventoryProject is one project on the machine, grouped as agent
+// refused groups them: by folded git remote when there is one, since
+// allow rules name repositories, and otherwise by cwd, and apart by
+// verdict and reason.
+type InventoryProject struct {
+	// GitRemote is folded as NormalizeRemote folds it.
+	GitRemote string `json:"git_remote,omitempty"`
+	// CWD is one checkout, the first by name; CWDs counts them.
+	CWD       string   `json:"cwd,omitempty"`
+	CWDs      int      `json:"cwds"`
+	CWDHash   string   `json:"cwd_hash,omitempty"`
+	Harnesses []string `json:"harnesses"`
+	Sessions  int      `json:"sessions"`
+	// Bytes sums the sessions' artifact sizes; Newest is the newest
+	// artifact's modification time.
+	Bytes   int64     `json:"bytes"`
+	Newest  time.Time `json:"newest,omitzero"`
+	Allowed bool      `json:"allowed"`
+	// Reason is agent refused's reason for a refused project.
+	Reason string `json:"reason,omitempty"`
+}
+
+// AgentInventoryResponse answers POST AgentInventoryPath.
+type AgentInventoryResponse struct {
+	ReceivedAt time.Time `json:"received_at"`
+	// Kept is false when the lake already holds a snapshot generated
+	// later, and kept that one.
+	Kept bool `json:"kept"`
+}
+
 // AgentReportResponse answers POST AgentReportPath. ReceivedAt is the
 // lake's clock when it stored the report.
 type AgentReportResponse struct {
