@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T22:57:23Z
+updated_at: 2026-09-28T22:57:34Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -67,7 +67,7 @@ The release workflow runs `go test ./...` before it publishes. Three tests are k
 - [ ] v0.2.0-rc1 published archives and a two-platform image that passed the checks
 - [ ] The GHCR package is public and pulls without a login
 - [ ] v0.2.0 is tagged on both forges with the notes attached
-- [ ] A v0.1.2 lake upgraded to the rc image and its agents still sync
+- [x] A v0.1.2 lake upgraded to the rc image and its agents still sync
 - [x] Release notes state the schema 11 to 15 migration, its rollback, and lake-before-agents
 
 ## Implementation plan
