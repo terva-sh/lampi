@@ -358,7 +358,10 @@ Needs the device token. The agent's heartbeat: what it runs, which lake
 profile it applied, and what its last sync did. The lake stores it as
 the calling device's newest report and replaces the one before. The
 time it was received is the device's last contact, and it survives a
-restart of `serve`.
+restart of `serve`. A running agent reports to each lake once it may
+push, after each sync, and every five minutes in between. A lake that
+answers 404, one from before reports, is named once in the agent's log
+and asked again at each interval.
 
 ```json
 {
@@ -380,8 +383,9 @@ restart of `serve`.
 
 Every field is optional. `inventory` is the agent's inventory mode,
 `sociable` or `strict`, and is empty from an agent without the inventory
-report. `allow_source` and `deny_source` are the values `agent config`
-prints. A lake's allow rules do not apply to a device whose
+report. `allow_source` and `deny_source` say where the project rules
+came from: `local`, `lake NAME`, both joined by `+`, or `none`; `agent
+config` prints them with a colon for the space. A lake's allow rules do not apply to a device whose
 `allow_source` is `local`. `last_error` is the newest failed sync's
 error and is empty after a sync succeeds.
 

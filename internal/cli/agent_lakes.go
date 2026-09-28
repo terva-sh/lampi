@@ -86,6 +86,11 @@ func (s *lakeSet) launch(l agentLake) {
 		defer cancel()
 		r.run(ctx)
 	}()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		watchReports(ctx, r, reportEvery)
+	}()
 	// A pinned lake's profile is fetched while the lake runs, and the
 	// lake does not push until the first fetch has answered. Its loop
 	// is not part of done: a profile that changes asks for a reload,
