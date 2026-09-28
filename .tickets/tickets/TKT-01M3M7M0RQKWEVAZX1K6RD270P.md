@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:12:28Z
+updated_at: 2026-09-28T15:18:20Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -54,3 +54,23 @@ Agents tell the lake they are alive and what their last sync did. Today the lake
 - [ ] Agents report after each sync and periodically when idle
 - [ ] The lake stores last_seen and the newest report per device durably
 - [ ] The operations Machines table reads last contact from the catalog
+
+## Implementation plan
+
+Three PRs, each stacked on the one before.
+
+1. **Lake side** (`config/heartbeat-catalog`):
+   - `protocol.AgentReport` and `POST /v1/agent/report`.
+   - A `device_reports` table (migration 12) holding one row per device: `received_at` and the report as JSON. Each report replaces the previous one.
+   - The handler clamps every string field and does not keep unknown fields.
+2. **Agent side:**
+   - `upload.PostReport` in `transport.go`.
+   - The report goes out after each sync (`lakeRunner.run`, after `runAgentSync`) and on a 5-minute idle ticker started beside `watchProfile`.
+   - `LastSync` gains `unchanged`. The last error and its time are kept in the runner and cleared by a successful sync.
+   - The applied profile comes from `lakeprofile.Load`, and the sources from `Lake.AllowFrom` and `DenyFrom()`.
+3. **Readers:**
+   - The operations Machines table and the `lampi_device_last_contact_timestamp_seconds` gauge show the newer of the in-memory contact and the catalog's `received_at`.
+
+The report is stored as JSON rather than in columns so the report can grow new fields (the inventory mode, and the applied version for push) without a migration each time.
+
+`last_seen` is written only when a report arrives, not on every authenticated request. A write on every request would add a catalog write to every blob upload. The in-memory contact still covers the time between reports.
