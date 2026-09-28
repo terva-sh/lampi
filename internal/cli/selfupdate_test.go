@@ -306,3 +306,40 @@ func TestSelfUpdateBoundsTheSmokeTest(t *testing.T) {
 		t.Fatal("a hung binary replaced the old one")
 	}
 }
+
+func TestSelfUpdateKeepsTheOldBinaryWhenPrevCannotBeWritten(t *testing.T) {
+	rel := fakeReleases(t, "v0.3.0", map[string]string{"v0.3.0": "v0.3.0"}, "")
+	rig := newSelfUpdateRig(t, "v0.1.3", rel, "", true)
+	// A non-empty directory where .prev goes cannot be renamed over.
+	if err := os.MkdirAll(filepath.Join(rig.exe+".prev", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := rig.run("--no-restart")
+	if err == nil || !strings.Contains(err.Error(), "it is at ") {
+		t.Fatalf("prev not writable: %v", err)
+	}
+	side := err.Error()[strings.LastIndex(err.Error(), "it is at ")+len("it is at "):]
+	if got, _ := os.ReadFile(side); string(got) != "old binary" {
+		t.Fatalf("the old binary is not at %s: %q", side, got)
+	}
+}
+
+func TestSelfUpdateDoesNotStartAStoppedLaunchdAgent(t *testing.T) {
+	rel := fakeReleases(t, "v0.3.0", map[string]string{"v0.3.0": "v0.3.0"}, "")
+	for state, restarts := range map[string]bool{"running": true, "not running": false} {
+		rig := newSelfUpdateRig(t, "v0.1.3", rel, "", true)
+		serviceGOOS = "darwin"
+		runCommand = func(name string, args ...string) ([]byte, error) {
+			cmd := name + " " + strings.Join(args, " ")
+			rig.commands = append(rig.commands, cmd)
+			return []byte("gui/501/sh.terva.lampi.agent = {\n\tactive count = 1\n\tstate = " + state + "\n}\n"), nil
+		}
+		if err := rig.run(); err != nil {
+			t.Fatalf("%s: %v", state, err)
+		}
+		kicked := strings.Contains(strings.Join(rig.commands, "\n"), "kickstart")
+		if kicked != restarts {
+			t.Fatalf("%s: kickstart=%v, commands %v", state, kicked, rig.commands)
+		}
+	}
+}

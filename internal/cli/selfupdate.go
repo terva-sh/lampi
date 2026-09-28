@@ -424,9 +424,11 @@ func replaceBinary(target string, bin []byte, want release.Version) error {
 	// The old binary goes to a side name first. An existing .prev is
 	// replaced only once the new binary is in place, so a failed swap
 	// leaves both the binary and the last rollback copy as they were.
+	//
+	// side is removed only where another copy of the old binary is
+	// known to exist; on every other failure it is kept and named.
 	prev := target + ".prev"
 	side := stage + ".prev"
-	defer os.Remove(side)
 	if runtime.GOOS == "windows" {
 		if err := os.Rename(target, side); err != nil {
 			return fmt.Errorf("cannot move the running binary aside: %w", err)
@@ -435,15 +437,28 @@ func replaceBinary(target string, bin []byte, want release.Version) error {
 		return fmt.Errorf("cannot keep the old binary as %s: %w; nothing was replaced", prev, err)
 	}
 	if err := os.Rename(stage, target); err != nil {
-		if runtime.GOOS == "windows" {
-			os.Rename(side, target)
+		if runtime.GOOS != "windows" {
+			// side is a second link; target still holds the old binary.
+			os.Remove(side)
+		} else if rerr := os.Rename(side, target); rerr != nil {
+			return fmt.Errorf("cannot replace %s: %w, and cannot move the old binary back: %v; it is at %s", target, err, rerr, side)
 		}
 		return fmt.Errorf("cannot replace %s: %w; self-update does not use sudo, so run it as the user who owns it", target, err)
 	}
 	if err := os.Rename(side, prev); err != nil {
-		return fmt.Errorf("updated %s, but could not keep the old binary as %s: %w", target, prev, err)
+		return fmt.Errorf("updated %s, but could not keep the old binary as %s: %w; it is at %s", target, prev, err, side)
 	}
 	return nil
+}
+
+// launchdRunning reads launchctl print's "state = running" line.
+func launchdRunning(out []byte) bool {
+	for _, line := range strings.Split(string(out), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok && strings.TrimSpace(k) == "state" {
+			return strings.TrimSpace(v) == "running"
+		}
+	}
+	return false
 }
 
 // restartAgentService restarts the agent's user service if one is
@@ -463,8 +478,11 @@ func restartAgentService(env Env) error {
 		name, args = "systemctl", []string{"--user", "restart", systemdUnitName}
 	case "darwin":
 		svc := "gui/" + strconv.Itoa(os.Getuid()) + "/" + launchdLabel
-		if _, err := runCommand("launchctl", "print", svc); err != nil {
-			fmt.Fprintln(env.stdout(), "no loaded terva-lampi agent service; restart any agent you run yourself")
+		// print succeeds for a loaded agent whether or not it runs, and
+		// kickstart would start a stopped one; its state line says.
+		out, err := runCommand("launchctl", "print", svc)
+		if err != nil || !launchdRunning(out) {
+			fmt.Fprintln(env.stdout(), "no running terva-lampi agent service; restart any agent you run yourself")
 			return nil
 		}
 		name, args = "launchctl", []string{"kickstart", "-k", svc}
