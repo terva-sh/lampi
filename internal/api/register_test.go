@@ -398,3 +398,32 @@ func TestRedemptionAuditSurvivesAnUnwritableLog(t *testing.T) {
 		t.Fatalf("still queued: %d", n)
 	}
 }
+
+// Lines that record no catalog change go through the outbox too, so one
+// written while the log was broken lands before a later one.
+func TestRefusalsKeepTheirOrderAcrossAnUnwritableLog(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(audit.Path(dir)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// First a malformed token, then a malformed machine id.
+	postRegister(t, s, protocol.RegisterRequest{Secret: strings.Repeat("x", 43), TokenSHA256: "short", MachineID: "m"})
+	if err := os.Remove(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	postRegister(t, s, protocol.RegisterRequest{Secret: strings.Repeat("x", 43), TokenSHA256: strings.Repeat("1", 64), MachineID: ""})
+	raw, err := os.ReadFile(audit.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, second := strings.Index(string(raw), "malformed token_sha256"), strings.Index(string(raw), "malformed machine_id")
+	if first < 0 || second < 0 || first > second {
+		t.Fatalf("refusals missing or out of order:\n%s", raw)
+	}
+}

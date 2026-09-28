@@ -61,30 +61,32 @@ func (s *Server) RecordDevices(ctx context.Context, set *auth.Devices) error {
 	return nil
 }
 
-// audit appends e to the lake's audit log. A lake opened without a data
-// directory, as some tests do, keeps none. A write that fails is logged
-// and does not fail the request: the change it records has happened.
+// audit writes e, an event that records no catalog change, to the
+// lake's audit log. It goes through the catalog's outbox behind the
+// events queued before it, so the log keeps the order they happened in
+// and a line that cannot be written now is written later. A lake opened
+// without a data directory, as some tests do, keeps none. A failure is
+// logged and does not fail the request.
 func (s *Server) audit(e audit.Event) {
 	if s.dataDir == "" {
 		return
 	}
-	// Queued lines go first, so the log keeps its order.
-	s.flushAudit()
 	if e.Actor == "" {
 		e.Actor = "serve"
 	}
 	if e.Time.IsZero() {
 		e.Time = s.now()
 	}
-	if err := audit.Append(s.dataDir, e); err != nil {
-		s.logger().Error("audit", "err", err)
+	if err := s.Catalog.QueueAudit(context.Background(), e.Time, e); err != nil {
+		s.logger().Error("audit: queueing", "kind", e.Kind, "err", err)
+		return
 	}
+	s.flushAudit()
 }
 
-// flushAudit appends the audit events catalog changes queued. One that
-// cannot be written stays queued, is logged, and is tried again on the
-// next flush: after the next change, before the next direct line, and
-// when serve starts.
+// flushAudit appends the queued audit events. One that cannot be
+// written stays queued, is logged, and is tried again on the next
+// flush: after the next change or event, and when serve starts.
 func (s *Server) flushAudit() {
 	if s.dataDir == "" {
 		return

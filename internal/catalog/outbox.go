@@ -42,6 +42,24 @@ func queueAudit(ctx context.Context, tx *sql.Tx, now time.Time, events ...audit.
 	return nil
 }
 
+// QueueAudit adds events to the outbox on their own, for an event that
+// records no catalog change, so it reaches the log in order with the
+// events queued before it.
+func (c *Catalog) QueueAudit(ctx context.Context, now time.Time, events ...audit.Event) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	if err := queueAudit(ctx, tx, now, events...); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return nil
+}
+
 // FlushAudit appends the queued audit events to audit.jsonl in dir, in
 // the order they were queued, removing each once it is written. It stops
 // at the first append that fails and returns that error; the rest stay
