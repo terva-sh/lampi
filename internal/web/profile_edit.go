@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -232,7 +233,7 @@ func cleanNote(s string) (string, bool) {
 		}
 		return r
 	}, s))
-	return s, len(s) <= maxProfileNote
+	return s, utf8.RuneCountInString(s) <= maxProfileNote
 }
 
 // lineDiff is the line diff of a and b by longest common subsequence.
@@ -559,19 +560,22 @@ func (s *Server) profileDeletePage(w http.ResponseWriter, r *http.Request) {
 		s.renderProfiles(w, r, "The profile is deleted, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.", status)
 		return
 	}
-	cur, rev, stored, cerr := s.currentProfile(r, name)
-	if cerr != nil {
-		pageError(w, r, cerr)
-		return
-	}
 	msg := profileProblems[code]
-	if code == "changed" {
-		msg = "Someone saved this profile after you opened it. Review it below before deleting."
-	}
-	if code == "invalid_note" {
+	switch code {
+	case "changed":
+		msg = "Someone saved or deleted this profile after you opened it. Nothing was deleted; review it below and delete again."
+	case "invalid_note":
 		msg = fmt.Sprintf("A note is at most %d characters.", maxProfileNote)
 	}
-	s.renderEditor(w, r, profileEditView{Name: name, Stored: stored, Problem: msg, Form: formOf(cur, rev)}, status)
+	if code == "changed" || code == "not_found" {
+		if _, _, stored, err := s.currentProfile(r, name); err == nil && !stored {
+			// Someone else deleted it: there is no profile page to show.
+			s.renderProfiles(w, r, "That profile was already deleted.", status)
+			return
+		}
+	}
+	// The profile's page, as it is now, holds the delete form to retry.
+	s.renderProfile(w, r, name, msg, status)
 }
 
 // profileWrite is the body of PUT and DELETE on a profile.

@@ -281,6 +281,28 @@ func TestProfileEditorEdges(t *testing.T) {
 		t.Fatalf("delete after a delete: %d %s", w.Code, w.Body)
 	}
 
+	// A refused delete shows the profile's page, which holds the form to
+	// try again, and a note counts characters, not bytes.
+	used, _, err := lake.Catalog.PutProfile(ctx, "used", []byte(`{}`), "op", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{{Hash: strings.Repeat("c", 64), Name: "box"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.SetDeviceProfile(ctx, "box", "used", "used", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	note := strings.Repeat("é", 300)
+	w = postForm(h, "/profiles/used/delete", url.Values{"csrf": {csrf}, "base": {strconvI(used.Revision)}, "note": {note}}, cookie)
+	if b := w.Body.String(); w.Code != 409 || !strings.Contains(b, "Devices still use this profile") || !strings.Contains(b, `action="/profiles/used/delete"`) {
+		t.Fatalf("delete in use: %d", w.Code)
+	}
+	w = postForm(h, "/profiles/used/delete", url.Values{"csrf": {csrf}, "base": {"1"}}, cookie)
+	if b := w.Body.String(); w.Code != 409 || !strings.Contains(b, "Nothing was deleted") || !strings.Contains(b, `name="base" value="`+strconvI(used.Revision)+`"`) {
+		t.Fatalf("stale delete: %d", w.Code)
+	}
+
 	// A delete whose audit line cannot be written stands, and says so.
 	q, _, err := lake.Catalog.PutProfile(ctx, "quiet", []byte(`{}`), "op", "", time.Now())
 	if err != nil {

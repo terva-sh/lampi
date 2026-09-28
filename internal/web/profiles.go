@@ -98,6 +98,7 @@ type profileView struct {
 	Ignored    []IgnoredProfiles     `json:"ignored_files"`
 	Actions    bool                  `json:"-"`
 	CSRF       string                `json:"-"`
+	Problem    string                `json:"-"`
 }
 
 func (s *Server) ignoredProfiles() []IgnoredProfiles {
@@ -315,8 +316,30 @@ func (s *Server) profilePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
+	s.showProfile(w, r, v, "", http.StatusOK)
+}
+
+// renderProfile shows the profile called name with problem, after an
+// operator's action on it was refused.
+func (s *Server) renderProfile(w http.ResponseWriter, r *http.Request, name, problem string, status int) {
+	ctx, cancel := readContext(r)
+	defer cancel()
+	v, err := s.readProfile(ctx, name, s.now())
+	if errors.Is(err, catalog.ErrNoProfile) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	s.showProfile(w, r, v, problem, status)
+}
+
+func (s *Server) showProfile(w http.ResponseWriter, r *http.Request, v profileView, problem string, status int) {
 	v.Actions, v.CSRF = s.operatorForms(r)
-	render(w, r, pageData{Title: "Profile " + v.Name, View: "profile", AsOf: v.AsOf, Profile: v})
+	v.Problem = problem
+	renderStatus(w, r, pageData{Title: "Profile " + v.Name, View: "profile", AsOf: v.AsOf, Profile: v}, status)
 }
 
 func profileURL(name string) string { return "/profiles/" + url.PathEscape(name) }
