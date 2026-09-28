@@ -23,7 +23,7 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T18:26:29Z
+updated_at: 2026-09-28T18:49:58Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -144,6 +144,10 @@ Third terva-review on PR #82: the second round's findings were resolved. Two mor
 **agent:claude-code/aa1afd80** at 2026-09-28T18:26:29Z
 
 The fourth terva-review (run 5d07b632, head d0ad20c) repeated the third round's two findings with their old line numbers, and cited TestServeMigrateNeedsACatalog, which d0ad20c deleted. The PR diff Forgejo serves for #82 contains both fixes (the 'no catalog yet' path and syncFile(dest)). The owner chose to land over that stale verdict.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T18:49:58Z
+
+The image-level upgrade test this ticket left open was run under TKT-01M3MC0RT (Docs: run the lake from the container image, with a compose example): an image built from f50c57f (schema 11) upgraded to the current build (11 -> 14, with backup), was refused by the old image, then rolled back with the documented Alpine steps and started again on v11 with its identity and devices.
 
 ## Summary
 

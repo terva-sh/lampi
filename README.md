@@ -131,7 +131,8 @@ curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | sh
 [Registration and lakes](docs/registration-and-lakes.md) covers the
 lake's one-time setup, sending sessions to more than one lake, and the
 manual token fallback. To host the lake on a server with TLS and
-backups, follow [VPS bring-up](docs/vps-bringup.md).
+backups, follow [VPS bring-up](docs/vps-bringup.md), or [run it in a
+container](docs/container.md) with Docker Compose and Caddy.
 
 ## Browser dashboard
 
@@ -155,7 +156,7 @@ The [documentation index](docs/README.md) groups every page by task.
 | Try lampi on one machine | [Getting started](docs/getting-started.md) |
 | Decide which projects leave the machine | [Allowlist and redaction](docs/allowlist-and-redaction.md) |
 | Add machines, or report to several lakes | [Registration and lakes](docs/registration-and-lakes.md) |
-| Host a lake | [VPS bring-up](docs/vps-bringup.md) and [deploy/README.md](deploy/README.md) |
+| Host a lake | [VPS bring-up](docs/vps-bringup.md), [the container guide](docs/container.md), and [deploy/README.md](deploy/README.md) |
 | Turn on the dashboard | [Serving the dashboard](docs/web-dashboard.md) |
 | Look up a command or setting | [Command reference](docs/cli.md) |
 | Understand the design | [Architecture](docs/architecture.md) and [Capture protocol 1](docs/protocol.md) |
