@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M54QKN2MX0FY2D48JMVVJS
 title: Lake lock error blames a running serve for any failure
 type: bug
-status: draft
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:01:47Z
-updated_at: 2026-09-28T14:14:21Z
+updated_at: 2026-09-28T19:04:26Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -40,3 +40,7 @@ the lock could not be created. The hint names a running serve, which
 was stopped. The lock error should say which lake directory it tried
 and add the "stop serve first" hint only when the lock is held, not
 for any failure to create it.
+
+## Summary
+
+compact, migrate, purge and fsck --repair take the lock through cli.lockLake. Only a lock another process holds says to stop serve; any other failure names the lake directory it tried and says to pass --data, which is what the reported case (the service user's default directory under a home that does not exist) needed.

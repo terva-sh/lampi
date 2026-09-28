@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"terva.sh/lampi/internal/api"
-	"terva.sh/lampi/internal/lakelock"
 	"terva.sh/lampi/internal/recall"
 )
 
@@ -64,9 +63,9 @@ func runServePurge(env Env, args []string) error {
 	if data, err = lakeDir(env, data); err != nil {
 		return err
 	}
-	lock, err := lakelock.Acquire(data)
+	lock, err := lockLake("purge", data, "")
 	if err != nil {
-		return fmt.Errorf("purge: %w; stop serve first", err)
+		return err
 	}
 	defer lock.Release()
 	lake, err := api.OpenIdle(data)
