@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:03:43Z
-updated_at: 2026-09-28T16:03:43Z
+updated_at: 2026-09-28T17:59:55Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -51,3 +51,9 @@ The test was added with TKT-01M3KC2DD (Search index grows by a third after re-no
 ## Acceptance criteria
 
 - [ ] The test runs well under the timeout on the CI runner with -race
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+Duplicate of TKT-01M3MD3C, which has the earlier analysis. The evidence from this ticket is copied there. Archived.

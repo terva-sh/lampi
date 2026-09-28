@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:21:35Z
-updated_at: 2026-09-28T16:21:35Z
+updated_at: 2026-09-28T17:59:55Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -43,3 +43,9 @@ The likely cause is that the first pass runs before the fixture's session file i
 ## Acceptance criteria
 
 - [ ] The test waits for the first failed push, not any 503
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+Duplicate of TKT-01M3DMVE, which has the earlier analysis. The evidence from this ticket is copied there. Archived.

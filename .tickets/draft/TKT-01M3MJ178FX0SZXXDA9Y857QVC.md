@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T17:47:03Z
-updated_at: 2026-09-28T17:47:03Z
+updated_at: 2026-09-28T17:59:55Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -39,3 +39,9 @@ It passed 30 of 30 runs with `-race` locally, so it fails only under runner load
 ## Acceptance criteria
 
 - [ ] The test passes reliably on the CI runner
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+Duplicate of TKT-01M3G3B0, which has the earlier analysis. The evidence from this ticket is copied there. Archived.

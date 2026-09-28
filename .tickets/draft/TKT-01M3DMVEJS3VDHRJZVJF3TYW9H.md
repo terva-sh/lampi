@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T01:21:39Z
-updated_at: 2026-09-26T01:21:43Z
+updated_at: 2026-09-28T17:59:55Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/cd41c9ac
-  name: Claude Code local agent
+  id: agent:claude-code/2cf53976
+  name: ""
 extensions: {}
 ---
 
@@ -66,3 +66,9 @@ go test -race -cpu 1,2 -count=150 -run 'TestAgentCancelSkipsFailedSyncRetry$' ./
 
 - [ ] The start pass's empty result and the early watcher stop are explained, and the agent is fixed if either is an agent bug
 - [ ] The test passes 300 of 300 runs under the loaded reproduction above
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T17:59:55Z
+
+More evidence (2026-09-28), filed in TKT-01M3MD4Q1C before this ticket was found: failed again on Forgejo CI run 696 attempt 2 (PR #66, lake-side code only). The output had the same shape: the start pass reported 'checked 0', and the only hello and 503 came from the drain. It passed 200 of 200 runs with -race locally on main f50c57f and on the PR head, with no extra load.
