@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K0Q900PVKSJT5825BHEAD2
 title: "Web: implement the Field Notebook design"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3JV4643C6AEX7RRAK11Z31T
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: design/field-notebook
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 1dc8ced7e35ddc6c118507ec94cc62523b6fcd10
-  session: null
-  claimed_at: 2026-09-28T03:25:17Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T03:25:17Z
-updated_at: 2026-09-28T03:29:31Z
+updated_at: 2026-09-28T03:33:10Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -89,3 +82,7 @@ had inherited the brand's serif italic.
 
 docs/images now holds screenshots of the new design at the same size
 as before, 2560×1600 at 2× scale.
+
+## Summary
+
+Landed in PR #53. The dashboard now uses the Field Notebook design in both themes. It uses serif headings and figures, warm paper, an ink-blue accent, and rules instead of boxes, on a 1180px measure. Contrast is AA, and nothing overflows from 320 to 1440px. The docs screenshots were refreshed.
