@@ -311,6 +311,30 @@ Start terva again after editing the file. Restart `terva-lampi agent`
 when you change the lake URL, the token path, the allowlist, or the
 harnesses map. The hook does not reload those.
 
+## Optional Prometheus metrics
+
+Set `LAMPI_SERVE_METRICS_ADDR=127.0.0.1:9187` in the service environment to
+serve `GET /metrics` in the Prometheus text format on a second listener. Empty
+leaves it off. The endpoint has no authentication, so serve refuses a
+non-loopback address unless `--metrics-public` is added to the command line;
+scrape it from the same host or through a tunnel. It exports:
+
+- disk use and file counts by lake component (`lampi_storage_bytes`,
+  `lampi_storage_files`), filesystem size and free space, and deduplicated
+  artifact bytes, from serve's hourly sample
+- sessions by normalization state and the audit outbox depth
+- each device's last contact and last new data, as Unix timestamps
+- request and request-body counters by route class
+- build info and start time
+
+Useful alerts:
+
+- `lampi_filesystem_free_bytes / lampi_filesystem_size_bytes < 0.1`
+- `time() - lampi_device_last_data_timestamp_seconds > 3 * 86400` for a
+  machine that should be syncing
+- `time() - lampi_storage_sample_timestamp_seconds > 7200`, which means
+  sampling has stopped
+
 ## Optional OIDC dashboard
 
 `web-config.json.example` is a separate server configuration, not agent config.

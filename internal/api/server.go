@@ -102,6 +102,8 @@ type Server struct {
 	// contacts holds the time of each device's last authenticated
 	// request, by device id, since this process started.
 	contacts sync.Map
+	// requests counts finished requests for the metrics endpoint.
+	requests requestCounts
 }
 
 // maxHeavy is how many blob PUTs and manifest posts run at once. A put

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ const serveUsage = `terva-lampi serve — run the lake
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
                     [--profiles PATH] [--web-config PATH]
+                    [--metrics-addr ADDR [--metrics-public]]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
   terva-lampi serve fsck [--data DIR] [--repair]
@@ -69,6 +71,12 @@ server JSON file. Device tokens are then required even on loopback. The agent's
 config.json is not read. The public base_url fixes the callback origin; web
 configuration changes require restart. Client secrets are read only from a
 private client_secret_file, never command arguments. See deploy/web-config.json.example.
+--metrics-addr serves GET /metrics in the Prometheus text format on a
+second listener: disk use by component, filesystem free space, queues,
+each device's last contact and last new data, request counts and build
+info. It has no authentication, so a non-loopback address is refused
+unless --metrics-public is also given. It is off by default.
+
 With --token-file, a non-loopback --addr is a stderr warning: serve
 speaks plain HTTP, so put TLS in front. Clients refuse to send a
 token to a non-loopback http:// URL.
@@ -153,13 +161,16 @@ func runServe(env Env, args []string) error {
 			return runServeNormalize(env, args[1:])
 		}
 	}
-	var addr, data, tokenFile, profilesFile, webConfigFile string
+	var addr, data, tokenFile, profilesFile, webConfigFile, metricsAddr string
+	var metricsPublic bool
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file")
 		fs.StringVar(&profilesFile, "profiles", "", "agent profiles file (default: profiles.json in the lake directory)")
 		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
+		fs.StringVar(&metricsAddr, "metrics-addr", "", "serve Prometheus metrics on this address (off when empty)")
+		fs.BoolVar(&metricsPublic, "metrics-public", false, "allow --metrics-addr to bind a non-loopback address")
 	})
 	if err != nil {
 		return err
@@ -190,6 +201,9 @@ func runServe(env Env, args []string) error {
 		warnIgnored(env, tokenFile, devices)
 	}
 	if err := refuseExposedWithoutToken(addr, devices); err != nil {
+		return err
+	}
+	if err := checkMetricsAddr(metricsAddr, metricsPublic); err != nil {
 		return err
 	}
 	if warn := plaintextTokenWarning(addr, devices); warn != "" {
@@ -242,6 +256,16 @@ func runServe(env Env, args []string) error {
 	if err != nil {
 		lake.Close()
 		return err
+	}
+	if metricsAddr != "" {
+		mln, err := net.Listen("tcp", metricsAddr)
+		if err != nil {
+			ln.Close()
+			lake.Close()
+			return err
+		}
+		serveMetrics(env, lake, mln, lake.MetricsHandler(api.MetricsInfo{Version: strings.TrimPrefix(versionLine(), "terva-lampi "), Started: time.Now()}))
+		fmt.Fprintf(env.stderr(), "terva-lampi serve: metrics on %s/metrics\n", mln.Addr())
 	}
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: listening on %s\n", ln.Addr())
 	fmt.Fprintf(env.stderr(), "terva-lampi serve: data %s\n", data)
@@ -377,6 +401,68 @@ func sweepCAS(env Env, store *cas.Store, now time.Time) {
 	}
 	if n > 0 {
 		fmt.Fprintf(env.stderr(), "terva-lampi serve: removed %d upload leftovers older than %s\n", n, sweepAge)
+	}
+}
+
+// checkMetricsAddr refuses a metrics address that is not loopback
+// unless public is set: the endpoint has no authentication.
+func checkMetricsAddr(addr string, public bool) error {
+	if addr == "" {
+		if public {
+			return fmt.Errorf("--metrics-public needs --metrics-addr")
+		}
+		return nil
+	}
+	ok, err := listenLoopback(addr)
+	if err != nil {
+		return fmt.Errorf("--metrics-addr: %w", err)
+	}
+	if !ok && !public {
+		return fmt.Errorf("refusing --metrics-addr %s: metrics have no authentication; bind a loopback address or pass --metrics-public", addr)
+	}
+	return nil
+}
+
+// metricsGrace is how long closing waits for scrapes to finish before
+// cancelling them. Tests shorten it.
+var metricsGrace = 5 * time.Second
+
+// serveMetrics serves h on ln until the lake closes.
+// Closing cancels scrapes still reading the catalog and waits for
+// their handlers, so none outlives the catalog.
+func serveMetrics(env Env, lake *api.Server, ln net.Listener, h http.Handler) {
+	base, cancel := context.WithCancel(context.Background())
+	var inflight sync.WaitGroup
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			inflight.Add(1)
+			defer inflight.Done()
+			h.ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return base },
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(env.stderr(), "terva-lampi serve: metrics: %v\n", err)
+		}
+	}()
+	before := lake.BeforeClose
+	lake.BeforeClose = func() {
+		shut, stop := context.WithTimeout(context.Background(), metricsGrace)
+		defer stop()
+		if err := srv.Shutdown(shut); err != nil {
+			cancel()
+			_ = srv.Close()
+		}
+		cancel()
+		<-done
+		inflight.Wait()
+		if before != nil {
+			before()
+		}
 	}
 }
 
