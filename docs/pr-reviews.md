@@ -106,8 +106,8 @@ with `carry_source_not_found`. Dispatch without `carry` instead.
 
 ### Trusted configuration
 
-- The job runs the reviewer's published v0.3.0 image, pinned by digest
-  (`sha256:35199d57…`). Nothing is checked out, so no code from a lampi
+- The job runs the reviewer's published v0.5.0 image, pinned by digest
+  (`sha256:64a7ba59…`). Nothing is checked out, so no code from a lampi
   pull request runs with review credentials.
 - `BOT_TOKEN` and `CPA_API_KEY` are organization secrets.
 - The provider, base URL, model, and thinking level come from the
