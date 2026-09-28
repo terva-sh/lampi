@@ -130,7 +130,7 @@ func Headers(next http.Handler) http.Handler {
 	})
 }
 
-var errorPage = template.Must(template.New("auth-error").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lake sign-in</title><main><h1>{{.}}</h1><p><a href="/auth/oidc/start">Try signing in again</a></p></main></html>`))
+var errorPage = template.Must(template.New("auth-error").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Lake sign-in</title><main><h1>{{.}}</h1><p><a href="/auth/oidc/start">Try signing in again</a></p></main></html>`))
 
 func authError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
