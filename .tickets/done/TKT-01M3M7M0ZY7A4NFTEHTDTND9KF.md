@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0ZY7A4NFTEHTDTND9KF
 title: "Dashboard: view, add, edit and remove agent profiles"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3M7M0WCZQB2ETXX1PNKHRBY
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: web/profile-editor
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: e0666513ffdb972d70eeaec6f0d6dfc684823e04
-  session: null
-  claimed_at: 2026-09-28T19:42:59Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T19:58:27Z
+updated_at: 2026-09-28T21:00:46Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -125,3 +118,7 @@ Decisions:
 **agent:claude-code/2cf53976** at 2026-09-28T19:58:27Z
 
 P3 on web/profile-rollback (stacked on web/profile-edit): POST /profiles/{name}/rollback/{revision} (form) and POST /api/web/v1/profiles/{name}/rollback. It re-saves the revision's document through saveProfile, so it gets the same revision guard, validation, normalization and audit; the note is 'rollback to revision N[: note]'. It refuses revisions of another profile (404) and deletion revisions (400 deleted_revision). The button shows only for saved revisions whose version differs from the current one. Decision: one POST with no preview, as the ticket asks for a single action; the revision table already shows what it restores.
+
+## Summary
+
+Merged in #100, #101 and #102. /profiles and /profiles/NAME show every profile, its rules, the devices it reaches and its revisions to viewers, with a banner while a profiles.json is unread. Operators edit every field in a no-JS form. Preview shows the diff, the changed parts and the devices reached, and warns about local allow rules. git remotes are normalized on save. Saves, deletes and one-click rollbacks are guarded by the revision read (an absent name's revision is its newest, the deletion), limited to 500 rules per list, and audited with the OIDC actor and the changed parts. PUT, DELETE and POST .../rollback under /api/web/v1/profiles/NAME do the same as JSON. A 'Device overrides' tab reserves the layout for the per-device layer.
