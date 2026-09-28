@@ -94,3 +94,25 @@ func TestIdlePassesFinishTheMerge(t *testing.T) {
 		t.Fatalf("a failed reclaim is not pending: %v %v", more, err)
 	}
 }
+
+// A pass stopped after it wrote leaves the reclaim pending for the next.
+func TestAStoppedPassLeavesTheReclaimPending(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "stopped")
+	x := openIndex(t, s)
+	publish(t, s, uid, events(5, func(i int) string { return fmt.Sprint("stopped text ", i) }))
+	pass(t, x)
+	for x.merging {
+		pass(t, x)
+	}
+	publish(t, s, uid, events(6, func(i int) string { return fmt.Sprint("stopped text ", i) }))
+	ctx, cancel := context.WithCancel(t.Context())
+	x.beforeReclaim = cancel
+	if err := x.Pass(ctx); err == nil {
+		t.Fatal("the stopped pass reported no error")
+	}
+	x.beforeReclaim = nil
+	if !x.merging {
+		t.Fatal("a pass stopped after writing left no reclaim pending")
+	}
+}

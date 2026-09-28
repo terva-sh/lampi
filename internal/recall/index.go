@@ -113,10 +113,15 @@ type Index struct {
 	// failed holds the generation that could not be indexed, so it is
 	// not read again until a newer one is published.
 	failed map[string]int64
-	// merging is set while the last reclaim still merged segments or
-	// failed, so the next pass reclaims again although it wrote nothing.
-	// Only Pass reads and writes it.
+	// merging is set from a pass's first write until a reclaim finds
+	// nothing more to merge, so a pass that stops part way or a reclaim
+	// that fails leaves the work to the next pass. It starts set, as a
+	// process that stopped may have left work. Only Pass reads and
+	// writes it.
 	merging bool
+	// beforeReclaim, when set, runs before a pass reclaims. Tests use
+	// it to stop a pass there.
+	beforeReclaim func()
 	// passes counts finished passes, for tests.
 	passes int
 	passed *sync.Cond
@@ -129,7 +134,7 @@ func OpenIndex(path string, reader *Reader) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := &Index{db: db, reader: reader, Interval: 5 * time.Minute, wake: make(chan struct{}, 1), failed: map[string]int64{}}
+	x := &Index{db: db, reader: reader, Interval: 5 * time.Minute, wake: make(chan struct{}, 1), failed: map[string]int64{}, merging: true}
 	x.passed = sync.NewCond(&x.mu)
 	return x, nil
 }
@@ -314,12 +319,16 @@ func (x *Index) Pass(ctx context.Context) error {
 	cov.Behind = len(todo)
 	x.cov = cov
 	x.mu.Unlock()
-	wrote := len(todo) > 0
+	// Pending before the first write, so a pass that stops part way
+	// still leaves the reclaim to the next one.
+	if len(todo) > 0 {
+		x.merging = true
+	}
 	for uid := range have {
 		if keep[uid] {
 			continue
 		}
-		wrote = true
+		x.merging = true
 		if err := x.remove(ctx, uid); err != nil {
 			return err
 		}
@@ -354,15 +363,18 @@ func (x *Index) Pass(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	if wrote || x.merging {
+	if x.merging {
+		if x.beforeReclaim != nil {
+			x.beforeReclaim()
+		}
 		more, err := x.reclaim(ctx)
+		x.merging = more
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			x.logger().Warn("search index reclaim failed", "err", err.Error())
 		}
-		x.merging = more
 	}
 	x.mu.Lock()
 	x.passes++
