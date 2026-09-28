@@ -77,6 +77,10 @@ type Server struct {
 	// onPublished is set by OnPublished. Workers read it, and they
 	// may already be running when it is set.
 	onPublished atomic.Pointer[func(string)]
+	// onDrained is set by OnNormalizeDrained.
+	onDrained atomic.Pointer[func()]
+	// normStats counts what the normalize workers did in this process.
+	normStats normalizeStats
 
 	norm        *normalizeQueue
 	normalizeWG sync.WaitGroup
@@ -371,10 +375,16 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
+	norm, err := s.NormalizationStatus(r.Context())
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, protocol.StatsResponse{
-		Sessions:  n.Sessions,
-		Artifacts: n.Artifacts,
-		Machines:  n.Machines,
+		Sessions:      n.Sessions,
+		Artifacts:     n.Artifacts,
+		Machines:      n.Machines,
+		Normalization: &norm,
 	})
 }
 

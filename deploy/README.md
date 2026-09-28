@@ -321,8 +321,17 @@ scrape it from the same host or through a tunnel. It exports:
 
 - disk use and file counts by lake component (`lampi_storage_bytes`,
   `lampi_storage_files`), filesystem size and free space, and deduplicated
-  artifact bytes, from serve's hourly sample
+  artifact bytes, from serve's hourly sample and after each batch of
+  normalize jobs
 - sessions by normalization state and the audit outbox depth
+- the normalize queue: rows waiting in the job table and the oldest one's
+  age (`lampi_normalize_pending_jobs`,
+  `lampi_normalize_oldest_pending_age_seconds`), jobs serve holds by state
+  (`lampi_normalize_jobs`), jobs finished by result
+  (`lampi_normalize_jobs_total`), a duration histogram
+  (`lampi_normalize_duration_seconds`), and the last success
+  (`lampi_normalize_last_success_timestamp_seconds`). The counters and the
+  last success start again at each serve start.
 - each device's last contact and last new data, as Unix timestamps
 - request and request-body counters by route class
 - build info and start time
@@ -334,6 +343,42 @@ Useful alerts:
   machine that should be syncing
 - `time() - lampi_storage_sample_timestamp_seconds > 7200`, which means
   sampling has stopped
+- `lampi_sessions_by_normalization{state="failed"} > 0`: a session's bytes
+  did not normalize. `serve normalize --failed` queues it again once the
+  cause is fixed.
+- `lampi_sessions_by_normalization{state="unknown"} > 0`: a session has no
+  job and no result for its current head, as sessions from before
+  normalization was tracked do. `serve normalize --stale` queues them.
+- `lampi_normalize_oldest_pending_age_seconds > 900`: a job has waited 15
+  minutes. A job serve gave up on stays in the table until a restart or
+  `systemctl kill -s HUP terva-lampi-serve`.
+- `lampi_normalize_pending_jobs > 0 and time() -
+  lampi_normalize_last_success_timestamp_seconds > 1800`: jobs wait and
+  none has succeeded for half an hour.
+
+In Prometheus rule form:
+
+```yaml
+groups:
+  - name: lampi-normalize
+    rules:
+      - alert: LampiNormalizeFailed
+        expr: lampi_sessions_by_normalization{state="failed"} > 0
+        for: 5m
+      - alert: LampiNormalizeUnknown
+        expr: lampi_sessions_by_normalization{state="unknown"} > 0
+        for: 30m
+      - alert: LampiNormalizeStuck
+        expr: lampi_normalize_oldest_pending_age_seconds > 900
+      - alert: LampiNormalizeStalled
+        expr: >
+          lampi_normalize_pending_jobs > 0
+          and time() - lampi_normalize_last_success_timestamp_seconds > 1800
+```
+
+`GET /v1/stats` and `terva-lampi status` carry the same normalization
+figures for anyone holding a device token; see
+[docs/protocol.md](../docs/protocol.md#get-v1stats).
 
 ## Optional OIDC dashboard
 

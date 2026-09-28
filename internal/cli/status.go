@@ -320,7 +320,7 @@ func probeCatalog(server, token string) string {
 		return "catalog: unreachable (" + err.Error() + ")\n"
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
 	if resp.StatusCode == http.StatusUnauthorized {
 		return "catalog: unauthorized\n"
 	}
@@ -331,6 +331,24 @@ func probeCatalog(server, token string) string {
 	if err := json.Unmarshal(body, &counts); err != nil {
 		return "catalog: bad response\n"
 	}
-	return fmt.Sprintf("catalog_sessions: %d\ncatalog_artifacts: %d\ncatalog_machines: %d\n",
+	out := fmt.Sprintf("catalog_sessions: %d\ncatalog_artifacts: %d\ncatalog_machines: %d\n",
 		counts.Sessions, counts.Artifacts, counts.Machines)
+	if n := counts.Normalization; n != nil {
+		out += lakeNormalization(*n)
+	}
+	return out
+}
+
+// lakeNormalization prints the lake's normalization status: sessions
+// by state, then the job backlog and what serve is running, then the
+// last failure when there is one.
+func lakeNormalization(n protocol.NormalizationStats) string {
+	out := fmt.Sprintf("lake_normalization: ready=%d pending=%d failed=%d unknown=%d\n",
+		n.Sessions["ready"], n.Sessions["pending"], n.Sessions["failed"], n.Sessions["unknown"])
+	out += fmt.Sprintf("lake_normalize_jobs: %d waiting, oldest %s, %d queued, %d running, %d retrying\n",
+		n.Jobs, (time.Duration(n.OldestPendingSeconds) * time.Second).String(), n.Queued, n.Running, n.Retrying)
+	if f := n.LastFailure; f != nil {
+		out += fmt.Sprintf("lake_normalize_last_failure: %s %s\n", f.At, f.SessionUID)
+	}
+	return out
 }

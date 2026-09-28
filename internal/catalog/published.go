@@ -62,6 +62,29 @@ func (c *Catalog) SessionsInNormalizationState(ctx context.Context, state string
 	return out, nil
 }
 
+// NormalizationCounts is how many sessions are in each normalization
+// state. Every state is present, zero when no session is in it.
+func (c *Catalog) NormalizationCounts(ctx context.Context) (map[string]int, error) {
+	out := map[string]int{"pending": 0, "failed": 0, "ready": 0, "unknown": 0}
+	rows, err := c.db.QueryContext(ctx, `SELECT `+normalizationStateSQL+`, COUNT(*) FROM sessions s GROUP BY 1`)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var state string
+		var n int
+		if err := rows.Scan(&state, &n); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out[state] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return out, nil
+}
+
 // NormalizationStates is every session's UID and normalization state,
 // oldest ingest first.
 func (c *Catalog) NormalizationStates(ctx context.Context) (uids, states []string, err error) {

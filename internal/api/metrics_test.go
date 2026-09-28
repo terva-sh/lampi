@@ -50,6 +50,15 @@ func TestMetricsExposition(t *testing.T) {
 		"lampi_sessions 1",
 		`lampi_sessions_by_normalization{state="ready"} 1`,
 		"lampi_audit_outbox_events 0",
+		"lampi_normalize_pending_jobs 0",
+		"lampi_normalize_oldest_pending_age_seconds 0",
+		`lampi_normalize_jobs{state="queued"} 0`,
+		`lampi_normalize_jobs{state="running"} 0`,
+		`lampi_normalize_jobs_total{result="ok"} 1`,
+		`lampi_normalize_jobs_total{result="failed"} 0`,
+		`lampi_normalize_duration_seconds_bucket{le="+Inf"} 1`,
+		"lampi_normalize_duration_seconds_count 1",
+		"lampi_normalize_last_success_timestamp_seconds ",
 		`lampi_device_last_contact_timestamp_seconds{device="allow"} `,
 		`lampi_http_requests_total{route="manifest",code="2xx"} 1`,
 		`lampi_http_requests_total{route="blob_put",code="2xx"} 1`,
@@ -59,7 +68,7 @@ func TestMetricsExposition(t *testing.T) {
 			t.Errorf("metrics lack %q", want)
 		}
 	}
-	line := regexp.MustCompile(`^[a-z_]+(\{[a-z_]+="([^"\\]|\\.)*"(,[a-z_]+="([^"\\]|\\.)*")*\})? -?[0-9.e+]+$`)
+	line := regexp.MustCompile(`^[a-z_]+(\{[a-z_]+="([^"\\]|\\.)*"(,[a-z_]+="([^"\\]|\\.)*")*\})? -?[0-9.e+-]+$`)
 	declared := map[string]int{}
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 		if strings.HasPrefix(l, "# TYPE ") {

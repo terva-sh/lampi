@@ -240,8 +240,11 @@ func TestStats(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &counts); err != nil {
 		t.Fatal(err)
 	}
-	if counts != (protocol.StatsResponse{}) {
+	if counts.Sessions != 0 || counts.Artifacts != 0 || counts.Machines != 0 || counts.Normalization == nil {
 		t.Fatalf("empty %+v", counts)
+	}
+	if n := counts.Normalization; len(n.Sessions) != 4 || n.Jobs != 0 || n.LastSuccess != "" || n.LastFailure != nil {
+		t.Fatalf("empty normalization %+v", *n)
 	}
 
 	if _, err := s.Catalog.Ingest(t.Context(), protocol.Manifest{
@@ -269,6 +272,10 @@ func TestStats(t *testing.T) {
 	}
 	if counts.Sessions != 1 || counts.Artifacts != 1 || counts.Machines != 1 {
 		t.Fatalf("counts %+v", counts)
+	}
+	// Ingested straight into the catalog, with no job: unknown.
+	if n := counts.Normalization; n == nil || n.Sessions["unknown"] != 1 || n.Sessions["ready"] != 0 {
+		t.Fatalf("normalization %+v", counts.Normalization)
 	}
 }
 

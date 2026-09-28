@@ -37,12 +37,46 @@ Catalog counts for an operator. This is not healthz. It uses the same
 bearer check as the other `/v1` routes, and it returns no session bodies.
 
 ```json
-{"sessions": 1, "artifacts": 2, "machines": 1}
+{
+  "sessions": 92,
+  "artifacts": 5031,
+  "machines": 1,
+  "normalization": {
+    "sessions": {"ready": 90, "pending": 1, "failed": 1, "unknown": 0},
+    "jobs": 1,
+    "oldest_pending_seconds": 2.5,
+    "queued": 0,
+    "running": 1,
+    "retrying": 0,
+    "last_success": "2026-09-28T06:40:12Z",
+    "last_failure": {"session_uid": "01M3…", "at": "2026-09-28T06:39:58Z"}
+  }
+}
 ```
 
 `sessions` and `artifacts` are row counts. `machines` is the number of
-distinct `machine_id` values in provenance. `terva-lampi status` prints
-these. A process probe should keep using `/healthz`.
+distinct `machine_id` values in provenance. A process probe should keep
+using `/healthz`.
+
+`normalization` says how far the derived views are behind the raw
+sessions. A lake older than the field leaves it out.
+
+- `sessions` counts sessions by state. Every state is present: pending (a
+  job waits), failed, ready, and unknown (no job and no result for the
+  current head).
+- `jobs` is every row in the job table, and `oldest_pending_seconds` the
+  age of the oldest, 0 when none wait.
+- `queued`, `running` and `retrying` are what the serving process holds:
+  waiting for a worker, running, and waiting on a retry timer. A job serve
+  gave up on stays in `jobs` until a restart or a SIGHUP.
+- `last_success` and `last_failure` are since serve started, RFC 3339 UTC,
+  and absent until one happens.
+- A failure names its session and not its message. The message can name
+  a lake path, so it stays in the server log.
+
+`terva-lampi status` prints the counts as `catalog_` lines, and
+`normalization` as `lake_normalization`, `lake_normalize_jobs` and, after a
+failure, `lake_normalize_last_failure`.
 
 ## GET /v1/conflicts
 

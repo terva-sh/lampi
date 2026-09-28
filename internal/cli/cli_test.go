@@ -554,6 +554,8 @@ func TestStatusReportsAgentAndServer(t *testing.T) {
 		"catalog_sessions: 1",
 		"catalog_artifacts: 1",
 		"catalog_machines: 1",
+		"lake_normalization: ready=",
+		"lake_normalize_jobs: ",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q\n%s", want, text)
