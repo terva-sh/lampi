@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0RTRVC74337N5NBP0FHG
 title: "Docs: run the lake from the container image, with a compose example"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -21,17 +21,10 @@ blocks_on: none
 references:
   - ref: pr:forgejo/terva-sh/lampi#91
     path: null
-claim:
-  actor: agent:claude-code/aa1afd80
-  branch: self-host/container-docs
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
-  commit: 8fe357d3cfbda440f0dc6aaac8b6f056cbd6f888
-  session: null
-  claimed_at: 2026-09-28T18:49:58Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T18:50:21Z
+updated_at: 2026-09-28T19:00:44Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -152,3 +145,7 @@ All of this ran with Podman 5 and `podman-compose` 1.6.0 (run through `uv`), usi
 
 - **Criterion 2** asks for Compose secrets. The token deliberately doesn't use them (see the plan). The healthcheck comes from the image, and Compose waits on it with `depends_on: condition: service_healthy`. Tick it if that is acceptable.
 - **Criterion 4** asks for every command to be run against a real container. Everything above ran, but not under Docker, and not the dashboard snippet.
+
+## Summary
+
+Landed in PR #91. docs/container.md walks through deploy/compose/ (compose.yaml, Caddyfile, env.example). The lake is hardened, publishes no port, and waits on its healthcheck before Caddy starts. The operator token goes into the volume through login inside the image. Caddy sets HSTS and fills in nosniff and Referrer-Policy only where the lake didn't, with no body limit (serve refuses blobs over 32 MiB itself). The guide covers certificates, registration, reload, stopped-lake maintenance, backups, upgrade and a rollback that removes the newer catalog's WAL and SHM files, the dashboard and metrics flags, logs, and Podman. Verified under podman-compose, including agent registration through Caddy and a real upgrade and rollback between a schema-11 image and this build. Two criteria are left unticked with the owner's agreement to merge: Compose secrets aren't used, because serve rewrites the token file; and Docker itself plus the dashboard snippet weren't run. The first Docker run comes with TKT-01M3MC0RN (Release CI: publish the multi-arch lake image to GHCR on v* tags).
