@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/parquet-go/parquet-go/format"
 )
 
 func TestParquetPartitionedByDateAndHarness(t *testing.T) {
@@ -100,4 +101,41 @@ func readParquet(t *testing.T, path string) []ParquetRow {
 		t.Fatal(err)
 	}
 	return rows
+}
+
+func TestParquetColumnsAreZstdCompressed(t *testing.T) {
+	root := t.TempDir()
+	uid := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	day := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	var events []Event
+	for i := 0; i < 200; i++ {
+		events = append(events, sampleEvent("terva", day, "the same pond, described again and again"))
+	}
+	if err := WriteParquet(root, uid, events); err != nil {
+		t.Fatal(err)
+	}
+	path := mustPath(t, root, "2026-09-22", "terva", uid)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pf, err := parquet.OpenFile(f, st.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rg := range pf.Metadata().RowGroups {
+		for _, c := range rg.Columns {
+			if c.MetaData.Codec != format.Zstd {
+				t.Fatalf("column %v codec %v", c.MetaData.PathInSchema, c.MetaData.Codec)
+			}
+		}
+	}
+	if rows := readParquet(t, path); len(rows) != len(events) {
+		t.Fatalf("read %d rows, want %d", len(rows), len(events))
+	}
 }

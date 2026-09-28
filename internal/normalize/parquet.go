@@ -233,7 +233,9 @@ func writeParquetFile(path string, rows []ParquetRow) error {
 			os.Remove(tmpName)
 		}
 	}()
-	if err := parquet.Write(tmp, rows); err != nil {
+	// The rows repeat their session's fields and carry each event twice,
+	// as text and as JSON, so zstd shrinks them several times over.
+	if err := parquet.Write(tmp, rows, parquet.Compression(&parquet.Zstd)); err != nil {
 		return fmt.Errorf("normalize: %w", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {

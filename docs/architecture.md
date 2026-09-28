@@ -113,7 +113,10 @@ the journal. `Authorization` is not logged.
 
 JSONL stays one file per session at `normalized/<session_uid>.jsonl`.
 Parquet is hive-partitioned beside it. `github.com/parquet-go/parquet-go`
-writes the files. It is pure Go, so the binary stays cgo-free.
+writes the files. It is pure Go, so the binary stays cgo-free. Columns
+are zstd-compressed, which DuckDB, Arrow and Spark read as they are.
+Files written before that are uncompressed until their session is
+normalized again.
 
 ```text
 parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet
