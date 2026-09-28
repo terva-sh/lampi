@@ -59,6 +59,7 @@ func TestMetricsExposition(t *testing.T) {
 		`lampi_normalize_duration_seconds_bucket{le="+Inf"} 1`,
 		"lampi_normalize_duration_seconds_count 1",
 		"lampi_normalize_last_success_timestamp_seconds ",
+		"lampi_normalize_duration_seconds_sum ",
 		`lampi_device_last_contact_timestamp_seconds{device="allow"} `,
 		`lampi_http_requests_total{route="manifest",code="2xx"} 1`,
 		`lampi_http_requests_total{route="blob_put",code="2xx"} 1`,

@@ -109,3 +109,11 @@ func TestServeNormalizeQueuesStaleAndFailed(t *testing.T) {
 		t.Errorf("ready after --all: %q %v, want pending", got, err)
 	}
 }
+
+func TestAgeStringKeepsFractions(t *testing.T) {
+	for secs, want := range map[float64]string{0: "0s", 0.25: "250ms", 2.5: "3s", 150: "2m30s"} {
+		if got := ageString(secs); got != want {
+			t.Errorf("ageString(%v) = %q, want %q", secs, got, want)
+		}
+	}
+}

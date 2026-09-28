@@ -86,3 +86,17 @@ func TestNormalizationStatusAgesTheBacklog(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 }
+
+// With no success yet, the last-success gauge reads the start time, so
+// an alert on its age can fire.
+func TestLastSuccessStartsAtServeStart(t *testing.T) {
+	s := openServer(t)
+	started := time.Unix(1700000000, 0)
+	var b strings.Builder
+	if err := s.writeNormalizeMetrics(t.Context(), &metricWriter{w: &b, seen: map[string]bool{}}, started); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "lampi_normalize_last_success_timestamp_seconds 1.7e+09\n") {
+		t.Fatalf("metrics:\n%s", b.String())
+	}
+}

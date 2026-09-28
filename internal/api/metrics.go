@@ -169,8 +169,9 @@ func (m *metricWriter) histogram(name, help string, bounds []float64, cumulative
 
 // writeNormalizeMetrics writes the normalize queue: what the workers
 // hold now, the job table's backlog, and what the workers did since
-// this process started.
-func (s *Server) writeNormalizeMetrics(ctx context.Context, m *metricWriter) error {
+// this process started. The last success starts at started, so an
+// alert on its age fires for a serve that never succeeds.
+func (s *Server) writeNormalizeMetrics(ctx context.Context, m *metricWriter, started time.Time) error {
 	backlog, err := s.Catalog.NormalizeBacklog(ctx)
 	if err != nil {
 		return err
@@ -195,8 +196,12 @@ func (s *Server) writeNormalizeMetrics(ctx context.Context, m *metricWriter) err
 		m.sample("counter", "lampi_normalize_jobs_total", "Normalize jobs finished in this process, by result.", float64(snap.results[r]), "result", r)
 	}
 	m.histogram("lampi_normalize_duration_seconds", "Time a worker spent on one normalize job.", normalizeBuckets, snap.cumulative, snap.sum, snap.count)
-	if !snap.lastSuccess.IsZero() {
-		m.sample("gauge", "lampi_normalize_last_success_timestamp_seconds", "When a normalize job last succeeded in this process, in Unix seconds.", unix(snap.lastSuccess))
+	last := snap.lastSuccess
+	if last.IsZero() {
+		last = started
+	}
+	if !last.IsZero() {
+		m.sample("gauge", "lampi_normalize_last_success_timestamp_seconds", "When a normalize job last succeeded in this process, or when it started if none has, in Unix seconds.", unix(last))
 	}
 	return nil
 }
@@ -256,7 +261,7 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 	for _, st := range []string{"pending", "failed", "ready", "unknown"} {
 		m.sample("gauge", "lampi_sessions_by_normalization", "Stored sessions by normalization state.", float64(overview.Normalization[st]), "state", st)
 	}
-	if err := s.writeNormalizeMetrics(ctx, m); err != nil {
+	if err := s.writeNormalizeMetrics(ctx, m, info.Started); err != nil {
 		return err
 	}
 	pending, err := s.Catalog.PendingAudit(ctx)

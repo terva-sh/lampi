@@ -330,8 +330,10 @@ scrape it from the same host or through a tunnel. It exports:
   (`lampi_normalize_jobs`), jobs finished by result
   (`lampi_normalize_jobs_total`), a duration histogram
   (`lampi_normalize_duration_seconds`), and the last success
-  (`lampi_normalize_last_success_timestamp_seconds`). The counters and the
-  last success start again at each serve start.
+  (`lampi_normalize_last_success_timestamp_seconds`). The counters start
+  again at each serve start, and the last success starts at serve's start
+  time, so the stalled alert below also fires for a serve that has not
+  succeeded once.
 - each device's last contact and last new data, as Unix timestamps
 - request and request-body counters by route class
 - build info and start time

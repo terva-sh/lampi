@@ -346,9 +346,19 @@ func lakeNormalization(n protocol.NormalizationStats) string {
 	out := fmt.Sprintf("lake_normalization: ready=%d pending=%d failed=%d unknown=%d\n",
 		n.Sessions["ready"], n.Sessions["pending"], n.Sessions["failed"], n.Sessions["unknown"])
 	out += fmt.Sprintf("lake_normalize_jobs: %d waiting, oldest %s, %d queued, %d running, %d retrying\n",
-		n.Jobs, (time.Duration(n.OldestPendingSeconds) * time.Second).String(), n.Queued, n.Running, n.Retrying)
+		n.Jobs, ageString(n.OldestPendingSeconds), n.Queued, n.Running, n.Retrying)
 	if f := n.LastFailure; f != nil {
 		out += fmt.Sprintf("lake_normalize_last_failure: %s %s\n", f.At, f.SessionUID)
 	}
 	return out
+}
+
+// ageString prints seconds as a duration, to the second above one and
+// to the millisecond below it, so a young job does not read as 0s.
+func ageString(secs float64) string {
+	d := time.Duration(secs * float64(time.Second))
+	if d >= time.Second {
+		return d.Round(time.Second).String()
+	}
+	return d.Round(time.Millisecond).String()
 }
