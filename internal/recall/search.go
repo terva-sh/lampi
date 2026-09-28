@@ -311,8 +311,8 @@ func searchSQL(req SearchRequest, before int64) (string, []any) {
 		args = append(args, req.Until.UnixNano())
 	}
 	args = append(args, req.Limit+1)
-	q := `SELECT d.id,d.session_uid,d.gen,d.pos,d.harness,d.project_id,d.event_type,d.actor,d.tool_name,d.tool_error,d.recorded_ns,d.content
-		FROM ` + from + ` JOIN indexed i ON i.session_uid=d.session_uid AND i.gen=d.gen
+	q := `SELECT d.id,d.session_uid,i.gen,d.pos,d.harness,d.project_id,d.event_type,d.actor,d.tool_name,d.tool_error,d.recorded_ns,d.content
+		FROM ` + from + ` JOIN indexed i ON i.session_uid=d.session_uid
 		WHERE ` + strings.Join(append(where, "1=1"), " AND ") + ` ORDER BY ` + key + ` DESC LIMIT ?`
 	return q, args
 }

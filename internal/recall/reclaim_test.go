@@ -25,11 +25,11 @@ func indexBytes(t *testing.T, x *Index, path string) int64 {
 	return n
 }
 
-// A session that grows is re-indexed whole at every sync. The rows the
-// index deletes stay in its full-text segments until they merge, and
-// the file used to grow to about four times the session's live size
-// (TKT-01M3KC2DD). A bounded merge and an incremental vacuum after each
-// pass keep it near that size.
+// A generation whose events all changed replaces every row. The
+// replaced rows stay in the full-text segments until they merge, and
+// the file grew to about four times the session's live size
+// (TKT-01M3KC2DD). A forced merge and an incremental vacuum after each
+// pass that deleted rows keep it near that size.
 func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 	s := lake(t)
 	uid := ingest(t, s, "growing")
@@ -53,7 +53,8 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 	const first = 200
 	var live int64
 	for g := 0; g < 8; g++ {
-		publish(t, s, uid, events(first+g*10, func(i int) string { return text[i] }))
+		// Every event's text changes, so every row is replaced.
+		publish(t, s, uid, events(first+g*10, func(i int) string { return fmt.Sprint(text[i], " g", g) }))
 		pass(t, x)
 		if g == 0 {
 			live = indexBytes(t, x, path)
@@ -84,13 +85,13 @@ func TestIdlePassesFinishTheMerge(t *testing.T) {
 		}
 		pass(t, x)
 	}
-	if more, err := x.reclaim(t.Context()); err != nil || more {
+	if more, err := x.reclaim(t.Context(), true); err != nil || more {
 		t.Fatalf("a merge after the index settled did work: %v %v", more, err)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if more, err := x.reclaim(ctx); err == nil || !more {
+	if more, err := x.reclaim(ctx, true); err == nil || !more {
 		t.Fatalf("a failed reclaim is not pending: %v %v", more, err)
 	}
 }

@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T06:43:37Z
-updated_at: 2026-09-28T14:28:49Z
+updated_at: 2026-09-28T16:01:54Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -60,20 +60,26 @@ covers.
 
 ## Implementation plan
 
-Keep search.db near its live size by reclaiming after each pass, not
-by a separate command.
+Keep search.db near its live size, and index a session that grew by
+writing only what changed.
 
+Done in #63 and #72:
 - Open the index with `auto_vacuum(INCREMENTAL)` ahead of
-  `journal_mode(WAL)` in the DSN. Setting it in the schema does nothing:
-  the WAL pragma has already written page 1, and a file takes an
-  auto-vacuum mode only before it has pages. Bump `indexVersion` to 2
-  so the existing file is rebuilt with it.
-- After a pass that indexed or removed a session, or whose last merge
-  still changed the index, run `INSERT INTO fts(fts, rank)
-  VALUES('merge', -2000)` then `PRAGMA incremental_vacuum`.
-- Later, and separately: re-index an appended generation by patching
-  rows rather than rewriting the session, which also removes the CPU
-  cost of re-indexing a large active session at every sync.
+  `journal_mode(WAL)` (index version 2).
+- After a pass that wrote rows, run a bounded merge and
+  `PRAGMA incremental_vacuum`; keep it pending across failures and
+  stopped passes.
+
+This part:
+- Index version 3: `docs` drops `gen` for `sig`, a signature of the
+  row's stored fields. `indexed` keeps the generation. Search joins on
+  the session alone and reports `indexed.gen`.
+- `indexSession` reads the session's current rows by position and
+  writes, in one transaction, only rows whose signature changed, new
+  rows, and deletes rows past the new end.
+- The merge after a pass is forced (`merge -2000`) only when a pass
+  deleted rows, until a forced merge finds nothing; after an
+  append-only pass it is FTS5's ordinary merge (`merge 2000`).
 
 ## Notes
 
@@ -109,3 +115,37 @@ FTS5 segments until a crisis merge and freed pages are never returned.
   searchable during the upgrade but rewrites 1.4 GiB under the lock;
   rebuilding from the normalized files is simpler and the page reports
   coverage while it catches up.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T16:01:54Z
+
+### Incremental indexing: measurements
+
+This session's transcript (about 16k events), 20 generations each ten
+events longer, on this workstation:
+
+| | pass | file after 20 |
+|---|---|---|
+| main (whole re-index, forced merge) | ~6 s | ~31.9 MiB |
+| rows by signature, forced merge every pass | ~0.6 s | ~40 MiB, spiky |
+| rows by signature, forced merge only after deletes | 0.5-0.7 s | 23.7 MiB |
+
+Live size is 23.3 MiB (optimize). With incremental writes, a forced
+merge after every pass made the file worse: each forced merge rewrites
+up to 2000 leaf pages into a new segment even when there is nothing
+deleted to drop. FTS5's ordinary merge only merges a level that is full.
+
+### Alternatives considered
+
+- Keep `gen` on rows and copy unchanged rows to the new generation. It
+  still rewrites every row in the FTS index, which is the cost this
+  removes.
+- Detect an append by the normalized file's byte prefix. Re-normalizing
+  gives new event ids and ingest times, so the bytes change even when
+  the searchable fields do not; comparing the indexed fields catches
+  both.
+- One transaction per session instead of batches: a session is now
+  mostly a no-op. A first index of a large session holds the write lock
+  for its duration (about 4 s for 16k events), during which searches
+  still read the previous state under WAL.
+- The PR #64 CI failure: TestReindexingKeepsTheIndexNearItsLiveSize
+  took 324 s under -race and hit the 10-minute limit. Shrunk in #72.
