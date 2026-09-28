@@ -58,7 +58,7 @@ func TestOperatorEditsAProfile(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("preview: %d %s", w.Code, body)
 	}
-	for _, want := range []string{`value="github.com/acme/app"`, `value="/work"`, `value="github.com/acme/secret"`, "diff-add", "Save team", "projects.allow, projects.deny, harnesses, agent"} {
+	for _, want := range []string{`value="github.com/acme/app"`, `value="/work"`, `value="github.com/acme/secret"`, "diff-add", "Save team", "Creates <strong>team</strong>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("preview missing %q", want)
 		}
@@ -292,5 +292,42 @@ func TestOperatorRollsBackAProfile(t *testing.T) {
 	viewer, _ := signIn(t, vidp, vh)
 	if w := postForm(vh, "/profiles/ci/rollback/1", url.Values{"csrf": {csrfOf(t, vh, viewer)}, "base": {"1"}}, viewer); w.Code != 404 {
 		t.Errorf("viewer rollback: %d", w.Code)
+	}
+}
+
+// Review of #101: an empty new profile can be saved, a full rule list
+// still posts, and a delete that lost to another delete is a conflict.
+func TestProfileEditorEdges(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	body := postForm(h, "/profiles/empty/preview", editForm(csrf, "0", nil), cookie).Body.String()
+	if !strings.Contains(body, "Creates <strong>empty</strong>") || !strings.Contains(body, "Save empty") {
+		t.Fatal("an empty new profile cannot be saved")
+	}
+
+	rules := make([]string, maxRuleRows)
+	for i := range rules {
+		rules[i] = `{"cwd_prefix":"/w/` + strconv.Itoa(i) + `"}`
+	}
+	if _, _, err := lake.Catalog.PutProfile(ctx, "big", []byte(`{"projects":{"allow":[`+strings.Join(rules, ",")+`]}}`), "op", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	page := get(h, "/profiles/big/edit", cookie).Body.String()
+	if !strings.Contains(page, `name="allow_rows" value="500"`) {
+		t.Fatal("editor offers more rows than a post may carry")
+	}
+
+	p, _, err := lake.Catalog.PutProfile(ctx, "gone", []byte(`{}`), "op", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.DeleteProfile(ctx, "gone", "op", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	w := del(h, "/api/web/v1/profiles/gone", `{"base_revision":`+strconvI(p.Revision)+`}`, cookie, map[string]string{CSRFHeader: csrf})
+	if w.Code != 409 || !strings.Contains(w.Body.String(), "changed") {
+		t.Fatalf("delete after a delete: %d %s", w.Code, w.Body)
 	}
 }

@@ -31,6 +31,26 @@ a `Caddyfile`, and `env.example`.
   20s) and queued normalizing (up to 30s) when it stops. Docker's
   default of 10s cuts that off.
 
+## Verify the image
+
+Each release image carries build provenance signed by the GitHub
+workflow that built it. To check that an image came from this
+repository's release workflow, from a release tag, on a GitHub-hosted
+runner:
+
+```bash
+gh attestation verify oci://ghcr.io/terva-sh/lampi:0.2.0 \
+  --repo terva-sh/lampi \
+  --signer-workflow terva-sh/lampi/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.2.0 \
+  --deny-self-hosted-runners
+```
+
+`--repo` alone accepts any workflow in the repository, and `--owner`
+accepts any repository in the organization, so keep the signer
+workflow. This needs a `gh` recent enough to have the `attestation`
+command.
+
 ## Before you start
 
 You need Docker with the Compose plugin, a DNS name for the lake, and

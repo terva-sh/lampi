@@ -74,8 +74,10 @@ type profilePreview struct {
 	Document string
 	Diff     []diffLine
 	Changed  []string
-	// Unchanged is a form that changes nothing.
+	// Unchanged is a form that changes nothing; Creates is a save that
+	// makes the profile.
 	Unchanged bool
+	Creates   bool
 	Devices   []profileDevice
 	// LocalAllow counts the devices the allow rules do not reach, shown
 	// when the allow rules change.
@@ -139,12 +141,18 @@ func checkProfile(raw []byte) (config.Profile, []byte, error) {
 	return p, doc, nil
 }
 
+// withBlanks is rules and the empty rows the form offers to add more,
+// as many as the row limit leaves room for.
+func withBlanks(rules []config.ProjectMatch) []config.ProjectMatch {
+	n := min(blankRuleRows, max(0, maxRuleRows-len(rules)))
+	return append(append([]config.ProjectMatch{}, rules...), make([]config.ProjectMatch, n)...)
+}
+
 // formOf lays profile p out for the editor, with blank rows to add
 // rules.
 func formOf(p config.Profile, base int64) profileForm {
 	f := profileForm{Base: base, Debounce: p.Agent.Debounce, DebounceMax: p.Agent.DebounceMax}
-	f.Allow = append(append([]config.ProjectMatch{}, p.Projects.Allow...), make([]config.ProjectMatch, blankRuleRows)...)
-	f.Deny = append(append([]config.ProjectMatch{}, p.Projects.Deny...), make([]config.ProjectMatch, blankRuleRows)...)
+	f.Allow, f.Deny = withBlanks(p.Projects.Allow), withBlanks(p.Projects.Deny)
 	for _, id := range profileHarnessIDs {
 		c := harnessChoice{ID: id}
 		if h, ok := p.Harnesses[id]; ok {
@@ -207,8 +215,7 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 	}
 	p = normalizeProfile(p)
 	// Show the rules as they will be saved, with room to add more.
-	f.Allow = append(append([]config.ProjectMatch{}, p.Projects.Allow...), make([]config.ProjectMatch, blankRuleRows)...)
-	f.Deny = append(append([]config.ProjectMatch{}, p.Projects.Deny...), make([]config.ProjectMatch, blankRuleRows)...)
+	f.Allow, f.Deny = withBlanks(p.Projects.Allow), withBlanks(p.Projects.Deny)
 	return f, p, nil
 }
 
@@ -340,13 +347,15 @@ func (s *Server) profileEditPage(w http.ResponseWriter, r *http.Request) {
 
 // preview builds the preview of saving p over the stored profile.
 func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profilePreview, error) {
-	cur, _, _, err := s.currentProfile(r, name)
+	cur, _, stored, err := s.currentProfile(r, name)
 	if err != nil {
 		return nil, err
 	}
 	doc, _ := json.Marshal(p)
 	pv := &profilePreview{Document: string(doc), Diff: lineDiff(indentLines(cur), indentLines(p)), Changed: catalog.ChangedProfileFields(cur, p)}
-	pv.Unchanged = cur.Version() == p.Version()
+	// Saving a profile that is not stored creates it, even empty.
+	pv.Unchanged = stored && cur.Version() == p.Version()
+	pv.Creates = !stored
 	users, err := s.profileUsers(r.Context())
 	if err != nil {
 		return nil, err

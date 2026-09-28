@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3J5HXAJBA1VR4W4B5H4NB6G
 title: "Dashboard: list, revoke and set profiles for devices"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3J5HX9FY5M7V2VF162Z9FX3
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: web/devices-list
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: 5b41022770000297c468d9f23d4a36475aff6c9d
-  session: null
-  claimed_at: 2026-09-28T18:12:20Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-27T19:30:30Z
-updated_at: 2026-09-28T18:18:27Z
+updated_at: 2026-09-28T19:32:52Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -46,8 +39,8 @@ Each action is a CSRF-checked POST. Revoking asks for confirmation that names th
 
 ## Acceptance criteria
 
-- [ ] Operators list devices and revoke, unbind or set a profile
-- [ ] Actions are CSRF-checked and audited with the OIDC actor
+- [x] Operators list devices and revoke, unbind or set a profile
+- [x] Actions are CSRF-checked and audited with the OIDC actor
 
 ## Implementation plan
 
@@ -62,3 +55,7 @@ D1 on web/devices-list: /devices lists every device with agent version, profile 
 **agent:claude-code/2cf53976** at 2026-09-28T18:18:27Z
 
 D2 on web/device-actions (stacked on web/devices-list): POST /devices/{id}/{revoke,unbind,profile} as forms and POST /api/web/v1/devices/{id}/{action} as JSON, operator-only (404 otherwise), CSRF-checked, actor web:SUBJECT (DISPLAY), audit flushed before answering; audit_failed when the change stands but the line stays queued. Addressed by dev_ id only, never name, as the code revoke does. Refuses any change to a revoked device (409 revoked) and unbind of an unbound one (409 not_bound). Decision: no fresh-login requirement, unlike mint. Mint creates a credential that is shown once, while these match the code-cancel action and serve devices on the host; revoke is put behind a <details> disclosure instead. Alternative considered: a typed-name confirm for revoke. Rejected because it needs JS or a second page and adds nothing a disclosure does not already give.
+
+## Summary
+
+Merged in #85 and #88. /devices and GET /api/web/v1/devices list every device with agent release against the lake's, profile state, allow-rule source, last sync and freshness. Operators revoke, unbind and set a profile from the page or POST /api/web/v1/devices/{id}/{action}: operator-only, CSRF-checked, by dev_ id, audited with the web: actor. A used registration code links to its device.
