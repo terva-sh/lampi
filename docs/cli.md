@@ -11,7 +11,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 
 | Command | What it does |
 |---------|--------------|
-| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check and put, manifests, and the dashboard when `--web-config` is set. `--metrics-addr` adds a loopback Prometheus listener. |
+| `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check and put, manifests, and the dashboard when `--web-config` is set. `--metrics-addr` adds a loopback Prometheus listener. `--behind-proxy` says TLS terminates in a proxy in front, as in a container on a private network: a non-loopback `--addr` then logs one line instead of the plaintext warning. It needs `--token-file` with at least one token. |
 | `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. |
 | `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
 | `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind`, or `set-profile` one by name. Runs while `serve` runs. A revoke takes effect on the next request. |

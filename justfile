@@ -62,6 +62,14 @@ ci: vet fmt-check test build
 synthetic-container:
     docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
 
+# The lake image (Dockerfile) for this machine's platform, tagged
+# terva-lampi:dev. Nothing is pushed; release CI publishes. Set
+# CONTAINER_ENGINE=podman to build without Docker. Podman's default OCI
+# format drops HEALTHCHECK, so it builds in docker format.
+image:
+    engine=${CONTAINER_ENGINE:-docker}; fmt=""; if [ "$engine" = podman ]; then fmt="--format docker"; fi; \
+    $engine build $fmt --build-arg VERSION={{version}} --build-arg COMMIT={{commit}} --build-arg CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t terva-lampi:dev .
+
 # Development runs, kept apart from a live lake and agent on the same
 # machine. With no flags, serve writes to the XDG state dir and binds
 # 127.0.0.1:8787, and the client commands read the real device token,

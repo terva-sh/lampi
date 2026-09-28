@@ -2,7 +2,7 @@
 # checks, for a checkout that does not have just installed. CI inlines
 # the commands rather than calling either file. See the justfile.
 
-.PHONY: build test vet fmt ci synthetic-container dev dev-serve dev-clean
+.PHONY: build test vet fmt ci synthetic-container image dev dev-serve dev-clean
 
 # The same stamp as the justfile. 0.0.0 means nothing was stamped.
 # -buildvcs=false only inside a linked git worktree; the justfile says why.
@@ -39,6 +39,11 @@ ci: vet test build
 # call this.
 synthetic-container:
 	docker build -f e2e/Dockerfile -t terva-lampi:synthetic .
+
+# The lake image; the justfile's image recipe says what it does.
+CONTAINER_ENGINE ?= docker
+image:
+	$(CONTAINER_ENGINE) build $(if $(filter podman,$(CONTAINER_ENGINE)),--format docker) --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg CREATED=$$(date -u +%Y-%m-%dT%H:%M:%SZ) -t terva-lampi:dev .
 
 # Development runs apart from a live lake and agent. The justfile's dev
 # recipes say why. ARGS carries the command: `make dev ARGS=status`.

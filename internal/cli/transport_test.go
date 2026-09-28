@@ -173,16 +173,36 @@ func TestStatusAndConflictsRefuseTokenOverPlainHTTP(t *testing.T) {
 func TestServeWarnsTokenOnNonLoopbackBind(t *testing.T) {
 	devices := &auth.Devices{}
 	devices.Allow("tok")
-	if w := plaintextTokenWarning("0.0.0.0:8787", devices); !strings.Contains(w, "put TLS in front") {
+	if w := plaintextTokenWarning("0.0.0.0:8787", devices, false); !strings.Contains(w, "put TLS in front") {
 		t.Fatalf("0.0.0.0: %q", w)
 	}
-	if w := plaintextTokenWarning(":8787", devices); w == "" {
+	if w := plaintextTokenWarning(":8787", devices, false); w == "" {
 		t.Fatal("empty host: no warning")
 	}
-	if w := plaintextTokenWarning("127.0.0.1:8787", devices); w != "" {
+	if w := plaintextTokenWarning("127.0.0.1:8787", devices, false); w != "" {
 		t.Fatalf("loopback: %q", w)
 	}
-	if w := plaintextTokenWarning("0.0.0.0:8787", nil); w != "" {
+	if w := plaintextTokenWarning("0.0.0.0:8787", nil, false); w != "" {
 		t.Fatalf("no tokens: %q", w)
+	}
+	w := plaintextTokenWarning("0.0.0.0:8787", devices, true)
+	if strings.Contains(w, "warning") || !strings.Contains(w, "behind a proxy on 0.0.0.0:8787") {
+		t.Fatalf("behind proxy: %q", w)
+	}
+	if w := plaintextTokenWarning("127.0.0.1:8787", devices, true); w != "" {
+		t.Fatalf("behind proxy on loopback: %q", w)
+	}
+}
+
+// An empty token file or directory already fails to load, so the case
+// left is no --token-file at all.
+func TestServeBehindProxyNeedsTokens(t *testing.T) {
+	data := t.TempDir()
+	err := Run([]string{"serve", "--behind-proxy", "--data", data}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()})
+	if err == nil || !strings.Contains(err.Error(), "--behind-proxy needs --token-file") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "catalog.db")); !os.IsNotExist(err) {
+		t.Fatalf("a refused serve created a catalog: %v", err)
 	}
 }

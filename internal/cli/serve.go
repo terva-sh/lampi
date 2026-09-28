@@ -36,7 +36,7 @@ const serveUsage = `terva-lampi serve — run the lake
 usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
                     [--web-config PATH]
-                    [--metrics-addr ADDR [--metrics-public]]
+                    [--metrics-addr ADDR [--metrics-public]] [--behind-proxy]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
   terva-lampi serve fsck [--data DIR] [--repair]
@@ -87,6 +87,13 @@ unless --metrics-public is also given. It is off by default.
 With --token-file, a non-loopback --addr is a stderr warning: serve
 speaks plain HTTP, so put TLS in front. Clients refuse to send a
 token to a non-loopback http:// URL.
+
+--behind-proxy says TLS terminates in a proxy in front of serve, as
+when serve runs in a container and the proxy reaches it over a private
+network. The warning above becomes one line naming that setup. It
+needs --token-file with at least one token, so it never exposes a lake
+that accepts requests without one. It changes nothing else:
+X-Forwarded-For is still logged as sent and not trusted.
 
 --token-file is a file of device tokens, one per line, or a directory
 with one <name>.token file per device. Other files in the directory
@@ -177,7 +184,7 @@ func runServe(env Env, args []string) error {
 		}
 	}
 	var addr, data, tokenFile, profilesFile, webConfigFile, metricsAddr string
-	var metricsPublic bool
+	var metricsPublic, behindProxy bool
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
@@ -186,6 +193,7 @@ func runServe(env Env, args []string) error {
 		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
 		fs.StringVar(&metricsAddr, "metrics-addr", "", "serve Prometheus metrics on this address (off when empty)")
 		fs.BoolVar(&metricsPublic, "metrics-public", false, "allow --metrics-addr to bind a non-loopback address")
+		fs.BoolVar(&behindProxy, "behind-proxy", false, "TLS terminates in a proxy in front of serve")
 	})
 	if err != nil {
 		return err
@@ -212,10 +220,13 @@ func runServe(env Env, args []string) error {
 	if err := refuseExposedWithoutToken(addr, devices); err != nil {
 		return err
 	}
+	if behindProxy && (devices == nil || devices.Empty()) {
+		return fmt.Errorf("--behind-proxy needs --token-file with at least one device token")
+	}
 	if err := checkMetricsAddr(metricsAddr, metricsPublic); err != nil {
 		return err
 	}
-	if warn := plaintextTokenWarning(addr, devices); warn != "" {
+	if warn := plaintextTokenWarning(addr, devices, behindProxy); warn != "" {
 		fmt.Fprintln(env.stderr(), warn)
 	}
 	var webCfg *webconfig.Config
@@ -598,13 +609,18 @@ func refuseExposedWithoutToken(addr string, devices *auth.Devices) error {
 // plaintextTokenWarning is set when device tokens are required on an
 // address that is not loopback. serve speaks plain HTTP, so the tokens
 // cross that network in the clear unless TLS terminates in front, and
-// clients refuse to send a token to a non-loopback http:// URL.
-func plaintextTokenWarning(addr string, devices *auth.Devices) string {
+// clients refuse to send a token to a non-loopback http:// URL. With
+// behindProxy the operator has said TLS is in front, and the line only
+// records that.
+func plaintextTokenWarning(addr string, devices *auth.Devices, behindProxy bool) string {
 	if devices == nil || devices.Empty() {
 		return ""
 	}
 	if ok, err := listenLoopback(addr); err == nil && ok {
 		return ""
+	}
+	if behindProxy {
+		return fmt.Sprintf("terva-lampi serve: behind a proxy on %s; TLS terminates in front, and agents use its https:// URL", addr)
 	}
 	return fmt.Sprintf("terva-lampi serve: warning: %s is not loopback and serve speaks plain HTTP; put TLS in front and bind 127.0.0.1, or device tokens cross the network in the clear", addr)
 }
