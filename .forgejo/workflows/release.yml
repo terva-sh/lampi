@@ -41,6 +41,10 @@ jobs:
         uses: Actions-Mirrors/goreleaser-action@v6
         with:
           args: release --clean --skip=publish
+        env:
+          # As on GitHub: with two tags on one commit goreleaser would pick
+          # the -rc one. Name the tag.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - name: Verify the binary reports the tag
         # Here it gates the upload, since this workflow does its own publishing.
@@ -51,8 +55,9 @@ jobs:
           tar -xzf "${archive}" -C "${tmp}"
           got=$("${tmp}/terva-lampi" --version)
           echo "built: ${got}"
-          case "${got}" in
-            *"${GITHUB_REF_NAME}"*) echo "carries ${GITHUB_REF_NAME}" ;;
+          # The whole word: v0.2.0-rc2 contains v0.2.0.
+          case " ${got} " in
+            *" ${GITHUB_REF_NAME} "*) echo "carries ${GITHUB_REF_NAME}" ;;
             *)
               echo "::error::the binary reports '${got}', which does not carry ${GITHUB_REF_NAME}"
               echo "The build lost its VCS stamps. Check that the checkout is not shallow."

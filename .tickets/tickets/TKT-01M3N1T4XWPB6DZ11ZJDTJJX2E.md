@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T22:57:34Z
+updated_at: 2026-09-28T23:16:51Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -64,7 +64,7 @@ The release workflow runs `go test ./...` before it publishes. Three tests are k
 
 ## Acceptance criteria
 
-- [ ] v0.2.0-rc1 published archives and a two-platform image that passed the checks
+- [x] v0.2.0-rc1 published archives and a two-platform image that passed the checks
 - [ ] The GHCR package is public and pulls without a login
 - [ ] v0.2.0 is tagged on both forges with the notes attached
 - [x] A v0.1.2 lake upgraded to the rc image and its agents still sync
@@ -176,3 +176,21 @@ Supersedes both earlier release-notes drafts, including the first draft's wrong 
   - amd64: `terva-lampi v0.2.0-rc1 (e91ce6d)`.
   - arm64: this host has no arm64 binfmt, so I extracted the binary instead. It's an ELF aarch64 static binary, GOARCH=arm64, stamped `v0.2.0-rc1`.
   - Upgrade: a lake seeded by the published v0.1.2 binary, served by the rc1 image under podman, migrated 11 → 15 after taking the backup. Both the v0.1.2 agent and the new agent synced appends. `serve fsck`: 5 entries, 0 bad.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:10:32Z
+
+v0.2.0-rc2 at 3cadf74, with the #113 verify fix. GitHub release run 36495897095 succeeded in full, and its post-check now reports 'linux/amd64: terva-lampi v0.2.0-rc2 (3cadf74)' and 'linux/arm64: terva-lampi v0.2.0-rc2 (3cadf74)'. The Forgejo release and image build succeeded. The rc criterion is ticked on rc2, because rc1's image was good but its check was broken. v0.2.0 is tagged at 3cadf74, the same commit.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T23:16:51Z
+
+### v0.2.0 run failed: goreleaser built it as 0.2.0-rc2
+
+`v0.2.0` sits on 3cadf74, the same commit as `v0.2.0-rc2`. goreleaser chooses the current tag by git's version sort, where the `-rc2` suffix sorts after the release. So it built `v0.2.0` as `0.2.0-rc2`.
+
+- **GitHub (run 36496558392).** goreleaser created no v0.2.0 release. It failed uploading the first archive, because the rc2 release already holds an asset of that name. The image job was skipped. The rc2 release is unchanged; its assets are still from 23:07.
+- **Forgejo (run 1079).** It created a non-prerelease `v0.2.0` release holding archives named `terva-lampi_0.2.0-rc2_*`. The binaries inside report `v0.2.0 (3cadf74)`, because Go stamps the highest semver tag. The version check passed because it matches substrings, and `v0.2.0-rc2` contains `v0.2.0`. `install.sh` builds archive names from the version, so those names are wrong.
+- **Fix (branch `ci/release-current-tag`).**
+  - Both workflows set `GORELEASER_CURRENT_TAG: ${{ github.ref_name }}`, so goreleaser uses the tag that triggered the run.
+  - All three version checks match the tag as a whole word.
+  - A local goreleaser run at 3cadf74 with the pin built `terva-lampi_0.2.0_linux_amd64.tar.gz`.
+- **Open.** The v0.2.0 tag still points at 3cadf74, which has the old workflow, so a re-run fails the same way. Fixing that needs the owner's decision: move the tag, or release v0.2.1. The Forgejo v0.2.0 release has to go in either case.

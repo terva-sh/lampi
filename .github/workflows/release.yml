@@ -53,6 +53,10 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Two tags can sit on one commit, as v0.2.0-rc2 and v0.2.0 did.
+          # goreleaser picks by version sort, where -rc2 sorts after the
+          # release, and built v0.2.0 as 0.2.0-rc2. Name the tag.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       - name: Verify the published binary reports the tag
         # goreleaser has already published by now, so this is a post-check.
@@ -65,8 +69,9 @@ jobs:
           tar -xzf "${archive}" -C "${tmp}"
           got=$("${tmp}/terva-lampi" --version)
           echo "built: ${got}"
-          case "${got}" in
-            *"${GITHUB_REF_NAME}"*) echo "carries ${GITHUB_REF_NAME}" ;;
+          # The whole word: v0.2.0-rc2 contains v0.2.0.
+          case " ${got} " in
+            *" ${GITHUB_REF_NAME} "*) echo "carries ${GITHUB_REF_NAME}" ;;
             *)
               echo "::error::the binary reports '${got}', which does not carry ${GITHUB_REF_NAME}"
               echo "The build lost its VCS stamps. Delete the release, then check"
@@ -177,8 +182,8 @@ jobs:
             fi
             got=$(docker run --rm --platform "${platform}" "${IMAGE}@${manifest}" --version)
             echo "${platform}: ${got}"
-            case "${got}" in
-              *"${GITHUB_REF_NAME}"*) ;;
+            case " ${got} " in
+              *" ${GITHUB_REF_NAME} "*) ;;
               *)
                 echo "::error::${platform} reports '${got}', which does not carry ${GITHUB_REF_NAME}"
                 exit 1
