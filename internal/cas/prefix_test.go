@@ -487,3 +487,30 @@ func TestReadsOfAHeadSurviveItsGrowth(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A grow whose record write failed after the grown object was
+// installed is finished by the retry: the object is found, and the
+// record is written.
+func TestGrowRetryFinishesAnInterruptedSupersede(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := []byte("first\n")
+	d1 := mustPut(t, s, v1)
+	tail := mustPut(t, s, []byte("second\n"))
+	v2 := []byte("first\nsecond\n")
+	d2 := digestOf(v2)
+	// The state a failed record write leaves: v2 installed, v1 whole.
+	mustPut(t, s, v2)
+	exists, err := s.Grow(d2, d1, int64(len(v1)), tail, 0)
+	if err != nil || !exists {
+		t.Fatalf("retry = %v %v", exists, err)
+	}
+	if ok, _ := s.Has(d1); ok {
+		t.Fatal("the retry left the old head whole")
+	}
+	if base, _, ok, _ := s.PrefixOf(d1); !ok || base != d2 {
+		t.Fatalf("record = %s %v", base, ok)
+	}
+}
