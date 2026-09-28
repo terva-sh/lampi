@@ -69,11 +69,11 @@ func TestRolledBackRedemptionQueuesNoAudit(t *testing.T) {
 	if _, err := c.CreateRegistration(ctx, "box", secret, "", "", ActorCLI, now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	refuse := func(Device, Registration) ([]audit.Event, error) { return nil, os.ErrPermission }
+	refuse := func(Device, Registration, EffectiveProfile) ([]audit.Event, error) { return nil, os.ErrPermission }
 	if _, _, err := c.Redeem(ctx, secret, strings.Repeat("c", 64), "m1", nil, now, refuse); err == nil {
 		t.Fatal("redeem went through")
 	}
-	events := func(d Device, r Registration) ([]audit.Event, error) {
+	events := func(d Device, r Registration, _ EffectiveProfile) ([]audit.Event, error) {
 		return []audit.Event{{Kind: audit.RegistrationRedeemed, Device: d.Name, Detail: "registration=" + r.ID}}, nil
 	}
 	if _, _, err := c.Redeem(ctx, secret, strings.Repeat("c", 64), "m1", nil, now, events); err != nil {

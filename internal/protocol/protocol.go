@@ -183,7 +183,10 @@ const AgentConfigPath = "/v1/agent/config"
 
 // AgentConfigPayload is the signed payload of GET AgentConfigPath.
 // Config is the profile, the subset of config.json a lake may set.
-// Version changes when, and only when, Config does.
+// Version changes when, and only when, Config does. Layers names what
+// Config was built from, bottom first, such as "profile:default". It is
+// informational: an agent checks Config against Version and does not
+// read Layers, and a lake before it sent none.
 type AgentConfigPayload struct {
 	LakeID   string          `json:"lake_id"`
 	DeviceID string          `json:"device_id,omitempty"`
@@ -191,6 +194,57 @@ type AgentConfigPayload struct {
 	Version  string          `json:"version"`
 	IssuedAt time.Time       `json:"issued_at"`
 	Config   json.RawMessage `json:"config"`
+	Layers   []string        `json:"layers,omitempty"`
+}
+
+// AgentReportPath takes the calling device's heartbeat: what the agent
+// runs, which profile it applied, and what its last sync did. It needs
+// the device token. The lake keeps the newest report per device.
+const AgentReportPath = "/v1/agent/report"
+
+// AgentReport is the body of POST AgentReportPath. Every field is
+// optional, so an agent reports what it knows and a lake accepts a
+// report from an older or newer agent.
+type AgentReport struct {
+	AgentVersion string `json:"agent_version,omitempty"`
+	MachineID    string `json:"machine_id,omitempty"`
+	// Inventory is the agent's inventory mode, sociable or strict.
+	// Agents from before the inventory report leave it empty.
+	Inventory string `json:"inventory,omitempty"`
+	// Profile and ProfileVersion name the lake profile the agent
+	// applied, from its verified cache; empty when it has none.
+	Profile        string `json:"profile,omitempty"`
+	ProfileVersion string `json:"profile_version,omitempty"`
+	// AllowSource and DenySource say where the agent's project rules
+	// for this lake came from: "local", "lake NAME", both joined by
+	// "+", or "none". A lake's allow rules do not apply while
+	// AllowSource is local.
+	AllowSource string           `json:"allow_source,omitempty"`
+	DenySource  string           `json:"deny_source,omitempty"`
+	LastSync    *AgentSyncReport `json:"last_sync,omitempty"`
+	// LastError is the newest failed sync's error, cleared by a sync
+	// that succeeds.
+	LastError   string    `json:"last_error,omitempty"`
+	LastErrorAt time.Time `json:"last_error_at,omitzero"`
+}
+
+// AgentReportResponse answers POST AgentReportPath. ReceivedAt is the
+// lake's clock when it stored the report.
+type AgentReportResponse struct {
+	ReceivedAt time.Time `json:"received_at"`
+}
+
+// AgentSyncReport is the outcome of the agent's last finished sync to
+// the lake, with the counters sync prints.
+type AgentSyncReport struct {
+	At          time.Time `json:"at"`
+	Checked     int       `json:"checked"`
+	Missing     int       `json:"missing"`
+	Uploaded    int       `json:"uploaded"`
+	Manifests   int       `json:"manifests"`
+	Refused     int       `json:"refused"`
+	Quarantined int       `json:"quarantined"`
+	Unchanged   int       `json:"unchanged"`
 }
 
 // RegisterPath redeems a registration code. It needs no token.

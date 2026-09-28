@@ -232,12 +232,13 @@ func (c *Catalog) RevokeRegistration(ctx context.Context, ref, by, auditActor st
 // can name it. keyActive says whether the key that signed the code may
 // still sign; nil accepts every key.
 //
-// finish, when not nil, runs on the new device and the spent code before
-// the transaction commits. An error from it is returned as it is and
-// rolls the redemption back, so the code stays unspent and no device is
-// left behind. The audit events it returns are queued in the same
-// transaction, for FlushAudit.
-func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, keyActive func(string) bool, now time.Time, finish func(Device, Registration) ([]audit.Event, error)) (Device, Registration, error) {
+// finish, when not nil, runs on the new device, the spent code, and the
+// device's effective profile before the transaction commits. A profile
+// that does not resolve, ErrNoProfile, is returned without running it.
+// Either error rolls the redemption back, so the code stays unspent and
+// no device is left behind. The audit events finish returns are queued
+// in the same transaction, for FlushAudit.
+func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machineID string, keyActive func(string) bool, now time.Time, finish func(Device, Registration, EffectiveProfile) ([]audit.Event, error)) (Device, Registration, error) {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Device{}, Registration{}, fmt.Errorf("catalog: %w", err)
@@ -303,7 +304,13 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 	if finish != nil {
 		spent := r
 		spent.Used, spent.DeviceID = now.UTC(), d.ID
-		events, err := finish(d, spent)
+		// The one connection is this transaction's, so the profile is
+		// read through it.
+		prof, err := resolveProfile(ctx, tx, d)
+		if err != nil {
+			return Device{}, r, err
+		}
+		events, err := finish(d, spent, prof)
 		if err != nil {
 			return Device{}, r, err
 		}

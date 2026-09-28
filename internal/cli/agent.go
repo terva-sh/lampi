@@ -407,6 +407,11 @@ type lakeRunner struct {
 
 	retryMu sync.Mutex
 	retry   *time.Timer
+
+	// synced holds what the last sync did, for the report, and
+	// reported asks the report loop to send it now.
+	synced   syncOutcome
+	reported chan struct{}
 }
 
 func newLakeRunner(env Env, l agentLake) *lakeRunner {
@@ -414,7 +419,7 @@ func newLakeRunner(env Env, l agentLake) *lakeRunner {
 	// start, hashes every file. Each lake has its own, because a file
 	// pushed to one lake is not pushed to another.
 	l.opt.Memo = upload.NewMemo()
-	r := &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{})}
+	r := &lakeRunner{env: env, lake: l, kick: make(chan struct{}, 1), reported: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{})}
 	r.setLabel(l.label)
 	return r
 }
@@ -490,7 +495,11 @@ func (r *lakeRunner) run(ctx context.Context) {
 		// shutdown has begun. The drain is the last push.
 		var err error
 		if ctx.Err() == nil {
-			err = runAgentSync(ctx, r.env, opt, r.prefix(), seen)
+			var res upload.Result
+			res, err = runAgentSync(ctx, r.env, opt, r.prefix(), seen)
+			if ctx.Err() == nil {
+				r.noteSync(res, err, time.Now())
+			}
 		}
 		if ctx.Err() != nil {
 			r.disarmRetry()
@@ -724,7 +733,7 @@ func waitWatches(watchErr <-chan error, n int) error {
 // runAgentSync is one pass. A refusal or a skip that the previous
 // finished pass already printed is not printed again; one that is new,
 // or that returns after a pass without it, is.
-func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string, seen *changeLog) error {
+func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix string, seen *changeLog) (upload.Result, error) {
 	res, err := upload.Sync(ctx, opt)
 	var rejected *upload.Rejected
 	isRejected := errors.As(err, &rejected)
@@ -739,7 +748,7 @@ func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix strin
 		}
 	}
 	printSync(env.stdout(), env.stderr(), prefix, res)
-	return err
+	return res, err
 }
 
 // changeLog remembers the lines the last finished pass printed, by
@@ -777,7 +786,7 @@ func drainAgent(env Env, opt upload.Options, label string, seen *changeLog) erro
 	ctx, cancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer cancel()
 	fmt.Fprintf(env.stderr(), "terva-lampi: %sdraining outbox\n", label)
-	if err := runAgentSync(ctx, env, opt, label+"drain: ", seen); err != nil {
+	if _, err := runAgentSync(ctx, env, opt, label+"drain: ", seen); err != nil {
 		if _, refused := err.(*upload.Rejected); !refused {
 			fmt.Fprintf(env.stderr(), "terva-lampi: %sdrain: %v\n", label, err)
 		}

@@ -33,7 +33,7 @@ type regFixture struct {
 func newRegFixture(t *testing.T) *regFixture {
 	t.Helper()
 	dir, lake, url := registerLake(t)
-	lake.SetProfiles(config.Profiles{config.DefaultProfile: {Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work/app"}}}}})
+	putDefaultProfile(t, lake, config.Profile{Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work/app"}}}})
 	if err := Run([]string{"serve", "identity", "set-url", url, "--data", dir}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err != nil {
 		t.Fatal(err)
 	}

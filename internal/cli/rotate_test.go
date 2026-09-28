@@ -194,11 +194,12 @@ func TestThePinStaysWhenTheProfileUnderTheNewKeyCannotBeFetched(t *testing.T) {
 		t.Fatalf("first sync: %v\n%s", err, out)
 	}
 	f.serveIdentity("rotate", "--overlap", "1h")
-	// The device's profile has left the lake's profiles file, so the
+	// The device's profile is not in the lake's catalog, so the
 	// profile under the new key cannot be fetched: the pin stays, and
 	// the sync goes on under the old key while the overlap lasts.
-	profiles := f.lake.Profiles()
-	f.lake.SetProfiles(config.Profiles{"other": {}})
+	if _, err := f.lake.Catalog.SetDeviceProfile(t.Context(), "box", "gone", "gone", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	out, err := f.sync()
 	if err != nil || !strings.Contains(out, "the pin stays on key "+first) || strings.Contains(out, "pin moved") {
 		t.Fatalf("sync without a profile: %v\n%s", err, out)
@@ -207,7 +208,9 @@ func TestThePinStaysWhenTheProfileUnderTheNewKeyCannotBeFetched(t *testing.T) {
 		t.Fatal("the pin moved without the profile under the new key")
 	}
 	// With the profile back, the next sync moves it.
-	f.lake.SetProfiles(profiles)
+	if _, err := f.lake.Catalog.SetDeviceProfile(t.Context(), "box", "", "default", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	if out, err := f.sync(); err != nil || !strings.Contains(out, "pin moved to key") {
 		t.Fatalf("sync with the profile back: %v\n%s", err, out)
 	}

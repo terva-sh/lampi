@@ -244,7 +244,11 @@ func (s *Server) mint(r *http.Request, req mintRequest) (mintedView, error) {
 		return mintedView{}, errBadName
 	}
 	lake := s.reg.Lake()
-	if _, ok := lake.Profiles[req.Profile]; !ok && req.Profile != "" && req.Profile != config.DefaultProfile {
+	known, err := lake.Catalog.HasProfile(r.Context(), req.Profile)
+	if err != nil {
+		return mintedView{}, err
+	}
+	if !known {
 		return mintedView{}, registrar.ErrNoProfile
 	}
 	// Input is checked before the limit, so a mistyped form does not use

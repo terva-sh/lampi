@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,20 @@ import (
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/protocol"
 )
+
+// putProfiles saves each profile in the lake's catalog.
+func putProfiles(t *testing.T, s *Server, profiles map[string]config.Profile) {
+	t.Helper()
+	for name, p := range profiles {
+		raw, err := json.Marshal(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := s.Catalog.PutProfile(t.Context(), name, raw, "test", "", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func getAgentConfig(t *testing.T, s *Server, token string) (*httptest.ResponseRecorder, protocol.AgentConfigPayload) {
 	t.Helper()
@@ -51,7 +66,7 @@ func TestAgentConfigIsTheDevicesProfileSigned(t *testing.T) {
 	if _, err := s.EnsureIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
-	s.SetProfiles(config.Profiles{
+	putProfiles(t, s, map[string]config.Profile{
 		config.DefaultProfile: {Agent: config.AgentConfig{Debounce: "3s"}},
 		"ci":                  {Projects: config.Projects{Deny: []config.ProjectMatch{{CWDPrefix: "/secret"}}}},
 	})
@@ -69,6 +84,9 @@ func TestAgentConfigIsTheDevicesProfileSigned(t *testing.T) {
 	if p.LakeID != s.Identity().LakeID || p.Profile != config.DefaultProfile || got.Agent.Debounce != "3s" || p.Version != got.Version() || p.DeviceID == "" {
 		t.Fatalf("laptop payload %+v", p)
 	}
+	if strings.Join(p.Layers, ",") != "profile:default" {
+		t.Fatalf("laptop layers %v", p.Layers)
+	}
 
 	if _, err := s.Catalog.SetDeviceProfile(t.Context(), "laptop", "ci", "ci", "test", time.Now()); err != nil {
 		t.Fatal(err)
@@ -82,10 +100,26 @@ func TestAgentConfigIsTheDevicesProfileSigned(t *testing.T) {
 		t.Fatalf("desktop took laptop's profile: %+v", other)
 	}
 
-	// A profile that left the file is 404; the agent keeps its copy.
-	s.SetProfiles(config.Profiles{config.DefaultProfile: {}})
+	// A profile the catalog does not hold is 404; the agent keeps its
+	// copy.
+	if _, err := s.Catalog.SetDeviceProfile(t.Context(), "laptop", "gone", "gone", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	if rr, _ := getAgentConfig(t, s, laptopToken); rr.Code != http.StatusNotFound {
 		t.Fatalf("missing profile: %d", rr.Code)
+	}
+}
+
+// A catalog with no profiles serves an empty default, as a lake with no
+// profiles file did.
+func TestAgentConfigWithNoProfilesIsAnEmptyDefault(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	rr, p := getAgentConfig(t, s, laptopToken)
+	if rr.Code != http.StatusOK || p.Profile != config.DefaultProfile || string(p.Config) != "{}" || p.Version != (config.Profile{}).Version() {
+		t.Fatalf("no profiles: %d %+v", rr.Code, p)
 	}
 }
 

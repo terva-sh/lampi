@@ -78,13 +78,12 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 	v.Fresh = webauth.Fresh(r, now)
 	v.Attempt = s.attempts.issue(now)
 	v.FreshURL = webauth.FreshLoginURL(adminRegistrationsPath)
-	v.Profiles = []string{config.DefaultProfile}
-	for name := range s.reg.Lake().Profiles {
-		if name != config.DefaultProfile {
-			v.Profiles = append(v.Profiles, name)
-		}
+	v.Profiles, err = s.reg.Lake().Catalog.ProfileNames(r.Context())
+	if err != nil {
+		// The form still offers the default, which is always there.
+		s.logError(r, "listing profiles failed", err)
+		v.Profiles = []string{config.DefaultProfile}
 	}
-	slices.Sort(v.Profiles[1:])
 	title := "Registration codes"
 	view := "registrations"
 	if v.Minted != nil {
@@ -115,7 +114,7 @@ func (s *Server) readForm(w http.ResponseWriter, r *http.Request) bool {
 var mintProblems = map[string]string{
 	"invalid_name":    "A device name is lowercase letters, digits, '.', '-' and '_', at most 64 characters.",
 	"invalid_expiry":  "Choose one of the listed expiries.",
-	"unknown_profile": "That profile is not in the lake's profiles file any more. Choose another.",
+	"unknown_profile": "That profile is not in the lake any more. Choose another.",
 	"name_taken":      "A device or a pending code already has that name. Cancel the pending code first, or choose another name.",
 	"rate_limited":    "Too many codes were minted just now. Wait a minute and try again.",
 	"lake_not_ready":  "The lake cannot mint yet: it needs an identity and a public URL that reaches it. Operator logs hold the details.",

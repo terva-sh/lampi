@@ -113,8 +113,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	var signErr error
 	// The redemption's audit events commit with it and are appended
 	// after, so a failed append leaves them queued, not lost.
-	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device, spent catalog.Registration) ([]audit.Event, error) {
-		signed, signErr = s.signedProfileBy(id, d)
+	d, reg, err := s.Catalog.Redeem(r.Context(), regcode.HashSecret(req.Secret), req.TokenSHA256, req.MachineID, keyActive, now, func(d catalog.Device, spent catalog.Registration, p catalog.EffectiveProfile) ([]audit.Event, error) {
+		signed, signErr = s.signProfile(id, d, p)
 		if signErr != nil {
 			return nil, signErr
 		}
@@ -128,11 +128,15 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 			{Kind: audit.DeviceBound, Device: d.Name, DeviceID: d.ID, MachineID: d.MachineID, Actor: "serve"},
 		}, nil
 	})
+	// A profile the catalog does not hold fails before finish runs.
+	if errors.Is(err, catalog.ErrNoProfile) {
+		signErr = err
+	}
 	switch {
 	case signErr != nil:
 		reason := "profile could not be signed"
-		if errors.Is(signErr, errNoProfile) {
-			reason = "profile is not in the profiles file"
+		if errors.Is(signErr, catalog.ErrNoProfile) {
+			reason = "profile is not in the catalog"
 		}
 		s.auditRefusal(reg.ID, req.MachineID, reason)
 		// The access log keeps the cause; the body says what to do, which

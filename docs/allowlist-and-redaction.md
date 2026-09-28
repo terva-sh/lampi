@@ -9,6 +9,11 @@ Do not upload a project whose transcripts you would not copy onto the
 lake's disk in the clear. The scan catches common token shapes. It is
 not a promise that every secret is caught.
 
+Neither gate hides that a project exists. From the release with the
+inventory report, the agent tells each lake which projects it sees
+unless `config.json` sets STRICT mode. See
+[What leaves the machine](#what-leaves-the-machine).
+
 ## The project allowlist
 
 Raw bytes leave the machine only for a project that `config.json`
@@ -43,6 +48,30 @@ reason, a cwd and the git remote. A repository with many checkouts is
 one line. The reason is a deny rule, an empty allow list, a session
 with no cwd, or no matching allow rule. It uploads nothing and contacts
 no lake, and `--lake NAME` picks which lake's rules to apply.
+
+## What leaves the machine
+
+| Mode | Allowed project | Refused project |
+|------|-----------------|-----------------|
+| SOCIABLE (default) | raw files, manifest, inventory row | inventory row |
+| STRICT | raw files, manifest, inventory row | total count and bytes only |
+
+An inventory row holds the harness, the cwd, the cwd hash, the git
+remote, the session count, the total bytes, the newest session time,
+and whether the project is allowed, with the refusal reason. The
+inventory comes from the same scan as `agent refused`, so the two agree.
+Raw bytes of a refused project never leave in either mode.
+
+Set STRICT in `config.json`. A lake profile cannot change it:
+
+```json
+{"inventory": "strict"}
+```
+
+The inventory report ships with TKT-01M3M7M0TH. An agent from an
+earlier release sends nothing about refused projects. The decision and
+its reasons are in
+[policy.md](policy.md#off-box-metadata-the-inventory-report).
 
 ### How a rule matches
 

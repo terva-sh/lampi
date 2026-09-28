@@ -1,6 +1,7 @@
 // Package audit is the lake's append-only record of who may upload:
 // devices created, bound, unbound and revoked, and, as registration
-// lands, codes minted and redeemed and keys added and retired.
+// lands, codes minted and redeemed and keys added and retired. Profile
+// saves and deletions are recorded too.
 //
 // It is one JSON object per line in audit.jsonl in the lake directory,
 // at mode 0600. serve and the operator commands beside it both append.
@@ -38,6 +39,9 @@ const (
 
 	KeyAdded   = "key.added"
 	KeyRetired = "key.retired"
+
+	ProfilePut    = "profile.put"
+	ProfileDelete = "profile.delete"
 )
 
 // Event is one line. Device is the device name. Actor is where the

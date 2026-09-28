@@ -120,7 +120,7 @@ public URL check does, whether or not it ends in a code.
 |---|---|
 | A name that is not a device name | `400 invalid_name` |
 | An expiry that does not parse, or is over 30 days | `400 invalid_expiry` |
-| A profile not in `profiles.json` | `400 unknown_profile` |
+| A profile the lake does not hold | `400 unknown_profile` |
 | A body that is not one JSON object of these fields | `400 invalid_request` |
 | A device, or a pending code, already has the name | `409 name_taken` |
 | No identity, no public URL, or a public URL that does not reach this lake | `503 lake_not_ready` |

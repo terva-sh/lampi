@@ -37,14 +37,22 @@ way, and the token copy described above is the fallback. See
 [docs/vps-bringup.md](../docs/vps-bringup.md#devices). On Windows,
 restart the agent after registering to add the lake.
 
-`profiles.json.example` is the base configuration a lake gives the
-agents it registers. Copy it to `profiles.json` in the lake's data
-directory, or pass `serve --profiles`. It holds no hostname and no
+`profiles.json.example` shows the base configuration a lake gives the
+agents it registers. The lake keeps its profiles in the catalog and
+does not read a `profiles.json`. Load one with
+`terva-lampi serve profiles import FILE`. `serve` warns while a
+`profiles.json` sits in the lake directory, because the file is not in
+force. The example holds no hostname and no
 secret. Its `projects` rules are placeholders: replace the `allow`
-and `deny` entries with your own projects before the lake serves the
-file. An agent whose `config.json` has no allow rules of its own
-uploads only what the profile allows, so the example as copied
-uploads nothing.
+and `deny` entries with your own projects. An agent whose
+`config.json` has no allow rules of its own uploads only what the
+profile allows, so the example as written uploads nothing.
+
+An agent with the inventory report reports every project it sees to
+its lakes, refused ones included, unless its `config.json` sets
+`"inventory": "strict"`. On a machine whose project names should stay
+private, set that before upgrading. See
+[What leaves the machine](../docs/allowlist-and-redaction.md#what-leaves-the-machine).
 
 
 `terva-lampi register --install-service` writes a unit like the ones
