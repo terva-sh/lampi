@@ -335,8 +335,13 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) (result string) {
 		return resultFailed
 	}
 	if err := s.Catalog.DeleteNormalizeJob(ctx, job.SessionUID, job.Gen); err != nil {
+		// The result is stored; only the row stays, and the backlog
+		// shows it. The job counts by its result, not this.
 		s.logger().Error("normalize job not cleared", "session_uid", job.SessionUID, "err", err.Error())
-		return resultFailed
+		if nerr != nil {
+			return resultFailed
+		}
+		return resultOK
 	}
 	s.published(job.SessionUID)
 	if nerr != nil {
