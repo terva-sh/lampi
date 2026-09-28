@@ -343,6 +343,23 @@ it made.
 The data comes from the agents' reports. See
 [protocol.md](protocol.md#post-v1agentreport).
 
+### A device's page
+
+Each device's name, on this list and in the Machines table on Operations, links
+to its own page, `/devices/{id}`. The page shows the same status, agent,
+profile and last sync, with the applied and current profile versions side by
+side, an Edit link to the profile for operators, and the same actions. An
+action taken there comes back to the page.
+
+**Projects on this machine** is the newest inventory the agent sent: each
+project its harnesses hold, grouped as `terva-lampi agent refused` groups them,
+with the session count, size, newest session, and whether the allowlist allows
+it or why not. *Refused only* hides the allowed ones. A device in strict mode
+lists allowlisted projects only, and the page says it reports no more about the
+refused ones than their count and size. An agent from before inventories sends
+none, and the page says to upgrade it. See
+[What leaves the machine](allowlist-and-redaction.md#what-leaves-the-machine).
+
 ## Profiles
 
 `/profiles` lists the lake's profiles, the default first. Each shows its

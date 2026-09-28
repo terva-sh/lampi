@@ -118,6 +118,9 @@ type opsQueues struct {
 }
 
 type opsMachine struct {
+	// DeviceID is the device's id, for its page; empty for a machine no
+	// device is bound to.
+	DeviceID      string `json:"device_id,omitempty"`
 	Device        string `json:"device,omitempty"`
 	State         string `json:"state,omitempty"`
 	Source        string `json:"source,omitempty"`
@@ -337,7 +340,7 @@ func (s *Server) readMachines(ctx context.Context, now time.Time) ([]opsMachine,
 	out := []opsMachine{}
 	bound := map[string]bool{}
 	for _, d := range devices {
-		m := opsMachine{Device: d.Name, State: d.State(), Source: d.Source, Profile: d.Profile, MachineID: d.MachineID}
+		m := opsMachine{DeviceID: d.ID, Device: d.Name, State: d.State(), Source: d.Source, Profile: d.Profile, MachineID: d.MachineID}
 		if d.MachineID != "" {
 			bound[d.MachineID] = true
 			m.addActivity(byMachine[d.MachineID])

@@ -39,6 +39,7 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		return s
 	},
 	"profileURL":    profileURL,
+	"deviceURL":     deviceURL,
 	"sessionURL":    func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
 	"transcriptURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) + "/transcript" },
 	"fromURL": func(uid string, from int64) string {
@@ -102,6 +103,8 @@ type pageData struct {
 	Operator bool
 	Codes    codesView
 	Devices  devicesView
+	// Device is one device's page.
+	Device   deviceView
 	Profiles profilesView
 	Profile  profileView
 	// ProfileEdit is the operator's profile editor.
@@ -139,7 +142,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
