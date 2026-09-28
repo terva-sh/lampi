@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K38AAK8Q9P3RB6G8GP9JZ9
 title: "Lake storage grows quadratically: every grown transcript version is a full copy"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: tickets/lake-growth
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 166beea48329836945572e4c735c94dfd8ad82a3
-  session: null
-  claimed_at: 2026-09-28T04:25:34Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T04:09:33Z
-updated_at: 2026-09-28T04:37:56Z
+updated_at: 2026-09-28T05:27:30Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -177,3 +170,30 @@ tails, which is compact's job.
 A binary older than this one reads a prefix record as a malformed
 logical index. After this ships, rolling back needs compact's inverse,
 which does not exist. Treat this as forward-only.
+
+## Summary
+
+Landed in #54. A grown version is now stored as a prefix record of its
+successor, `{prefix_of, length}` under cas/logical/, instead of as a
+whole copy.
+
+- Ingest's `Store.Grow` streams the head and the tail once.
+- Reads follow record chains, and fall back to the record when Grow
+  removes an object mid-read.
+- Present, Size and fsck check that each chain resolves, that every
+  link is longer than the one before, and that the file at the end
+  holds the last link's length.
+- Backup follows every record and chunk list in the copy until it
+  resolves.
+- Purge writes out whole any shared version whose bytes lie in the
+  purged session's files.
+
+The diagnostic now shows 2.2× the final file after 200 appends,
+against 101× before. The remaining 1.2× is the tails, which
+`serve compact` (TKT-01M3K45MS) removes, along with the whole copies
+lakes already hold.
+
+Review took five rounds on the v0.3.0 and v0.5.0 reviewers. Ten
+findings were fixed and one rejected: a retried tail manifest does
+reach Grow, which is tested. The format is forward-only, because an
+older binary cannot read a prefix record.
