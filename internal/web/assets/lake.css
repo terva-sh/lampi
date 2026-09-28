@@ -13,3 +13,4 @@ pre.copy{white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,SF
 .filters+.refreshbar{margin-top:10px}
 .num{text-align:right;font-variant-numeric:tabular-nums}th.num{text-align:right}.storage-table th:first-child{width:34%}.storage-table meter{max-width:160px}.machines-table th:first-child{width:28%}.badge.fresh-active{background:var(--ok-bg);color:var(--ok)}.badge.fresh-idle{background:var(--warn-bg);color:var(--warn)}.badge.fresh-quiet{background:var(--bad-bg);color:var(--bad)}.badge.fresh-never{background:var(--neutral-bg);color:var(--neutral)}
 .account button{white-space:nowrap}
+@media(max-width:650px){.topbar nav{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;gap:22px}.topbar nav a{white-space:nowrap;flex:none}.account{flex-wrap:wrap;justify-content:flex-end;row-gap:6px;min-width:0}}

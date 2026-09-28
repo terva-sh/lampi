@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T01:47:29Z
-updated_at: 2026-09-28T02:09:43Z
+updated_at: 2026-09-28T02:37:56Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -89,3 +89,7 @@ How the dark theme is built, and what each choice beat:
 Checked in headless Chromium: overview and operations render in both
 themes; the toggle cycles and persists across reloads; the console
 shows no CSP errors.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T02:37:56Z
+
+Review of PR #51 found the header overflowing on narrow screens. Measured in headless Chromium: the page was 524px wide at 320px and 375px. The cause was the nav row, where seven links (Operations was added in #50) cannot fit, not the theme button alone. The fix: at 650px and below the nav scrolls horizontally, and the account area may wrap under the brand. The page is now exactly viewport-wide at 320, 375, 650 and 1280.
