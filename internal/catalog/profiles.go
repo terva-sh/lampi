@@ -250,8 +250,14 @@ func profileUsers(ctx context.Context, tx *sql.Tx, name string) ([]string, error
 // ProfileRevisions lists the revisions of the profile called name,
 // newest first, deletions included. A name never saved has none.
 func (c *Catalog) ProfileRevisions(ctx context.Context, name string) ([]ProfileRevision, error) {
+	return c.RecentProfileRevisions(ctx, name, -1)
+}
+
+// RecentProfileRevisions is ProfileRevisions cut to the newest n; a
+// negative n is every revision.
+func (c *Catalog) RecentProfileRevisions(ctx context.Context, name string, n int) ([]ProfileRevision, error) {
 	rows, err := c.db.QueryContext(ctx, `SELECT id, profile, document, version, note, deleted, created_at, created_by
-		FROM profile_revisions WHERE profile=? ORDER BY id DESC`, name)
+		FROM profile_revisions WHERE profile=? ORDER BY id DESC LIMIT ?`, name, n)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}

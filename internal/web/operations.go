@@ -31,6 +31,9 @@ type Operations struct {
 	// request, by device id, falling back to its newest report from
 	// before Started.
 	Contacts func() map[string]time.Time
+	// IgnoredProfiles lists the profiles files serve warns it does not
+	// read, looked up again on each call so an import and removal shows.
+	IgnoredProfiles func() []IgnoredProfiles
 }
 
 // opsRange is one preset of the operations page's growth charts.

@@ -470,3 +470,28 @@ rules of [registration codes](#registration-codes) hold: the `operator` role,
 Each change goes to `audit.jsonl` with the operator as actor. A change whose
 audit line fails still stands, and answers `500 audit_failed` with the device;
 the line stays queued and is written at the next flush.
+
+## Profiles
+
+`GET /api/web/v1/profiles` and `GET /api/web/v1/profiles/{name}` read the
+lake's profiles. Viewers can read them. Neither takes a query parameter.
+
+The list is `{as_of, profiles, ignored_files}`. Each profile has `name`,
+`version`, `revision`, `stored`, `updated`, `updated_by` and `devices`, the
+count of active devices that fetch it. `stored` is false for a default no
+one has saved, which the lake serves empty. The default comes first.
+
+One profile adds:
+
+- `document`, the profile agents receive;
+- `harnesses`, one `{id, set, enabled}` per harness. `set` is false when the
+  profile leaves the harness as the agent has it;
+- `device_list`, the active devices that fetch it, as `{id, name,
+  allow_source}`;
+- `revisions`, up to 50 of them, newest first, as `{id, version, note,
+  deleted, created, created_by}`.
+
+A name that is not a profile is `404 not_found`. `ignored_files` lists each
+profiles file serve does not read, as `{path, import}`, where `import` is
+the command that brings it into the catalog. It is empty, not absent, when
+there is none.

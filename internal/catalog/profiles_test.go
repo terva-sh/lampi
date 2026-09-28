@@ -128,3 +128,21 @@ func TestDeleteProfile(t *testing.T) {
 		t.Fatalf("put after delete: %+v %v", p, err)
 	}
 }
+
+func TestRecentProfileRevisions(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	for _, d := range []string{"1s", "2s", "3s"} {
+		if _, _, err := c.PutProfile(ctx, "ci", []byte(`{"agent":{"debounce":"`+d+`"}}`), "op", d, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	two, err := c.RecentProfileRevisions(ctx, "ci", 2)
+	if err != nil || len(two) != 2 || two[0].Note != "3s" || two[1].Note != "2s" {
+		t.Fatalf("newest two: %+v %v", two, err)
+	}
+	if all, err := c.ProfileRevisions(ctx, "ci"); err != nil || len(all) != 3 {
+		t.Fatalf("all: %d %v", len(all), err)
+	}
+}

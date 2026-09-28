@@ -45,7 +45,7 @@ func TestStartWebIndexesPublishedSessions(t *testing.T) {
 	}
 	lake.Allow("sekret")
 	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: "https://id.example", ClientID: "lake", RoleMap: map[string]string{"readers": "viewer"}}}
-	if err := startWeb(cfg, data, lake); err != nil {
+	if err := startWeb(cfg, data, "", lake); err != nil {
 		t.Fatal(err)
 	}
 	h := lake.Handler()
