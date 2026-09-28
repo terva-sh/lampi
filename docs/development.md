@@ -89,6 +89,23 @@ back. Both workflows fail when the built binary does not name its tag.
 `just release-check` validates `.goreleaser.yaml`, and `just
 release-snapshot` builds every archive into `dist/` without a tag.
 
+The same tag publishes the lake image. After the archives, the GitHub
+release workflow builds `Dockerfile` for `linux/amd64` and `linux/arm64`
+and pushes it to `ghcr.io/terva-sh/lampi`, with an SBOM and build
+provenance. `v0.2.0` gets the tags `0.2.0`, `0.2`, `0`, and `latest`. A
+pre-release such as `v0.3.0-rc1` gets only `0.3.0-rc1`. Every publish
+also gets `sha-<short>`. The image is stamped with the full tag, so its
+`--version` names the same release as an archive's, and the workflow
+checks that on both platforms after it pushes.
+
+The Forgejo release builds the image with Buildah and pushes nothing.
+Both CI workflows build the image for both platforms on every pull
+request, so a broken `Dockerfile` fails there and not on a tag.
+
+GHCR creates a new package as private. After the first release that
+publishes the image, an owner of `terva-sh` sets the `lampi` package to
+public in its package settings. Until then, `docker pull` needs a login.
+
 Operators pin a version and read the release notes before they pull
 it, and an image upgrade may run with nobody watching. So the notes for
 a release say:

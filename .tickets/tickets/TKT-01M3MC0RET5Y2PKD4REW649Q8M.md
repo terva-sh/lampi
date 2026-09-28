@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T17:47:08Z
+updated_at: 2026-09-28T19:08:40Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -60,3 +60,20 @@ This changes the settings of a remote organization and package, so AGENTS.md req
 **agent:claude-code/aa1afd80** at 2026-09-28T17:47:08Z
 
 Image name decided by the owner on 2026-09-28: ghcr.io/terva-sh/lampi, matching the repository. The binary and archives keep the name terva-lampi. The tag scheme, visibility, retention, and Forgejo decisions are still open.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T19:08:40Z
+
+### Decisions (owner, 2026-09-28)
+
+- **Image:** `ghcr.io/terva-sh/lampi`, as recorded earlier.
+- **Tags.**
+  - A stable `vX.Y.Z` publishes `X.Y.Z`, `X.Y`, `X`, and `latest`.
+  - A pre-release such as `v0.3.0-rc1` publishes only its exact tag, never `latest` or the short tags.
+  - Every publish also gets `sha-<short>`.
+  - The docs keep telling operators to pin `X.Y.Z` or a digest.
+- **Forgejo:** GitHub only. The Forgejo release job builds both platforms to prove the Dockerfile, and pushes nowhere. This matches the archives, where GitHub is the public source.
+- **Retention:** keep everything for now. Releases are infrequent and an image is small. Revisit if the package grows.
+
+### What is left here
+
+The first push from `.github/workflows/release.yml`, with `GITHUB_TOKEN` and `packages: write`, creates the package. The image's `org.opencontainers.image.source` label links it to `terva-sh/lampi`, so the repository's Actions keep write access. GHCR creates the package private. After that first push, someone with admin on `terva-sh` sets it to public. That is the one step for a person.
