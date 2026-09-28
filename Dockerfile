@@ -38,11 +38,9 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
 	-ldflags "-s -w -X terva.sh/lampi/internal/cli.version=${VERSION} -X terva.sh/lampi/internal/cli.commit=${COMMIT}" \
 	-o /out/terva-lampi ./cmd/terva-lampi
 
-# The final stage has no shell, so the lake directory is made here. It
-# belongs to the nonroot user (65532) with mode 0700, and a new named
-# volume mounted on it starts with that owner.
+# The final stage has no shell, so the lake directory is made here.
 FROM --platform=$BUILDPLATFORM docker.io/library/golang@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195 AS layout
-RUN install -d -m 0700 -o 65532 -g 65532 /root-fs/var/lib/terva-lampi
+RUN install -d -m 0700 /layout/terva-lampi
 
 # gcr.io/distroless/static-debian12:nonroot: CA certificates, /etc/passwd,
 # and user 65532, no shell and no package manager.
@@ -62,7 +60,13 @@ LABEL org.opencontainers.image.title="terva-lampi" \
 	org.opencontainers.image.created="${CREATED}"
 
 COPY --from=build /out/terva-lampi /usr/local/bin/terva-lampi
-COPY --from=layout /root-fs/ /
+# COPY sets owner 0:0 unless told otherwise, and some builders do the
+# same for a copy from another stage, so --chown gives the owner. The
+# source is the directory's parent: copying a directory copies its
+# contents, so terva-lampi arrives as an entry and keeps its 0700 mode,
+# and /var/lib, which exists, keeps root. A new named volume mounted on
+# it starts with this owner and mode.
+COPY --from=layout --chown=65532:65532 /layout/ /var/lib/
 
 # serve and every serve subcommand resolve the lake directory from
 # XDG_STATE_HOME, so `docker exec LAKE terva-lampi serve devices` needs

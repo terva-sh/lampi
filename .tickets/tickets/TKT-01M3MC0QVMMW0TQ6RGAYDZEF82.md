@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:56Z
-updated_at: 2026-09-28T17:10:00Z
+updated_at: 2026-09-28T17:19:25Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -137,3 +137,7 @@ This machine has Podman 5 and no Docker, so every check below used `podman`. Doc
 **For the docs ticket:**
 - Rootless Podman with a bind-mounted token directory needs `--userns keep-id:uid=65532,gid=65532` (or a `chown` to the mapped UID). Otherwise 65532 can't read a 0700 directory.
 - The first operator token is made with `terva-lampi login --token-file`, as in `docs/vps-bringup.md`.
+
+**agent:claude-code/aa1afd80** at 2026-09-28T17:19:25Z
+
+terva-review on PR #77 (run 770) flagged the final-stage COPY of the lake directory: without --chown, Docker may make it 0:0, which 65532 can't enter at mode 0700. Buildah had kept the owner, which is why the Podman runs worked, but Docker documents 0:0 for COPY without --chown. Fixed by copying the directory's parent with --chown=65532:65532, so terva-lampi arrives as a copied entry with its 0700 mode and /var/lib keeps root. Putting --chown on the old whole-tree copy would have handed /var and /var/lib to 65532. --chmod on a copy of the directory itself left the directory at 0755. The mounted image shows /var and /var/lib at 0:0 755 and /var/lib/terva-lampi at 65532:65532 700. The fresh-volume and hardened runs pass again.
