@@ -29,7 +29,11 @@ func indexBytes(t *testing.T, x *Index, path string) int64 {
 // replaced rows stay in the full-text segments until they merge, and
 // the file grew to about four times the session's live size
 // (TKT-01M3KC2DD). A forced merge and an incremental vacuum after each
-// pass that deleted rows keep it near that size.
+// pass that deleted rows keep it near that size. Four generations are
+// enough to tell: with no merge the file ends at over three times its
+// first size, and with FTS5's ordinary merge in place of the forced one
+// at nearly three times. More generations make the test slow under
+// -race without telling more (TKT-01M3MD3C).
 func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 	s := lake(t)
 	uid := ingest(t, s, "growing")
@@ -42,7 +46,7 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 
 	words := strings.Fields("lake index merge segment vacuum trigram session event tool result assistant user message page row delete insert")
 	rng := rand.New(rand.NewPCG(1, 2))
-	text := make([]string, 300)
+	text := make([]string, 250)
 	for i := range text {
 		var b strings.Builder
 		for w := 0; w < 20; w++ {
@@ -50,9 +54,9 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 		}
 		text[i] = b.String()
 	}
-	const first = 200
+	const first, gens = 200, 4
 	var live int64
-	for g := 0; g < 8; g++ {
+	for g := 0; g < gens; g++ {
 		// Every event's text changes, so every row is replaced.
 		publish(t, s, uid, events(first+g*10, func(i int) string { return fmt.Sprint(text[i], " g", g) }))
 		pass(t, x)
@@ -61,9 +65,9 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 		}
 	}
 	if got := indexBytes(t, x, path); got > 2*live {
-		t.Fatalf("index is %d bytes after 8 generations, %d after the first", got, live)
+		t.Fatalf("index is %d bytes after %d generations, %d after the first", got, gens, live)
 	}
-	if p := search(t, x, SearchRequest{Query: text[first+69][:20]}); len(p.Items) == 0 {
+	if p := search(t, x, SearchRequest{Query: text[first+(gens-1)*10-1][:20]}); len(p.Items) == 0 {
 		t.Fatal("the newest events are not searchable")
 	}
 }
