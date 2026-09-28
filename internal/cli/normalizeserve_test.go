@@ -90,4 +90,22 @@ func TestServeNormalizeQueuesStaleAndFailed(t *testing.T) {
 	if err := Run([]string{"serve", "normalize", "--data", data}, Env{Stdout: io.Discard, Stderr: io.Discard, Getenv: func(string) string { return "" }}); err == nil {
 		t.Error("serve normalize with no selector succeeded")
 	}
+	cat.Close()
+
+	// --all takes the ready session too, and the two already queued
+	// once each.
+	out = run("--all", "--stale")
+	for _, want := range []string{"queued " + ready + " (was ready)", "queued 3 sessions"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--all output lacks %q:\n%s", want, out)
+		}
+	}
+	cat, err = catalog.OpenReadOnly(filepath.Join(data, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cat.Close()
+	if got, err := cat.NormalizationState(t.Context(), ready); err != nil || got != "pending" {
+		t.Errorf("ready after --all: %q %v, want pending", got, err)
+	}
 }

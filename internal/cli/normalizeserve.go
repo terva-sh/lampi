@@ -14,15 +14,20 @@ import (
 const serveNormalizeUsage = `terva-lampi serve normalize — run normalization again
 
 usage:
-  terva-lampi serve normalize [--stale] [--failed] [--session UID]... [--dry-run] [--data DIR]
+  terva-lampi serve normalize [--all] [--stale] [--failed] [--session UID]... [--dry-run] [--data DIR]
 
 Queues sessions to be normalized again, the same job an upload queues.
 --stale takes every session the dashboard counts as unknown: it has no
 job and no published result for its current head, as sessions ingested
 before normalization generations were tracked are. --failed takes every
 session whose last normalization failed, for example after an upgrade
-fixed the cause. --session names one, and may be repeated. At least one
-is required. --dry-run prints what would be queued and queues nothing.
+fixed the cause. --session names one, and may be repeated. --all takes
+every session, to rewrite the derived files after an upgrade changes
+how they are written, as the parquet codec did. At least one is
+required. --dry-run prints what would be queued and queues nothing.
+
+Each session is projected again from its raw blobs, two at a time.
+A viewer reading a session while it is replaced is asked to reload.
 
 The jobs are rows in the catalog, so this runs while serve runs. A
 running serve starts them on its next SIGHUP (systemctl kill -s HUP
@@ -44,10 +49,11 @@ func runServeNormalize(env Env, args []string) error {
 		return nil
 	}
 	var data string
-	var stale, failed, dry bool
+	var all, stale, failed, dry bool
 	var named sessionFlags
 	rest, err := parseFlags(env, args, serveNormalizeUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
+		fs.BoolVar(&all, "all", false, "every session")
 		fs.BoolVar(&stale, "stale", false, "sessions with no job and no current result")
 		fs.BoolVar(&failed, "failed", false, "sessions whose normalization failed")
 		fs.Var(&named, "session", "a session UID, repeatable")
@@ -60,9 +66,9 @@ func runServeNormalize(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), serveNormalizeUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
 	}
-	if !stale && !failed && len(named) == 0 {
+	if !all && !stale && !failed && len(named) == 0 {
 		fmt.Fprint(env.stdout(), serveNormalizeUsage)
-		return fmt.Errorf("serve normalize needs --stale, --failed or --session")
+		return fmt.Errorf("serve normalize needs --all, --stale, --failed or --session")
 	}
 	if data, err = lakeDir(env, data); err != nil {
 		return err
@@ -100,6 +106,15 @@ func runServeNormalize(env Env, args []string) error {
 		}
 		for _, uid := range uids {
 			add(uid, sel.state)
+		}
+	}
+	if all {
+		uids, states, err := cat.NormalizationStates(ctx)
+		if err != nil {
+			return err
+		}
+		for i, uid := range uids {
+			add(uid, states[i])
 		}
 	}
 	for _, uid := range named {
