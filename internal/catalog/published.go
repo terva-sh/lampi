@@ -62,6 +62,28 @@ func (c *Catalog) SessionsInNormalizationState(ctx context.Context, state string
 	return out, nil
 }
 
+// NormalizationStates is every session's UID and normalization state,
+// oldest ingest first.
+func (c *Catalog) NormalizationStates(ctx context.Context) (uids, states []string, err error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid, `+normalizationStateSQL+` FROM sessions s
+	ORDER BY s.ingested_at, s.session_uid`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid, state string
+		if err := rows.Scan(&uid, &state); err != nil {
+			return nil, nil, fmt.Errorf("catalog: %w", err)
+		}
+		uids, states = append(uids, uid), append(states, state)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("catalog: %w", err)
+	}
+	return uids, states, nil
+}
+
 func (c *Catalog) NormalizationState(ctx context.Context, uid string) (string, error) {
 	var state string
 	err := c.db.QueryRowContext(ctx, `SELECT `+normalizationStateSQL+` FROM sessions s WHERE s.session_uid=?`, uid).Scan(&state)

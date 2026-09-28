@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K45MSX5SG7YZZCR399S9XF
 title: "serve compact: fold grown chains into prefix records and drop leftovers"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3K38AAK8Q9P3RB6G8GP9JZ9
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: ops/compact
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: dc61a3f448f1eb1afaca65da10220d64e5fd1e23
-  session: null
-  claimed_at: 2026-09-28T04:48:50Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-28T04:48:50Z
+updated_at: 2026-09-28T05:54:50Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -112,3 +105,23 @@ A dry run takes no lock. A real run takes lake.lock.
   provenance, head_updates and the last manifests also name digests. A
   sweep that missed one would delete a blob the catalog can still
   point at, so every source is unioned.
+
+## Summary
+
+Landed in #57 and run on the hosted lake on 2026-09-28, with the lake on
+0.1.3-dev (0535833) and no backup, by the owner's choice.
+
+- The dry run predicted 4,823 folds and 4,530 unreferenced entries.
+- The real run folded 4,823 versions and removed 4,534 unreferenced
+  entries, reclaiming 39,266.9 MiB of objects.
+- fsck checked 5,289 entries with 0 bad.
+- The root filesystem went from 126G to 88G used.
+- The agent uploaded normally after the restart.
+
+The real run saw two more versions than the dry run. They arrived on
+the new binary as prefix records already, so nothing needed folding.
+
+Review took three rounds on v0.5.0. Two findings were fixed: the dry run
+now makes the loop check, and refused folds are retried over the folds
+made so far. Two were rejected: empty versions hold no bytes, and an
+unreferenced unparseable index is garbage, so the PR text was narrowed.

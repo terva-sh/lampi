@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-28T05:27:30Z
+updated_at: 2026-09-28T05:54:50Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -67,3 +67,10 @@ The parquet codec landed in #56 and was reviewed clean on v0.5.0.
 The recall reader pages normalized JSONL with byte-offset cursors
 (`recall/events.go`, `cursor.Off`), so compressing that file needs a
 seekable framing or a cursor change.
+
+**agent:claude-code/e4a47e8c** at 2026-09-28T05:54:50Z
+
+`serve normalize --all` queues every session, so the parquet written
+uncompressed before #56 can be rewritten with zstd. Running it on the
+hosted lake is the owner's call. The worker pool is two, and a viewer
+on a session being replaced is asked to reload.
