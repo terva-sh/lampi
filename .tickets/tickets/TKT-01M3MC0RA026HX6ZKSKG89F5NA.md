@@ -17,7 +17,9 @@ parent: TKT-01M3MC023P4A5H7PTF662QSSM8
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:forgejo/terva-sh/lampi#82
+    path: null
 claim:
   actor: agent:claude-code/aa1afd80
   branch: self-host/migrations
@@ -28,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T17:53:56Z
+updated_at: 2026-09-28T17:55:13Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
