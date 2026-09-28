@@ -3,7 +3,9 @@ package recall
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,25 +29,27 @@ const IndexFile = "search.db"
 // indexVersion is the search.db schema. A file with any other version
 // is deleted and rebuilt rather than migrated: it holds nothing that
 // the derived files do not. Version 2 is version 1 with incremental
-// auto-vacuum, which a file takes only before it has any pages.
-const indexVersion = 2
+// auto-vacuum, which a file takes only before it has any pages. Version
+// 3 keys rows by position and a signature of their fields, not by
+// generation, so a new generation rewrites only the rows that changed.
+const indexVersion = 3
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
-// merge, so a session re-indexed at every sync grew the file to about
-// four times its live size (TKT-01M3KC2DD). One bounded merge a pass
-// keeps it near 1.4 times, at a cost that does not grow with the index.
+// merge. When every session was re-indexed whole at every sync, that
+// grew the file to about four times its live size (TKT-01M3KC2DD).
+//
+// After a pass that only added rows, the merge is FTS5's ordinary one,
+// which merges a level once it holds enough segments. After a pass that
+// deleted rows, it is forced, which merges whatever is there and so
+// drops the deleted rows, until a forced merge finds nothing left. A
+// forced merge after every pass would rewrite mergePages of the index
+// each time, about 8 MiB, even when a pass appended a few events.
 const mergePages = 2000
 
 // IndexContentMax is how much of one event's content_text is indexed
 // and searchable. Text past it is still in the transcript.
 const IndexContentMax = 256 << 10
-
-// Batch bounds for one indexing transaction.
-const (
-	batchRows  = 500
-	batchBytes = 8 << 20
-)
 
 const indexSchema = `
 CREATE TABLE indexed (
@@ -58,8 +62,8 @@ CREATE TABLE indexed (
 CREATE TABLE docs (
 	id INTEGER PRIMARY KEY,
 	session_uid TEXT NOT NULL,
-	gen INTEGER NOT NULL,
 	pos INTEGER NOT NULL,
+	sig INTEGER NOT NULL,
 	harness TEXT NOT NULL,
 	project_id TEXT NOT NULL,
 	event_type TEXT NOT NULL,
@@ -70,7 +74,7 @@ CREATE TABLE docs (
 	recorded_ns INTEGER,
 	content TEXT
 );
-CREATE INDEX docs_session ON docs(session_uid, gen);
+CREATE INDEX docs_session ON docs(session_uid, pos);
 CREATE INDEX docs_type ON docs(event_type, id);
 CREATE INDEX docs_tool ON docs(tool_name, id);
 CREATE INDEX docs_error ON docs(tool_error, id);
@@ -119,6 +123,10 @@ type Index struct {
 	// process that stopped may have left work. Only Pass reads and
 	// writes it.
 	merging bool
+	// deleted is set by a pass that deleted rows, and cleared when a
+	// forced merge finds nothing left to merge. Only Pass reads and
+	// writes it.
+	deleted bool
 	// beforeReclaim, when set, runs before a pass reclaims. Tests use
 	// it to stop a pass there.
 	beforeReclaim func()
@@ -328,7 +336,7 @@ func (x *Index) Pass(ctx context.Context) error {
 		if keep[uid] {
 			continue
 		}
-		x.merging = true
+		x.merging, x.deleted = true, true
 		if err := x.remove(ctx, uid); err != nil {
 			return err
 		}
@@ -337,7 +345,10 @@ func (x *Index) Pass(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		err := x.indexSession(ctx, s)
+		deleted, err := x.indexSession(ctx, s)
+		if deleted > 0 {
+			x.deleted = true
+		}
 		x.mu.Lock()
 		x.cov.Behind--
 		switch {
@@ -367,8 +378,11 @@ func (x *Index) Pass(ctx context.Context) error {
 		if x.beforeReclaim != nil {
 			x.beforeReclaim()
 		}
-		more, err := x.reclaim(ctx)
+		more, err := x.reclaim(ctx, x.deleted)
 		x.merging = more
+		if err == nil && !more {
+			x.deleted = false
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -383,76 +397,136 @@ func (x *Index) Pass(ctx context.Context) error {
 	return nil
 }
 
-// indexSession writes the published generation of s in batches, then
-// flips indexed to it in one transaction and removes older rows.
-// Queries join on indexed, so a half-written generation is never
-// visible and the old one stays searchable until the flip.
-func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) error {
+// indexSession brings uid's rows to the published generation of s in
+// one transaction. A row whose searchable fields did not change keeps
+// its place in the full-text index; only changed, new and removed rows
+// are written. A session that grew by a few events at a sync writes
+// those events, not the whole session again (TKT-01M3KC2DD). Queries
+// see the old rows until the commit.
+func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (deleted int64, err error) {
 	snap, err := x.reader.open(ctx, s.UID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer snap.Close()
 	gen, head := snap.pub.Gen, snap.pub.Head
-	// Rows from an attempt that stopped part way.
-	if err := x.deleteDocs(ctx, s.UID, "gen=?", gen); err != nil {
-		return err
+	old, err := x.rowSigs(ctx, s.UID)
+	if err != nil {
+		return 0, err
 	}
+	tx, err := x.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	del, err := tx.PrepareContext(ctx, `DELETE FROM docs WHERE id=?`)
+	if err != nil {
+		return 0, err
+	}
+	defer del.Close()
+	ins, err := tx.PrepareContext(ctx, `INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,tool_name,tool_error,raw_type,recorded_ns,content) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return 0, err
+	}
+	defer ins.Close()
 	br := bufio.NewReaderSize(snap.f, 64<<10)
-	var batch []docRow
-	size := 0
 	var pos int64
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return 0, err
 		}
 		line, n, rerr := readLine(br, MaxLine)
 		if rerr == io.EOF && n == 0 {
 			break
 		}
 		if rerr != nil && rerr != io.EOF {
-			return rerr
+			return 0, rerr
 		}
-		row := docRow{uid: s.UID, gen: gen, pos: pos, harness: s.Harness, project: s.ProjectID}
+		row := docRow{uid: s.UID, pos: pos, harness: s.Harness, project: s.ProjectID}
 		row.fill(line)
-		batch = append(batch, row)
-		size += len(row.content)
+		sig := row.sig()
+		prev, had := old[pos]
 		pos++
-		if len(batch) >= batchRows || size >= batchBytes {
-			if err := x.insert(ctx, batch); err != nil {
-				return err
+		if had && prev.sig == sig {
+			if rerr == io.EOF {
+				break
 			}
-			batch, size = batch[:0], 0
+			continue
+		}
+		if had {
+			if _, err := del.ExecContext(ctx, prev.id); err != nil {
+				return 0, err
+			}
+			deleted++
+		}
+		var content any
+		if row.hasContent {
+			content = row.content
+		}
+		if _, err := ins.ExecContext(ctx, row.uid, row.pos, sig, row.harness, row.project, row.eventType, row.actor, row.tool, row.toolError, row.raw, row.recorded, content); err != nil {
+			return 0, err
 		}
 		if rerr == io.EOF {
 			break
 		}
 	}
-	if err := x.insert(ctx, batch); err != nil {
-		return err
+	res, err := tx.ExecContext(ctx, `DELETE FROM docs WHERE session_uid=? AND pos>=?`, s.UID, pos)
+	if err != nil {
+		return 0, err
 	}
+	gone, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	deleted += gone
 	now, err := x.reader.publication(ctx, s.UID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if now != snap.pub {
-		return ErrGenerationChanged
+		return 0, ErrGenerationChanged
 	}
-	if _, err := x.db.ExecContext(ctx, `INSERT INTO indexed(session_uid,gen,head,events,indexed_at) VALUES(?,?,?,?,?)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO indexed(session_uid,gen,head,events,indexed_at) VALUES(?,?,?,?,?)
 		ON CONFLICT(session_uid) DO UPDATE SET gen=excluded.gen,head=excluded.head,events=excluded.events,indexed_at=excluded.indexed_at`,
 		s.UID, gen, head, pos, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		return err
+		return 0, err
 	}
-	return x.deleteDocs(ctx, s.UID, "gen!=?", gen)
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
 }
 
-// reclaim merges up to mergePages of the full-text index, which drops
-// the rows deleted from it, and returns the pages that frees to the
+type rowSig struct {
+	id, sig int64
+}
+
+// rowSigs is uid's rows by position.
+func (x *Index) rowSigs(ctx context.Context, uid string) (map[int64]rowSig, error) {
+	rows, err := x.db.QueryContext(ctx, `SELECT pos,id,sig FROM docs WHERE session_uid=?`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]rowSig{}
+	for rows.Next() {
+		var pos int64
+		var r rowSig
+		if err := rows.Scan(&pos, &r.id, &r.sig); err != nil {
+			return nil, err
+		}
+		out[pos] = r
+	}
+	return out, rows.Err()
+}
+
+// reclaim merges up to mergePages of the full-text index, forced when
+// rows were deleted, and returns the pages that frees to the
 // filesystem. more is true when the merge did work, so there may be
 // more to merge, and when reclaim failed, so the next pass tries again.
 // FTS5 documents a merge that did work as raising total_changes() by
 // two or more on its connection.
-func (x *Index) reclaim(ctx context.Context) (more bool, err error) {
+func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error) {
 	conn, err := x.db.Conn(ctx)
 	if err != nil {
 		return true, err
@@ -462,7 +536,11 @@ func (x *Index) reclaim(ctx context.Context) (more bool, err error) {
 	if err := conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
 		return true, err
 	}
-	if _, err := conn.ExecContext(ctx, `INSERT INTO fts(fts, rank) VALUES('merge', ?)`, -mergePages); err != nil {
+	rank := mergePages
+	if forced {
+		rank = -mergePages
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO fts(fts, rank) VALUES('merge', ?)`, rank); err != nil {
 		return true, err
 	}
 	if err := conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
@@ -499,7 +577,7 @@ func (x *Index) deleteDocs(ctx context.Context, uid, cond string, arg any) error
 
 type docRow struct {
 	uid, harness, project string
-	gen, pos              int64
+	pos                   int64
 	eventType, actor, raw string
 	tool                  *string
 	toolError             *bool
@@ -534,30 +612,42 @@ func (d *docRow) fill(line []byte) {
 	}
 }
 
-func (x *Index) insert(ctx context.Context, batch []docRow) error {
-	if len(batch) == 0 {
-		return nil
-	}
-	tx, err := x.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO docs(session_uid,gen,pos,harness,project_id,event_type,actor,tool_name,tool_error,raw_type,recorded_ns,content) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	for _, d := range batch {
-		var content any
-		if d.hasContent {
-			content = d.content
+// sig is a signature of every field of d that the index stores, so a
+// row at the same position in a new generation is kept when it is
+// equal. The first eight bytes of a sha256 over the fields, each
+// length-prefixed, so no two different rows share it in practice.
+func (d *docRow) sig() int64 {
+	h := sha256.New()
+	put := func(present bool, s string) {
+		var n [9]byte
+		if present {
+			n[0] = 1
 		}
-		if _, err := stmt.ExecContext(ctx, d.uid, d.gen, d.pos, d.harness, d.project, d.eventType, d.actor, d.tool, d.toolError, d.raw, d.recorded, content); err != nil {
-			return err
-		}
+		binary.BigEndian.PutUint64(n[1:], uint64(len(s)))
+		h.Write(n[:])
+		h.Write([]byte(s))
 	}
-	return tx.Commit()
+	put(true, d.harness)
+	put(true, d.project)
+	put(true, d.eventType)
+	put(true, d.actor)
+	put(true, d.raw)
+	put(d.tool != nil, deref(d.tool))
+	put(d.toolError != nil, fmt.Sprint(d.toolError != nil && *d.toolError))
+	var rec string
+	if d.recorded != nil {
+		rec = fmt.Sprint(*d.recorded)
+	}
+	put(d.recorded != nil, rec)
+	put(d.hasContent, d.content)
+	return int64(binary.BigEndian.Uint64(h.Sum(nil)))
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // RemoveFromIndex drops uid from the index at path, for purge. A lake
