@@ -63,7 +63,7 @@ func mustParse(raw []byte) Set {
 // refuses one it cannot apply exactly.
 func Parse(raw []byte) (Set, error) {
 	var f struct {
-		Agents []Advisory `json:"agents"`
+		Agents *[]Advisory `json:"agents"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -73,8 +73,12 @@ func Parse(raw []byte) (Set, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return Set{}, errors.New("advisory: data after the object")
 	}
-	for i := range f.Agents {
-		a := &f.Agents[i]
+	if f.Agents == nil {
+		return Set{}, errors.New("advisory: no agents list")
+	}
+	list := *f.Agents
+	for i := range list {
+		a := &list[i]
 		var ok bool
 		if a.from, ok = release.Parse(a.Introduced); !ok {
 			return Set{}, fmt.Errorf("advisory %d: introduced %q is not a release", i, a.Introduced)
@@ -97,7 +101,7 @@ func Parse(raw []byte) (Set, error) {
 			return Set{}, fmt.Errorf("advisory %d: link %q is not https", i, a.Link)
 		}
 	}
-	return Set{list: f.Agents}, nil
+	return Set{list: list}, nil
 }
 
 // Match is the advisory that covers v, the first urgent one if any

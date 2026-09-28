@@ -454,7 +454,7 @@ rules of [registration codes](#registration-codes) hold: the `operator` role,
 | `POST /devices/{id}/unbind` | Clears the machine it is bound to; its next upload binds it again. |
 | `POST /devices/{id}/profile` | Takes `{"profile": NAME}` and sets the profile its agent fetches. `default` goes back to the default. |
 
-`revoke` and `unbind` take no body. Each answers `200` with
+`revoke` and `unbind` take no body, or an empty object. Each answers `200` with
 `{device: {id, name, state, profile, machine_id}}`.
 
 | Refusal | Status and `error` |
