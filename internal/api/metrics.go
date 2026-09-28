@@ -289,7 +289,7 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 			continue
 		}
 		if t, ok := contacts[d.ID]; ok {
-			m.sample("gauge", "lampi_device_last_contact_timestamp_seconds", "A device's last authenticated request since serve started, in Unix seconds.", unix(t), "device", d.Name)
+			m.sample("gauge", "lampi_device_last_contact_timestamp_seconds", "A device's last authenticated request, or its newest report from before serve started, in Unix seconds.", unix(t), "device", d.Name)
 		}
 	}
 	for _, d := range devices {

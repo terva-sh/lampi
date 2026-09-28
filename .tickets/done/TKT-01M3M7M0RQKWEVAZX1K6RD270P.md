@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3M7M0RQKWEVAZX1K6RD270P
 title: "Agent heartbeat: durable last contact, sync counters, applied profile"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/2cf53976
-  branch: t3code/add-agent-configuration
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-2cf53976
-  commit: 740d778b278d87fc0ec7d2721efb170b44665f74
-  session: null
-  claimed_at: 2026-09-28T15:12:28Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:18:20Z
+updated_at: 2026-09-28T15:25:27Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -51,9 +44,9 @@ Agents tell the lake they are alive and what their last sync did. Today the lake
 
 ## Acceptance criteria
 
-- [ ] Agents report after each sync and periodically when idle
-- [ ] The lake stores last_seen and the newest report per device durably
-- [ ] The operations Machines table reads last contact from the catalog
+- [x] Agents report after each sync and periodically when idle
+- [x] The lake stores last_seen and the newest report per device durably
+- [x] The operations Machines table reads last contact from the catalog
 
 ## Implementation plan
 
@@ -74,3 +67,17 @@ Three PRs, each stacked on the one before.
 The report is stored as JSON rather than in columns so the report can grow new fields (the inventory mode, and the applied version for push) without a migration each time.
 
 `last_seen` is written only when a report arrives, not on every authenticated request. A write on every request would add a catalog write to every blob upload. The in-memory contact still covers the time between reports.
+
+## Notes
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:25:27Z
+
+Slice 3 changed from the plan. It does not add a catalog read to each reader. Instead, api.Open seeds the in-memory contact map from device_reports.received_at, and noteContact keeps it current after that. The Machines table and the lampi_device_last_contact_timestamp_seconds gauge get the durable value without changing, and the value still updates on every request. The rejected approach, reading device_reports in both readers and taking the newer time, would have duplicated the merge logic and added a catalog query to each metrics scrape.
+
+## Summary
+
+Three stacked PRs.
+- #66: POST /v1/agent/report and a device_reports table (migration 12) holding each device's newest report as JSON, with fields clamped.
+- #67: the agent reports after every sync and every 5 minutes, with its version, machine, cached profile and version, allow/deny sources, last sync counters (last_sync.json gains unchanged) and newest error. A lake from before reports is named once in the log.
+- #68: serve seeds its in-memory last contact from the stored reports, so the operations Machines table and the last-contact gauge survive a restart.
+The inventory mode field is in the protocol but left empty until TKT-01M3M7M0TH.

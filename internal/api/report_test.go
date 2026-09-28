@@ -102,3 +102,27 @@ func TestAgentReportToALakeWithNoDevicesKeepsNothing(t *testing.T) {
 		t.Fatalf("stored %v %v", all, err)
 	}
 }
+
+func TestLastContactOutlivesARestart(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	at := time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return at }
+	if rr := postReport(t, s, laptopToken, []byte(`{}`)); rr.Code != http.StatusOK {
+		t.Fatalf("report %d %s", rr.Code, rr.Body)
+	}
+	laptop, err := s.Catalog.DeviceByName(t.Context(), "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if got, ok := again.Contacts()[laptop.ID]; !ok || !got.Equal(at) {
+		t.Fatalf("contact after restart %v %v, want %v", got, ok, at)
+	}
+}
