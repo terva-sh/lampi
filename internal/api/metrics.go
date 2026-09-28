@@ -148,16 +148,19 @@ func (m *metricWriter) sample(kind, name, help string, v float64, labels ...stri
 			if i > 0 {
 				fmt.Fprint(m.w, ",")
 			}
-			fmt.Fprintf(m.w, "%s=%q", labels[i], labelValue(labels[i+1]))
+			fmt.Fprintf(m.w, "%s=\"%s\"", labels[i], labelValue(labels[i+1]))
 		}
 		fmt.Fprint(m.w, "}")
 	}
 	fmt.Fprintf(m.w, " %s\n", strconv.FormatFloat(v, 'g', -1, 64))
 }
 
-// labelValue keeps a label value to one line; %q escapes quotes and
-// backslashes as the exposition format expects.
-func labelValue(s string) string { return strings.ReplaceAll(s, "\n", " ") }
+// labelEscaper applies the text format's label escapes: backslash,
+// double quote and newline. Everything else, tabs and non-ASCII
+// included, is written as it is; Go's %q escapes would not parse.
+var labelEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+
+func labelValue(s string) string { return labelEscaper.Replace(s) }
 
 func unix(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 

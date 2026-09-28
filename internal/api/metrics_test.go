@@ -102,3 +102,20 @@ func TestRouteClass(t *testing.T) {
 		}
 	}
 }
+
+// TKT-01M3JV461: label values use the exposition format's three
+// escapes and nothing else.
+func TestLabelValueEscapes(t *testing.T) {
+	for in, want := range map[string]string{
+		`plain`:      `plain`,
+		`a"b`:        `a\"b`,
+		`c:\dir`:     `c:\\dir`,
+		"two\nlines": `two\nlines`,
+		"tab\there":  "tab\there",
+		"naïve ☃":    "naïve ☃",
+	} {
+		if got := labelValue(in); got != want {
+			t.Errorf("labelValue(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
