@@ -249,6 +249,10 @@ func TestOperatorRollsBackAProfile(t *testing.T) {
 	if w := back(first.Revision, first.Revision); w.Code != 409 || !strings.Contains(w.Body.String(), "Nothing was rolled back") {
 		t.Fatalf("stale rollback: %d", w.Code)
 	}
+	long := strings.Repeat("x", maxProfileNote)
+	if w := postForm(h, "/profiles/team/rollback/"+strconvI(first.Revision), url.Values{"csrf": {csrf}, "base": {strconvI(second.Revision)}, "note": {long + "x"}}, cookie); w.Code != 400 {
+		t.Fatalf("over-long note: %d", w.Code)
+	}
 	if w := back(first.Revision, second.Revision); w.Code != 303 {
 		t.Fatalf("rollback: %d %s", w.Code, w.Body)
 	}
@@ -263,7 +267,8 @@ func TestOperatorRollsBackAProfile(t *testing.T) {
 
 	hdr := map[string]string{CSRFHeader: csrf}
 	api := "/api/web/v1/profiles/team/rollback"
-	body := `{"revision":` + strconvI(second.Revision) + `,"base_revision":` + strconvI(got.Revision) + `}`
+	// A note at the limit still fits beside the rollback label.
+	body := `{"revision":` + strconvI(second.Revision) + `,"base_revision":` + strconvI(got.Revision) + `,"note":"` + long + `"}`
 	if w := post(h, api, body, cookie, hdr); w.Code != 200 || !strings.Contains(w.Body.String(), second.Version) {
 		t.Fatalf("api rollback: %d %s", w.Code, w.Body)
 	}

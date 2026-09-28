@@ -412,12 +412,17 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 // saved profile, an HTTP status, an error code (empty on success) and
 // a message for a refused document.
 func (s *Server) saveProfile(r *http.Request, name string, raw []byte, base int64, note string) (catalog.Profile, int, string, string) {
-	if !config.ValidProfileName(name) {
-		return catalog.Profile{}, http.StatusBadRequest, "invalid_name", ""
-	}
 	note, ok := cleanNote(note)
 	if !ok {
 		return catalog.Profile{}, http.StatusBadRequest, "invalid_note", fmt.Sprintf("A note is at most %d characters.", maxProfileNote)
+	}
+	return s.saveCleanProfile(r, name, raw, base, note)
+}
+
+// saveCleanProfile is saveProfile for a note already checked.
+func (s *Server) saveCleanProfile(r *http.Request, name string, raw []byte, base int64, note string) (catalog.Profile, int, string, string) {
+	if !config.ValidProfileName(name) {
+		return catalog.Profile{}, http.StatusBadRequest, "invalid_name", ""
 	}
 	_, doc, err := checkProfile(raw)
 	if err != nil {
@@ -649,11 +654,17 @@ func (s *Server) rollback(r *http.Request, name string, rev, base int64, note st
 	case old.Deleted:
 		return catalog.Profile{}, http.StatusBadRequest, "deleted_revision"
 	}
+	// The caller's note has the editor's limit; the label naming the
+	// revision comes on top of it.
+	note, ok := cleanNote(note)
+	if !ok {
+		return catalog.Profile{}, http.StatusBadRequest, "invalid_note"
+	}
 	label := "rollback to revision " + strconv.FormatInt(rev, 10)
-	if note = strings.TrimSpace(note); note != "" {
+	if note != "" {
 		label += ": " + note
 	}
-	p, status, code, _ := s.saveProfile(r, name, []byte(old.Document), base, label)
+	p, status, code, _ := s.saveCleanProfile(r, name, []byte(old.Document), base, label)
 	return p, status, code
 }
 
