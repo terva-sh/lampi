@@ -264,6 +264,31 @@ func (c *Catalog) DeviceByHash(ctx context.Context, hash string) (Device, bool, 
 }
 
 // DeviceByName is the device called name.
+// DeviceByID is the device with id, or ErrNoDevice.
+func (c *Catalog) DeviceByID(ctx context.Context, id string) (Device, error) {
+	d, err := scanDevice(c.db.QueryRowContext(ctx, `SELECT `+deviceCols+` FROM devices WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Device{}, fmt.Errorf("%w: %s", ErrNoDevice, id)
+	}
+	if err != nil {
+		return Device{}, fmt.Errorf("catalog: %w", err)
+	}
+	return d, nil
+}
+
+// deviceLookup finds the device a change is for: by name for serve
+// devices, by id for the dashboard, which must not reach another device
+// that took a name since the operator saw the list.
+type deviceLookup func(context.Context) (Device, error)
+
+func (c *Catalog) byName(name string) deviceLookup {
+	return func(ctx context.Context) (Device, error) { return c.DeviceByName(ctx, name) }
+}
+
+func (c *Catalog) byID(id string) deviceLookup {
+	return func(ctx context.Context) (Device, error) { return c.DeviceByID(ctx, id) }
+}
+
 func (c *Catalog) DeviceByName(ctx context.Context, name string) (Device, error) {
 	d, err := scanDevice(c.db.QueryRowContext(ctx, `SELECT `+deviceCols+` FROM devices WHERE name=?`, name))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -373,7 +398,16 @@ func (c *Catalog) changeDevice(ctx context.Context, now time.Time, e audit.Event
 // binds again, and queues device.unbound by actor. The device comes back
 // with the machine_id it had.
 func (c *Catalog) UnbindDevice(ctx context.Context, name, actor string, now time.Time) (Device, error) {
-	d, err := c.DeviceByName(ctx, name)
+	return c.unbindDevice(ctx, c.byName(name), actor, now)
+}
+
+// UnbindDeviceByID is UnbindDevice for the device with id.
+func (c *Catalog) UnbindDeviceByID(ctx context.Context, id, actor string, now time.Time) (Device, error) {
+	return c.unbindDevice(ctx, c.byID(id), actor, now)
+}
+
+func (c *Catalog) unbindDevice(ctx context.Context, find deviceLookup, actor string, now time.Time) (Device, error) {
+	d, err := find(ctx)
 	if err != nil {
 		return Device{}, err
 	}
@@ -388,7 +422,16 @@ func (c *Catalog) UnbindDevice(ctx context.Context, name, actor string, now time
 // queues device.profile by actor. An empty profile is the default, which
 // the event names as shown.
 func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile, shown, actor string, now time.Time) (Device, error) {
-	d, err := c.DeviceByName(ctx, name)
+	return c.setDeviceProfile(ctx, c.byName(name), profile, shown, actor, now)
+}
+
+// SetDeviceProfileByID is SetDeviceProfile for the device with id.
+func (c *Catalog) SetDeviceProfileByID(ctx context.Context, id, profile, shown, actor string, now time.Time) (Device, error) {
+	return c.setDeviceProfile(ctx, c.byID(id), profile, shown, actor, now)
+}
+
+func (c *Catalog) setDeviceProfile(ctx context.Context, find deviceLookup, profile, shown, actor string, now time.Time) (Device, error) {
+	d, err := find(ctx)
 	if err != nil {
 		return Device{}, err
 	}
@@ -405,7 +448,16 @@ func (c *Catalog) SetDeviceProfile(ctx context.Context, name, profile, shown, ac
 // its token reappearing in the token file. A revoke queues
 // device.revoked by actor; a device already revoked queues nothing.
 func (c *Catalog) RevokeDevice(ctx context.Context, name, actor string, now time.Time) (Device, error) {
-	d, err := c.DeviceByName(ctx, name)
+	return c.revokeDevice(ctx, c.byName(name), actor, now)
+}
+
+// RevokeDeviceByID is RevokeDevice for the device with id.
+func (c *Catalog) RevokeDeviceByID(ctx context.Context, id, actor string, now time.Time) (Device, error) {
+	return c.revokeDevice(ctx, c.byID(id), actor, now)
+}
+
+func (c *Catalog) revokeDevice(ctx context.Context, find deviceLookup, actor string, now time.Time) (Device, error) {
+	d, err := find(ctx)
 	if err != nil {
 		return Device{}, err
 	}
@@ -419,7 +471,7 @@ func (c *Catalog) RevokeDevice(ctx context.Context, name, actor string, now time
 	}
 	if !changed {
 		// Another revoke got there first; it queued the event.
-		return c.DeviceByName(ctx, name)
+		return c.DeviceByID(ctx, d.ID)
 	}
 	d.Revoked = now.UTC()
 	return d, nil

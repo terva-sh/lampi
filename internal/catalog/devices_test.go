@@ -126,3 +126,51 @@ func TestConcurrentBindsOfOneMachineRefuseTheLosers(t *testing.T) {
 		t.Fatalf("%d binds won", wins)
 	}
 }
+
+// TKT-01M3MQM6: a change by id reaches that device even when its name
+// has since passed to another.
+func TestDeviceChangesByIDFollowTheID(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	created, err := c.SyncTokenFile(ctx, []TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}, {Hash: strings.Repeat("b", 64), Name: "desk"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	laptop, desk := created[0], created[1]
+	if _, err := c.BindMachine(ctx, laptop.ID, "01LAPTOP", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.BindMachine(ctx, desk.ID, "01DESK", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := c.PutProfile(ctx, "ci", []byte(`{}`), "op", "", now); err != nil {
+		t.Fatal(err)
+	}
+	// The operator saw laptop; then its name passed to desk.
+	for _, q := range []string{`UPDATE devices SET name='old' WHERE id='` + laptop.ID + `'`, `UPDATE devices SET name='laptop' WHERE id='` + desk.ID + `'`} {
+		if _, err := c.db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.SetDeviceProfileByID(ctx, laptop.ID, "ci", "ci", "op", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UnbindDeviceByID(ctx, laptop.ID, "op", now); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := c.RevokeDeviceByID(ctx, laptop.ID, "op", now); err != nil || d.ID != laptop.ID || d.Revoked.IsZero() {
+		t.Fatalf("revoke: %+v %v", d, err)
+	}
+	got, _ := c.DeviceByID(ctx, laptop.ID)
+	other, _ := c.DeviceByID(ctx, desk.ID)
+	if got.Profile != "ci" || got.MachineID != "" || got.Revoked.IsZero() {
+		t.Errorf("the device seen was not changed: %+v", got)
+	}
+	if other.Profile != "" || other.MachineID != "01DESK" || !other.Revoked.IsZero() {
+		t.Errorf("the device that took its name was changed: %+v", other)
+	}
+	if _, err := c.RevokeDeviceByID(ctx, "dev_nope", "op", now); !errors.Is(err, ErrNoDevice) {
+		t.Fatalf("unknown id: %v", err)
+	}
+}
