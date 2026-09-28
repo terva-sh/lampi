@@ -75,6 +75,13 @@ func TestDevicesPageComparesEachAgentWithTheLake(t *testing.T) {
 	if r := rows["laptop"]; r.VersionState != "behind" || r.ProfileState != "current" || r.LastSync == nil || r.LastSync.Refused != 221 {
 		t.Errorf("laptop %+v", r)
 	}
+	// No request since serve started: the report is the last contact.
+	if r := rows["laptop"]; r.LastContact != now.UTC().Format(time.RFC3339) || r.Freshness == "never" {
+		t.Errorf("laptop contact %q freshness %s", r.LastContact, r.Freshness)
+	}
+	if w := get(h, "/api/web/v1/devices?state=active", cookie); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_filters_or_cursor") {
+		t.Errorf("api with a parameter: %d %s", w.Code, w.Body.String())
+	}
 	if r := rows["desktop"]; r.VersionState != "unstamped" || r.ProfileState != "stale" || r.AllowSource != "local" || r.LastError == "" {
 		t.Errorf("desktop %+v", r)
 	}
@@ -84,7 +91,7 @@ func TestDevicesPageComparesEachAgentWithTheLake(t *testing.T) {
 
 	page := get(h, "/devices", cookie)
 	body := page.Body.String()
-	for _, want := range []string{"version-behind", "v0.1.3", "refused 221", "profile-stale", "allow rules do not apply", "error: upload: POST /v1/hello: 503", `href="/devices" aria-current="page"`} {
+	for _, want := range []string{"version-behind", "v0.1.3", "manifests 0 · unchanged 0 · refused 221", "profile-stale", "allow rules do not apply", "error: upload: POST /v1/hello: 503", `href="/devices" aria-current="page"`} {
 		if page.Code != 200 || !strings.Contains(body, want) {
 			t.Fatalf("page %d missing %q", page.Code, want)
 		}

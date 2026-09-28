@@ -49,6 +49,7 @@ type deviceRow struct {
 	LastError   string            `json:"last_error,omitempty"`
 	LastErrorAt string            `json:"last_error_at,omitempty"`
 	last        time.Time
+	contact     time.Time
 }
 
 type deviceSyncCounts struct {
@@ -73,6 +74,10 @@ type devicesView struct {
 }
 
 func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
+	if len(r.URL.Query()) != 0 {
+		fail(w, catalog.ErrPage)
+		return
+	}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readDevices(ctx, s.now())
@@ -142,7 +147,7 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 		}
 		if t, ok := contacts[d.ID]; ok {
 			row.LastContact = t.UTC().Format(time.RFC3339)
-			row.last = t
+			row.last, row.contact = t, t
 		}
 		if a, ok := byMachine[d.MachineID]; ok && d.MachineID != "" {
 			last := a.LastUpload
@@ -188,6 +193,14 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, lakeKnown bool) {
 	r := rep.Report
 	row.Reported = rep.Received.UTC().Format(time.RFC3339)
+	// After a serve restart the live contacts start empty, so a report is
+	// the newest word from the device until it makes another request.
+	if rep.Received.After(row.last) {
+		row.last = rep.Received
+	}
+	if row.LastContact == "" || rep.Received.After(row.contact) {
+		row.LastContact = row.Reported
+	}
 	row.AgentVersion = r.AgentVersion
 	row.Inventory = r.Inventory
 	row.AllowSource, row.DenySource = r.AllowSource, r.DenySource
