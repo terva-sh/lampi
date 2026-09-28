@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3KD7DKR2SJHEBPG3KQ04PP8
 title: Client re-sends the last chunk of a file past 32 MiB at every sync
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3KC2DAAZSVA0XQ23XAAXSSE
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: upload/large-file-tails
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: 773fc0e844a9c20f2be9481ba79deef9b43b0dab
-  session: null
-  claimed_at: 2026-09-28T17:46:37Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T07:03:49Z
-updated_at: 2026-09-28T17:51:14Z
+updated_at: 2026-09-28T18:03:34Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -100,3 +93,7 @@ For a 37-byte append to a file 4 KiB past the cap, the agent sends 37
 bytes to a lake with the feature and 4,133 to one without
 (`TestSyncSendsOnlyTheTailOfAFilePastTheCap`). For this session's 41 MiB
 transcript the second case was about 9 MiB per sync.
+
+## Summary
+
+Fixed in #81. The lake lists large_tails in hello's features and grows a file past the cap from a tail (cas.GrowParts extends the last piece up to the cap, adds the rest as a new piece, keeps the old last piece as a prefix record; BindLogical checks the whole hash). The agent sends such tails only to a lake that lists the feature. A 37-byte append past the cap now sends 37 bytes, not the last chunk (about 9 MiB per sync for a 41 MiB transcript). Needs the lake and agents upgraded, lake first.
