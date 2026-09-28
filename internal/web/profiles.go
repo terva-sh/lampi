@@ -207,14 +207,11 @@ func (s *Server) readProfile(ctx context.Context, name string, now time.Time) (p
 		h, set := prof.Harnesses[id]
 		v.Harnesses = append(v.Harnesses, profileHarness{ID: id, Set: set, Enabled: h.Enabled})
 	}
-	revs, err := s.catalog.ProfileRevisions(ctx, name)
+	revs, err := s.catalog.RecentProfileRevisions(ctx, name, maxProfileRevisions)
 	if err != nil {
 		return profileView{}, err
 	}
-	for i, r := range revs {
-		if i == maxProfileRevisions {
-			break
-		}
+	for _, r := range revs {
 		v.Revisions = append(v.Revisions, profileRevisionView{ID: r.ID, Version: r.Version, Note: r.Note, Deleted: r.Deleted,
 			Created: r.Created.UTC().Format(time.RFC3339), CreatedBy: r.CreatedBy})
 	}
