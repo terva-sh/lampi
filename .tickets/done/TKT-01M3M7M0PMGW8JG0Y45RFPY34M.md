@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T14:45:05Z
-updated_at: 2026-09-28T15:13:36Z
+updated_at: 2026-09-28T15:23:34Z
 created_by:
   id: agent:claude-code/2cf53976
   name: ""
@@ -69,6 +69,10 @@ Docs only. Add an 'Off-box metadata: the inventory report' section to docs/polic
 **agent:claude-code/2cf53976** at 2026-09-28T15:00:28Z
 
 Owner decision 2026-09-28: STRICT sends aggregate refused counts with no names. A few refused sessions is expected; hundreds suggests a misconfigured allowlist, so the count is enough to prompt an operator to look. Description updated; AC 3 ticked.
+
+**agent:claude-code/2cf53976** at 2026-09-28T15:23:34Z
+
+Landed in Forgejo PR #65. terva-review run e94092e9 (Actions #670) on head 60133f3 against base f50c57f was clean with no findings, and CI is green. Waiting for the owner to merge.
 
 ## Summary
 
