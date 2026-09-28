@@ -254,7 +254,7 @@ func (s *Store) Read(digest string) ([]byte, error) {
 
 // Size is the length of the stored bytes for digest, without reading
 // them: the object's size, the sum of a logical file's chunks, or a
-// prefix record's length.
+// prefix record's length once its chain is found to hold that many.
 func (s *Store) Size(digest string) (int64, error) {
 	ok, err := s.Has(digest)
 	if err != nil {
@@ -280,6 +280,9 @@ func (s *Store) Size(digest string) (int64, error) {
 		return 0, err
 	}
 	if idx.PrefixOf != "" {
+		if err := s.checkRecord(digest, idx, 0); err != nil {
+			return 0, err
+		}
 		return idx.Length, nil
 	}
 	var n int64

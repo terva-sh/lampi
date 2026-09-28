@@ -101,39 +101,63 @@ func (s *Store) Present(digest string) (bool, error) {
 		// follows installs the object, which Open prefers.
 		return false, nil
 	}
-	base, err := s.resolvePrefix(digest, idx)
-	if err != nil {
-		return false, nil
-	}
-	return s.holds(base, idx.Length)
+	return s.checkRecord(digest, idx, 0) == nil, nil
 }
 
-// holds reports whether base, an object or a chunk list, has at least
-// length bytes on disk: the object's size, or every chunk stored at its
-// recorded length.
-func (s *Store) holds(base string, length int64) (bool, error) {
+// checkRecord reports why digest's prefix record, idx, cannot supply
+// its length: a chain that does not resolve, or a file at its end that
+// holds fewer bytes. Sizes are checked and bytes are not.
+func (s *Store) checkRecord(digest string, idx logicalIndex, depth int) error {
+	base, err := s.resolvePrefix(digest, idx)
+	if err != nil {
+		return err
+	}
+	have, err := s.heldBytes(base, depth+1)
+	if err != nil {
+		return err
+	}
+	if have < idx.Length {
+		return fmt.Errorf("cas: %s is %d bytes of %s, which holds %d", digest, idx.Length, base, have)
+	}
+	return nil
+}
+
+// heldBytes is how many bytes base, an object or a chunk list, can
+// supply: the object's size, or the sum of a chunk list whose every
+// chunk reads at its recorded length. A chunk may itself be a prefix
+// record.
+func (s *Store) heldBytes(base string, depth int) (int64, error) {
+	if depth > maxNesting {
+		return 0, fmt.Errorf("cas: %s nests more than %d records deep", base, maxNesting)
+	}
 	if size, object, err := s.ObjectSize(base); err != nil || object {
-		return object && size >= length, err
+		return size, err
 	}
 	idx, err := s.readLogical(base)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return 0, fmt.Errorf("cas: blob %s is not in the store", base)
 	}
-	if err != nil || idx.PrefixOf != "" {
-		return false, nil
+	if err != nil {
+		return 0, err
+	}
+	if idx.PrefixOf != "" {
+		if err := s.checkRecord(base, idx, depth); err != nil {
+			return 0, err
+		}
+		return idx.Length, nil
 	}
 	var total int64
 	for i, c := range idx.ChunkSHA256s {
-		size, object, err := s.ObjectSize(c)
+		n, err := s.heldBytes(c, depth+1)
 		if err != nil {
-			return false, err
+			return 0, err
 		}
-		if !object || size != idx.ChunkLengths[i] {
-			return false, nil
+		if n != idx.ChunkLengths[i] {
+			return 0, fmt.Errorf("cas: chunk %s of %s holds %d bytes, index says %d", c, base, n, idx.ChunkLengths[i])
 		}
-		total += size
+		total += n
 	}
-	return total >= length, nil
+	return total, nil
 }
 
 // ObjectSize is the size of digest's object file, and false when it has

@@ -190,6 +190,21 @@ func TestPresentNeedsABaseThatHoldsTheBytes(t *testing.T) {
 	if ok, err := s.Present(d1); err != nil || ok {
 		t.Fatalf("present over a short base = %v %v", ok, err)
 	}
+	if _, err := s.Size(d1); err == nil {
+		t.Fatal("size over a short base")
+	}
+	var problems []Problem
+	if _, err := s.Verify(func(p Problem) { problems = append(problems, p) }); err != nil {
+		t.Fatal(err)
+	}
+	// The cut object is reported, and so is the record over it.
+	var record bool
+	for _, p := range problems {
+		record = record || (p.Digest == d1 && p.Logical)
+	}
+	if len(problems) != 2 || !record {
+		t.Fatalf("verify over a short base: %v", problems)
+	}
 	if exists, err := s.Put(d1, bytes.NewReader(v1), 0); err != nil || exists {
 		t.Fatalf("put over a short base = %v %v", exists, err)
 	}
@@ -211,6 +226,18 @@ func TestPresentNeedsABaseThatHoldsTheBytes(t *testing.T) {
 	}
 	if ok, err := s.Present(dp); err != nil || !ok {
 		t.Fatalf("present over a chunk list = %v %v", ok, err)
+	}
+	// A chunk that grew into a longer file is a record, and still reads.
+	c1x := append(append([]byte(nil), c1...), "more\n"...)
+	mustPut(t, s, c1x)
+	s.mu.Lock()
+	err = s.supersedeLocked(dc1, digestOf(c1x), int64(len(c1)))
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Present(dp); err != nil || !ok {
+		t.Fatalf("present over a chunk that is a record = %v %v", ok, err)
 	}
 	cp, _ := s.Path(dc2)
 	if err := os.Remove(cp); err != nil {
@@ -283,5 +310,37 @@ func TestBackupRecopiesARepointedRecord(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(dest, "logical", digestOf(v1)[:2], digestOf(v1)[2:]))
 	if !bytes.Equal(got, want) {
 		t.Fatalf("backup record %s, want %s", got, want)
+	}
+}
+
+// A backup whose walk reached a record but passed its base before
+// ingest wrote it still ends with every chain resolving.
+func TestBackupCopiesWhatARecordReadsFrom(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := []byte("one\n")
+	mustPut(t, s, v1)
+	v2, _ := grow(t, s, v1, "two\n")
+	v3, _ := grow(t, s, v2, "three\n")
+	dest := t.TempDir()
+	// Only the records reach the copy, as when the object walk ran
+	// before the grows.
+	for _, v := range [][]byte{v1, v2} {
+		d := digestOf(v)
+		src, _ := s.logicalPath(d)
+		if _, err := copyIfMissing(src, filepath.Join(dest, "logical", d[:2], d[2:]), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.closeRecords(dest); err != nil {
+		t.Fatal(err)
+	}
+	b := &Store{Root: dest}
+	for _, v := range [][]byte{v1, v2, v3} {
+		if got, err := b.Read(digestOf(v)); err != nil || !bytes.Equal(got, v) {
+			t.Fatalf("backup read of %q: %q %v", v, got, err)
+		}
 	}
 }
