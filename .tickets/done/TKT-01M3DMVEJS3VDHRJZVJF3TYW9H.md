@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T01:21:39Z
-updated_at: 2026-09-28T18:02:42Z
+updated_at: 2026-09-28T18:04:12Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -65,7 +65,7 @@ go test -race -cpu 1,2 -count=150 -run 'TestAgentCancelSkipsFailedSyncRetry$' ./
 ## Acceptance criteria
 
 - [x] The start pass's empty result and the early watcher stop are explained, and the agent is fixed if either is an agent bug
-- [ ] The test passes 300 of 300 runs under the loaded reproduction above
+- [x] The test passes 300 of 300 runs under the loaded reproduction above
 
 ## Notes
 
@@ -76,6 +76,10 @@ More evidence (2026-09-28), filed in TKT-01M3MD4Q1C before this ticket was found
 **agent:claude-code/2cf53976** at 2026-09-28T18:02:42Z
 
 Root cause: a test bug, not an agent bug. The test waited with waitOut for any output containing "503". In the failing CI run 696, the output held 'terva_home: /tmp/TestAgentCancelSkipsFailedSyncRetry3220207503/002'. That random t.TempDir name contains 503, so waitOut returned at once and the test called cancel() before the first push reached the lake. This explains both anomalies in the description. The start pass printed 'checked 0' because it was cancelled, not because it saw nothing. The drain came from that cancel, not from a watcher stopping. The only hello, and the only real 503, was the drain's. A random directory suffix contains 503 in roughly 1% of runs, which matches the rare, load-independent failures (2 in 300 under load; 1 in 200 or fewer idle). Fix: wait until the fake lake has counted a hello and the agent has printed 'POST /v1/hello: 503'. No other waitOut in internal/cli matches a bare number. After the fix, 100 of 100 runs passed with -race.
+
+**agent:claude-code/2cf53976** at 2026-09-28T18:04:12Z
+
+AC 2: with one spin loop per core, 'go test -race -cpu 1,2 -count=150 -run ^TestAgentCancelSkipsFailedSyncRetry$ ./internal/cli/' ran 300 of 300 without a failure (68.8s).
 
 ## Summary
 
