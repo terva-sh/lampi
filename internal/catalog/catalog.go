@@ -211,6 +211,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateDeviceInventories,
 	migrateProjectReview,
 	migrateReadTokens,
+	migrateConflictResolutions,
 }
 
 // upgrade runs each step above the file's user_version, one
@@ -1150,13 +1151,16 @@ type DivergentCopy struct {
 	HeadSize     int64
 	Machines     []string
 	HeadMachines []string
+	// Resolution is set when the conflict was resolved.
+	Resolution *Resolution
 }
 
-// DivergentCopies lists every divergent_copy artifact, oldest first.
+// DivergentCopies lists the divergent_copy artifacts, oldest first:
+// the unresolved ones, or with resolved every one.
 // The rows are the ones Ingest stored. This does not read the CAS.
 // Machine lists come from provenance for that session, path, and digest.
 // An empty catalog returns an empty slice.
-func (c *Catalog) DivergentCopies(ctx context.Context) ([]DivergentCopy, error) {
+func (c *Catalog) DivergentCopies(ctx context.Context, resolved bool) ([]DivergentCopy, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT
 			a.session_uid,
@@ -1172,11 +1176,16 @@ func (c *Catalog) DivergentCopies(ctx context.Context) ([]DivergentCopy, error) 
 				SELECT size FROM artifacts
 				WHERE session_uid = a.session_uid AND sha256 = s.head_sha256
 				ORDER BY current DESC, size DESC LIMIT 1
-			), 0)
+			), 0),
+			COALESCE(r.resolution, ''),
+			COALESCE(r.resolved_at, ''),
+			COALESCE(r.resolved_by, ''),
+			COALESCE(r.note, '')
 		FROM artifacts a
 		JOIN sessions s ON s.session_uid = a.session_uid
-		WHERE a.relation = ?
-		ORDER BY a.rowid`, protocol.RelationDivergentCopy)
+		LEFT JOIN conflict_resolutions r ON r.artifact_id = a.artifact_id
+		WHERE a.relation = ? AND (? OR r.artifact_id IS NULL)
+		ORDER BY a.rowid`, protocol.RelationDivergentCopy, resolved)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
 	}
@@ -1209,11 +1218,18 @@ func scanDivergentCopies(rows *sql.Rows) ([]DivergentCopy, error) {
 	out := []DivergentCopy{}
 	for rows.Next() {
 		var d DivergentCopy
+		var r Resolution
+		var at string
 		if err := rows.Scan(
 			&d.SessionUID, &d.ArtifactID, &d.Harness, &d.NativeID,
 			&d.Kind, &d.RelPath, &d.SHA256, &d.Size, &d.HeadSHA256, &d.HeadSize,
+			&r.Resolution, &at, &r.By, &r.Note,
 		); err != nil {
 			return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
+		}
+		if r.Resolution != "" {
+			r.At = parseStamp(at)
+			d.Resolution = &r
 		}
 		d.Machines = []string{}
 		d.HeadMachines = []string{}

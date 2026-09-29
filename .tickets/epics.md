@@ -14,3 +14,4 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3N22HCYT06PPNZFQP3YCCCE](draft/TKT-01M3N22HCYT06PPNZFQP3YCCCE.md) | Per-device overrides on top of agent profiles | draft |
 | [TKT-01M3N8KHW56GVZXHV0KBNSPEX1](tickets/TKT-01M3N8KHW56GVZXHV0KBNSPEX1.md) | Bays: segment one lake and route sessions to a bay | in-progress |
 | [TKT-01M3NM01J4731BSWEA815FWGXS](tickets/TKT-01M3NM01J4731BSWEA815FWGXS.md) | Concise profile rules: wider matches and fewer rules | ready |
+| [TKT-01M3PTMA4C1XD80THS0AXEKK1Y](tickets/TKT-01M3PTMA4C1XD80THS0AXEKK1Y.md) | Conflicts: explain them and let an operator settle them | ready |

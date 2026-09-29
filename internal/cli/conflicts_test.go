@@ -87,6 +87,29 @@ func TestConflictsLocalList(t *testing.T) {
 			t.Fatalf("missing %q\n%s", want, text)
 		}
 	}
+
+	cat, err = catalog.Open(filepath.Join(data, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cat.ResolveConflict(t.Context(), ack.ArtifactIDs[0], catalog.ResolutionNotAConflict, "op", "", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	cat.Close()
+	out.Reset()
+	if err := Run([]string{"conflicts", "--data", data}, Env{Stdout: &out, Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "divergent_copy: 0\n" {
+		t.Fatalf("after resolving:\n%s", out.String())
+	}
+	out.Reset()
+	if err := Run([]string{"conflicts", "--data", data, "--resolved"}, Env{Stdout: &out, Stderr: ioDiscard()}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "resolution: not_a_conflict at 2026-09-22T17:00:00Z by op\n") {
+		t.Fatalf("with --resolved:\n%s", out.String())
+	}
 }
 
 func TestConflictsRemote(t *testing.T) {
@@ -160,6 +183,26 @@ func TestConflictsRemote(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q\n%s", want, text)
 		}
+	}
+
+	// A resolved conflict leaves the list, and --resolved brings it
+	// back with its resolution.
+	if err := s.Catalog.ResolveConflict(t.Context(), ack.ArtifactIDs[0], catalog.ResolutionKeptHead, "user:ada", "", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"conflicts", "--server", srv.URL, "--token-file", token}, env); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "divergent_copy: 0\n" {
+		t.Fatalf("after resolving:\n%s", out.String())
+	}
+	out.Reset()
+	if err := Run([]string{"conflicts", "--resolved", "--server", srv.URL, "--token-file", token}, env); err != nil {
+		t.Fatal(err)
+	}
+	if want := "resolution: kept_head at 2026-09-22T17:00:00Z by user:ada\n"; !strings.Contains(out.String(), want) || !strings.Contains(out.String(), "divergent_copy: 1\n") {
+		t.Fatalf("missing %q\n%s", want, out.String())
 	}
 
 	err = Run([]string{"conflicts", "--server", srv.URL}, env)
