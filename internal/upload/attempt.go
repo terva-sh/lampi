@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -27,6 +28,10 @@ type Attempt struct {
 	LastErrorAt  time.Time `json:"last_error_at,omitzero"`
 	Skipped      int       `json:"skipped,omitempty"`
 	SkippedLines []string  `json:"skipped_lines,omitempty"`
+	// NoBay counts the sessions the lake refused because nothing places
+	// them; they wait in the outbox. NoBayLines names the first few.
+	NoBay      int      `json:"no_bay,omitempty"`
+	NoBayLines []string `json:"no_bay_lines,omitempty"`
 }
 
 const (
@@ -58,7 +63,7 @@ func ReadAttempt(stateDir string) (Attempt, bool, error) {
 // recordAttempt rewrites the record after a run. A refusal is a
 // finished run, as it is for last_sync.json. A record that cannot be
 // written does not fail the run it describes.
-func recordAttempt(stateDir string, now time.Time, skipped []string, err error) {
+func recordAttempt(stateDir string, now time.Time, skipped, noBay []string, err error) {
 	if stateDir == "" {
 		return
 	}
@@ -67,7 +72,34 @@ func recordAttempt(stateDir string, now time.Time, skipped []string, err error) 
 	for _, line := range skipped[:min(len(skipped), maxSkippedLines)] {
 		a.SkippedLines = append(a.SkippedLines, oneLine(line, maxSkippedLine))
 	}
+	a.NoBay = len(noBay)
+	for _, line := range noBay[:min(len(noBay), maxSkippedLines)] {
+		a.NoBayLines = append(a.NoBayLines, oneLine(line, maxSkippedLine))
+	}
 	if !runFinished(err) {
+		// A pass that failed may not have reached the sessions waiting
+		// for a bay, and they are still in the outbox. The ones the
+		// last pass knew of stay listed until a pass finishes
+		// (review 1449).
+		known := slices.Clone(prev.NoBayLines)
+		for _, line := range noBay {
+			if l := oneLine(line, maxSkippedLine); !slices.Contains(known, l) {
+				known = append(known, l)
+			}
+		}
+		for _, line := range prev.NoBayLines {
+			if len(a.NoBayLines) < maxSkippedLines && !slices.Contains(a.NoBayLines, line) {
+				a.NoBayLines = append(a.NoBayLines, line)
+			}
+		}
+		// When the last attempt named every session it counted, the
+		// count is every distinct one known (review 1454). When it named
+		// only the first few, a line new here may be one it left unnamed,
+		// so the count is a lower bound.
+		a.NoBay = max(a.NoBay, prev.NoBay, len(a.NoBayLines))
+		if prev.NoBay <= len(prev.NoBayLines) {
+			a.NoBay = max(a.NoBay, len(known))
+		}
 		a.Error = err.Error()
 		a.LastError = a.Error
 		a.LastErrorAt = a.At

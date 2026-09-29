@@ -1,21 +1,27 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/upload"
 )
 
 const baysCmdUsage = `terva-lampi bays — which bays this machine's sessions ask for
 
 usage:
+  terva-lampi bays [list]
   terva-lampi bays which [PATH] [--harness H]
 
 A lake can be split into bays (docs/policy.md#bays). Each lake in
@@ -25,6 +31,9 @@ bays for a session no rule matches. The lake decides. It places a
 session only in the bays this device may write, and applies its own
 rules.
 
+list asks each lake for the bays this device may write, and names any
+bay config.json asks for that is not among them: the lake refuses those.
+
 which prints, for each lake, whether a session started at PATH would
 upload there, the bays it would ask for, and the rule or default that
 named each. PATH defaults to the current directory. A rule that names a
@@ -32,11 +41,21 @@ harness matches only with --harness.
 `
 
 func runBays(env Env, args []string) error {
-	if len(args) == 0 || isHelp(args[0]) {
+	if len(args) > 0 && isHelp(args[0]) {
 		fmt.Fprint(env.stdout(), baysCmdUsage)
 		return nil
 	}
-	sub, args := args[0], args[1:]
+	sub := "list"
+	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
+		sub, args = args[0], args[1:]
+	}
+	if sub == "list" {
+		if len(args) > 0 {
+			fmt.Fprint(env.stdout(), baysCmdUsage)
+			return fmt.Errorf("unexpected argument %q", args[0])
+		}
+		return listLakeBays(env)
+	}
 	if sub != "which" {
 		fmt.Fprint(env.stdout(), baysCmdUsage)
 		return fmt.Errorf("unknown bays command %q", sub)
@@ -108,6 +127,69 @@ func runBays(env Env, args []string) error {
 		}
 	}
 	return nil
+}
+
+func listLakeBays(env Env) error {
+	cc, err := loadClientConfig(env, env.stderr(), config.LakeFlags{})
+	if err != nil {
+		return err
+	}
+	if len(cc.lakes) == 0 {
+		return errors.New("no lake is configured; terva-lampi register adds one")
+	}
+	for _, l := range cc.lakes {
+		token, err := lakeToken(l)
+		if err != nil {
+			fmt.Fprintf(env.stdout(), "%s: %v\n", l.Name, err)
+			continue
+		}
+		fmt.Fprint(env.stdout(), probeBays(l.Name+": ", l.Server.Value, token, l.Bays))
+	}
+	return nil
+}
+
+// probeBays is the bays the lake lets this device write, and a warning
+// for each bay the config asks for that the lake does not list. A bay
+// named by id cannot be checked, since hello lists names, and is left
+// out of the warning.
+func probeBays(prefix, server, token string, asked config.BayRequests) string {
+	if upload.CheckToken(server, token) != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	h, err := upload.Hello(ctx, upload.Options{ServerURL: server, Token: token})
+	if err != nil {
+		return prefix + "bays: unknown, hello failed: " + err.Error() + "\n"
+	}
+	if !slices.Contains(h.Features, protocol.FeatureBays) {
+		if len(asked.Rules) == 0 && len(asked.Default) == 0 {
+			return ""
+		}
+		return prefix + "bays: this lake does not route by bay and ignores the bays config.json asks for\n"
+	}
+	out := prefix + "bays: " + strings.Join(h.Bays, ", ") + "\n"
+	if len(h.Bays) == 0 {
+		out = prefix + "bays: none writable\n"
+	}
+	var missing []string
+	for _, bay := range askedBays(asked) {
+		if !strings.HasPrefix(bay, "bay_") && !slices.Contains(h.Bays, bay) && !slices.Contains(missing, bay) {
+			missing = append(missing, bay)
+		}
+	}
+	if len(missing) > 0 {
+		out += prefix + "bays_refused: config.json asks for " + strings.Join(missing, ", ") + ", which this device may not write; the lake records each request and refuses it\n"
+	}
+	return out
+}
+
+func askedBays(b config.BayRequests) []string {
+	out := append([]string(nil), b.Default...)
+	for _, r := range b.Rules {
+		out = append(out, r.Bays...)
+	}
+	return out
 }
 
 func describeBayRule(r config.BayRequestRule) string {

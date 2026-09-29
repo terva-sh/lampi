@@ -53,6 +53,7 @@ func (r *lakeRunner) noteSync(res upload.Result, err error, now time.Time) {
 			Refused:     res.Refused,
 			Quarantined: res.Quarantined,
 			Unchanged:   res.Unchanged,
+			NoBay:       len(res.NoBay),
 		}
 		s.err, s.errAt = "", time.Time{}
 	} else {

@@ -118,6 +118,10 @@ func TestReportKeepsTheLastFinishedSyncThroughAnError(t *testing.T) {
 	if rep := r.report(); rep.LastError != "" || rep.LastSync.Unchanged != 3 || rep.AllowSource != "local" || rep.Pinned == nil || *rep.Pinned {
 		t.Fatalf("after success %+v", rep)
 	}
+	r.noteSync(upload.Result{Checked: 2, NoBay: []string{"terva a", "terva b"}}, nil, t0.Add(3*time.Minute))
+	if rep := r.report(); rep.LastSync.NoBay != 2 {
+		t.Fatalf("no_bay %+v", rep.LastSync)
+	}
 }
 
 func TestReportToAnOlderLakeIsSaidOnce(t *testing.T) {

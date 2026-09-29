@@ -124,3 +124,66 @@ func TestBaysWhich(t *testing.T) {
 		t.Error("unknown subcommand accepted")
 	}
 }
+
+// TestANoBayRefusalWaitsAndShowsInStatus is TKT-01M3NNF2CE: with the
+// lake's default off and no bay granted, the session stays pending,
+// the run does not fail, status names it, and it uploads once the
+// lake places it.
+func TestANoBayRefusalWaitsAndShowsInStatus(t *testing.T) {
+	ctx := t.Context()
+	f := newTwoLakeFixture(t)
+	f.withBays(t, `{"default": ["team"]}`)
+	if _, err := f.work.Catalog.CreateBay(ctx, "team", "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.work.Catalog.SetDefaultEnabled(ctx, false, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.run("sync", "--lake", "work"); err != nil {
+		t.Fatalf("sync failed on a no-bay refusal: %v\n%s", err, f.stderr)
+	}
+	if !strings.Contains(f.stderr.String(), "waiting for a bay: terva sess-1 in /work/app (asked for team)") {
+		t.Fatalf("stderr:\n%s", f.stderr)
+	}
+	if n, _ := f.work.Catalog.Counts(ctx, catalog.AllBays()); n.Sessions != 0 {
+		t.Fatalf("the lake stored %d sessions", n.Sessions)
+	}
+	if err := f.run("status", "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.stdout.String(), "outbox: 0") {
+		t.Errorf("the refused session left the outbox:\n%s", f.stdout)
+	}
+	for _, want := range []string{"no_bay: 1 waiting", "terva sess-1 in /work/app", "bays_refused: config.json asks for team"} {
+		if !strings.Contains(f.stdout.String(), want) {
+			t.Errorf("status lacks %q:\n%s", want, f.stdout)
+		}
+	}
+	devices, err := f.work.Catalog.Devices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range devices {
+		if _, err := f.work.Catalog.AddGrant(ctx, catalog.PrincipalDevice, d.ID, "team", catalog.PermWrite, "admin", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.run("sync", "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := f.work.Catalog.Counts(ctx, catalog.AllBays()); n.Sessions != 1 {
+		t.Fatalf("after the grant the lake has %d sessions\n%s", n.Sessions, f.stderr)
+	}
+	if err := f.run("bays"); err != nil {
+		t.Fatal(err)
+	}
+	if out := f.stdout.String(); !strings.Contains(out, "work: bays: default, team") || strings.Contains(out, "bays_refused") {
+		t.Errorf("bays:\n%s", out)
+	}
+	if err := f.run("status", "--lake", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.stdout.String(), "no_bay") {
+		t.Errorf("status still names a waiting session:\n%s", f.stdout)
+	}
+}

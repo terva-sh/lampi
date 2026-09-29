@@ -219,6 +219,9 @@ func printSync(stdout, stderr io.Writer, prefix string, res upload.Result) {
 	for _, s := range res.Skipped {
 		fmt.Fprintf(stderr, "terva-lampi: skipped %s\n", s)
 	}
+	for _, s := range res.NoBay {
+		fmt.Fprintf(stderr, "terva-lampi: %swaiting for a bay: %s\n", prefix, s)
+	}
 	fmt.Fprintf(stdout, "%schecked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d, unchanged %d\n",
 		prefix, res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined, res.Unchanged)
 }

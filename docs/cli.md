@@ -33,6 +33,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi sync` | One pass: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, harnesses, outbox, watermarks, last sync and attempt, skipped files, server and token file, lake health, and catalog counts. See [What status prints](agent.md#what-status-prints). |
 | `terva-lampi register` | Join a lake with a registration code, read from stdin, a prompt, or `--code-file`. See [Registering a machine](registration-and-lakes.md#registering-a-machine). `--install-service` enables the user unit. |
+| `terva-lampi bays` | For each lake, the bays this device may write, and any bay config.json asks for that is not among them. |
 | `terva-lampi bays which [PATH]` | For each lake, whether a session started at PATH (default: the current directory) uploads there, the bays it asks for, and the rule or `default` that named each. `--harness H` matches rules that name a harness. See [Asking for bays](registration-and-lakes.md#asking-for-bays). |
 | `terva-lampi lakes` | List the lakes this machine reports to, `remove` one, or `adopt` one it already syncs to with a device token: pin its key and take its profile, keeping the device, machine id and sync state. `--allow-from profile` hands the allow rules to the profile after listing what that would stop uploading. See [Adopting a lake](registration-and-lakes.md#adopting-a-lake-a-machine-already-syncs-to). |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
