@@ -42,6 +42,9 @@ const (
 
 	ProfilePut    = "profile.put"
 	ProfileDelete = "profile.delete"
+
+	ProjectHidden   = "project.hidden"
+	ProjectUnhidden = "project.unhidden"
 )
 
 // Event is one line. Device is the device name. Actor is where the
