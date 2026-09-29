@@ -198,18 +198,48 @@ func runServeBackup(env Env, args []string) error {
 // would be walked while it is written, and the lake would hold two of
 // every object.
 func refuseInsideLake(data, out string) error {
-	d, err := filepath.Abs(data)
-	if err != nil {
-		return err
-	}
-	o, err := filepath.Abs(out)
-	if err != nil {
-		return err
-	}
-	if rel, err := filepath.Rel(d, o); err == nil && (rel == "." || !strings.HasPrefix(rel, "..")) {
-		return fmt.Errorf("%s is inside the lake %s; back up to another directory", out, data)
+	// Compare the paths as written and as resolved, so a symlink on
+	// either side does not hide the lake.
+	for _, resolve := range []bool{false, true} {
+		d, err := backupPath(data, resolve)
+		if err != nil {
+			return err
+		}
+		o, err := backupPath(out, resolve)
+		if err != nil {
+			return err
+		}
+		if rel, err := filepath.Rel(d, o); err == nil && (rel == "." || !strings.HasPrefix(rel, "..")) {
+			return fmt.Errorf("%s is inside the lake %s; back up to another directory", out, data)
+		}
 	}
 	return nil
+}
+
+// backupPath is p made absolute and, with resolve, with the symlinks in
+// its longest existing prefix resolved; the rest, not created yet, is
+// joined on as written.
+func backupPath(p string, resolve bool) (string, error) {
+	p, err := filepath.Abs(p)
+	if err != nil || !resolve {
+		return p, err
+	}
+	var rest []string
+	for {
+		r, err := filepath.EvalSymlinks(p)
+		if err == nil {
+			return filepath.Join(append([]string{r}, rest...)...), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return p, nil
+		}
+		rest = append([]string{filepath.Base(p)}, rest...)
+		p = parent
+	}
 }
 
 // backupCatalog writes a VACUUM INTO copy next to dest, syncs it, and

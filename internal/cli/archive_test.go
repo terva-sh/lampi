@@ -215,6 +215,17 @@ func TestArchiveBackupFailuresPublishNothing(t *testing.T) {
 	if err := Run([]string{"serve", "backup", "--data", dir, "--archive", filepath.Join(dir, "in-lake.age"), "--recipient", recipient}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err == nil {
 		t.Fatal("an archive inside the lake was accepted")
 	}
+	// A parent that is a symlink into the lake is the lake too.
+	link := filepath.Join(t.TempDir(), "looks-elsewhere")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run([]string{"serve", "backup", "--data", dir, "--archive", filepath.Join(link, "sub", "in-lake.age"), "--recipient", recipient}, Env{Stdout: ioDiscard(), Stderr: ioDiscard()}); err == nil || !strings.Contains(err.Error(), "inside the lake") {
+		t.Fatalf("an archive through a symlink into the lake: %v", err)
+	}
+	if l, _ := filepath.Glob(filepath.Join(dir, "*.age")); len(l) > 0 {
+		t.Fatalf("archived into the lake: %v", l)
+	}
 }
 
 // A wrong key or a damaged archive stops the restore and removes what
@@ -258,6 +269,20 @@ func TestRestoreRefusesAndCleansUp(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(used, "catalog.db")); string(b) != "someone's lake" {
 		t.Fatal("restore touched a directory in use")
+	}
+
+	// An existing empty directory is made private before anything is
+	// restored into it.
+	open := filepath.Join(t.TempDir(), "open")
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(open, 0o755)
+	if err := restore(file, rightKey, open); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := os.Stat(open); err != nil || st.Mode().Perm() != 0o700 {
+		t.Fatalf("the restored lake directory: %v %v", st.Mode(), err)
 	}
 }
 

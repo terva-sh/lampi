@@ -332,6 +332,9 @@ func runServeRestore(env Env, args []string) error {
 		return err
 	} else if len(entries) > 0 {
 		return fmt.Errorf("serve restore: %s is not empty; restore into a new directory", data)
+	} else if err := os.Chmod(data, 0o700); err != nil {
+		// The restored lake is private from its top directory down.
+		return fmt.Errorf("serve restore: %w", err)
 	}
 
 	in, err := os.Open(file)
