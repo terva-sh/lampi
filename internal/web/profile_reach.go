@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -22,9 +23,13 @@ import (
 // device lists only the projects it uploads, and a device that sent no
 // inventory lists nothing; both are named, since the list cannot speak
 // for what they would admit. A deny rule on the device itself is not
-// visible either: a project the device refused under a deny rule the
-// stored profile does not hold is taken to be denied locally, and is
-// never listed.
+// visible either. A project the device refused under a deny rule is
+// taken to be denied locally, and is never listed, only when the device
+// says it has deny rules of its own, it applied the stored profile, and
+// the stored profile's deny rules do not match the project. Short of
+// that the refusal may come from an older profile, and the project is
+// evaluated like any other: the list may then name a project the device
+// denies itself, which errs toward showing the operator more.
 
 // projectChange is one project a change admits or drops, across the
 // devices whose newest inventory holds it.
@@ -45,7 +50,8 @@ type profileReach struct {
 
 // reach evaluates before and after, the stored and edited rules of a
 // profile, against the newest inventory of each device that fetches it.
-func (s *Server) reach(ctx context.Context, before, after config.Projects, devices []profileDevice) (profileReach, error) {
+// storedVersion is the stored profile's version.
+func (s *Server) reach(ctx context.Context, before, after config.Projects, storedVersion string, devices []profileDevice) (profileReach, error) {
 	var out profileReach
 	admits := map[catalog.ProjectKey]*projectChange{}
 	drops := map[catalog.ProjectKey]*projectChange{}
@@ -63,13 +69,14 @@ func (s *Server) reach(ctx context.Context, before, after config.Projects, devic
 		if !ok {
 			continue
 		}
+		denyLocal := d.Applied == storedVersion && slices.Contains(strings.Split(d.DenySource, "+"), config.OriginLocal)
 		for _, p := range inv.Inventory.Projects {
 			k, ok := catalog.ProjectKeyOf(p)
 			if !ok {
 				continue
 			}
 			id := config.ProjectID{CWD: p.CWD, CWDHash: p.CWDHash, GitRemote: p.GitRemote}
-			if !p.Allowed && p.Reason == config.RefusedByDeny && (config.Projects{Deny: before.Deny}).Refusal(id) != config.RefusedByDeny {
+			if denyLocal && !p.Allowed && p.Reason == config.RefusedByDeny && (config.Projects{Deny: before.Deny}).Refusal(id) != config.RefusedByDeny {
 				continue
 			}
 			was, is := before.Permitted(id), after.Permitted(id)

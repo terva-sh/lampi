@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T03:46:47Z
+updated_at: 2026-09-29T03:51:37Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -66,7 +66,7 @@ Each row names the key, the devices, and the session count. Put the list on the 
 - [x] The preview lists each project whose verdict changes, as admitted or dropped, with its devices and session count
 - [x] Devices with local allow rules are left out, and strict devices and devices with no inventory are counted
 - [x] Tests cover admit, drop, local allow, strict and deny rows; docs describe the list
-- [x] A row refused under a deny rule the stored profile does not hold is never listed; removing a stored deny rule lists what it denied as admitted
+- [x] A deny-refused row is left out only when the device reports local deny rules, applied the stored profile, and the stored deny rules do not match it
 
 ## Implementation plan
 
@@ -90,3 +90,17 @@ Each row names the key, the devices, and the session count. Put the list on the 
 - `GOFLAGS=-mod=mod just ci` passes.
 - Disabling the local-deny skip makes the new test fail.
 - The page was not viewed in a browser: the preview browser cannot reach loopback on the dev host. The rendered text is asserted in the test.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T03:51:37Z
+
+### Review 1318 on PR 131, and the local-deny rule revised
+
+This supersedes the "Local deny rules are inferred" and "Criterion 3" points of the previous note.
+
+- **Finding 1, high.** A deny reason the stored profile does not explain was taken as a local deny. The reason can instead come from an older profile the device still runs, which would hide exactly the widening the operator needs to see. Accepted and fixed. A row is now skipped only when all of these hold:
+  - the device's `deny_source` names `local`;
+  - the device applied the stored profile version;
+  - the stored profile's deny rules do not match the row.
+  Otherwise the row is evaluated like any other, and the preview may list a project the device still denies itself. `profileDevice` carries the device's `deny_source` and applied version, as `json:"-"` fields so the profiles API is unchanged.
+- **Finding 2, low.** `.tickets/epics.md` linked the epic's draft path, because the index was regenerated before promotion. Fixed with `check --fix`.
+- **Criterion 4** now states the revised rule.

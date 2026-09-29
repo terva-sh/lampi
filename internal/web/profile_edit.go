@@ -400,7 +400,7 @@ func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profi
 		}
 	}
 	if slices.ContainsFunc(pv.Changed, func(c string) bool { return c == "projects.allow" || c == "projects.deny" }) {
-		reach, err := s.reach(r.Context(), cur.Projects, p.Projects, pv.Devices)
+		reach, err := s.reach(r.Context(), cur.Projects, p.Projects, cur.Version(), pv.Devices)
 		if err != nil {
 			return nil, err
 		}

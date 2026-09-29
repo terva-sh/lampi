@@ -29,25 +29,30 @@ func TestPreviewListsTheProjectsAChangeAdmitsAndDrops(t *testing.T) {
 	}
 	laptop, desk, ci := devices[0], devices[1], devices[2]
 	stored := `{"projects":{"allow":[{"git_remote":"git.example/team/lib"},{"cwd_prefix":"/home/me/notes"}]}}`
-	if _, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(stored), "test", "", now); err != nil {
+	first, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(stored), "test", "", now)
+	if err != nil {
 		t.Fatal(err)
 	}
 	lakeRules := config.OriginLake("default")
-	for _, r := range []struct {
-		id, allow string
-	}{{laptop.ID, lakeRules}, {desk.ID, config.OriginLocal}, {ci.ID, lakeRules}} {
-		if err := lake.Catalog.PutDeviceReport(ctx, r.id, protocol.AgentReport{AllowSource: r.allow}, now); err != nil {
+	report := func(id string, r protocol.AgentReport) {
+		t.Helper()
+		if err := lake.Catalog.PutDeviceReport(ctx, id, r, now); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// laptop applied the stored profile and has deny rules of its own.
+	report(laptop.ID, protocol.AgentReport{AllowSource: lakeRules, DenySource: config.OriginLocal, ProfileVersion: first.Version})
+	report(desk.ID, protocol.AgentReport{AllowSource: config.OriginLocal})
+	report(ci.ID, protocol.AgentReport{AllowSource: lakeRules, DenySource: "none", ProfileVersion: first.Version})
 	inventories := map[string]protocol.AgentInventory{
 		laptop.ID: {Mode: protocol.InventorySociable, GeneratedAt: now, Projects: []protocol.InventoryProject{
 			{GitRemote: "git.example/team/app", CWD: "/work/app", CWDs: 1, Sessions: 3, Reason: config.RefusedNoMatch},
 			{GitRemote: "git.example/team/lib", CWD: "/work/lib", CWDs: 1, Sessions: 4, Allowed: true},
 			{CWD: "/home/me/notes", CWDs: 1, Sessions: 5, Allowed: true},
 			// Refused under a deny rule the stored profile does not
-			// hold: the device denies it itself, and no allow rule
-			// can let it through.
+			// hold, on a device that applied it and has deny rules of
+			// its own: the device denies it, and no allow rule can let
+			// it through.
 			{GitRemote: "git.example/team/secret", CWD: "/work/secret", CWDs: 1, Sessions: 6, Reason: config.RefusedByDeny},
 			{CWD: "/tmp/x", CWDs: 1, Sessions: 1, Reason: config.RefusedNoMatch},
 		}},
@@ -98,6 +103,19 @@ func TestPreviewListsTheProjectsAChangeAdmitsAndDrops(t *testing.T) {
 	for _, not := range []string{"git.example/team/secret", "git.example/team/other", "git.example/team/lib repository", "/tmp/x"} {
 		if strings.Contains(reachSection(page), not) {
 			t.Errorf("preview lists %s", not)
+		}
+	}
+
+	// The same refusal on a device with no deny rules of its own, or
+	// one that has not applied the stored profile, may be an older
+	// profile's: the project is listed.
+	for _, r := range []protocol.AgentReport{
+		{AllowSource: lakeRules, DenySource: lakeRules, ProfileVersion: first.Version},
+		{AllowSource: lakeRules, DenySource: config.OriginLocal + "+" + lakeRules, ProfileVersion: "sha256:older"},
+	} {
+		report(laptop.ID, r)
+		if page := preview(map[string]string{"allow.0.git_remote_prefix": "git.example/team"}); !strings.Contains(squash(page), "git.example/team/secret repository on laptop · 6 sessions") {
+			t.Errorf("deny source %q, applied %s: the refused project is not listed", r.DenySource, r.ProfileVersion)
 		}
 	}
 

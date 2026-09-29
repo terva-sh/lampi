@@ -494,9 +494,12 @@ nobody has reviewed. The list has these limits:
 - A strict device lists only what it uploads, and a device that has sent no
   inventory lists nothing. The preview names both, since it cannot say what
   the change admits on them.
-- The lake cannot see a device's own deny rules. A project that the device
-  refused under a deny rule the saved profile does not hold stays refused,
-  and is not listed.
+- The lake cannot see a device's own deny rules. A project refused under a
+  deny rule is left out only when all of these hold: the device reports deny
+  rules of its own, it has applied the saved profile, and the saved profile's
+  deny rules do not match the project. Otherwise the refusal may come from an
+  older profile, so the project is listed, even though the device may still
+  deny it.
 
 `git_remote` and `git_remote_prefix` are stored in the form the agent compares,
 so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.
