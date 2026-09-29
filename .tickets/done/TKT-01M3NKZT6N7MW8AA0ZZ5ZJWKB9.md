@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NKZT6N7MW8AA0ZZ5ZJWKB9
 title: "Dashboard: admin role above operator"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: t3code/add-raw-session-option
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: d0ceeeb339cf7f14ef3de6f090a7c9df31bb6818
-  session: null
-  claimed_at: 2026-09-29T03:45:01Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:40:29Z
-updated_at: 2026-09-29T03:47:34Z
+updated_at: 2026-09-29T04:06:53Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -104,3 +97,7 @@ Bay grants, per-principal permissions, and changes to OIDC group sync.
 ## Implementation plan
 
 Add RoleAdmin to webconfig (accepted by Validate, AdminGroups for logging). Identity.Admin set by the provider, implying Operator and Viewer. webauth.AdminOnly shares the 404 gate with OperatorOnly. startWeb logs admin groups, or warns when none. Docs: web-dashboard.md step 4 and the example config. Nothing uses AdminOnly yet; TKT-01M3NKY2V3 is the first route behind it.
+
+## Summary
+
+Landed in #132 (merge dde83a3), reviewed clean at 6b2437c. role_map accepts admin, which implies operator and viewer; webauth.AdminOnly answers 404 to operators and viewers; serve logs the admin groups or warns when there are none. No group is promoted on upgrade (decision and rationale in the description). terva-review 1319 had one low finding, that the guide promised raw reads before any route used AdminOnly; the wording was fixed in 6b2437c and the disposition posted. The first AdminOnly routes arrive with TKT-01M3NKY2V3.
