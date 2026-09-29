@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF24AXMQ130VWR71QHQZ3
 title: "Bays: bay scope for operators, viewers and read tokens"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M3NNF21HT08545KY8QX9FHR3
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/7859b064
+  branch: bays/scope-cli
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
+  commit: dd8a4989444116fa65943c2381ba12f8bc831274
+  session: null
+  claimed_at: 2026-09-29T16:05:43Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T14:58:27Z
+updated_at: 2026-09-29T16:05:43Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
