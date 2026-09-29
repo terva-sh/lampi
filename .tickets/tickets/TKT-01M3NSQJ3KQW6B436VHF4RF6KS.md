@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T05:20:50Z
-updated_at: 2026-09-29T05:25:42Z
+updated_at: 2026-09-29T05:35:34Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -60,10 +60,10 @@ The workstation agent is then upgraded in place. Adopting the other machines is 
 
 ## Acceptance criteria
 
-- [ ] A verified checkpoint of the stopped schema-16 lake exists, taken with v0.3.0
-- [ ] The lake runs v0.4.0 at schema 17 with integrity ok and counts preserved
-- [ ] Health, auth refusals and the public URL answer after the upgrade
-- [ ] The workstation agent runs v0.4.0, stays pinned on the default profile, and its next sync re-uploads nothing
+- [x] A verified checkpoint of the stopped schema-16 lake exists, taken with v0.3.0
+- [x] The lake runs v0.4.0 at schema 17 with integrity ok and counts preserved
+- [x] Health, auth refusals and the public URL answer after the upgrade
+- [x] The workstation agent runs v0.4.0, stays pinned on the default profile, and its next sync re-uploads nothing
 
 ## Implementation plan
 
@@ -71,3 +71,18 @@ The workstation agent is then upgraded in place. Adopting the other machines is 
 2. The agent upgrades the workstation agent binary, keeps a copy of the old one and config.json, and checks that the agent stays pinned on `lake:default` and that the next sync uploads nothing.
 
 The script is the v0.3.0 bundle's, which ran on this lake on 2026-09-29, with the versions and schema changed, the normalize and search steps removed, and the raw-route 401 and admin-line checks added. The unit and web drop-in are byte-identical to the v0.3.0 bundle's copies. The bundle README carries the `lakes adopt` commands for the other machines, and a rollback that restores only the catalog.
+
+## Summary
+
+Deployed on 2026-09-29. The owner ran `deploy-v0.4.0-0v5zrnQd/operator-deploy.sh` as root, and it completed on the first run.
+
+- **Checkpoint:** `/var/lib/terva-lampi-pre-v0.4.0-BOV9Bizi`. It holds a `serve backup` of the stopped lake taken by v0.3.0, with a clean fsck and counts matching the live catalog (634 sessions, 10279 artifacts, 10278 provenance rows, schema 16), plus the old binary, the unit, the drop-in and /etc/terva-lampi. serve also kept `migration-backups/catalog-20260929T053310…-v16.db`.
+- **Lake:** v0.4.0 (1740c08), migrated 16 → 17 (migrateReadTokens).
+  - Integrity ok, counts preserved, and lake id `lake_u3cpc5lo4dwujlk5il3mpjepai` unchanged.
+  - Health, the anonymous 401s (including `/api/raw/v1`) and the public URL answer.
+  - serve warns `web config maps no group to admin; raw artifact reads are off`. That is expected, since no group is promoted on upgrade. Mapping a group to `admin` is the owner's call.
+- **Agent resume:** the v0.3.0 agent's first sync against the new lake uploaded nothing (unchanged 180, refused 2).
+- **Workstation agent:** upgraded to v0.4.0 after the script. Copies of the old binary and config.json are in `~/.local/state/agent-handoffs/lampi/agent-rollback-v0.4.0-7S3nOyDA`. It stays pinned to the lake with `allow_source=lake:default` (134 rules) and reports `lake_release: v0.4.0`. Its forced sync checked 5 and uploaded 2, both sessions being written at the time; the total stayed at 180.
+- **Adoption:** the device list shows kobal, pherocity14, pherocity16, shai and tehbeast as `registration` devices, which are already pinned. token-1, the only `token-file` device, was adopted in TKT-01M3NMHDWR. No machine on this lake still needs `lakes adopt`.
+
+The v0.3.0 checkpoint `/var/lib/terva-lampi-pre-v0.3.0-VN3AGVf1` is still on disk. Removing it is the owner's call.
