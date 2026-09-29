@@ -47,8 +47,13 @@ type deviceRow struct {
 	ProfileState   string `json:"profile_state"`
 	// AllowSource is where the agent's allow rules come from. A local
 	// source means the lake's profile does not decide what it uploads.
-	AllowSource string            `json:"allow_source,omitempty"`
-	DenySource  string            `json:"deny_source,omitempty"`
+	AllowSource string `json:"allow_source,omitempty"`
+	DenySource  string `json:"deny_source,omitempty"`
+	// NoProfile is a token-file device whose agent reports no applied
+	// profile: it has not pinned this lake, so no profile reaches it,
+	// whatever the device is set to. terva-lampi lakes adopt on that
+	// machine pins it. A registered agent always pins its lake.
+	NoProfile   bool              `json:"no_profile,omitempty"`
 	LastSync    *deviceSyncCounts `json:"last_sync,omitempty"`
 	LastError   string            `json:"last_error,omitempty"`
 	LastErrorAt string            `json:"last_error_at,omitempty"`
@@ -261,6 +266,7 @@ func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, 
 	row.AgentVersion = r.AgentVersion
 	row.Inventory = r.Inventory
 	row.AllowSource, row.DenySource = r.AllowSource, r.DenySource
+	row.NoProfile = row.Source == catalog.DeviceFromTokenFile && r.Profile == "" && r.ProfileVersion == ""
 	row.AppliedVersion = r.ProfileVersion
 	row.VersionState = versionState(r.AgentVersion, lakeV, lakeKnown)
 	if a, ok := agentAdvisories.Match(r.AgentVersion); ok {

@@ -341,7 +341,10 @@ it made.
 - **Profile** is the profile the device uses and whether the agent applied the
   version the lake serves now. A *stale* profile catches up within a minute
   once the agent is running. When the allow rules come from the machine's own
-  `config.json`, the row says that the profile's allow rules do not apply.
+  `config.json`, the row says that the profile's allow rules do not apply. A
+  `token-file` device that reports no profile at all says it fetches no
+  profile. Its agent has no pinned lake key, and `terva-lampi lakes adopt` on
+  that machine fixes that.
 - **Last sync** is the outcome of the agent's last finished sync, including
   how many sessions the allowlist refused, and its newest error.
 
@@ -400,7 +403,11 @@ and checkouts.
 - **Allow pending** holds projects a rule now allows whose device has not sent
   a new inventory yet. They leave once it does.
   A device whose `config.json` sets its own allow rules takes none from its
-  profile, so its copies stay in Needs review, marked, with no Allow. A copy
+  profile, so its copies stay in Needs review, marked, with no Allow. A
+  `token-file` device whose agent reports no profile has not pinned the lake
+  and fetches no profile at all. Its copies are marked "Fetches no profile",
+  with the same fix on every device page: run `terva-lampi lakes adopt` on that
+  machine ([Adopting a lake](registration-and-lakes.md#adopting-a-lake-a-machine-already-syncs-to)). A copy
   from a device that applied the profile allowing it and still refused it
   afterwards returns to Needs review, marked, since waiting will not help.
 - **Denied** holds projects a deny rule refuses, or sessions with no working

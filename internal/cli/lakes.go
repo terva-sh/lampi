@@ -91,7 +91,9 @@ func writeProfiles(w io.Writer, lakes []config.Lake, cc clientConfig) {
 		case ok:
 			fmt.Fprintf(w, "lake %s profile=%s version=%s issued=%s\n", l.Name, d.Payload.Profile, d.Payload.Version, d.Payload.IssuedAt.UTC().Format(time.RFC3339))
 		case l.KeyID == "":
-			fmt.Fprintf(w, "lake %s profile=none (not registered: no pinned key)\n", l.Name)
+			// A token alone syncs, but fetches no profile. lakes adopt
+			// pins the lake without registering it again.
+			fmt.Fprintf(w, "lake %s profile=none (not registered: no pinned key; terva-lampi lakes adopt %s pins it)\n", l.Name, l.Name)
 		default:
 			fmt.Fprintf(w, "lake %s profile=none (not fetched yet)\n", l.Name)
 		}

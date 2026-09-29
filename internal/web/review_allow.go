@@ -274,7 +274,7 @@ func (s *Server) reviewAllowPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(v.Profiles) == 0 {
-		s.renderBack(w, r, back, "No rule can be added for the selected projects: each is allowed, hidden, denied, no longer on a device, or only on devices whose config.json sets their own allow rules. Reload to see the queue as it is now.", http.StatusConflict)
+		s.renderBack(w, r, back, "No rule can be added for the selected projects: each is allowed, hidden, denied, no longer on a device, or only on devices whose config.json sets their own allow rules or that fetch no profile (run terva-lampi lakes adopt on those). Reload to see the queue as it is now.", http.StatusConflict)
 		return
 	}
 	v.Return = back

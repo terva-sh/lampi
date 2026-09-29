@@ -105,7 +105,78 @@ the original as the client's secret. The token file format, the
 `<name>.token` directory layout, SIGHUP reload, and device binding are
 in [A token file by hand](vps-bringup.md#a-token-file-by-hand-the-fallback).
 A machine added this way has no pinned lake key and gets no base
-configuration.
+configuration until you [adopt the lake](#adopting-a-lake-a-machine-already-syncs-to).
+
+### Adopting a lake a machine already syncs to
+
+A machine that syncs with a device token but was never registered has
+no pinned lake key. This covers a machine set up with `login` and a
+token file, or one on the loopback lake beside it. The dashboard lists
+such a machine as a `token-file` device that "fetches no profile".
+Its agent never fetches the lake's profile, so the dashboard's Allow
+cannot reach it.
+
+`lakes adopt` pins that lake in place, without registering again:
+
+```bash
+terva-lampi lakes adopt --fingerprint SHA256:…   # the value serve identity prints
+```
+
+- The machine keeps its token, its machine id and its sync state. The
+  lake lists the same device, and the next sync sends nothing again.
+  Registering instead would make a second device and a second lake
+  entry for one lake, and post every session again under a new machine
+  id.
+- A default lake set by the top-level `server` and `token_file` moves
+  into `lakes.default`, with the top-level `projects.allow` that
+  belongs to it. Top-level `projects.deny` stays, because it applies to
+  every lake. Other keys in `config.json` are kept.
+- NAME defaults to `default`. Name another lake to adopt a `lakes`
+  entry that has no `lake_id`.
+
+**What adopt checks.** Each check stops the command before it writes
+anything:
+
+1. The key list at the lake's URL, fetched over a fresh nonce, is
+   signed by an active key. The URL must be https, or http to loopback.
+2. The lake that accepts this machine's token proves that key in
+   `hello`, over a fresh nonce.
+3. You confirm the URL, lake id and key fingerprint. It asks on a
+   terminal. Otherwise pass `--fingerprint` with the value that
+   `terva-lampi serve identity` prints on the lake host. Take that value
+   from the lake host, not from the machine being adopted: this check is
+   the only defense against a server that impersonates the lake.
+4. The profile the lake signs for this device verifies under that key.
+   Its payload names the device, and adopt records that id, so only a
+   profile signed for this device is accepted afterwards.
+
+**Local allow rules.** A lake whose entry has its own allow rules takes
+none from its profile.
+- `--allow-from keep` is the default. It leaves the local rules in
+  force; the profile's deny rules and harness settings still apply.
+- `--allow-from profile` removes the local allow rules, so the
+  profile's allow rules decide what uploads. On a lake that is already
+  pinned it does only that.
+
+Either way, before it writes anything, adopt reads every session the
+agent would read. It lists each project the change would stop
+uploading and refuses while there is one. Add rules for those projects
+to the profile on the dashboard and run adopt again, or pass `--force`
+to stop uploading them. `--allow-from profile` also refuses a profile
+that allows nothing.
+
+A typical move to dashboard-managed rules:
+
+```bash
+terva-lampi lakes adopt --fingerprint SHA256:…     # pin; local rules stay
+terva-lampi lakes adopt --allow-from profile       # lists what the profile misses
+# add those projects to the profile on the dashboard, then:
+terva-lampi lakes adopt --allow-from profile       # switch
+terva-lampi agent config                           # allow_source=lake:default
+```
+
+A running agent is told to reload, and it fetches the profile from
+then on. On Windows, restart the agent.
 
 ### Tokens and plain HTTP
 
