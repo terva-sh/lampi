@@ -100,6 +100,13 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := profileEditView{Name: name, Stored: stored, New: !stored && name != config.DefaultProfile, Form: formOf(p, rev)}
+	// Come back to the page the operator allowed from; a form that names
+	// no page comes back to the device's.
+	back := r.PostForm.Get("return")
+	if returnPath(back) == "" {
+		back = deviceURL(d.ID)
+	}
+	s.setReturn(r, &v, back)
 	v.Form.Note = "Allow " + ruleText(rule) + ", refused on " + d.Name
 	v.Notice = "Adds an allow rule for " + ruleText(rule) + " to profile " + name + ", which " + d.Name + " uses. Check the devices it reaches, then save."
 	if v.Preview, err = s.preview(r, name, p); err != nil {

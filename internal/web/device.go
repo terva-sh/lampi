@@ -30,6 +30,8 @@ type deviceView struct {
 	CSRF     string   `json:"-"`
 	Profiles []string `json:"-"`
 	Problem  string   `json:"-"`
+	// Notice says what a save that came back to this page saved.
+	Notice string `json:"-"`
 }
 
 // inventoryView is a device's newest inventory. Allowed and Refused
@@ -76,17 +78,29 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	saved, rev, present := savedQuery(q)
+	if present {
+		q.Del("saved")
+		q.Del("revision")
+	}
 	refused := q.Get("show") == "refused"
 	if len(q) > 1 || len(q) == 1 && !refused || len(q["show"]) > 1 {
 		pageError(w, r, catalog.ErrPage)
 		return
 	}
-	s.renderDevice(w, r, r.PathValue("id"), refused, "", http.StatusOK)
+	s.renderDeviceSaved(w, r, r.PathValue("id"), refused, "", saved, rev, http.StatusOK)
 }
 
 // renderDevice shows device id with problem, after an operator's
 // action on it was refused.
 func (s *Server) renderDevice(w http.ResponseWriter, r *http.Request, id string, refused bool, problem string, status int) {
+	s.renderDeviceSaved(w, r, id, refused, problem, "", 0, status)
+}
+
+// renderDeviceSaved is renderDevice after a save of profile saved at
+// revision rev came back to the page. The notice shows only for the
+// profile the device uses.
+func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id string, refused bool, problem, saved string, rev int64, status int) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readDevice(ctx, id, s.now())
@@ -104,6 +118,9 @@ func (s *Server) renderDevice(w http.ResponseWriter, r *http.Request, id string,
 		refused = false
 	}
 	v.RefusedOnly, v.Problem = refused, problem
+	if saved != "" && saved == v.Device.Profile {
+		v.Notice = s.savedNotice(r, saved, rev)
+	}
 	if iv := v.Inventory; iv != nil {
 		iv.Shown = iv.Projects
 		if refused {

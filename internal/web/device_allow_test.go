@@ -144,3 +144,119 @@ func TestAllowARefusedProjectFromTheDevicePage(t *testing.T) {
 		t.Fatalf("viewer allow: %d", w.Code)
 	}
 }
+
+// TKT-01M3N8FHQD: Allow comes back to the device's page. The editor it
+// opens offers Back to the device, carries the page through preview and
+// a refused save, and a save redirects to the page, which says what the
+// revision saved.
+func TestAllowReturnsToTheDevicePage(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	now := time.Now()
+	created, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	laptop := created[0]
+	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: now, Projects: []protocol.InventoryProject{
+		{GitRemote: "git.example/team/app", CWD: "/work/app", CWDs: 1, Sessions: 3, Reason: config.RefusedNoMatch},
+	}}
+	if _, err := lake.Catalog.PutDeviceInventory(ctx, laptop.ID, inv, now); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	page := deviceURL(laptop.ID) + "?show=refused"
+
+	if body := get(h, page, cookie).Body.String(); hiddenValue(t, body, "return") != page {
+		t.Fatal("the Allow form does not name the page it is on")
+	}
+	w := postForm(h, "/devices/"+laptop.ID+"/allow", url.Values{"csrf": {csrf}, "git_remote": {"git.example/team/app"}, "cwd": {"/work/app"}, "return": {page}}, cookie)
+	editor := w.Body.String()
+	if w.Code != 200 || !strings.Contains(editor, "Back to laptop") || strings.Contains(editor, ">Cancel<") {
+		t.Fatalf("allow: %d, no Back to laptop", w.Code)
+	}
+	if hiddenValue(t, editor, "return") != page {
+		t.Fatal("the editor does not carry the page")
+	}
+
+	// Previewing again keeps the page.
+	v := url.Values{"csrf": {csrf}, "base": {hiddenValue(t, editor, "base")}, "return": {page}, "allow_rows": {"1"}, "deny_rows": {"0"}, "allow.0.git_remote": {"git.example/team/app"}}
+	if w := postForm(h, "/profiles/default/preview", v, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "Back to laptop") {
+		t.Fatalf("preview: %d, no Back to laptop", w.Code)
+	}
+
+	// A save refused as stale shows the editor again, still going back.
+	save := url.Values{"csrf": {csrf}, "base": {"99"}, "document": {hiddenValue(t, editor, "document")}, "note": {"Allow app"}, "return": {page}}
+	if w := postForm(h, "/profiles/default/save", save, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "Back to laptop") {
+		t.Fatalf("stale save: %d, no Back to laptop", w.Code)
+	}
+
+	save.Set("base", hiddenValue(t, editor, "base"))
+	w = postForm(h, "/profiles/default/save", save, cookie)
+	p, err := lake.Catalog.ProfileByName(ctx, config.DefaultProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := page + "&saved=default&revision=" + strconv.FormatInt(p.Revision, 10)
+	if w.Code != 303 || w.Header().Get("Location") != want {
+		t.Fatalf("save: %d to %q, want %q", w.Code, w.Header().Get("Location"), want)
+	}
+	back := get(h, want, cookie)
+	notice := "Profile default revision " + strconv.FormatInt(p.Revision, 10) + " was saved by "
+	if body := back.Body.String(); back.Code != 200 || !strings.Contains(body, notice) || !strings.Contains(body, ": Allow app. Devices on it fetch it") {
+		t.Fatalf("device page after save: %d, no notice", back.Code)
+	}
+
+	// The notice states what the catalog records and nothing else: a
+	// link naming a revision never saved, or another profile's, shows
+	// the page without one.
+	if _, _, err := lake.Catalog.PutProfile(ctx, "ci", []byte(`{}`), "test", "", now); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"?saved=default&revision=999", "?saved=ci&revision=1", "?saved=default", "?saved=../x&revision=1"} {
+		if w := get(h, deviceURL(laptop.ID)+q, cookie); w.Code != 200 || strings.Contains(w.Body.String(), "was saved by") {
+			t.Fatalf("%s: %d", q, w.Code)
+		}
+	}
+
+	// A return that is not a dashboard page is dropped: Allow falls back
+	// to the device's page, and a save to the profile's.
+	w = postForm(h, "/devices/"+laptop.ID+"/allow", url.Values{"csrf": {csrf}, "cwd": {"/work/app"}, "git_remote": {"git.example/team/app"}, "return": {"https://evil.example/"}}, cookie)
+	if w.Code != 409 {
+		// Already allowed now; the check below uses the save.
+		t.Fatalf("allow again: %d", w.Code)
+	}
+	cur, _ := lake.Catalog.ProfileByName(ctx, config.DefaultProfile)
+	save = url.Values{"csrf": {csrf}, "base": {strconv.FormatInt(cur.Revision, 10)}, "document": {`{"projects":{"allow":[{"cwd_prefix":"/work"}]}}`}, "return": {"//evil.example/devices/" + laptop.ID}}
+	if w := postForm(h, "/profiles/default/save", save, cookie); w.Code != 303 || w.Header().Get("Location") != "/profiles/default" {
+		t.Fatalf("save with a foreign return: %d to %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+func TestReturnPathAcceptsDashboardPagesOnly(t *testing.T) {
+	for raw, want := range map[string]string{
+		"/devices/dev_abc234":              "/devices/dev_abc234",
+		"/devices/dev_abc234?show=refused": "/devices/dev_abc234?show=refused",
+		"":                                 "",
+		"https://evil.example/devices/dev_abc234": "",
+		"//evil.example/devices/dev_abc234":       "",
+		"/\\evil.example":                         "",
+		"javascript:alert(1)":                     "",
+		"/devices/dev_abc234?next=//evil.example": "",
+		"/devices/dev_abc234?show=all":            "",
+		"/devices/dev_abc234#top":                 "",
+		"/devices/dev_abc234#":                    "",
+		"/devices/dev_abc234?show=refused#":       "",
+		"/devices/dev_abc234/../../profiles":      "",
+		"/devices/dev_ab%2Fc":                     "",
+		"/devices/dev_":                           "",
+		"/devices/laptop":                         "",
+		"/profiles/default":                       "",
+		"/devices/dev_abc234\r\nSet-Cookie: x=y":  "",
+	} {
+		if got := returnPath(raw); got != want {
+			t.Errorf("returnPath(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
