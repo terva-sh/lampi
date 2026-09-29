@@ -73,26 +73,34 @@ func savedURL(path string, p catalog.Profile) string {
 	return path + sep + "saved=" + url.QueryEscape(p.Name) + "&revision=" + strconv.FormatInt(p.Revision, 10)
 }
 
-// savedNotice reads ?saved=NAME&revision=N off a page a save came back
-// to. It says what that revision saved, from the catalog rather than
-// the query, so a link cannot make the page claim a save that did not
-// happen. ok is false when the query does not name a revision.
-func (s *Server) savedNotice(r *http.Request, q url.Values) (notice string, ok bool) {
-	name, rev := q.Get("saved"), q.Get("revision")
-	if len(q["saved"]) != 1 || len(q["revision"]) != 1 || !config.ValidProfileName(name) {
-		return "", false
+// savedQuery reads ?saved=NAME&revision=N off a page a save came back
+// to. present is true when the query carries the pair, well formed or
+// not, so the page can take it off before reading the rest.
+func savedQuery(q url.Values) (name string, rev int64, present bool) {
+	if !q.Has("saved") && !q.Has("revision") {
+		return "", 0, false
 	}
-	id, err := strconv.ParseInt(rev, 10, 64)
-	if err != nil || id < 1 {
-		return "", false
+	name = q.Get("saved")
+	rev, err := strconv.ParseInt(q.Get("revision"), 10, 64)
+	if len(q["saved"]) != 1 || len(q["revision"]) != 1 || !config.ValidProfileName(name) || err != nil || rev < 1 {
+		return "", 0, true
 	}
-	pr, err := s.catalog.ProfileRevisionByID(r.Context(), name, id)
+	return name, rev, true
+}
+
+// savedNotice says who saved revision rev of profile name, when, and
+// with what note. It is read from the catalog and states only what the
+// catalog records, so a link that names a revision cannot make the page
+// claim anything that did not happen. "" when there is no such saved
+// revision.
+func (s *Server) savedNotice(r *http.Request, name string, rev int64) string {
+	pr, err := s.catalog.ProfileRevisionByID(r.Context(), name, rev)
 	if err != nil || pr.Deleted {
-		return "", true
+		return ""
 	}
-	notice = "Saved profile " + name + " as revision " + rev
+	notice := "Profile " + name + " revision " + strconv.FormatInt(rev, 10) + " was saved by " + pr.CreatedBy + " at " + pr.Created.UTC().Format("2006-01-02 15:04 UTC")
 	if pr.Note != "" {
 		notice += ": " + pr.Note
 	}
-	return notice + ". Devices on it fetch it within seconds; this page shows the change once the device sends a new inventory.", true
+	return notice + ". Devices on it fetch it within seconds; this page shows the change once the device sends a new inventory."
 }

@@ -78,8 +78,8 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	notice, saved := s.savedNotice(r, q)
-	if saved {
+	saved, rev, present := savedQuery(q)
+	if present {
 		q.Del("saved")
 		q.Del("revision")
 	}
@@ -88,17 +88,19 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, catalog.ErrPage)
 		return
 	}
-	s.renderDeviceNotice(w, r, r.PathValue("id"), refused, "", notice, http.StatusOK)
+	s.renderDeviceSaved(w, r, r.PathValue("id"), refused, "", saved, rev, http.StatusOK)
 }
 
 // renderDevice shows device id with problem, after an operator's
 // action on it was refused.
 func (s *Server) renderDevice(w http.ResponseWriter, r *http.Request, id string, refused bool, problem string, status int) {
-	s.renderDeviceNotice(w, r, id, refused, problem, "", status)
+	s.renderDeviceSaved(w, r, id, refused, problem, "", 0, status)
 }
 
-// renderDeviceNotice is renderDevice with a notice of what was saved.
-func (s *Server) renderDeviceNotice(w http.ResponseWriter, r *http.Request, id string, refused bool, problem, notice string, status int) {
+// renderDeviceSaved is renderDevice after a save of profile saved at
+// revision rev came back to the page. The notice shows only for the
+// profile the device uses.
+func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id string, refused bool, problem, saved string, rev int64, status int) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readDevice(ctx, id, s.now())
@@ -115,7 +117,10 @@ func (s *Server) renderDeviceNotice(w http.ResponseWriter, r *http.Request, id s
 	if v.Inventory != nil && v.Inventory.Strict() {
 		refused = false
 	}
-	v.RefusedOnly, v.Problem, v.Notice = refused, problem, notice
+	v.RefusedOnly, v.Problem = refused, problem
+	if saved != "" && saved == v.Device.Profile {
+		v.Notice = s.savedNotice(r, saved, rev)
+	}
 	if iv := v.Inventory; iv != nil {
 		iv.Shown = iv.Projects
 		if refused {

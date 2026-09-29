@@ -203,14 +203,21 @@ func TestAllowReturnsToTheDevicePage(t *testing.T) {
 		t.Fatalf("save: %d to %q, want %q", w.Code, w.Header().Get("Location"), want)
 	}
 	back := get(h, want, cookie)
-	if back.Code != 200 || !strings.Contains(back.Body.String(), "Saved profile default as revision "+strconv.FormatInt(p.Revision, 10)+": Allow app.") {
+	notice := "Profile default revision " + strconv.FormatInt(p.Revision, 10) + " was saved by "
+	if body := back.Body.String(); back.Code != 200 || !strings.Contains(body, notice) || !strings.Contains(body, ": Allow app. Devices on it fetch it") {
 		t.Fatalf("device page after save: %d, no notice", back.Code)
 	}
 
-	// The notice comes from the catalog: a link naming a revision that
-	// was never saved shows the page without one.
-	if w := get(h, deviceURL(laptop.ID)+"?saved=default&revision=999", cookie); w.Code != 200 || strings.Contains(w.Body.String(), "Saved profile") {
-		t.Fatalf("forged notice: %d", w.Code)
+	// The notice states what the catalog records and nothing else: a
+	// link naming a revision never saved, or another profile's, shows
+	// the page without one.
+	if _, _, err := lake.Catalog.PutProfile(ctx, "ci", []byte(`{}`), "test", "", now); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"?saved=default&revision=999", "?saved=ci&revision=1", "?saved=default", "?saved=../x&revision=1"} {
+		if w := get(h, deviceURL(laptop.ID)+q, cookie); w.Code != 200 || strings.Contains(w.Body.String(), "was saved by") {
+			t.Fatalf("%s: %d", q, w.Code)
+		}
 	}
 
 	// A return that is not a dashboard page is dropped: Allow falls back
