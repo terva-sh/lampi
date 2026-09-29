@@ -210,6 +210,42 @@ func (r ProjectMatch) matches(id ProjectID) bool {
 	return true
 }
 
+// Covers reports whether allow rule a matches every project allow rule
+// b matches, so b adds nothing beside a. It decides field by field and
+// answers false when it cannot tell: every field set on a must follow
+// from a field set on b. A cwd_prefix follows from a cwd_prefix at or
+// under it, a git_remote from the same remote, a git_remote_prefix from
+// a remote or a prefix at or under it, and a cwd_hash from the same
+// hash. An empty rule matches nothing, so it neither covers nor is
+// covered.
+//
+// It reads rules the way an allow rule compares. A deny rule reads a
+// doubt as a match, and Covers says nothing about deny rules.
+func Covers(a, b ProjectMatch) bool {
+	if a.empty() || b.empty() {
+		return false
+	}
+	if a.CWDPrefix != "" && (b.CWDPrefix == "" || !cwdHasPrefix(b.CWDPrefix, a.CWDPrefix)) {
+		return false
+	}
+	if a.GitRemote != "" {
+		want := NormalizeRemote(a.GitRemote)
+		if want == "" || b.GitRemote == "" || NormalizeRemote(b.GitRemote) != want {
+			return false
+		}
+	}
+	if a.GitRemotePrefix != "" {
+		under := func(s string) bool { return s != "" && remoteHasPrefix(s, a.GitRemotePrefix) }
+		if !under(b.GitRemote) && !under(b.GitRemotePrefix) {
+			return false
+		}
+	}
+	if a.CWDHash != "" && (b.CWDHash == "" || !strings.EqualFold(strings.TrimSpace(a.CWDHash), strings.TrimSpace(b.CWDHash))) {
+		return false
+	}
+	return true
+}
+
 // remoteHasPrefix reports whether remote is prefix, or a repository
 // under it, after both are folded by NormalizeRemote. The match is on a
 // "/" boundary: "host/org" matches "host/org/app" but not
