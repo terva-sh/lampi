@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"path/filepath"
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/api"
@@ -302,8 +301,7 @@ func (x exporter) sessionJSONL(sess catalog.SessionInfo) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 	ctx := context.Background()
-	path := filepath.Join(lake.Normalized, sess.UID+".jsonl")
-	body, err := os.ReadFile(path)
+	body, err := normalize.ReadEventsFile(lake.Normalized, sess.UID)
 	if errors.Is(err, os.ErrNotExist) && x.live {
 		fmt.Fprintf(env.stderr(), "terva-lampi: session %s not yet normalized; serve is running\n", sess.UID)
 		return nil, false, nil
@@ -317,7 +315,7 @@ func (x exporter) sessionJSONL(sess catalog.SessionInfo) ([]byte, bool, error) {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s normalize_error: %s\n", sess.UID, nerr.Error())
 			return nil, false, nil
 		}
-		body, err = os.ReadFile(path)
+		body, err = normalize.ReadEventsFile(lake.Normalized, sess.UID)
 	}
 	if err != nil {
 		return nil, false, err

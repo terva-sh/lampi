@@ -73,7 +73,7 @@ func TestContentRangeAssemblesAndExistingStoresNothing(t *testing.T) {
 		t.Fatalf("assembled %q", got)
 	}
 
-	path, err := s.CAS.Path(sum)
+	path, _, err := s.CAS.ObjectPath(sum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestContentRangeAssemblesAndExistingStoresNothing(t *testing.T) {
 	if !st.ModTime().Equal(past) {
 		t.Fatalf("existing digest was rewritten at %s", st.ModTime())
 	}
-	again, err := os.ReadFile(path)
+	again, err := s.CAS.Read(sum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestChunkDigestsAssembleOnPutAndManifest(t *testing.T) {
 		t.Fatalf("chunk bytes %q", got)
 	}
 
-	path, err := s.CAS.Path(sum)
+	path, _, err := s.CAS.ObjectPath(sum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestChunkDigestsAssembleOnPutAndManifest(t *testing.T) {
 	if !bytes.Equal(got, body2) {
 		t.Fatalf("manifest assembled %q", got)
 	}
-	fullPath, err := s.CAS.Path(full)
+	fullPath, _, err := s.CAS.ObjectPath(full)
 	if err != nil {
 		t.Fatal(err)
 	}

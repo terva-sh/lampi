@@ -47,6 +47,16 @@ type CompactReport struct {
 	Unreferenced int
 	// Reclaimed is the bytes of object files removed.
 	Reclaimed int64
+	// Reencoded counts objects stored raw, from before objects were
+	// compressed, that were rewritten as frames. RawBytes is their
+	// disk size before, and CompressedBytes after; a dry run does not
+	// compress, so it leaves CompressedBytes zero.
+	Reencoded       int
+	RawBytes        int64
+	CompressedBytes int64
+	// Damaged lists raw objects whose bytes do not hash to their
+	// digest. They are left for fsck.
+	Damaged []string
 }
 
 // Compact makes the CAS hold each file's bytes once. Every older
@@ -55,6 +65,9 @@ type CompactReport struct {
 // objects and logical entries that no catalog row, manifest, or
 // referenced record reads from are removed: tails already assembled,
 // and the chunks of folded chunk lists.
+//
+// Last, every object still stored raw is rewritten as a zstd frame,
+// hashed on the way.
 //
 // Every fold is checked first: the file's newest version is read once,
 // and each older version's digest is compared with the hash of that
@@ -131,10 +144,60 @@ func (s *Server) Compact(ctx context.Context, opt CompactOptions) (CompactReport
 		pending = refused
 	}
 
-	if err := s.sweepUnreferenced(ctx, sessions, bases, opt, &rep); err != nil {
+	dropped, err := s.sweepUnreferenced(ctx, sessions, bases, opt, &rep)
+	if err != nil {
+		return rep, err
+	}
+	if err := s.reencode(ctx, bases, dropped, opt, &rep); err != nil {
 		return rep, err
 	}
 	return rep, nil
+}
+
+// reencode rewrites each raw object as a frame. It runs after the folds
+// and the sweep, so it does not compress an object they remove; in a
+// dry run, which removed nothing, those are skipped by name: folded
+// holds the digests folded into a record and dropped the entries swept.
+func (s *Server) reencode(ctx context.Context, folded map[string]string, dropped map[string]bool, opt CompactOptions, rep *CompactReport) error {
+	var raw []cas.Entry
+	err := s.CAS.Entries(func(e cas.Entry) error {
+		if e.Logical || e.Compressed {
+			return nil
+		}
+		if _, ok := folded[e.Digest]; opt.DryRun && (ok || dropped[e.Digest]) {
+			return nil
+		}
+		raw = append(raw, e)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, e := range raw {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if opt.DryRun {
+			rep.Reencoded++
+			rep.RawBytes += e.Size
+			continue
+		}
+		before, after, err := s.CAS.Reencode(e.Digest)
+		if errors.Is(err, cas.ErrNotItsDigest) {
+			rep.Damaged = append(rep.Damaged, e.Digest)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if before == 0 && after == 0 {
+			continue
+		}
+		rep.Reencoded++
+		rep.RawBytes += before
+		rep.CompressedBytes += after
+	}
+	return nil
 }
 
 type fold struct {
@@ -289,7 +352,7 @@ func (s *Server) foldBases(plan map[string]fold) (map[string]string, error) {
 // has found that base does not read from d. folded is false when the
 // store refuses the fold anyway.
 func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep *CompactReport) (folded bool, err error) {
-	size, object, err := s.CAS.ObjectSize(d)
+	size, object, err := s.CAS.StoredSize(d)
 	if err != nil {
 		return false, err
 	}
@@ -359,10 +422,10 @@ func countFold(rep *CompactReport, wasPrefix, object bool, freed int64) {
 }
 
 // sweepUnreferenced removes objects and logical entries that nothing
-// reads from, once they are older than opt.MinAge. What is kept is
-// liveDigests. In a dry run the planned folds stand in for the records
-// they would write.
-func (s *Server) sweepUnreferenced(ctx context.Context, sessions []catalog.SessionInfo, bases map[string]string, opt CompactOptions, rep *CompactReport) error {
+// reads from, once they are older than opt.MinAge, and returns their
+// digests. What is kept is liveDigests. In a dry run the planned folds
+// stand in for the records they would write.
+func (s *Server) sweepUnreferenced(ctx context.Context, sessions []catalog.SessionInfo, bases map[string]string, opt CompactOptions, rep *CompactReport) (map[string]bool, error) {
 	var planned func(string) (string, bool)
 	if opt.DryRun {
 		planned = func(d string) (string, bool) {
@@ -372,7 +435,7 @@ func (s *Server) sweepUnreferenced(ctx context.Context, sessions []catalog.Sessi
 	}
 	keep, _, err := liveDigests(ctx, s.Catalog, s.CAS, sessions, planned)
 	if err != nil {
-		return fmt.Errorf("compact: %w", err)
+		return nil, fmt.Errorf("compact: %w", err)
 	}
 
 	cutoff := time.Now().Add(-opt.MinAge)
@@ -385,18 +448,20 @@ func (s *Server) sweepUnreferenced(ctx context.Context, sessions []catalog.Sessi
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
+	dropped := map[string]bool{}
 	for _, e := range drop {
 		if !opt.DryRun {
 			if err := s.CAS.RemoveEntry(e); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		rep.Unreferenced++
 		if !e.Logical {
 			rep.Reclaimed += e.Size
+			dropped[e.Digest] = true
 		}
 	}
-	return nil
+	return dropped, nil
 }

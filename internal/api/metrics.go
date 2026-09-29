@@ -251,6 +251,12 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 		if u, ok := latest.Measures[catalog.MeasureUnique]; ok {
 			m.sample("gauge", "lampi_artifact_unique_bytes", "Logical bytes of each distinct artifact digest counted once. Versions of a growing file are distinct digests that share stored bytes, so this is not the CAS's disk use; lampi_storage_bytes{component=\"cas\"} is.", float64(u.Bytes))
 		}
+		if u, ok := latest.Measures[catalog.MeasureCurrent]; ok {
+			m.sample("gauge", "lampi_artifact_current_bytes", "Logical bytes of each path's current version: the raw files the machines hold. Divide by lampi_storage_bytes{component=\"cas\"} for the blobs' compression against raw.", float64(u.Bytes))
+		}
+		if u, ok := latest.Measures[catalog.MeasureCurrentUnique]; ok {
+			m.sample("gauge", "lampi_artifact_current_unique_bytes", "Logical bytes of each distinct digest among the current versions counted once. It falls short of lampi_artifact_current_bytes by the files that are copies of another.", float64(u.Bytes))
+		}
 	}
 
 	overview, err := s.Catalog.DashboardOverview(ctx)

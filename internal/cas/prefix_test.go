@@ -132,10 +132,7 @@ func TestPrefixRecordThatCannotBeReadIsReported(t *testing.T) {
 	}
 
 	// The base shrinks: reading the prefix must fail, not come back short.
-	p, _ := s.Path(d2)
-	if err := os.WriteFile(p, v2[:3], 0o600); err != nil {
-		t.Fatal(err)
-	}
+	p := storeFrame(t, s, d2, v2[:3])
 	if _, err := s.Read(d1); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("read over a short base: %v", err)
 	}
@@ -186,10 +183,7 @@ func TestPresentNeedsABaseThatHoldsTheBytes(t *testing.T) {
 	}
 	// The base is cut shorter than the record: the version is missing,
 	// and a put of it is kept rather than discarded.
-	p, _ := s.Path(d2)
-	if err := os.WriteFile(p, v2[:4], 0o600); err != nil {
-		t.Fatal(err)
-	}
+	storeFrame(t, s, d2, v2[:4])
 	if ok, err := s.Present(d1); err != nil || ok {
 		t.Fatalf("present over a short base = %v %v", ok, err)
 	}
@@ -242,7 +236,7 @@ func TestPresentNeedsABaseThatHoldsTheBytes(t *testing.T) {
 	if ok, err := s.Present(dp); err != nil || !ok {
 		t.Fatalf("present over a chunk that is a record = %v %v", ok, err)
 	}
-	cp, _ := s.Path(dc2)
+	cp, _ := s.zstPath(dc2)
 	if err := os.Remove(cp); err != nil {
 		t.Fatal(err)
 	}
@@ -556,17 +550,7 @@ func TestGrowPartsExtendsAndSplitsTheLastPiece(t *testing.T) {
 		}
 	}
 	// 64 + 36 + 11 + 40 = 151 bytes of file; the tails stay stored too.
-	var held int64
-	err = s.Entries(func(e Entry) error {
-		if !e.Logical {
-			held += e.Size
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := int64(len(file)) + 11 + 40; held != want {
+	if want, held := int64(len(file))+11+40, objectBytes(t, s); held != want {
 		t.Fatalf("objects hold %d bytes, want %d", held, want)
 	}
 	var bad []Problem
@@ -583,13 +567,7 @@ func TestGrowPartsRefusesADamagedLastPiece(t *testing.T) {
 	}
 	prev := bindChunks(t, s, bytes.Repeat([]byte("x"), 100), 64)
 	parts, _, _, _ := s.parts(prev)
-	p, err := s.Path(parts[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, bytes.Repeat([]byte("y"), 36), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	storeFrame(t, s, parts[1], bytes.Repeat([]byte("y"), 36))
 	if _, _, err := s.GrowParts(prev, mustPut(t, s, []byte("tail")), 64); !errors.Is(err, ErrNotGrown) {
 		t.Fatalf("grow from a damaged piece: %v", err)
 	}

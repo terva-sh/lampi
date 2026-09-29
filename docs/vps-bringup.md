@@ -73,7 +73,7 @@ contents when it starts. Those directories are mode 0700.
                                       file they grew into
 /var/lib/terva-lampi/cas/partial/…    resumable uploads in flight
 /var/lib/terva-lampi/catalog.db       SQLite catalog, plus WAL sidecars
-/var/lib/terva-lampi/normalized/      one JSONL file per session
+/var/lib/terva-lampi/normalized/      one zstd-compressed JSONL file per session
 /var/lib/terva-lampi/parquet/         date=…/harness=… partitions
 /var/lib/terva-lampi/identity.json    lake id and private signing keys
 /var/lib/terva-lampi/tokens           host copy of device tokens
@@ -440,8 +440,10 @@ file with `--token-file`. Run it as the service user. It runs while `serve`
 runs. The catalog copy is `VACUUM INTO`, one consistent snapshot, and
 the CAS is copied after it. A second run into the same directory
 copies only new objects. Keep DIR on encrypted storage.
-`terva-lampi serve fsck` re-hashes every object and exits non-zero
-when one is bad.
+The backup holds objects as the lake stores them, compressed, so it is
+about the size of `cas/` in the lake.
+`terva-lampi serve fsck` decompresses and re-hashes every object and
+exits non-zero when one is bad.
 
 Without the command, the order is the same: the catalog first, then
 `cas/sha256`, then `cas/logical`, then `identity.json`, then the token
@@ -588,7 +590,9 @@ before prefix records holds each version whole. `serve compact` folds
 every older version that is a prefix of its file's newest into a
 record, points existing records at the newest, and removes the
 objects nothing reads from. Each fold is hash-checked against the
-newest's bytes first.
+newest's bytes first. Last, it compresses every object that a release
+from before compression stored raw. It hashes each object on the way and
+leaves any object that doesn't match its digest for `serve fsck`.
 
 See what it would do first. The dry run writes nothing and can run
 beside `serve`.
@@ -639,6 +643,12 @@ apply them to the restored file), put the older binary back, and start
 the unit. Manifests accepted since the upgrade are not in the restored
 catalog, though their blobs stay in the CAS, so roll back soon after an
 upgrade rather than days later.
+
+A release that stores blobs compressed writes each new object as a
+`.zst` file, and a release from before it cannot read one. After such an
+upgrade, a rollback reads every blob stored before the upgrade and none
+stored since. So take a backup before that upgrade, and restore it to
+roll back.
 
 ## Leave out of git
 

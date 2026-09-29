@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -411,7 +410,7 @@ func (s *Server) recordPanic(job catalog.NormalizeJob, r any) {
 	if err != nil || !ok || gen != job.Gen {
 		return
 	}
-	_ = removeDerived(filepath.Join(s.Normalized, job.SessionUID+".jsonl"), s.Parquet, job.SessionUID)
+	_ = removeDerived(s.Normalized, s.Parquet, job.SessionUID)
 	if err := s.Catalog.SetNormalizeError(ctx, job.SessionUID, fmt.Sprintf("normalize: panic: %v", r)); err != nil {
 		workerLog.Printf("normalize %s: record panic: %v", job.SessionUID, err)
 	}

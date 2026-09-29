@@ -151,7 +151,7 @@ func TestOpenCodeWorkerProjectsExport(t *testing.T) {
 	if strings.Contains(msg, "sk-live-secret") || strings.Contains(msg, "not-json") {
 		t.Fatalf("normalize_error includes the raw line: %s", msg)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file after failure: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
@@ -203,7 +203,7 @@ func TestOpenCodeWorkerSQLiteSetsError(t *testing.T) {
 	if strings.Contains(msg, "sk-live-secret") || strings.Contains(msg, "SQLite format") {
 		t.Fatalf("normalize_error includes the database: %s", msg)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file after sqlite: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)

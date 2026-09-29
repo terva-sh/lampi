@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -22,7 +23,7 @@ func retryLake(t *testing.T, missing int32) (s *Server, uid string, calls *atomi
 		`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"retried pond"}],"time":"2026-09-22T16:10:01Z"}}`,
 	)
 	sum := putBlob(t, h, "", body)
-	path, err := s.CAS.Path(sum)
+	path, _, err := s.CAS.ObjectPath(sum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestNormalizeRetriesTransientCASRead(t *testing.T) {
 	if err != nil || msg != "" {
 		t.Fatalf("normalize_error %q err %v", msg, err)
 	}
-	if _, err := os.Stat(s.Normalized + "/" + uid + ".jsonl"); err != nil {
+	if _, err := os.Stat(s.Normalized + "/" + uid + normalize.EventsExt); err != nil {
 		t.Fatal(err)
 	}
 	jobs, err := s.Catalog.ListNormalizeJobs(t.Context())

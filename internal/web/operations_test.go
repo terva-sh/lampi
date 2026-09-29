@@ -198,11 +198,39 @@ func TestNoMachinesIsAnEmptyArray(t *testing.T) {
 	}
 }
 
-// Deduplication divides the referenced bytes by the stored blobs' disk
-// use. Versions of a growing transcript are distinct digests that share
-// stored bytes, so dividing by the distinct digests' sizes read 1.00x
-// on a lake that kept 74 GiB of versions in 1.4 GiB (TKT-01M3KC68C).
-func TestDeduplicationIsAgainstStoredBlobs(t *testing.T) {
+// The storage card divides the current versions' bytes, the raw files
+// the machines hold, by the stored blobs' disk use. Dividing every
+// artifact row's bytes read 50x on a lake with no duplicate content,
+// because each continuation of a session is a row (TKT-01M3N6Y5).
+func TestCompressionIsAgainstRawTranscripts(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	sample := catalog.StorageSample{At: time.Now(), Measures: map[string]catalog.StorageUse{
+		storage.CAS:                  {Bytes: 100 << 20, Files: 10},
+		catalog.MeasureReferenced:    {Bytes: 5000 << 20, Files: 50},
+		catalog.MeasureUnique:        {Bytes: 5000 << 20, Files: 50},
+		catalog.MeasureCurrent:       {Bytes: 540 << 20, Files: 12},
+		catalog.MeasureCurrentUnique: {Bytes: 536 << 20, Files: 10},
+	}}
+	if err := lake.Catalog.RecordStorage(t.Context(), sample); err != nil {
+		t.Fatal(err)
+	}
+	body := get(h, "/operations", cookie).Body.String()
+	for _, want := range []string{"Compression against raw", "5.40×", "540.0 MiB raw, 100.0 MiB on disk", "2 duplicate files, 4.0 MiB"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	for _, gone := range []string{"50.00×", "Deduplication"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("page still shows %q", gone)
+		}
+	}
+}
+
+// A sample taken before the current measures existed shows no ratio
+// rather than one computed from every version.
+func TestCompressionWaitsForCurrentMeasures(t *testing.T) {
 	lake, idp, h, _ := fixture(t)
 	cookie, _ := signIn(t, idp, h)
 	sample := catalog.StorageSample{At: time.Now(), Measures: map[string]catalog.StorageUse{
@@ -214,12 +242,7 @@ func TestDeduplicationIsAgainstStoredBlobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(h, "/operations", cookie).Body.String()
-	for _, want := range []string{"50.00×", "4.9 GiB referenced, 100.0 MiB on disk"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("page lacks %q", want)
-		}
-	}
-	if strings.Contains(body, "stored once") {
-		t.Error("page still says stored once")
+	if !strings.Contains(body, "Not measured yet") || strings.Contains(body, "50.00×") {
+		t.Errorf("an old sample should show no ratio")
 	}
 }

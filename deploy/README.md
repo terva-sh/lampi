@@ -359,8 +359,8 @@ non-loopback address unless `--metrics-public` is added to the command line;
 scrape it from the same host or through a tunnel. It exports:
 
 - disk use and file counts by lake component (`lampi_storage_bytes`,
-  `lampi_storage_files`), filesystem size and free space, and deduplicated
-  artifact bytes, from serve's hourly sample and after each batch of
+  `lampi_storage_files`), filesystem size and free space, and artifact
+  bytes: every row, each distinct digest, and each path's current version, from serve's hourly sample and after each batch of
   normalize jobs
 - sessions by normalization state and the audit outbox depth
 - the normalize queue: rows waiting in the job table and the oldest one's

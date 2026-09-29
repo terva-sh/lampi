@@ -282,10 +282,15 @@ hourly.
     sweeps any that are a day old.
 - **Filesystem free** is the space left on the filesystem that holds the lake,
   whatever else shares that filesystem.
-- **Deduplication** is the logical bytes every artifact row names, divided by
-  the stored blobs' disk use. Every version of a growing transcript counts in
-  full in the first figure, and the lake stores the bytes versions share once,
-  so a lake of long sessions reads well above 1×.
+- **Compression against raw** is the size of the current version of every
+  uploaded file, which is what the machines hold, divided by the stored blobs'
+  disk use.
+  - The blobs also keep every earlier version, so that history counts against
+    the ratio. A version that grew costs a small record, because it shares its
+    bytes with the next.
+  - Duplicate files are current files whose bytes match another's exactly. The
+    lake stores them once. Continuations of a session are not duplicates.
+  - A sample taken before serve measured current versions shows no ratio.
 - **Growth charts** show the lake directory's disk use and the filesystem's
   free space: hourly over the last 7 days, or daily over 30 or 90. Hours or
   days with no sample are hatched and read "not measured".
@@ -368,7 +373,10 @@ added and previewed, listing every device the profile reaches and counting
 those whose own `config.json` sets their allow rules, and a note already
 filled in that you can change or clear. Save there, as for any edit: a save
 refused because someone else changed the profile shows it again against what
-is stored now. A project a deny rule refuses has no Allow, since a deny rule
+is stored now. The editor offers Back to the device instead of Cancel, and a
+save returns to the device's page, keeping its *Refused only* filter, with a
+notice naming the revision saved and its note. The project still reads refused
+there until the agent sends its next inventory. A project a deny rule refuses has no Allow, since a deny rule
 wins over any allow rule, and neither does a session with no cwd. Allow
 checks the project against the newest inventory the device sent, and says so
 instead of opening the editor when the project is no longer refused there, or

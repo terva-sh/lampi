@@ -125,7 +125,7 @@ func TestTranscriptPageRendersLiterallyAndHandlesStaleLinks(t *testing.T) {
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "This transcript has changed") || !strings.Contains(w.Body.String(), fmt.Sprintf("generation %d", gen)) || strings.Contains(w.Body.String(), "rewritten") {
 		t.Fatal("stale link", w.Code)
 	}
-	if err := os.Remove(filepath.Join(lake.Normalized, uid+".jsonl")); err != nil {
+	if err := os.Remove(filepath.Join(lake.Normalized, uid+normalize.EventsExt)); err != nil {
 		t.Fatal(err)
 	}
 	if w := get(h, page, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "Derived file missing") {

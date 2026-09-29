@@ -19,7 +19,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 |-------|---------|--------|
 | CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve compact`, `serve identity`, `serve devices`, `serve register`, `serve normalize`, `serve healthcheck`, `serve migrate`), `agent`, `sync`, `status`, `register`, `lakes`, `login`, `export`, `conflicts`, `quarantine`. See [cli.md](cli.md) |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
-| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
+| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Each object is one zstd frame at the key with `.zst`; one stored before compression is the raw bytes at the key. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance, head-update history, storage samples |
 | Storage | `internal/storage` | Disk use of the lake directory by component, and the filesystem's capacity |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
@@ -111,7 +111,14 @@ address, and `X-Forwarded-For` as the proxy sent it. A failed request
 adds the error. A normalize failure is logged too. A 200 `/healthz` is not logged, so a probe does not fill
 the journal. `Authorization` is not logged.
 
-JSONL stays one file per session at `normalized/<session_uid>.jsonl`.
+JSONL stays one file per session at `normalized/<session_uid>.jsonl.zst`:
+independent zstd frames of about 1 MiB of whole lines each, followed by
+an index of where each frame starts, stored in a skippable frame. Any zstd
+reader decodes the file as the JSONL and skips the index, so
+`zstd -d` and DuckDB read it as it is. The recall reader uses the index
+to start a page at the frame holding its first event. A file written
+before compression is plain `normalized/<session_uid>.jsonl`. Readers
+accept it, and the next normalize of the session replaces it.
 Parquet is hive-partitioned beside it. `github.com/parquet-go/parquet-go`
 writes the files. It is pure Go, so the binary stays cgo-free. Columns
 are zstd-compressed, which DuckDB, Arrow and Spark read as they are.
@@ -342,7 +349,7 @@ watermark plan → outbox → PUT missing blobs → manifest ACK
 watermark commit and outbox ACK          terva-lampi serve
                                          CAS + SQLite catalog
                                          ACK, then normalize workers
-                                         normalized/*.jsonl
+                                         normalized/*.jsonl.zst
                                          parquet/date=*/harness=*/*.parquet
                                          search.db (with --web-config)
                                          terva-lampi export → events JSONL
