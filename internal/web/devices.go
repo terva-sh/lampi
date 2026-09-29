@@ -10,6 +10,7 @@ import (
 	"terva.sh/lampi/internal/advisory"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/release"
 	"terva.sh/lampi/internal/webauth"
 )
@@ -251,6 +252,20 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 	return v, nil
 }
 
+// noProfile reports whether an agent fetches no profile because it has
+// not pinned the lake. An agent that says whether it pinned is taken at
+// its word, so one whose first fetch is pending is not flagged. For one
+// from before the field, a token-file device that names no applied
+// profile is taken as unpinned: registration always pins, and a
+// token-file machine pins only through lakes adopt, which ships with
+// the field.
+func noProfile(source string, r protocol.AgentReport) bool {
+	if r.Pinned != nil {
+		return !*r.Pinned
+	}
+	return source == catalog.DeviceFromTokenFile && r.Profile == "" && r.ProfileVersion == ""
+}
+
 // addReport fills the row's agent fields from its newest report.
 func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, lakeKnown bool) {
 	r := rep.Report
@@ -266,7 +281,7 @@ func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, 
 	row.AgentVersion = r.AgentVersion
 	row.Inventory = r.Inventory
 	row.AllowSource, row.DenySource = r.AllowSource, r.DenySource
-	row.NoProfile = row.Source == catalog.DeviceFromTokenFile && r.Profile == "" && r.ProfileVersion == ""
+	row.NoProfile = noProfile(row.Source, r)
 	row.AppliedVersion = r.ProfileVersion
 	row.VersionState = versionState(r.AgentVersion, lakeV, lakeKnown)
 	if a, ok := agentAdvisories.Match(r.AgentVersion); ok {

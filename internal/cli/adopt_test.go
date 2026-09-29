@@ -367,3 +367,49 @@ func TestLakesAdoptRefusesAProfileThatTurnsOffAHarness(t *testing.T) {
 		t.Fatalf("adopt with the harness set locally: %v\n%s", err, f.stderr.String())
 	}
 }
+
+// The live run of adopt on the workstation: a profile written for other
+// machines allowed more than the local rules did. The switch lists what
+// starts uploading and needs --yes without a terminal.
+func TestLakesAdoptAsksBeforeUploadingMore(t *testing.T) {
+	f := newAdoptFixture(t)
+	writeAgentConfig(t, f.cfg, `{"server":`+jsonString(f.url)+`,"projects":{"allow":[{"cwd_prefix":"/work/app"}]}}`)
+	putDefaultProfile(t, f.lake, config.Profile{Projects: config.Projects{
+		Allow: []config.ProjectMatch{{CWDPrefix: "/work"}},
+	}})
+	err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint(), "--allow-from", "profile")
+	if err == nil || !strings.Contains(err.Error(), "1 projects this machine does not upload now would start uploading") {
+		t.Fatalf("widening adopt: %v\n%s", err, f.stderr.String())
+	}
+	if !strings.Contains(f.stderr.String(), "refused now and allowed after: 1 sessions in 1 projects") || !strings.Contains(f.stderr.String(), "/work/other") {
+		t.Fatalf("listed:\n%s", f.stderr.String())
+	}
+	if _, ok := f.file().Lakes[config.DefaultLake]; ok {
+		t.Fatal("a refused adopt wrote the entry")
+	}
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint(), "--allow-from", "profile", "--yes"); err != nil {
+		t.Fatalf("adopt --yes: %v\n%s", err, f.stderr.String())
+	}
+	if lc := f.file().Lakes[config.DefaultLake]; len(lc.Projects.Allow) != 0 {
+		t.Fatalf("entry %+v", lc)
+	}
+}
+
+// Review of #133: harness settings are machine-wide, so a harness the
+// profile turns off lists what every lake uploads from it, not only the
+// lake being adopted.
+func TestLakesAdoptListsOtherLakesProjectsForAHarnessTurnedOff(t *testing.T) {
+	f := newAdoptFixture(t)
+	writeAgentConfig(t, f.cfg, `{"server":`+jsonString(f.url)+`,"projects":{"allow":[{"cwd_prefix":"/work/app"}]},`+
+		`"lakes":{"other":{"server":"http://127.0.0.1:9","projects":{"allow":[{"cwd_prefix":"/work/other"}]}}}}`)
+	putDefaultProfile(t, f.lake, config.Profile{
+		Harnesses: config.Harnesses{"terva": {Enabled: false}},
+		Projects:  config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work/app"}}},
+	})
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err == nil || !strings.Contains(err.Error(), "terva would stop being read") {
+		t.Fatalf("adopt: %v\n%s", err, f.stderr.String())
+	}
+	if !strings.Contains(f.stderr.String(), "uploaded now from terva: 2 sessions in 2 projects") || !strings.Contains(f.stderr.String(), "/work/other") {
+		t.Fatalf("the other lake's project is not listed:\n%s", f.stderr.String())
+	}
+}

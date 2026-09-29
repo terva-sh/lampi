@@ -30,6 +30,7 @@ type adoptOptions struct {
 	fingerprint string
 	allowFrom   string
 	force       bool
+	yes         bool
 }
 
 // adoptLake pins a lake this machine already syncs to with a device
@@ -56,6 +57,8 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 		return err
 	}
 	ctx := context.Background()
+	in := bufio.NewReader(env.stdin())
+	interactive := terminalStdin(env)
 
 	if lakeprofile.Pinned(l) {
 		if o.allowFrom != allowProfile {
@@ -79,7 +82,7 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 		if err != nil {
 			return err
 		}
-		if err := checkNarrowing(env, file, l, applied.Profile, ok, d.Profile, true, o.force); err != nil {
+		if err := checkChange(env, file, l, applied.Profile, ok, d.Profile, true, o, in, interactive); err != nil {
 			return err
 		}
 		// The profile checked is the one cached, so the agent that reloads
@@ -127,8 +130,7 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 	if err != nil {
 		return err
 	}
-	in := bufio.NewReader(env.stdin())
-	if err := confirmLake(env, in, terminalStdin(env), o.fingerprint, server, lakeID, identity.Fingerprint(pub), "check 3, ", "Pin this lake and take its profile?", "changed"); err != nil {
+	if err := confirmLake(env, in, interactive, o.fingerprint, server, lakeID, identity.Fingerprint(pub), "check 3, ", "Pin this lake and take its profile?", "changed"); err != nil {
 		return err
 	}
 	// 4. The profile the lake signs for this device verifies under the
@@ -142,7 +144,7 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 	}
 	pinned.DeviceID = d.Payload.DeviceID
 	drop := o.allowFrom == allowProfile && len(l.Projects.Allow) > 0
-	if err := checkNarrowing(env, file, l, config.Profile{}, false, d.Profile, drop, o.force); err != nil {
+	if err := checkChange(env, file, l, config.Profile{}, false, d.Profile, drop, o, in, interactive); err != nil {
 		return err
 	}
 
@@ -274,18 +276,21 @@ func adoptChanged(l config.Lake, lc config.LakeConfig) bool {
 	return false
 }
 
-// checkNarrowing refuses, unless force, an adoption that would stop
-// uploading what l uploads now. Now is l with the profile it applies,
-// applied, when it has one (hasApplied). After, the profile p applies,
-// and with drop its allow rules replace the local ones. Two things can
-// narrow: p's harness settings, which fill what config.json leaves
-// unset machine-wide, and l's project rules. Each harness turned off
-// and each project refused is listed either way.
-func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile, drop, force bool) error {
-	if drop && len(p.Projects.Allow) == 0 && !force {
+// checkChange lists what adopting l changes in what this machine
+// uploads, and refuses a change nobody confirmed. Now is l with the
+// profile it applies, applied, when it has one (hasApplied). After, the
+// profile p applies, and with drop its allow rules replace the local
+// ones. p's harness settings also fill what config.json leaves unset,
+// machine-wide, so they change what every lake gets.
+//
+// What stops uploading is refused unless --force. What starts uploading
+// is asked about on a terminal, or needs --yes without one: a profile
+// written for other machines can allow more here than anyone meant.
+func checkChange(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile, drop bool, o adoptOptions, in *bufio.Reader, interactive bool) error {
+	if drop && len(p.Projects.Allow) == 0 && !o.force {
 		return fmt.Errorf("the lake's profile allows no project, so dropping the %d local allow rules would stop every upload to lake %s; add rules to the profile first, or pass --force", len(l.Projects.Allow), l.Name)
 	}
-	harnesses, off, err := harnessesAfterAdopt(env, file, l, applied, hasApplied, p)
+	v, err := viewAdopt(env, file, l, applied, hasApplied, p)
 	if err != nil {
 		return err
 	}
@@ -295,90 +300,126 @@ func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Pro
 		after.Projects.Allow = nil
 	}
 	after = config.ApplyLakeProfile(after, p, true)
+	w := env.stderr()
 
-	// What a harness turned off takes with it: every project it uploads
-	// now. The rest is read with those harnesses off, so a project is
-	// listed once, under the first reason it stops.
-	var stopped []upload.RefusedProject
-	kept := config.Harnesses{}
-	for id, h := range harnesses {
-		kept[id] = h
-	}
-	if len(off) > 0 {
-		only := config.Harnesses{}
-		for _, s := range knownSources() {
-			only[s.harness.Name()] = config.HarnessConfig{Enabled: false}
-		}
-		for _, id := range off {
-			h := harnesses[id]
-			h.Enabled = true
-			only[id] = h
-			kept[id] = config.HarnessConfig{Enabled: false}
-		}
-		opt, err := readOnlyOptions(env, only)
+	// A harness turned off stops every project any lake uploads from it;
+	// one turned on starts every project a lake would take from it. The
+	// project rules are compared over the harnesses on both before and
+	// after, so a project is listed once.
+	var stopped, started []upload.RefusedProject
+	if len(v.off) > 0 {
+		rules := append([]config.Projects{before.Projects}, v.others...)
+		stopped, err = harnessProjects(env, v.before, v.off, rules)
 		if err != nil {
 			return err
 		}
-		stopped, _ = upload.Narrowed(opt, before.Projects, config.Projects{})
-		fmt.Fprintf(env.stderr(), "lake %s's profile turns off %s, which this machine reads now, so every session of %s stops uploading to every lake\n", l.Name, strings.Join(off, ", "), pluralIt(len(off)))
-		writeStopped(env.stderr(), "lake "+l.Name+", uploaded now from "+strings.Join(off, ", "), stopped)
+		fmt.Fprintf(w, "lake %s's profile turns off %s, which this machine reads now, so every session of %s stops uploading to every lake\n", l.Name, strings.Join(v.off, ", "), pluralIt(len(v.off)))
+		writeStopped(w, "uploaded now from "+strings.Join(v.off, ", "), stopped)
 	}
-	var lost []upload.RefusedProject
+	if len(v.on) > 0 {
+		rules := append([]config.Projects{after.Projects}, v.others...)
+		started, err = harnessProjects(env, v.after, v.on, rules)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "lake %s's profile turns on %s, which this machine does not read now\n", l.Name, strings.Join(v.on, ", "))
+		writeStopped(w, "would start uploading from "+strings.Join(v.on, ", "), started)
+	}
+	var lost, gained []upload.RefusedProject
 	if !reflect.DeepEqual(before.Projects, after.Projects) {
-		opt, err := readOnlyOptions(env, kept)
+		both := config.Harnesses{}
+		for id, h := range v.before {
+			both[id] = h
+		}
+		for _, id := range append(append([]string{}, v.off...), v.on...) {
+			both[id] = config.HarnessConfig{Enabled: false}
+		}
+		opt, err := readOnlyOptions(env, both)
 		if err != nil {
 			return err
 		}
 		var skipped []string
 		lost, skipped = upload.Narrowed(opt, before.Projects, after.Projects)
 		for _, s := range skipped {
-			fmt.Fprintf(env.stderr(), "terva-lampi: skipped %s\n", s)
+			fmt.Fprintf(w, "terva-lampi: skipped %s\n", s)
 		}
+		gained, _ = upload.Narrowed(opt, after.Projects, before.Projects)
 		if len(lost) > 0 {
-			writeNarrowed(env.stderr(), l.Name, lost)
+			writeNarrowed(w, l.Name, lost)
+		}
+		if len(gained) > 0 {
+			writeStopped(w, "lake "+l.Name+", refused now and allowed after", gained)
 		}
 	}
-	if len(off) == 0 && len(lost) == 0 {
-		return nil
+
+	if len(v.off) > 0 || len(lost) > 0 {
+		if !o.force {
+			var why []string
+			if len(v.off) > 0 {
+				why = append(why, fmt.Sprintf("%s would stop being read (set %s in config.json's harnesses to keep %s)", strings.Join(v.off, ", "), pluralIt(len(v.off)), pluralIt(len(v.off))))
+			}
+			if len(lost) > 0 {
+				why = append(why, fmt.Sprintf("lake %s would refuse %d projects it uploads now (add rules for them to the profile)", l.Name, len(lost)))
+			}
+			return fmt.Errorf("after adopting, %s; all listed above. Pass --force to stop uploading them", strings.Join(why, ", and "))
+		}
+		fmt.Fprintln(w, "--force: going ahead; what is listed above as stopping stops uploading")
 	}
-	if force {
-		fmt.Fprintln(env.stderr(), "--force: going ahead; what is listed above stops uploading")
-		return nil
+	if len(started) > 0 || len(gained) > 0 {
+		n := len(started) + len(gained)
+		switch {
+		case o.yes:
+			fmt.Fprintln(w, "--yes: going ahead; what is listed above as starting starts uploading")
+		case interactive:
+			fmt.Fprintf(w, "%d projects listed above start uploading. Adopt anyway? [y/N] ", n)
+			answer, _ := in.ReadString('\n')
+			if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+				return errors.New("not confirmed; nothing was changed")
+			}
+		default:
+			return fmt.Errorf("after adopting, %d projects this machine does not upload now would start uploading, listed above; narrow the profile's rules, or pass --yes to upload them", n)
+		}
 	}
-	var why []string
-	if len(off) > 0 {
-		why = append(why, fmt.Sprintf("%s would stop being read (set %s in config.json's harnesses to keep %s)", strings.Join(off, ", "), pluralIt(len(off)), pluralIt(len(off))))
-	}
-	if len(lost) > 0 {
-		why = append(why, fmt.Sprintf("lake %s would refuse %d projects it uploads now (add rules for them to the profile)", l.Name, len(lost)))
-	}
-	return fmt.Errorf("after adopting, %s; all listed above. Pass --force to stop uploading them", strings.Join(why, ", and "))
+	return nil
 }
 
-// harnessesAfterAdopt returns the harness settings in force now, and the
-// harnesses on now that adopting l with profile p turns off. Harness
-// settings are machine-wide: config.json first, then each pinned lake's
-// cached profile in lake order. Before, l applies applied when
-// hasApplied; after, it applies p.
-func harnessesAfterAdopt(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile) (config.Harnesses, []string, error) {
+// adoptView is what adopting a lake changes machine-wide: the harness
+// settings before and after, the harnesses turned off and on, and every
+// other lake's project rules as they apply now.
+type adoptView struct {
+	before, after config.Harnesses
+	off, on       []string
+	others        []config.Projects
+}
+
+// viewAdopt computes an adoptView. Harness settings come from
+// config.json first, then each pinned lake's cached profile in lake
+// order; before, l applies applied when hasApplied, and after, p.
+func viewAdopt(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile) (adoptView, error) {
+	var v adoptView
 	all, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{})
 	if err != nil {
-		return nil, nil, err
+		return v, err
 	}
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
-		return nil, nil, err
+		return v, err
 	}
 	order := make([]string, 0, len(all))
 	profiles := map[string]config.Profile{}
 	for _, other := range all {
 		order = append(order, other.Name)
-		if other.Name == l.Name || !lakeprofile.Pinned(other) {
+		if other.Name == l.Name {
 			continue
 		}
-		if d, ok, err := lakeprofile.Load(lakestate.Dir(state, other.Name), other); err == nil && ok {
-			profiles[other.Name] = d.Profile
+		prof, ok := config.Profile{}, false
+		if lakeprofile.Pinned(other) {
+			if d, found, err := lakeprofile.Load(lakestate.Dir(state, other.Name), other); err == nil && found {
+				prof, ok = d.Profile, true
+				profiles[other.Name] = prof
+			}
 		}
+		v.others = append(v.others, config.ApplyLakeProfile(other, prof, ok).Projects)
 	}
 	if hasApplied {
 		profiles[l.Name] = applied
@@ -386,14 +427,51 @@ func harnessesAfterAdopt(env Env, file config.File, l config.Lake, applied confi
 	before, _ := config.ApplyMachineProfiles(file, order, profiles)
 	profiles[l.Name] = p
 	after, _ := config.ApplyMachineProfiles(file, order, profiles)
-	var off []string
-	for id := range after.Harnesses {
-		if before.Harnesses.Enabled(id) && !after.Harnesses.Enabled(id) {
-			off = append(off, id)
+	v.before, v.after = before.Harnesses, after.Harnesses
+	for _, s := range knownSources() {
+		id := s.harness.Name()
+		switch on, next := v.before.Enabled(id), v.after.Enabled(id); {
+		case on && !next:
+			v.off = append(v.off, id)
+		case !on && next:
+			v.on = append(v.on, id)
 		}
 	}
-	sort.Strings(off)
-	return before.Harnesses, off, nil
+	return v, nil
+}
+
+// harnessProjects reads only the harnesses ids, with their settings in
+// hs, and returns each project that one of rules allows, once.
+func harnessProjects(env Env, hs config.Harnesses, ids []string, rules []config.Projects) ([]upload.RefusedProject, error) {
+	only := config.Harnesses{}
+	for _, s := range knownSources() {
+		only[s.harness.Name()] = config.HarnessConfig{Enabled: false}
+	}
+	for _, id := range ids {
+		h := hs[id]
+		h.Enabled = true
+		only[id] = h
+	}
+	opt, err := readOnlyOptions(env, only)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []upload.RefusedProject
+	for _, r := range rules {
+		ps, _ := upload.Narrowed(opt, r, config.Projects{})
+		for _, p := range ps {
+			key := "cwd\x00" + p.CWD
+			if remote := config.NormalizeRemote(p.GitRemote); remote != "" {
+				key = "remote\x00" + remote
+			}
+			if !seen[key] {
+				seen[key] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out, nil
 }
 
 func pluralIt(n int) string {

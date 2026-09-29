@@ -21,11 +21,12 @@ this section lists what an agent gets wrong.
   the key list or the machine being adopted: it is the check that
   catches a server that impersonates the lake. Without the value, stop
   and ask for it.
-- **Never pass `--force` on your own.** `lakes adopt --allow-from
-  profile` lists each project the switch would stop uploading, and
-  refuses. Report that list, and let a person add those projects to the
-  profile or decide to drop them. `--force` stops capture silently from
-  then on.
+- **Never pass `--force` or `--yes` on your own.** `lakes adopt` lists
+  each project the change would stop uploading, and each it would start
+  uploading, and refuses. Report both lists and let a person decide.
+  - `--force` stops capturing the listed projects from then on.
+  - `--yes` sends every listed project's sessions to the lake, which
+    cannot be taken back without a purge.
 - **Adopt in two steps.** Run plain `lakes adopt` first, which pins the
   lake and keeps the local allow rules. Then run `lakes adopt
   --allow-from profile`, which hands the allow rules to the profile.

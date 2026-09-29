@@ -356,3 +356,25 @@ func TestReviewAllowPendingOnlyUntilTheDeviceCatchesUp(t *testing.T) {
 		t.Fatal("a device that caught up and still refuses reads allow pending")
 	}
 }
+
+// Review of #133: an agent that says it pinned the lake is not flagged
+// while its first profile fetch is pending, and one that says it did
+// not is flagged whatever its device source.
+func TestNoProfileTakesTheAgentsWordOnItsPin(t *testing.T) {
+	yes, no := true, false
+	for _, c := range []struct {
+		source string
+		rep    protocol.AgentReport
+		want   bool
+	}{
+		{catalog.DeviceFromTokenFile, protocol.AgentReport{}, true},
+		{catalog.DeviceFromTokenFile, protocol.AgentReport{Pinned: &yes}, false},
+		{catalog.DeviceFromTokenFile, protocol.AgentReport{Profile: "default", ProfileVersion: "sha256:x"}, false},
+		{catalog.DeviceFromRegistration, protocol.AgentReport{}, false},
+		{catalog.DeviceFromRegistration, protocol.AgentReport{Pinned: &no}, true},
+	} {
+		if got := noProfile(c.source, c.rep); got != c.want {
+			t.Errorf("%s %+v: %v, want %v", c.source, c.rep, got, c.want)
+		}
+	}
+}

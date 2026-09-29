@@ -158,17 +158,24 @@ none from its profile.
   profile's allow rules decide what uploads. On a lake that is already
   pinned it does only that.
 
-Either way, before it writes anything, adopt checks what the change
-would stop uploading, and refuses while anything would stop:
-- a harness this machine reads now that the profile turns off. Harness
-  settings are machine-wide, so that harness stops uploading to every
-  lake. Set the harness in `config.json`, which wins over a profile, to
-  keep it on.
-- each project the change would stop uploading. Adopt reads every
-  session the agent would read to find them. Add rules for those projects
-to the profile on the dashboard and run adopt again, or pass `--force`
-to stop uploading them. `--allow-from profile` also refuses a profile
-that allows nothing.
+**What adopt lists before it writes.** Adopt reads every session the
+agent would read and lists what the change would stop uploading and
+what it would start uploading:
+- each harness the profile turns off or on, with the projects that go
+  with it. Harness settings are machine-wide, so this counts every lake's
+  projects. A harness set in `config.json` wins over a profile.
+- each project the lake's new rules refuse, or allow, that the current
+  rules do not.
+
+Then:
+- **If anything would stop,** adopt refuses. Add rules for those
+  projects to the profile on the dashboard and run adopt again, or pass
+  `--force` to stop uploading them. `--allow-from profile` also refuses
+  a profile that allows nothing.
+- **If anything would start,** adopt asks on a terminal. Without one it
+  refuses unless you pass `--yes`. A profile written for other machines
+  can allow more on this one than anyone meant. A folder rule for a
+  home directory, for example, allows every project under it.
 
 A typical move to dashboard-managed rules:
 

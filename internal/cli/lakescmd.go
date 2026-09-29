@@ -19,7 +19,7 @@ usage:
   terva-lampi lakes [list]
   terva-lampi lakes remove NAME [--purge-state]
   terva-lampi lakes adopt [NAME] [--fingerprint SHA256:...]
-                          [--allow-from keep|profile] [--force]
+                          [--allow-from keep|profile] [--force] [--yes]
 
 list prints one line per lake in config.json, with its server, token
 file, pinned lake id and allowlist counts, then its base configuration.
@@ -62,10 +62,15 @@ A lake's local allow rules shut out its profile's. --allow-from keep,
 the default, leaves them in force. --allow-from profile removes them,
 so the profile's allow rules apply; on a lake already pinned it does
 only that. The profile's deny rules and harness settings apply either
-way. Before it writes anything, adopt lists each harness the profile
-would turn off and each project the change would stop uploading,
-reading every session the agent would read, and refuses while there is
-one, unless --force.
+way, and its harness settings apply to every lake.
+
+Before it writes anything, adopt reads every session the agent would
+read and lists what the change stops uploading and what it starts
+uploading: each harness the profile turns off or on, with its projects,
+and each project the new rules refuse or allow. It refuses while
+anything stops, unless --force. When anything starts, it asks on a
+terminal, and without one it refuses unless --yes, since a profile
+written for other machines can allow more here than anyone meant.
 `
 
 func runLakes(env Env, args []string) error {
@@ -101,6 +106,7 @@ func runLakes(env Env, args []string) error {
 			fs.StringVar(&adopt.fingerprint, "fingerprint", "", "the lake key fingerprint serve identity prints")
 			fs.StringVar(&adopt.allowFrom, "allow-from", allowKeep, "keep the local allow rules, or use the profile's")
 			fs.BoolVar(&adopt.force, "force", false, "adopt even if a project stops uploading")
+			fs.BoolVar(&adopt.yes, "yes", false, "adopt even if a project starts uploading")
 		}
 	})
 	if err != nil {
