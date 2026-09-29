@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/config"
 )
 
 const baysUsage = `terva-lampi serve bays — manage the lake's bays
@@ -27,6 +29,14 @@ usage:
   terva-lampi serve bays grants [--data DIR]
   terva-lampi serve bays grant BAY (--group G | --device NAME | --read-token ID) (--read | --write) [--data DIR]
   terva-lampi serve bays revoke BAY (--group G | --device NAME | --read-token ID) (--read | --write) [--data DIR]
+  terva-lampi serve bays rules [--data DIR]
+  terva-lampi serve bays rule BAY (--hold | --add | --deny) MATCH... [--data DIR]
+  terva-lampi serve bays unrule ID [--data DIR]
+  terva-lampi serve bays holds [--data DIR]
+  terva-lampi serve bays release SESSION-UID [--data DIR]
+
+MATCH is one or more of --cwd-prefix P, --cwd-glob G, --cwd-hash H,
+--git-remote R, --git-remote-prefix R and --harness H.
 
 A bay is a named segment of the lake and an access boundary
 (docs/policy.md#bays). A session is in one or more bays. BAY is a bay's
@@ -52,6 +62,20 @@ operators read the bay, and write lets its operators mint codes into
 it. A device with write uploads into the bay. A read token with read
 reads the bay's raw artifacts. Admins read every bay without a grant.
 
+rule adds a routing rule (docs/policy.md#routing). The lake applies it
+to every manifest from then on, sessions already stored included, and
+only ever adds. Every MATCH given must match, read exactly as an allow
+rule is: --cwd-prefix covers the folder and everything under it, so a
+rule for one folder is --cwd-hash. --add also puts the session in BAY.
+--deny keeps it out of BAY. --hold puts a new session in BAY alone and
+holds the bays it asks for, and flags a stored one for review. unrule
+takes a rule away; a hold it placed stays until released. rules lists
+them with their ids.
+
+holds lists the sessions held or flagged. release ends a session's hold:
+the bays it asked for while held are placed, and a held session leaves
+the hold bay.
+
 Every command runs while serve runs. The changes are written to the
 catalog and to audit.jsonl in the lake directory.
 `
@@ -65,7 +89,7 @@ func runServeBays(env Env, args []string) error {
 	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
 		sub, args = args[0], args[1:]
 	}
-	need := map[string]int{"list": 0, "grants": 0, "create": 1, "unalias": 1, "delete": 1, "default": 1, "grant": 1, "revoke": 1, "rename": 2, "alias": 2}
+	need := map[string]int{"list": 0, "grants": 0, "rules": 0, "holds": 0, "create": 1, "unalias": 1, "delete": 1, "default": 1, "grant": 1, "revoke": 1, "rule": 1, "unrule": 1, "release": 1, "rename": 2, "alias": 2}
 	n, known := need[sub]
 	if !known {
 		fmt.Fprint(env.stdout(), baysUsage)
@@ -80,7 +104,9 @@ func runServeBays(env Env, args []string) error {
 		pos, args = append(pos, args[0]), args[1:]
 	}
 	var data, group, device, token string
-	var read, write, yes bool
+	var read, write, yes, hold, add, deny bool
+	var match config.ProjectMatch
+	var harness string
 	rest, err := parseFlags(env, args, baysUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&group, "group", "", "an IdP group")
@@ -89,6 +115,15 @@ func runServeBays(env Env, args []string) error {
 		fs.BoolVar(&read, "read", false, "the read permission")
 		fs.BoolVar(&write, "write", false, "the write permission")
 		fs.BoolVar(&yes, "yes", false, "confirm delete")
+		fs.BoolVar(&hold, "hold", false, "a rule that holds sessions for review")
+		fs.BoolVar(&add, "add", false, "a rule that adds sessions to the bay")
+		fs.BoolVar(&deny, "deny", false, "a rule that keeps sessions out of the bay")
+		fs.StringVar(&match.CWDPrefix, "cwd-prefix", "", "match a cwd at or under this folder")
+		fs.StringVar(&match.CWDGlob, "cwd-glob", "", "match a cwd under this directory layout")
+		fs.StringVar(&match.CWDHash, "cwd-hash", "", "match exactly this folder, by hash")
+		fs.StringVar(&match.GitRemote, "git-remote", "", "match this git remote")
+		fs.StringVar(&match.GitRemotePrefix, "git-remote-prefix", "", "match remotes under this owner or host")
+		fs.StringVar(&harness, "harness", "", "match this harness")
 	})
 	if err != nil {
 		return err
@@ -105,16 +140,13 @@ func runServeBays(env Env, args []string) error {
 		return fmt.Errorf("serve bays: %w", err)
 	}
 	ctx := context.Background()
-	if sub == "list" || sub == "grants" {
+	if lister, ok := map[string]func(context.Context, Env, *catalog.Catalog) error{"list": listBays, "grants": listGrants, "rules": listRules, "holds": listHolds}[sub]; ok {
 		cat, err := catalog.OpenReadOnly(path)
 		if err != nil {
 			return err
 		}
 		defer cat.Close()
-		if sub == "list" {
-			return listBays(ctx, env, cat)
-		}
-		return listGrants(ctx, env, cat)
+		return lister(ctx, env, cat)
 	}
 	cat, err := catalog.OpenCurrent(path)
 	if err != nil {
@@ -195,12 +227,115 @@ func runServeBays(env Env, args []string) error {
 		default:
 			done = fmt.Sprintf("revoked %s %s %s on %s", kind, principal, perm, pos[0])
 		}
+	case "rule":
+		action, err := ruleAction(hold, add, deny)
+		if err != nil {
+			fmt.Fprint(env.stdout(), baysUsage)
+			return err
+		}
+		r, err := cat.AddBayRule(ctx, catalog.BayRule{Match: match, Harness: harness, Action: action, BayID: pos[0]}, actor, now)
+		if errors.Is(err, catalog.ErrRuleEmpty) {
+			fmt.Fprint(env.stdout(), baysUsage)
+		}
+		if err != nil {
+			return err
+		}
+		done = fmt.Sprintf("added rule %d: %s", r.ID, ruleLine(r, pos[0]))
+	case "unrule":
+		id, err := strconv.ParseInt(pos[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("serve bays unrule takes a rule id from serve bays rules, not %q", pos[0])
+		}
+		if err := cat.RemoveBayRule(ctx, id, actor, now); err != nil {
+			return err
+		}
+		done = fmt.Sprintf("removed rule %d", id)
+	case "release":
+		if err := cat.ReleaseHold(ctx, pos[0], actor, now); err != nil {
+			return err
+		}
+		done = "released " + pos[0]
 	}
 	// The change is committed. Say so first, so a failed audit write is
 	// not read as a change that did not happen.
 	fmt.Fprintln(env.stdout(), done)
 	if err := cat.FlushAudit(ctx, data); err != nil {
 		return fmt.Errorf("%s, but writing it to %s failed: %w; the change stands, and the line stays queued until the audit log can be written", done, audit.FileName, err)
+	}
+	return nil
+}
+
+func ruleAction(hold, add, deny bool) (string, error) {
+	var set []string
+	for name, on := range map[string]bool{catalog.RuleHold: hold, catalog.RuleAdd: add, catalog.RuleDeny: deny} {
+		if on {
+			set = append(set, name)
+		}
+	}
+	if len(set) != 1 {
+		return "", errors.New("pass exactly one of --hold, --add or --deny")
+	}
+	return set[0], nil
+}
+
+// ruleLine is a rule as rules prints it, with its bay called bay.
+func ruleLine(r catalog.BayRule, bay string) string {
+	parts := []string{r.Action, bay, "when"}
+	for _, f := range []struct{ flag, v string }{
+		{"cwd-prefix", r.Match.CWDPrefix}, {"cwd-glob", r.Match.CWDGlob}, {"cwd-hash", r.Match.CWDHash},
+		{"git-remote", r.Match.GitRemote}, {"git-remote-prefix", r.Match.GitRemotePrefix}, {"harness", r.Harness},
+	} {
+		if f.v != "" {
+			parts = append(parts, f.flag+"="+f.v)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func bayNames(ctx context.Context, cat *catalog.Catalog) (map[string]string, error) {
+	bays, err := cat.Bays(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, b := range bays {
+		names[b.ID] = b.Name
+	}
+	return names, nil
+}
+
+func listRules(ctx context.Context, env Env, cat *catalog.Catalog) error {
+	rules, err := cat.BayRules(ctx)
+	if err != nil {
+		return err
+	}
+	names, err := bayNames(ctx, cat)
+	if err != nil {
+		return err
+	}
+	for _, r := range rules {
+		fmt.Fprintf(env.stdout(), "%d %s by=%s at=%s\n", r.ID, ruleLine(r, names[r.BayID]), r.CreatedBy, r.Created.UTC().Format(time.RFC3339))
+	}
+	if len(rules) == 0 {
+		fmt.Fprintln(env.stdout(), "no rules")
+	}
+	return nil
+}
+
+func listHolds(ctx context.Context, env Env, cat *catalog.Catalog) error {
+	holds, err := cat.Holds(ctx)
+	if err != nil {
+		return err
+	}
+	names, err := bayNames(ctx, cat)
+	if err != nil {
+		return err
+	}
+	for _, h := range holds {
+		fmt.Fprintf(env.stdout(), "%s %s bay=%s rule=%d at=%s\n", h.SessionUID, h.State, names[h.BayID], h.RuleID, h.Created.UTC().Format(time.RFC3339))
+	}
+	if len(holds) == 0 {
+		fmt.Fprintln(env.stdout(), "no holds")
 	}
 	return nil
 }
@@ -285,13 +420,9 @@ func listGrants(ctx context.Context, env Env, cat *catalog.Catalog) error {
 	if err != nil {
 		return err
 	}
-	bays, err := cat.Bays(ctx)
+	names, err := bayNames(ctx, cat)
 	if err != nil {
 		return err
-	}
-	names := map[string]string{}
-	for _, b := range bays {
-		names[b.ID] = b.Name
 	}
 	devices, err := cat.Devices(ctx)
 	if err != nil {

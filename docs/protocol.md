@@ -233,14 +233,23 @@ because earlier releases ignored the body. A nonce that is not valid is
   "lake_id": "lake_…",
   "proof": {"payload": {"lake_id": "lake_…", "nonce": "…", "server_time": "…"}, "signatures": ["…"]},
   "release": "v0.1.3",
-  "features": ["large_tails"]
+  "features": ["large_tails", "bays"],
+  "bays": ["default", "client-x"]
 }
 ```
 
 `features` names what the lake accepts beyond `protocol_versions`. A
 client uses a feature only when its lake lists it, and an older lake
 lists none. `large_tails` is a lake that grows a file past
-`max_blob_bytes` from a tail; see the artifact fields below.
+`max_blob_bytes` from a tail; see the artifact fields below. `bays` is
+a lake that routes a manifest by its `bays` field
+([Routing](policy.md#routing)).
+
+`bays` names the bays the calling device may write, by name, and no
+other bay. A lake that lists the `bays` feature sends it; it is left
+out when the device may write none. An agent compares the bays its
+config asks for against it and warns about the rest; the lake refuses
+them either way.
 
 `release` is the lake's terva-lampi release, and is missing from a
 build that is not a release. It is not signed and is advice only.
