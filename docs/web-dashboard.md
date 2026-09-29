@@ -45,8 +45,9 @@ The repository does not name or provision a live deployment.
    warns about such a group. Search coverage and other counts of the
    whole lake are shown only to an admin. An `operator` is also a viewer and can manage registration
    codes, which adds machines to the lake. Map it to a small group. An `admin`
-   is also an operator and can download a session's
-   [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded. Map
+   is also an operator, reads every bay, can download a session's
+   [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded,
+   and can [sort sessions into bays](#bays). Map
    it to the smallest group you have, or to none. No group becomes admin on
    upgrade, and a lake with no admin group starts, logs a warning, and offers
    no raw reads. Operator routes answer 404 to a viewer, and admin routes
@@ -304,6 +305,38 @@ its value. Each read is an `artifact.read` event with the token as actor.
 A mint whose line cannot be written to `audit.jsonl` is revoked at once and
 its token is never shown. A revoke whose line cannot be written still
 stands: the page says so, and the line is written at the next flush.
+
+## Bays
+
+A session's page names its [bays](policy.md#bays), limited to the ones
+the reader reads: a viewer is not told the name of a bay it cannot
+read, since a bay's name can name a client.
+
+An admin gets a **Bays** link, `/admin/bays`. It lists each bay with its
+session count and aliases, and the inbox: the sessions in the default
+bay that nothing placed, the sessions a hold rule holds or flagged, and
+the sessions that asked for a bay and were refused, each with why. The
+reasons are the ones `serve bays inbox` prints; [bays-inbox.md](bays-inbox.md)
+says what to do about each.
+
+Two changes can be made from the inbox:
+
+- **Move** takes one session out of a bay it is in and puts it in
+  another. A session taken out of its last bay goes to the default.
+- **Release** ends a hold: the bays the session asked for while held are
+  placed as routing would have placed them, and a held session leaves
+  the hold bay.
+
+Both add a session to a bay, which widens who reads it, so each needs a
+sign-in at the IdP in the last 10 minutes, as minting does, and a form
+with the session's CSRF token. Without a recent sign-in the page offers
+a link to sign in again instead of the forms. Each change is written to
+`audit.jsonl` as `bay.member.added`, `bay.member.removed` or
+`bay.hold.released`, with the admin as actor and `via web` in `detail`.
+
+Bulk moves, applying rules to stored sessions, and editing bays, grants
+and rules stay on the lake host: `terva-lampi serve bays`. Operators and
+viewers get no link, and the routes answer them 404.
 
 ## Registration codes
 

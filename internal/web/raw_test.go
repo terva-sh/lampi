@@ -374,3 +374,16 @@ func TestParseRange(t *testing.T) {
 		}
 	}
 }
+
+// ingestHeld ingests a session recorded under /held, which a hold rule
+// in the test catches.
+func ingestHeld(t *testing.T, lake *api.Server, native string) string {
+	t.Helper()
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: "codex", NativeSessionID: native, Project: protocol.Project{CWD: "/held/app"},
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + "/rollout.jsonl", SHA256: strings.Repeat("cd", 32), Size: 4}}}
+	ack, err := lake.Catalog.Ingest(t.Context(), m, time.Now(), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ack.SessionUID
+}

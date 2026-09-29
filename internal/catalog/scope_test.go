@@ -29,7 +29,7 @@ var unscoped = map[string]string{
 	"FlushAudit": "write", "HideProjects": "write", "Ingest": "write: returns only the poster's own session",
 	"IngestChanged": "write: returns only the poster's own session", "MarkPublished": "write",
 	"IngestRouted": "write: returns only the poster's own session", "AddBayRule": "write",
-	"RemoveBayRule": "write", "ReleaseHold": "write", "MoveSessions": "write", "ApplyRules": "write", "BayRules": "rule listing for serve bays on the lake host",
+	"RemoveBayRule": "write", "ReleaseHold": "write", "MoveSessions": "write", "MoveSession": "write", "ApplyRules": "write", "BayRules": "rule listing for serve bays on the lake host",
 	"Holds": "serve bays holds on the lake host, which holds every bay", "WritableBays": "bay names a device was granted, for its own hello",
 	"Inbox": "serve bays inbox on the lake host, which holds every bay", "BayProblems": "serve fsck on the lake host",
 	"Migrated": "lifecycle", "PutDeviceInventory": "write", "PutDeviceReport": "write",

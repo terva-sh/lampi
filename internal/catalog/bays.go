@@ -435,7 +435,7 @@ func sessionExists(ctx context.Context, tx *sql.Tx, uid string) error {
 	var one int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE session_uid=?`, uid).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("catalog: no session %s", uid)
+		return fmt.Errorf("%w: %s", ErrNoSession, uid)
 	}
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)

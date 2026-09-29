@@ -257,6 +257,12 @@ func refuseHeld(ctx context.Context, tx *sql.Tx, uids []string) error {
 	return nil
 }
 
+// ErrSameBay is a move whose bays are one bay.
+var ErrSameBay = errors.New("catalog: a move needs two different bays")
+
+// ErrNoSession is a session uid the lake does not hold.
+var ErrNoSession = errors.New("catalog: no such session")
+
 // Move is one bulk move: the sessions in From that f matches are added
 // to To and taken out of From. Moved lists them. With DryRun nothing is
 // written.
@@ -288,7 +294,7 @@ func (c *Catalog) MoveSessions(ctx context.Context, m Move, now time.Time) ([]st
 		return nil, err
 	}
 	if from == to {
-		return nil, fmt.Errorf("catalog: moving from %s to itself", m.From)
+		return nil, fmt.Errorf("%w: %s", ErrSameBay, m.From)
 	}
 	uids, err := matchSessions(ctx, tx, from, m.Filter)
 	if err != nil {
@@ -316,6 +322,43 @@ func (c *Catalog) MoveSessions(ctx context.Context, m Move, now time.Time) ([]st
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
 	return uids, nil
+}
+
+// MoveSession moves one session from one bay to another in one
+// transaction, auditing both changes with via. A session taken out of
+// its last bay goes to the default.
+func (c *Catalog) MoveSession(ctx context.Context, uid, from, to, actor, via string, now time.Time) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	fromID, err := resolveBayID(ctx, tx, from)
+	if err != nil {
+		return err
+	}
+	toID, err := resolveBayID(ctx, tx, to)
+	if err != nil {
+		return err
+	}
+	if fromID == toID {
+		return fmt.Errorf("%w: %s", ErrSameBay, from)
+	}
+	if err := refuseHeld(ctx, tx, []string{uid}); err != nil {
+		return err
+	}
+	ms := Membership{SessionUID: uid, Bay: toID, Actor: actor, Via: via, Reason: "moved from " + fromID}
+	if _, err := addToBay(ctx, tx, ms, now); err != nil {
+		return err
+	}
+	ms.Bay, ms.Reason = fromID, "moved to "+toID
+	if err := removeFromBay(ctx, tx, ms, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return nil
 }
 
 // matchSessions is the sessions in bay that f matches, oldest first.

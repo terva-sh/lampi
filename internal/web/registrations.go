@@ -168,6 +168,7 @@ func (s *Server) registrationRoutes(m *http.ServeMux) {
 	s.reviewRoutes(m)
 	s.registrationPages(m)
 	s.rawRoutes(m)
+	s.bayRoutes(m)
 }
 
 func (s *Server) now() time.Time {

@@ -318,7 +318,7 @@ func runServeBays(env Env, args []string) error {
 		}
 		done = fmt.Sprintf("applied the rules: %d changes", len(applied))
 	case "release":
-		if err := cat.ReleaseHold(ctx, pos[0], actor, now); err != nil {
+		if err := cat.ReleaseHold(ctx, pos[0], actor, catalog.ViaCLI, now); err != nil {
 			return err
 		}
 		done = "released " + pos[0]
