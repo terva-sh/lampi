@@ -8,6 +8,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/config"
@@ -270,13 +271,26 @@ func adoptChanged(l config.Lake, lc config.LakeConfig) bool {
 }
 
 // checkNarrowing refuses, unless force, an adoption that would stop
-// uploading a project l's rules allow now. Now is l with the profile it
-// applies, applied, when it has one (hasApplied). After, the profile p
-// applies, and with drop its allow rules replace the local ones. Each
-// such project is listed either way.
+// uploading what l uploads now. Now is l with the profile it applies,
+// applied, when it has one (hasApplied). After, the profile p applies,
+// and with drop its allow rules replace the local ones. Two things can
+// narrow: p's harness settings, which fill what config.json leaves
+// unset machine-wide, and l's project rules. Each harness turned off
+// and each project refused is listed either way.
 func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile, drop, force bool) error {
 	if drop && len(p.Projects.Allow) == 0 && !force {
 		return fmt.Errorf("the lake's profile allows no project, so dropping the %d local allow rules would stop every upload to lake %s; add rules to the profile first, or pass --force", len(l.Projects.Allow), l.Name)
+	}
+	harnesses, off, err := harnessesAfterAdopt(env, file, l, applied, hasApplied, p)
+	if err != nil {
+		return err
+	}
+	if len(off) > 0 {
+		fmt.Fprintf(env.stderr(), "lake %s's profile turns off %s, which this machine reads now, so every session of %s stops uploading to every lake\n", l.Name, strings.Join(off, ", "), pluralIt(len(off)))
+		if !force {
+			return fmt.Errorf("after adopting, %s would stop being read, listed above; set %s in config.json's harnesses to keep %s, or pass --force", strings.Join(off, ", "), pluralIt(len(off)), pluralIt(len(off)))
+		}
+		fmt.Fprintln(env.stderr(), "--force: going ahead; these harnesses stop being read")
 	}
 	before := config.ApplyLakeProfile(l, applied, hasApplied)
 	after := l
@@ -287,7 +301,7 @@ func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Pro
 	if reflect.DeepEqual(before.Projects, after.Projects) {
 		return nil
 	}
-	opt, err := readOnlyOptions(env, file.Harnesses)
+	opt, err := readOnlyOptions(env, harnesses)
 	if err != nil {
 		return err
 	}
@@ -304,6 +318,54 @@ func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Pro
 		return nil
 	}
 	return fmt.Errorf("after adopting, lake %s would refuse %d projects it uploads now, listed above; add rules for them to the profile, or pass --force to stop uploading them", l.Name, len(lost))
+}
+
+// harnessesAfterAdopt returns the harness settings in force now, and the
+// harnesses on now that adopting l with profile p turns off. Harness
+// settings are machine-wide: config.json first, then each pinned lake's
+// cached profile in lake order. Before, l applies applied when
+// hasApplied; after, it applies p.
+func harnessesAfterAdopt(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile) (config.Harnesses, []string, error) {
+	all, err := config.ResolveLakes(file, env.getenv, config.LakeFlags{})
+	if err != nil {
+		return nil, nil, err
+	}
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	order := make([]string, 0, len(all))
+	profiles := map[string]config.Profile{}
+	for _, other := range all {
+		order = append(order, other.Name)
+		if other.Name == l.Name || !lakeprofile.Pinned(other) {
+			continue
+		}
+		if d, ok, err := lakeprofile.Load(lakestate.Dir(state, other.Name), other); err == nil && ok {
+			profiles[other.Name] = d.Profile
+		}
+	}
+	if hasApplied {
+		profiles[l.Name] = applied
+	}
+	before, _ := config.ApplyMachineProfiles(file, order, profiles)
+	profiles[l.Name] = p
+	after, _ := config.ApplyMachineProfiles(file, order, profiles)
+	var off []string
+	for id := range after.Harnesses {
+		if before.Harnesses.Enabled(id) && !after.Harnesses.Enabled(id) {
+			off = append(off, id)
+		}
+	}
+	sort.Strings(off)
+	return before.Harnesses, off, nil
+}
+
+func pluralIt(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 func writeNarrowed(w io.Writer, lake string, lost []upload.RefusedProject) {

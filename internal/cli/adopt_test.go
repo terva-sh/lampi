@@ -340,3 +340,25 @@ func TestCommitAdoptRefusesATokenThatChanged(t *testing.T) {
 		t.Fatalf("config.json changed:\n%s", after)
 	}
 }
+
+// Review of #133: a profile's harness settings apply after adopting, so
+// one that turns off a harness this machine reads is listed and refused.
+func TestLakesAdoptRefusesAProfileThatTurnsOffAHarness(t *testing.T) {
+	f := newAdoptFixture(t)
+	putDefaultProfile(t, f.lake, config.Profile{
+		Harnesses: config.Harnesses{"terva": {Enabled: false}},
+		Projects:  config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work"}}},
+	})
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err == nil || !strings.Contains(err.Error(), "terva would stop being read") {
+		t.Fatalf("adopt: %v\n%s", err, f.stderr.String())
+	}
+	if _, ok := f.file().Lakes[config.DefaultLake]; ok {
+		t.Fatal("a refused adopt wrote the entry")
+	}
+	// config.json wins over a profile, so setting the harness there keeps
+	// it on.
+	writeAgentConfig(t, f.cfg, `{"server":`+jsonString(f.url)+`,"harnesses":{"terva":{"enabled":true}},"projects":{"allow":[{"cwd_prefix":"/work"}]}}`)
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatalf("adopt with the harness set locally: %v\n%s", err, f.stderr.String())
+	}
+}

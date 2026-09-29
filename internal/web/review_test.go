@@ -303,8 +303,13 @@ func TestReviewTokenFileDeviceWithNoProfileSaysToAdopt(t *testing.T) {
 	if !strings.Contains(get(h, "/devices", cookie).Body.String(), "fetches no profile; run terva-lampi lakes adopt on it") {
 		t.Fatal("the devices page does not say to adopt")
 	}
-	if !strings.Contains(get(h, "/devices/"+ds[0].ID, cookie).Body.String(), "has not pinned this lake, so it fetches no profile") {
+	device := get(h, "/devices/"+ds[0].ID+"?show=refused", cookie).Body.String()
+	if !strings.Contains(device, "has not pinned this lake, so it fetches no profile") {
 		t.Fatal("the device page does not say to adopt")
+	}
+	// Its projects can still be hidden, but not allowed in a profile.
+	if strings.Contains(device, `action="/devices/`+ds[0].ID+`/allow"`) || strings.Contains(device, "Allow selected") || !strings.Contains(device, "Hide selected") {
+		t.Fatal("the device page offers Allow, or no Hide, for a device that fetches no profile")
 	}
 }
 

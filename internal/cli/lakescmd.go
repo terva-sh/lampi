@@ -61,9 +61,10 @@ lists the same device. A running agent is told to reload.
 A lake's local allow rules shut out its profile's. --allow-from keep,
 the default, leaves them in force. --allow-from profile removes them,
 so the profile's allow rules apply; on a lake already pinned it does
-only that. The profile's deny rules apply either way. Before it writes
-anything, adopt reads every session the agent would read and lists each
-project the change would stop uploading, and refuses while there is
+only that. The profile's deny rules and harness settings apply either
+way. Before it writes anything, adopt lists each harness the profile
+would turn off and each project the change would stop uploading,
+reading every session the agent would read, and refuses while there is
 one, unless --force.
 `
 
