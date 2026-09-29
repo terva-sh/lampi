@@ -55,6 +55,10 @@ var (
 	ErrPermission  = errors.New("catalog: a grant is read or write")
 	ErrNotAMember  = errors.New("catalog: the session is not in that bay")
 	ErrDefaultOnly = errors.New("catalog: the default bay cannot be deleted")
+	// ErrNoBayForSession refuses a new session that nothing places while
+	// the default bay is turned off. The ingest rolls back, so the agent
+	// keeps the session.
+	ErrNoBayForSession = errors.New("catalog: the default bay is off and nothing places this session")
 )
 
 var bayNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
@@ -416,8 +420,16 @@ func sessionExists(ctx context.Context, tx *sql.Tx, uid string) error {
 // landInDefault puts a session that has just been stored into the
 // default bay, inside the ingest transaction. It writes no audit line:
 // this is where every session landed before bays, and routing, which
-// is audited, replaces it.
+// is audited, replaces it. When the default is turned off it refuses
+// with ErrNoBayForSession, which rolls the ingest back.
 func landInDefault(ctx context.Context, tx *sql.Tx, uid string, now time.Time) error {
+	var off bool
+	if err := tx.QueryRowContext(ctx, `SELECT disabled FROM bays WHERE id=?`, DefaultBayID).Scan(&off); err != nil {
+		return fmt.Errorf("catalog: default bay: %w", err)
+	}
+	if off {
+		return ErrNoBayForSession
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO session_bays(session_uid, bay_id, added_at) VALUES(?,?,?) ON CONFLICT DO NOTHING`, uid, DefaultBayID, stamp(now))
 	if err != nil {
 		return fmt.Errorf("catalog: session bay: %w", err)

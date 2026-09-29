@@ -9,7 +9,29 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/protocol"
 )
+
+// newSession stores one session with its own native id and returns its
+// uid. transcriptPoster reuses one native id for every post.
+func newSession(t *testing.T, c *Catalog, native string) string {
+	t.Helper()
+	body := []byte(`{"session":"` + native + `"}` + "\n")
+	m := protocol.Manifest{
+		CaptureProtocol: protocol.Version,
+		MachineID:       "machine-a",
+		Harness:         protocol.HarnessTerva,
+		NativeSessionID: native,
+		Artifacts: []protocol.Artifact{{
+			Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + ".jsonl", Size: int64(len(body)), SHA256: digestHex(body),
+		}},
+	}
+	ack, err := c.Ingest(context.Background(), m, time.Now(), []Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, memBlobs{digestHex(body): body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ack.SessionUID
+}
 
 func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 	ctx := context.Background()
@@ -211,5 +233,34 @@ func TestPurgeRemovesMembership(t *testing.T) {
 	var n int
 	if err := c.db.QueryRow(`SELECT count(*) FROM session_bays WHERE session_uid=?`, uid).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("membership rows after purge: %d err=%v", n, err)
+	}
+}
+
+func TestDefaultOffRefusesANewSession(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	kept := newSession(t, c, "sess-before")
+	if _, err := c.db.Exec(`UPDATE bays SET disabled=1 WHERE id=?`, DefaultBayID); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("{\"n\":1}\n")
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: protocol.HarnessTerva, NativeSessionID: "sess-after",
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/after.jsonl", Size: int64(len(body)), SHA256: digestHex(body)}}}
+	if _, err := c.Ingest(ctx, m, time.Now(), []Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, memBlobs{digestHex(body): body}); !errors.Is(err, ErrNoBayForSession) {
+		t.Fatalf("ingest with the default off: %v", err)
+	}
+	if _, ok, err := c.Alias(ctx, protocol.HarnessTerva, "sess-after", "machine-a"); err != nil || ok {
+		t.Fatalf("refused session was stored: ok=%v err=%v", ok, err)
+	}
+	// A stored session still grows; the switch is about new sessions.
+	first := []byte(`{"session":"sess-before"}` + "\n")
+	grown := append(append([]byte{}, first...), `{"n":2}`+"\n"...)
+	m.NativeSessionID = "sess-before"
+	m.Artifacts = []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/sess-before.jsonl", Size: int64(len(grown)), SHA256: digestHex(grown)}}
+	if _, err := c.Ingest(ctx, m, time.Now(), []Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, memBlobs{digestHex(grown): grown, digestHex(first): first}); err != nil {
+		t.Fatalf("append with the default off: %v", err)
+	}
+	if got, _ := c.SessionBays(ctx, kept); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("kept session bays %v", got)
 	}
 }
