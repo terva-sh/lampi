@@ -23,7 +23,7 @@ var ErrProvider = errors.New("identity provider unavailable")
 var ErrIdentity = errors.New("identity response did not verify")
 
 // Identity contains only verified display/authorization data, never tokens.
-// Operator implies Viewer. AuthTime is the ID token's auth_time: when the
+// Admin implies Operator, which implies Viewer. AuthTime is the ID token's auth_time: when the
 // user last authenticated at the identity provider, which a single
 // sign-on can make much earlier than this login. It is zero when the
 // token has none.
@@ -33,6 +33,7 @@ type Identity struct {
 	Display  string
 	Viewer   bool
 	Operator bool
+	Admin    bool
 	AuthTime time.Time
 }
 type discovered struct {
@@ -237,6 +238,8 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 			out.Viewer = true
 		case webconfig.RoleOperator:
 			out.Viewer, out.Operator = true, true
+		case webconfig.RoleAdmin:
+			out.Viewer, out.Operator, out.Admin = true, true, true
 		}
 	}
 	var authTime json.Number

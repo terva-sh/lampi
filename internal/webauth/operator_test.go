@@ -131,3 +131,44 @@ func TestFreshAt(t *testing.T) {
 		}
 	}
 }
+
+// TKT-01M3NKZT6N: admin implies operator and viewer, and AdminOnly
+// answers 404 to operators and viewers alike.
+func TestAdminOnlyHidesRoutesFromOperators(t *testing.T) {
+	s := testidp.New()
+	t.Cleanup(s.Close)
+	cfg := providerConfig(s)
+	cfg.OIDC.RoleMap = map[string]string{"readers": "viewer", "ops": "operator", "owners": "admin"}
+	b, err := New(cfg, s.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := http.NewServeMux()
+	b.Routes(m)
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := Current(r)
+		_, _ = io.WriteString(w, map[bool]string{true: "viewer", false: "-"}[id.Viewer]+" "+map[bool]string{true: "operator", false: "-"}[id.Operator])
+	})
+	m.Handle("GET /admin/raw", b.Guard(AdminOnly(ok)))
+	m.Handle("GET /api/web/v1/raw", b.Guard(AdminOnly(ok)))
+	m.Handle("GET /admin/codes", b.Guard(OperatorOnly(ok)))
+	h := Headers(m)
+
+	for _, groups := range [][]string{{"readers"}, {"ops"}} {
+		s.Groups = groups
+		c := login(t, s, h)
+		for _, target := range []string{"/admin/raw", "/api/web/v1/raw"} {
+			if w := request(h, "GET", "https://lake.example"+target, c); w.Code != 404 {
+				t.Errorf("%v %s: %d, want 404", groups, target, w.Code)
+			}
+		}
+	}
+	s.Groups = []string{"owners"}
+	c := login(t, s, h)
+	for _, target := range []string{"/admin/raw", "/admin/codes"} {
+		w := request(h, "GET", "https://lake.example"+target, c)
+		if w.Code != 200 || w.Body.String() != "viewer operator" {
+			t.Errorf("admin %s: %d %q", target, w.Code, w.Body.String())
+		}
+	}
+}

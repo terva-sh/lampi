@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM61CZDGNG6K2XXGHECC0W
 title: Admin role and raw artifact access
 type: epic
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T03:43:53Z
-updated_at: 2026-09-29T03:44:52Z
+updated_at: 2026-09-29T03:45:01Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent

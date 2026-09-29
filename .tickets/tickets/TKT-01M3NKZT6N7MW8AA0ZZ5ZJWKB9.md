@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NKZT6N7MW8AA0ZZ5ZJWKB9
 title: "Dashboard: admin role above operator"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/cd41c9ac
+  branch: t3code/add-raw-session-option
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
+  commit: d0ceeeb339cf7f14ef3de6f090a7c9df31bb6818
+  session: null
+  claimed_at: 2026-09-29T03:45:01Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:29Z
-updated_at: 2026-09-29T03:44:52Z
+updated_at: 2026-09-29T03:47:34Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -88,8 +95,12 @@ Bay grants, per-principal permissions, and changes to OIDC group sync.
 
 ## Acceptance criteria
 
-- [ ] role_map accepts admin; admin implies operator and viewer; unknown roles still fail startup
-- [ ] webauth has an AdminOnly gate that answers 404 to non-admins, with tests
-- [ ] Startup logs which groups hold admin, and warns when none does
-- [ ] docs/web-dashboard.md documents the three roles and what each can do
-- [ ] Operator groups are not promoted on upgrade; a config with no admin group behaves exactly as before
+- [x] role_map accepts admin; admin implies operator and viewer; unknown roles still fail startup
+- [x] webauth has an AdminOnly gate that answers 404 to non-admins, with tests
+- [x] Startup logs which groups hold admin, and warns when none does
+- [x] docs/web-dashboard.md documents the three roles and what each can do
+- [x] Operator groups are not promoted on upgrade; a config with no admin group behaves exactly as before
+
+## Implementation plan
+
+Add RoleAdmin to webconfig (accepted by Validate, AdminGroups for logging). Identity.Admin set by the provider, implying Operator and Viewer. webauth.AdminOnly shares the 404 gate with OperatorOnly. startWeb logs admin groups, or warns when none. Docs: web-dashboard.md step 4 and the example config. Nothing uses AdminOnly yet; TKT-01M3NKY2V3 is the first route behind it.

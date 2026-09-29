@@ -34,11 +34,15 @@ The repository does not name or provision a live deployment.
    in the **ID token**. The default extra scopes are profile/email/groups; customize
    `scopes` when your provider uses different scopes. `openid` is always included.
 4. Map the actual group claim and exact group names. A successful IdP login grants
-   no access unless a configured group maps to `viewer` or `operator`. A viewer
-   reads metadata for the whole lake; this release has no per-project viewer
-   isolation. An `operator` is also a viewer and can manage registration codes,
-   which adds machines to the lake. Map it to a small group. Operator routes
-   answer 404 to a viewer.
+   no access unless a configured group maps to `viewer`, `operator` or `admin`.
+   A viewer reads metadata for the whole lake; this release has no per-project
+   viewer isolation. An `operator` is also a viewer and can manage registration
+   codes, which adds machines to the lake. Map it to a small group. An `admin`
+   is also an operator and can read raw session artifacts, the unredacted bytes
+   an agent uploaded. Map it to the smallest group you have, or to none. No
+   group becomes admin on upgrade, and a lake with no admin group starts, logs
+   a warning, and offers no raw reads. Operator routes answer 404 to a viewer,
+   and admin routes answer 404 to an operator.
 5. For operator actions that add access, the dashboard asks the provider to sign
    the user in again with OIDC `max_age` and requires an `auth_time` from the
    last 10 minutes. The provider must return `auth_time` in the ID token when
