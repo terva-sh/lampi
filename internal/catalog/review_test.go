@@ -195,6 +195,17 @@ func TestHideAndUnhideProjects(t *testing.T) {
 			t.Fatalf("%q: %v", bad.String(), err)
 		}
 	}
+	for _, note := range []string{strings.Repeat("n", MaxHideNote+1), "two\nlines"} {
+		if _, err := c.HideProjects(ctx, []ProjectKey{{KeyCWD, "/fine"}}, "oidc:ops", note, now); !errors.Is(err, ErrHideNote) {
+			t.Fatalf("note %.20q: %v", note, err)
+		}
+	}
+	if _, err := c.HideProjects(ctx, []ProjectKey{{KeyCWD, "/fine"}}, "oidc:ops", strings.Repeat("é", MaxHideNote), now); err != nil {
+		t.Fatalf("a note of %d characters: %v", MaxHideNote, err)
+	}
+	if _, err := c.UnhideProjects(ctx, []ProjectKey{{KeyCWD, "/fine"}}, "oidc:ops", now); err != nil {
+		t.Fatal(err)
+	}
 	hides, err := c.HiddenProjects(ctx)
 	if err != nil || len(hides) != 2 {
 		t.Fatalf("hides %+v %v; a refused batch must write nothing", hides, err)
@@ -204,14 +215,14 @@ func TestHideAndUnhideProjects(t *testing.T) {
 			t.Fatalf("hide %+v", h)
 		}
 	}
-	if n := len(queuedEvents(t, c, audit.ProjectHidden)); n != 2 {
-		t.Fatalf("%d project.hidden events, want 2", n)
+	if n := len(queuedEvents(t, c, audit.ProjectHidden)); n != 3 {
+		t.Fatalf("%d project.hidden events, want 3: two, and the note at the limit", n)
 	}
 
 	if got, err := c.UnhideProjects(ctx, []ProjectKey{app, {KeyCWD, "/never"}}, "oidc:ops", now); err != nil || !slices.Equal(got, []ProjectKey{app}) {
 		t.Fatalf("unhide: %v %v", got, err)
 	}
-	if ev := queuedEvents(t, c, audit.ProjectUnhidden); len(ev) != 1 || !strings.Contains(ev[0], "git_remote git.example/team/app") {
+	if ev := queuedEvents(t, c, audit.ProjectUnhidden); len(ev) != 2 || !strings.Contains(ev[1], "git_remote git.example/team/app") {
 		t.Fatalf("unhidden events %v", ev)
 	}
 	if hides, _ := c.HiddenProjects(ctx); len(hides) != 1 || hides[0].Key != tmp {

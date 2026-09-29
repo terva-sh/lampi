@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/config"
@@ -33,6 +34,9 @@ const (
 // maxProjectKey bounds a key's length. An inventory path longer than
 // this is not a project anyone reviews by name.
 const maxProjectKey = 4096
+
+// MaxHideNote bounds a hide's note, as a profile revision's is bounded.
+const MaxHideNote = 500
 
 // sightingsSince is the lake_meta key holding when sightings began.
 const sightingsSince = "sightings_since"
@@ -197,13 +201,20 @@ func (c *Catalog) HiddenProjects(ctx context.Context) ([]ProjectHide, error) {
 	return out, nil
 }
 
-// ErrProjectKey refuses a key no inventory could name.
-var ErrProjectKey = errors.New("catalog: not a project key")
+// ErrProjectKey refuses a key no inventory could name, and ErrHideNote
+// a note longer than MaxHideNote or on more than one line.
+var (
+	ErrProjectKey = errors.New("catalog: not a project key")
+	ErrHideNote   = errors.New("catalog: a hide note is one line of at most 500 characters")
+)
 
 // HideProjects hides each key for actor, with note, in one transaction,
 // and queues project.hidden for each key it hid. A key already hidden
 // keeps its first hide. It returns the keys it hid.
 func (c *Catalog) HideProjects(ctx context.Context, keys []ProjectKey, actor, note string, now time.Time) ([]ProjectKey, error) {
+	if utf8.RuneCountInString(note) > MaxHideNote || strings.ContainsAny(note, "\x00\r\n") {
+		return nil, ErrHideNote
+	}
 	return c.changeHides(ctx, keys, func(tx *sql.Tx, k ProjectKey) (sql.Result, audit.Event, error) {
 		res, err := tx.ExecContext(ctx, `INSERT INTO hidden_projects (key_kind, key, hidden_by, hidden_ns, note) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(key_kind, key) DO NOTHING`, k.Kind, k.Key, actor, now.UnixNano(), note)
