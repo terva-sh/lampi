@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T03:53:19Z
+updated_at: 2026-09-29T04:42:48Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -111,3 +111,7 @@ Both actions change the form only. Nothing is saved without the operator.
 ### Verification
 
 `GOFLAGS=-mod=mod just ci` passes. The tests are `TestCovers`, `TestCoversIsSound`, `TestEditorOffersFewerRules` and `TestOwnerFolds`.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:42:48Z
+
+Review 1333 on PR 140, finding 1 (medium): the Fewer rules hint promised that the preview lists every project a change admits. It lists only what the devices' newest inventories show. Accepted, and the hint was reworded in 80fe1c39be472cd95771054b143abfb06a7fd278.
