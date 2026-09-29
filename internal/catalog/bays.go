@@ -721,6 +721,16 @@ func (c *Catalog) DeleteBay(ctx context.Context, ref, actor string, now time.Tim
 		if err := tx.QueryRowContext(ctx, `SELECT name FROM bays WHERE id=?`, id).Scan(&name); err != nil {
 			return audit.Event{}, fmt.Errorf("catalog: %w", err)
 		}
+		// A hold waits for an admin to release it. Deleting its bay would
+		// leave its requests held with nothing to release, and placing
+		// them here would skip the review the hold is for.
+		var holds int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM session_holds WHERE bay_id=? AND state IN (?,?)`, id, HoldHeld, HoldFlagged).Scan(&holds); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		if holds > 0 {
+			return audit.Event{}, fmt.Errorf("%w: bay %s holds %d sessions; release them with serve bays release first", ErrBayHolds, name, holds)
+		}
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO session_bays(session_uid, bay_id, added_at)
 			SELECT session_uid, ?, ? FROM session_bays m
@@ -736,6 +746,8 @@ func (c *Catalog) DeleteBay(ctx context.Context, ref, actor string, now time.Tim
 			`DELETE FROM session_bays WHERE bay_id=?`,
 			`DELETE FROM bay_grants WHERE bay_id=?`,
 			`DELETE FROM bay_aliases WHERE bay_id=?`,
+			`DELETE FROM bay_rules WHERE bay_id=?`,
+			`DELETE FROM session_holds WHERE bay_id=?`,
 			`DELETE FROM bays WHERE id=?`,
 		} {
 			if _, err := tx.ExecContext(ctx, q, id); err != nil {

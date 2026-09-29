@@ -320,6 +320,10 @@ var (
 	}
 )
 
+// maxBayRef bounds one entry of a manifest's bays. A name is at most
+// 63 bytes and an id 36; the rest is room, not a promise.
+const maxBayRef = 128
+
 func validateManifest(m *protocol.Manifest) error {
 	if m.CaptureProtocol != protocol.Version {
 		return fmt.Errorf("capture_protocol %d is not supported", m.CaptureProtocol)
@@ -332,6 +336,14 @@ func validateManifest(m *protocol.Manifest) error {
 	}
 	if len(m.Artifacts) == 0 {
 		return fmt.Errorf("manifest has no artifacts")
+	}
+	if len(m.Bays) > protocol.MaxManifestBays {
+		return fmt.Errorf("bays: at most %d", protocol.MaxManifestBays)
+	}
+	for _, b := range m.Bays {
+		if b == "" || len(b) > maxBayRef {
+			return fmt.Errorf("bays: %q is not a bay id, name or alias", b)
+		}
 	}
 	for i, a := range m.Artifacts {
 		if !knownKinds[a.Kind] {

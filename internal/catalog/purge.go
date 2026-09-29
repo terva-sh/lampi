@@ -40,7 +40,7 @@ func (c *Catalog) DeleteSession(ctx context.Context, sessionUID string) (bool, e
 		return false, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"artifacts", "provenance", "aliases", "normalize_jobs", "head_updates", "conflict_resolutions", "session_bays", "session_bay_requests"} {
+	for _, table := range []string{"artifacts", "provenance", "aliases", "normalize_jobs", "head_updates", "conflict_resolutions", "session_bays", "session_bay_requests", "session_holds"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE session_uid = ?`, sessionUID); err != nil {
 			return false, fmt.Errorf("catalog: %s: %w", table, err)
 		}

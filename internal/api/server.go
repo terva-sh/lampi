@@ -696,7 +696,19 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 	// validateManifest has checked what the client controls. An ingest
 	// error here is the catalog's: a busy or full disk, not a bad post.
-	ack, changed, err := s.Catalog.IngestChanged(r.Context(), m, s.now(), decisions, s.CAS)
+	// The device's write grants decide which requested bays it gets.
+	// A lake with no tokens has no device and every bay is accepted,
+	// as every bay is read there.
+	deviceID, ok := s.requestDevice(r)
+	if !ok {
+		s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this request has no device"))
+		return
+	}
+	ack, changed, err := s.Catalog.IngestRouted(r.Context(), m, catalog.Route{DeviceID: deviceID}, s.now(), decisions, s.CAS)
+	if errors.Is(err, catalog.ErrNoBayForSession) {
+		s.refuseUnplaced(w, r, m.BayAware)
+		return
+	}
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
@@ -714,6 +726,20 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, ack)
+}
+
+// refuseUnplaced answers a manifest whose session nothing places while
+// the default bay is off: 409 with CodeNoBay to an agent that knows the
+// code, and 403 to one that does not, which it backs off on for the
+// full wait rather than retrying at once.
+func (s *Server) refuseUnplaced(w http.ResponseWriter, r *http.Request, bayAware bool) {
+	msg := "no bay accepts this session and the lake's default bay is off"
+	note(r, errors.New(msg))
+	if bayAware {
+		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: msg, Code: protocol.CodeNoBay})
+		return
+	}
+	writeJSON(w, http.StatusForbidden, protocol.ErrorBody{Error: msg})
 }
 
 // decodeJSON reads one JSON value of at most limit bytes into dest. On
@@ -847,13 +873,25 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // included, so it reads every bay. Any other request that reached here
 // without a device reads nothing.
 func (s *Server) deviceScope(r *http.Request) (catalog.Scope, error) {
-	d, ok := deviceOf(r)
+	id, ok := s.requestDevice(r)
 	switch {
-	case ok:
-		return s.Catalog.DeviceScope(r.Context(), d.ID)
-	case s.Devices == nil || s.Devices.Empty():
+	case !ok:
+		return catalog.Scope{}, nil
+	case id == "":
 		return catalog.AllBays(), nil
 	default:
-		return catalog.Scope{}, nil
+		return s.Catalog.DeviceScope(r.Context(), id)
 	}
+}
+
+// requestDevice is the device a request acts as. id is empty on a lake
+// served without tokens, which has no device to ask. ok is false when a
+// lake with tokens let a request through without a device, which authed
+// never does; the caller refuses it rather than treat it as the
+// tokenless lake.
+func (s *Server) requestDevice(r *http.Request) (id string, ok bool) {
+	if d, found := deviceOf(r); found {
+		return d.ID, true
+	}
+	return "", s.Devices == nil || s.Devices.Empty()
 }

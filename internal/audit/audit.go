@@ -74,6 +74,10 @@ const (
 	BayAliasRemoved  = "bay.alias.removed"
 	BayDeleted       = "bay.deleted"
 	BayDefault       = "bay.default"
+	BayRuleAdded     = "bay.rule.added"
+	BayRuleRemoved   = "bay.rule.removed"
+	BayHold          = "bay.hold"
+	BayHoldReleased  = "bay.hold.released"
 
 	// ConflictHeadChanged records an operator making a divergent copy
 	// the session's head. Detail names the copy and the head it

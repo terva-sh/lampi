@@ -44,6 +44,14 @@ type ProjectMatch struct {
 	CWDGlob string `json:"cwd_glob,omitempty"`
 }
 
+// Empty reports whether no field is set, so the rule matches nothing.
+func (r ProjectMatch) Empty() bool { return r.empty() }
+
+// Matches reports whether id meets the rule the way an allow rule is
+// read: exactly, with an unknown remote matching no git_remote. A bay
+// rule on the lake is read this way (TKT-01M3NNF29W).
+func (r ProjectMatch) Matches(id ProjectID) bool { return r.matches(id) }
+
 // empty is a rule with no field set, which matches nothing.
 func (r ProjectMatch) empty() bool {
 	return r.CWDPrefix == "" && r.GitRemote == "" && r.CWDHash == "" && r.GitRemotePrefix == "" && r.CWDGlob == ""
