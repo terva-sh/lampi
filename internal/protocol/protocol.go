@@ -156,6 +156,10 @@ type HelloResponse struct {
 	// Features names what this lake accepts beyond protocol_versions. A
 	// client uses a feature only when its lake lists it.
 	Features []string `json:"features,omitempty"`
+	// Bays names the bays the calling device may write, and only
+	// those, when the lake lists FeatureBays. An agent checks the bays
+	// its config asks for against it and warns about the rest.
+	Bays []string `json:"bays,omitempty"`
 }
 
 // FeatureLargeTails is a lake that grows a file past max_blob_bytes from
@@ -163,6 +167,10 @@ type HelloResponse struct {
 // blob stays under it. A lake without it answers such a manifest 400,
 // so a client sends a file past the cap whole, as chunks.
 const FeatureLargeTails = "large_tails"
+
+// FeatureBays is a lake that routes a manifest by its bays and lists a
+// device's writable bays in hello (docs/policy.md#routing).
+const FeatureBays = "bays"
 
 // HelloProof is the signed payload of HelloResponse.Proof.
 type HelloProof struct {

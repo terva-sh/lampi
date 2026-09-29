@@ -178,3 +178,59 @@ func TestSeedGrantLinesReachTheAuditOnALaterStart(t *testing.T) {
 		t.Fatalf("audit after the second start:\n%s", raw)
 	}
 }
+
+func TestServeBaysRules(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Close()
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := Run(append([]string{"serve", "bays"}, append(args, "--data", dir)...), Env{Stdout: &out, Stderr: ioDiscard()})
+		return out.String(), err
+	}
+	must := func(want string, args ...string) {
+		t.Helper()
+		out, err := run(args...)
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("%v: %q %v", args, out, err)
+		}
+	}
+	must("no rules", "rules")
+	must("created bay review", "create", "review")
+	must("added rule 1: hold review when cwd-prefix=/src/client harness=claude", "rule", "review", "--hold", "--cwd-prefix", "/src/client", "--harness", "claude")
+	must("added rule 2: add default when git-remote-prefix=git@host:org", "rule", "default", "--add", "--git-remote-prefix", "git@host:org")
+	for name, args := range map[string][]string{
+		"no action":     {"rule", "review", "--cwd-prefix", "/x"},
+		"two actions":   {"rule", "review", "--add", "--deny", "--cwd-prefix", "/x"},
+		"no match":      {"rule", "review", "--add"},
+		"unknown bay":   {"rule", "nope", "--add", "--cwd-prefix", "/x"},
+		"bad glob":      {"rule", "review", "--add", "--cwd-glob", "src/*"},
+		"bad rule id":   {"unrule", "one"},
+		"missing rule":  {"unrule", "9"},
+		"not held":      {"release", "01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+		"no release id": {"release"},
+	} {
+		if _, err := run(args...); err == nil {
+			t.Errorf("%s: %v accepted", name, args)
+		}
+	}
+	must("1 hold review when cwd-prefix=/src/client harness=claude by=serve bays rule", "rules")
+	must("removed rule 1", "unrule", "1")
+	out, err := run("rules")
+	if err != nil || strings.Contains(out, "hold review") || !strings.Contains(out, "2 add default") {
+		t.Fatalf("rules after unrule: %q %v", out, err)
+	}
+	must("no holds", "holds")
+	raw, err := os.ReadFile(filepath.Join(dir, audit.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{audit.BayRuleAdded, audit.BayRuleRemoved} {
+		if !strings.Contains(string(raw), `"`+kind+`"`) {
+			t.Errorf("audit log has no %s", kind)
+		}
+	}
+}

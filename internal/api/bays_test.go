@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +115,41 @@ func TestManifestBaysAreBounded(t *testing.T) {
 	for name, bays := range map[string][]string{"many": many, "empty": {""}, "long": {strings.Repeat("a", maxBayRef+1)}} {
 		if rr := postBays(t, s, laptopToken, "sess-"+name, sum, size, true, bays...); rr.Code != http.StatusBadRequest {
 			t.Errorf("%s: %d %s", name, rr.Code, rr.Body)
+		}
+	}
+}
+
+// TestHelloListsOnlyTheDevicesWritableBays: a device learns the names
+// of the bays it may write and of no other.
+func TestHelloListsOnlyTheDevicesWritableBays(t *testing.T) {
+	ctx := t.Context()
+	s, _, _, _, _ := devicesLake(t)
+	for _, name := range []string{"work", "client-secret"} {
+		if _, err := s.Catalog.CreateBay(ctx, name, "admin", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	laptop, err := s.Catalog.DeviceByName(ctx, "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Catalog.AddGrant(ctx, catalog.PrincipalDevice, laptop.ID, "work", catalog.PermWrite, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for token, want := range map[string][]string{laptopToken: {"default", "work"}, desktopToken: {"default"}} {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/v1/hello", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		s.Handler().ServeHTTP(rr, req)
+		var hello protocol.HelloResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &hello); err != nil || rr.Code != http.StatusOK {
+			t.Fatalf("hello %d %s", rr.Code, rr.Body)
+		}
+		if !reflect.DeepEqual(hello.Bays, want) || !slices.Contains(hello.Features, protocol.FeatureBays) {
+			t.Errorf("bays %v features %v want %v", hello.Bays, hello.Features, want)
+		}
+		if strings.Contains(rr.Body.String(), "client-secret") {
+			t.Errorf("hello names a bay the device may not write: %s", rr.Body)
 		}
 	}
 }

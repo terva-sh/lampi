@@ -205,6 +205,33 @@ func (c *Catalog) RemoveBayRule(ctx context.Context, id int64, actor string, now
 	})
 }
 
+// WritableBays names the bays deviceID may write, sorted. Empty
+// deviceID is a lake with no tokens, where every bay is writable. A
+// device is told no other bay's name.
+func (c *Catalog) WritableBays(ctx context.Context, deviceID string) ([]string, error) {
+	q := `SELECT name FROM bays ORDER BY name`
+	var args []any
+	if deviceID != "" {
+		q = `SELECT b.name FROM bays b JOIN bay_grants g ON g.bay_id = b.id
+			WHERE g.principal_kind=? AND g.principal=? AND g.permission=? ORDER BY b.name`
+		args = []any{PrincipalDevice, deviceID, PermWrite}
+	}
+	rows, err := c.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
 // Route is who posted a manifest, which decides the bays it may ask
 // for. DeviceID empty is a post with no device row, from a tool on the
 // lake host or a test: every bay that exists is accepted.

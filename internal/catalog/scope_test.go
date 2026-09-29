@@ -30,7 +30,7 @@ var unscoped = map[string]string{
 	"IngestChanged": "write: returns only the poster's own session", "MarkPublished": "write",
 	"IngestRouted": "write: returns only the poster's own session", "AddBayRule": "write",
 	"RemoveBayRule": "write", "ReleaseHold": "write", "BayRules": "rule listing for serve bays on the lake host",
-	"Holds":    "serve bays holds on the lake host, which holds every bay",
+	"Holds": "serve bays holds on the lake host, which holds every bay", "WritableBays": "bay names a device was granted, for its own hello",
 	"Migrated": "lifecycle", "PutDeviceInventory": "write", "PutDeviceReport": "write",
 	"PutProfile": "write", "PutProfileIf": "write", "PutProfilesIf": "write", "QueueAudit": "write",
 	"RecordExpiries": "write", "RecordLakeID": "write", "RecordStorage": "write", "Redeem": "write",

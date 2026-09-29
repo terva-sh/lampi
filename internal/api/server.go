@@ -521,6 +521,16 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
+	// A lake with no tokens has no device, and every bay is writable.
+	var deviceID string
+	if d, ok := deviceOf(r); ok {
+		deviceID = d.ID
+	}
+	bays, err := s.Catalog.WritableBays(r.Context(), deviceID)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, protocol.HelloResponse{
 		ServerTime:       now,
 		ProtocolVersions: []int{protocol.Version},
@@ -528,7 +538,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		LakeID:           lakeID,
 		Proof:            proof,
 		Release:          s.Release,
-		Features:         []string{protocol.FeatureLargeTails},
+		Features:         []string{protocol.FeatureLargeTails, protocol.FeatureBays},
+		Bays:             bays,
 	})
 }
 
