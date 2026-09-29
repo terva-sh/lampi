@@ -2,6 +2,8 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -212,7 +214,43 @@ func TestInboxNamesWhatPlacedASessionInDefault(t *testing.T) {
 	if !reflect.DeepEqual(got[asked], []string{"asked for the default bay, as default"}) {
 		t.Errorf("asked: %v", got[asked])
 	}
-	if want := fmt.Sprintf("added to the default bay by rule %d", rule.ID); !reflect.DeepEqual(got[added], []string{want}) {
+	if want := fmt.Sprintf("matches add rule %d, which names the default bay", rule.ID); !reflect.DeepEqual(got[added], []string{want}) {
 		t.Errorf("rule: %v want %q", got[added], want)
 	}
+}
+
+// A bulk move does not take a held session out of its hold bay: only a
+// release places it (review 1468). A cwd hash or glob narrows a move
+// like any other filter.
+func TestMoveRefusesAHeldSessionAndTakesEveryMatchField(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	r.rule(RuleHold, config.ProjectMatch{CWDPrefix: "/src/held"}, "hold")
+	held := r.mustPost("sess-held", "/src/held").SessionUID
+	_, err := r.c.MoveSessions(ctx, Move{From: "hold", To: "work", Filter: SessionFilter{CWDPrefix: "/src/held"}, Actor: "admin"}, time.Now())
+	if !errors.Is(err, ErrSessionHeld) {
+		t.Fatalf("move of a held session: %v", err)
+	}
+	if got := r.bays(held); !reflect.DeepEqual(got, []string{r.holdB.ID}) {
+		t.Fatalf("bays %v", got)
+	}
+	a := r.mustPost("sess-a", "/src/a").SessionUID
+	r.mustPost("sess-b", "/src/b")
+	moved, err := r.c.MoveSessions(ctx, Move{From: DefaultBayName, To: "work", Filter: SessionFilter{CWDGlob: "/src/a"}, Actor: "admin", DryRun: true}, time.Now())
+	if err != nil || !reflect.DeepEqual(moved, []string{a}) {
+		t.Fatalf("glob: %v %v", moved, err)
+	}
+	// An agent sends the hash with the cwd; this helper does not.
+	if _, err := r.c.db.Exec(`UPDATE sessions SET manifest_json = json_set(manifest_json, '$.project.cwd_hash', ?) WHERE session_uid = ?`, cwdHashOf("/src/a"), a); err != nil {
+		t.Fatal(err)
+	}
+	moved, err = r.c.MoveSessions(ctx, Move{From: DefaultBayName, To: "work", Filter: SessionFilter{CWDHash: cwdHashOf("/src/a")}, Actor: "admin", DryRun: true}, time.Now())
+	if err != nil || !reflect.DeepEqual(moved, []string{a}) {
+		t.Fatalf("hash: %v %v", moved, err)
+	}
+}
+
+func cwdHashOf(cwd string) string {
+	sum := sha256.Sum256([]byte(cwd))
+	return hex.EncodeToString(sum[:8])
 }

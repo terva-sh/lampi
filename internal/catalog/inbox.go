@@ -161,7 +161,8 @@ func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[stri
 
 // placedInDefault says what put a session in the default bay on
 // purpose: a request for it the lake accepted, or an add rule naming it
-// (review 1467). It stays in the inbox, which is the default bay, with
+// (review 1467). A rule is named as one the session matches now, which
+// need not be the one that placed it (review 1468). It stays in the inbox, which is the default bay, with
 // that reason rather than one saying nothing placed it.
 func (c *Catalog) placedInDefault(ctx context.Context, e InboxEntry, rules []BayRule) ([]string, error) {
 	var out []string
@@ -197,7 +198,7 @@ func (c *Catalog) placedInDefault(ctx context.Context, e InboxEntry, rules []Bay
 	id := projectOf(e.manifest)
 	for _, r := range rules {
 		if r.Action == RuleAdd && r.BayID == DefaultBayID && r.matches(id, e.manifest.Harness) {
-			out = append(out, fmt.Sprintf("added to the default bay by rule %d", r.ID))
+			out = append(out, fmt.Sprintf("matches add rule %d, which names the default bay", r.ID))
 		}
 	}
 	return out, nil
@@ -220,6 +221,8 @@ type SessionFilter struct {
 	GitRemote       string
 	GitRemotePrefix string
 	CWDPrefix       string
+	CWDGlob         string
+	CWDHash         string
 	Device          string
 	Harness         string
 }
@@ -230,6 +233,29 @@ func (f SessionFilter) empty() bool { return f == SessionFilter{} }
 // session in the bay, and that is asked for by name, not by leaving a
 // filter out.
 var ErrNoFilter = errors.New("catalog: name at least one filter")
+
+// ErrSessionHeld is a membership change to a session a hold rule holds
+// for review. Only a release places it, so readers of another bay do
+// not see it before an admin has (review 1468).
+var ErrSessionHeld = errors.New("catalog: the session is held for review; serve bays release UID places it")
+
+// refuseHeld returns ErrSessionHeld when any of uids is held.
+func refuseHeld(ctx context.Context, tx *sql.Tx, uids []string) error {
+	var held []string
+	for _, uid := range uids {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM session_holds WHERE session_uid=? AND state=?`, uid, HoldHeld).Scan(&n); err != nil {
+			return fmt.Errorf("catalog: %w", err)
+		}
+		if n > 0 {
+			held = append(held, uid)
+		}
+	}
+	if len(held) > 0 {
+		return fmt.Errorf("%w: %d matching sessions are held, first %s; release them or narrow the filter", ErrSessionHeld, len(held), held[0])
+	}
+	return nil
+}
 
 // Move is one bulk move: the sessions in From that f matches are added
 // to To and taken out of From. Moved lists them. With DryRun nothing is
@@ -266,6 +292,9 @@ func (c *Catalog) MoveSessions(ctx context.Context, m Move, now time.Time) ([]st
 	}
 	uids, err := matchSessions(ctx, tx, from, m.Filter)
 	if err != nil {
+		return nil, err
+	}
+	if err := refuseHeld(ctx, tx, uids); err != nil {
 		return nil, err
 	}
 	for _, uid := range uids {
@@ -321,7 +350,7 @@ func matchSessions(ctx context.Context, tx *sql.Tx, bay string, f SessionFilter)
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
 	defer rows.Close()
-	rule := config.ProjectMatch{CWDPrefix: f.CWDPrefix, GitRemote: f.GitRemote, GitRemotePrefix: f.GitRemotePrefix}
+	rule := config.ProjectMatch{CWDPrefix: f.CWDPrefix, CWDGlob: f.CWDGlob, CWDHash: f.CWDHash, GitRemote: f.GitRemote, GitRemotePrefix: f.GitRemotePrefix}
 	var out []string
 	for rows.Next() {
 		var uid, harness, project, raw string

@@ -29,8 +29,10 @@ lake:
 
    A move takes sessions out of `--from`, the default bay unless named,
    and puts them in the target. The filters are `--project`,
-   `--git-remote`, `--git-remote-prefix`, `--cwd-prefix`, `--device`
-   and `--harness`, and every one given must match. A move needs at
+   `--git-remote`, `--git-remote-prefix`, `--cwd-prefix`, `--cwd-glob`,
+   `--cwd-hash`, `--device` and `--harness`, and every one given must
+   match. A move that matches a session held for review is refused:
+   release it first. A move needs at
    least one. A move from the default bay also takes a matching session
    that is in no bay.
 4. Grant the bays to the groups that read them:
@@ -72,7 +74,7 @@ for one folder only is a `cwd_hash`.
 |--------|------------|
 | no bay asked for and no rule added one | Add a lake rule, or a request rule on the machine, for sessions like it. Move this one. |
 | asked for the default bay, as X | The machine asks for the default bay by name. Change its request rules, or move it. |
-| added to the default bay by rule N | A lake add rule names the default bay. Point the rule at the bay these sessions belong in. |
+| matches add rule N, which names the default bay | A lake add rule names the default bay. Point the rule at the bay these sessions belong in. |
 | placed in another bay and still in the default | A rule or a move added it elsewhere; both only add. `serve bays move BAY --from default` with a filter takes it out of the default. |
 | asked for bay X: refused, not granted | The device asked for a bay it may not write. Grant it, or fix the machine's config. |
 | asked for bay X: refused, no such bay | The machine asks for a bay the lake does not have, or by a name since changed. `serve bays alias` keeps an old name working. |

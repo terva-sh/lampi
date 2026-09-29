@@ -41,7 +41,7 @@ usage:
 MATCH is one or more of --cwd-prefix P, --cwd-glob G, --cwd-hash H,
 --git-remote R, --git-remote-prefix R and --harness H. FILTER is one or
 more of --project ID, --git-remote R, --git-remote-prefix R, --cwd-prefix
-P, --device NAME and --harness H.
+P, --cwd-glob G, --cwd-hash H, --device NAME and --harness H.
 
 A bay is a named segment of the lake and an access boundary
 (docs/policy.md#bays). A session is in one or more bays. BAY is a bay's
@@ -88,7 +88,8 @@ default bay with nothing that placed it, a request the lake refused
 
 move adds the sessions in --from (default: the default bay) that every
 FILTER matches to BAY, and takes them out of --from. From the default
-bay it also places a matching session that is in no bay. apply-rules routes
+bay it also places a matching session that is in no bay. A move that
+matches a session held for review is refused; release it first. apply-rules routes
 every stored session again by the rules as they are now: it only adds,
 and a hold flags. --dry-run lists what either would change and writes
 nothing. Every change is audited.
@@ -272,7 +273,7 @@ func runServeBays(env Env, args []string) error {
 		}
 		done = fmt.Sprintf("removed rule %d", id)
 	case "move":
-		f := catalog.SessionFilter{Project: project, GitRemote: match.GitRemote, GitRemotePrefix: match.GitRemotePrefix, CWDPrefix: match.CWDPrefix, Harness: harness}
+		f := catalog.SessionFilter{Project: project, GitRemote: match.GitRemote, GitRemotePrefix: match.GitRemotePrefix, CWDPrefix: match.CWDPrefix, CWDGlob: match.CWDGlob, CWDHash: match.CWDHash, Harness: harness}
 		if device != "" {
 			d, err := cat.DeviceByName(ctx, device)
 			if err != nil {
