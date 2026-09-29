@@ -522,9 +522,10 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A lake with no tokens has no device, and every bay is writable.
-	var deviceID string
-	if d, ok := deviceOf(r); ok {
-		deviceID = d.ID
+	deviceID, ok := s.requestDevice(r)
+	if !ok {
+		s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this request has no device"))
+		return
 	}
 	bays, err := s.Catalog.WritableBays(r.Context(), deviceID)
 	if err != nil {
