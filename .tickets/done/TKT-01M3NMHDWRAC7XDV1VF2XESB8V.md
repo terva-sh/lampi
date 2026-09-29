@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NMHDWRAC7XDV1VF2XESB8V
 title: "lakes adopt: pin a lake a machine already syncs to, so it takes profiles"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/16ebd168
-  branch: agent/lakes-adopt
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-16ebd168
-  commit: a43c5ce9142557e3a943e0aa4a8455954cb3d256
-  session: null
-  claimed_at: 2026-09-29T03:50:13Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:50:06Z
-updated_at: 2026-09-29T04:39:08Z
+updated_at: 2026-09-29T05:06:37Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -71,7 +64,7 @@ A machine that syncs to a lake with a device token but never registered has no p
 - [x] adopt refuses without a confirmed fingerprint, with a token the lake does not know, and before writing when a project would stop uploading
 - [x] The dashboard says a token-file device with no profile fetches none and to run lakes adopt
 - [x] docs for people (registration-and-lakes, cli, web-dashboard, web-api) and for model agents (AGENTS.md)
-- [ ] The workstation's original importer (token-1) is adopted and takes the default profile
+- [x] The workstation's original importer (token-1) is adopted and takes the default profile
 
 ## Notes
 
@@ -117,3 +110,13 @@ Prepared in the external handoff `narrow-default-A6uVhshY`, for the owner to run
 **agent:claude-code/16ebd168** at 2026-09-29T04:39:08Z
 
 The owner applied the narrowed default at 04:38Z: revision 9, sha256:5c6a11a9c51918f4, replacing revision 8 (e057488d). The workstation agent applied it within about 16 s: projects_allow=109, allow_source=lake:default. agent refused is unchanged at 23 sessions in 6 projects.
+
+## Summary
+
+Landed in PR #133 (merge 1efaf2d on main, synced to GitHub). `terva-lampi lakes adopt [NAME]` pins a lake a machine already syncs to, in place, keeping its machine id, token, device and watermarks. It checks the lake's key list against a fingerprint from the lake host, then the token, then fetches the profile under the pin. `--allow-from profile` hands the allow rules to the profile. It refuses when a project or harness would stop uploading (unless `--force`), and asks before uploading more on a terminal or refuses without one (unless `--yes`). Its writes are held under the config lock against a snapshot of config.json and the cached profiles.
+
+The dashboard marks devices that fetch no profile, using the agent report's new `pinned` field and inferring it for older agents, and offers them no Allow. Docs: registration-and-lakes, cli, web-dashboard, web-api, protocol, and an AGENTS.md section for model agents.
+
+Live: on 2026-09-29 the workstation's importer token-1 was adopted as dev_3pturjpy67cdkl4dxblfr2tp7u with nothing re-sent. It then switched to the default profile, which uploaded 60 newly allowed sessions that the owner chose to keep. default was narrowed to revision 9 (home-folder cwd_prefix rules replaced by exact cwd_hash rules), and the agent took it about 16 s later.
+
+Follow-ups filed as drafts: TKT-01M3NQ8324 (Allow on a folder project allows everything under it) and TKT-01M3NQ2RT5 (normalize fails a whole session on a torn line).
