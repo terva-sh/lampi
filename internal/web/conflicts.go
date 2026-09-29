@@ -349,18 +349,25 @@ func (s *Server) changeConflict(r *http.Request, id, action, note, head string) 
 	}
 	// The change and its event committed together. A line that cannot
 	// be written now stays queued for the next flush.
-	if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
-		s.logError(r, "changed a conflict but the audit line failed", err)
-		return http.StatusInternalServerError, "audit_failed"
+	flushErr := lake.Catalog.FlushAudit(ctx, lake.Dir)
+	if flushErr != nil {
+		s.logError(r, "changed a conflict but the audit line failed", flushErr)
 	}
-	// A new head is normalized now. The job row committed with the
-	// change, so a kick that fails leaves it for the next start or
-	// SIGHUP, and the operator is told so.
+	// A new head is normalized now, whether or not the audit line
+	// landed: the change and its job row committed together. A kick that
+	// fails leaves the job for the next start or SIGHUP, and the operator
+	// is told so.
+	var kickErr error
 	if action == "make-head" && s.reg.Normalize != nil {
-		if _, err := s.reg.Normalize(ctx); err != nil {
-			s.logError(r, "queueing normalization after a head change failed", err)
-			return http.StatusInternalServerError, "normalize_failed"
+		if _, kickErr = s.reg.Normalize(ctx); kickErr != nil {
+			s.logError(r, "queueing normalization after a head change failed", kickErr)
 		}
+	}
+	switch {
+	case flushErr != nil:
+		return http.StatusInternalServerError, "audit_failed"
+	case kickErr != nil:
+		return http.StatusInternalServerError, "normalize_failed"
 	}
 	return http.StatusOK, ""
 }

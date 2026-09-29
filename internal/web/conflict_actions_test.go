@@ -296,7 +296,7 @@ func TestOperatorMakesACopyTheHead(t *testing.T) {
 		t.Fatalf("head %s %v", sum.HeadSHA256, err)
 	}
 	page := get(h, conflictURL(id), op).Body.String()
-	for _, want := range []string{"Made the head", "this copy is the session's head now", "There is nothing to settle."} {
+	for _, want := range []string{"Made the head", "This copy is the session's head now.", "There is nothing to settle."} {
 		if !strings.Contains(page, want) {
 			t.Errorf("after make-head the page lacks %q", want)
 		}
@@ -379,5 +379,57 @@ func TestMakeHeadReportsAFailedNormalizeKick(t *testing.T) {
 	}
 	if jobs, err := lake.Catalog.ListNormalizeJobs(t.Context()); err != nil || len(jobs) != 1 {
 		t.Errorf("the job row is not left for the next start: %+v %v", jobs, err)
+	}
+}
+
+// A copy with the head's bytes at another path is still an open conflict
+// with actions; only the artifact that is the head has nothing to
+// settle.
+func TestSameBytesAtAnotherPathStayActionable(t *testing.T) {
+	lake, idp, h, _ := rawLake(t, nil)
+	_, id := forkSession(t, lake, "forked", "one\n", "two\n")
+	two := putBlob(t, lake, []byte("two\n"))
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-c", Harness: "codex", NativeSessionID: "forked",
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "other/forked/rollout.jsonl", SHA256: two, Size: 4}}}
+	ack, err := lake.Catalog.Ingest(t.Context(), m, time.Now(), []catalog.Decision{{Relation: protocol.RelationDivergentCopy, Record: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twin := ack.ArtifactIDs[0]
+	op := signInAs(t, idp, h, "ops")
+	if w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrfOf(t, h, op)}, "head": {putBlob(t, lake, []byte("one\n"))}}, op); w.Code != 303 {
+		t.Fatalf("make-head: %d", w.Code)
+	}
+	if page := get(h, conflictURL(id), op).Body.String(); !strings.Contains(page, "There is nothing to settle.") {
+		t.Error("the new head offers actions")
+	}
+	page := get(h, conflictURL(twin), op).Body.String()
+	if strings.Contains(page, "There is nothing to settle.") || !strings.Contains(page, "Keep the head") || !strings.Contains(page, "The copy and the head are the same bytes.") {
+		t.Error("an open copy with the head's bytes has no actions")
+	}
+}
+
+// When the audit line cannot be written, the new head is still
+// normalized at once.
+func TestMakeHeadKicksNormalizeWhenTheAuditFlushFails(t *testing.T) {
+	lake, idp, h, dir := rawLake(t, nil)
+	_, id := forkSession(t, lake, "forked", "one\n", "two\n")
+	op := signInAs(t, idp, h, "ops")
+	csrf := csrfOf(t, h, op)
+	if err := os.RemoveAll(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrf}, "head": {putBlob(t, lake, []byte("one\n"))}}, op)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "audit log failed") {
+		t.Errorf("flush failure: %d", w.Code)
+	}
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if jobs, err := lake.Catalog.ListNormalizeJobs(t.Context()); err != nil || len(jobs) != 0 {
+		t.Errorf("the job waited for the next start: %+v %v", jobs, err)
 	}
 }
