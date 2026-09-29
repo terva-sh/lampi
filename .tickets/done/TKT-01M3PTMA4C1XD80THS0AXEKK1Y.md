@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3PTMA4C1XD80THS0AXEKK1Y
 title: "Conflicts: explain them and let an operator settle them"
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T14:55:46Z
-updated_at: 2026-09-29T18:04:49Z
+updated_at: 2026-09-29T18:04:57Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
