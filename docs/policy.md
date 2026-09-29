@@ -237,8 +237,11 @@ signed-in viewer reads the whole lake, as
   bays is in it, and a session that nothing places lands in it. It
   cannot be deleted and can have an alias. Only admins, and principals
   granted it by name, read it, because it holds sessions nobody has
-  sorted. The aim is to keep it empty. An admin can turn it off, and then
-  a session that nothing places is refused and stays on its machine.
+  sorted. The aim is to keep it empty. An admin can turn it off. That
+  applies at ingest only: a new session that nothing places is then
+  refused and stays on its machine. The bay itself stays, keeps what is
+  in it, and still takes a stored session that loses its last other bay,
+  so no stored session is ever left in no bay.
 - **The agent asks and the lake decides.** An agent requests bays with
   rules that match the way `projects` rules do. The lake records the
   request, then applies its own rules: hold a session for review, add a
