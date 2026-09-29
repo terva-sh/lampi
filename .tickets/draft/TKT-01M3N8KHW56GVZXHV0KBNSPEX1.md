@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T01:24:39Z
+updated_at: 2026-09-29T01:43:56Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -58,3 +58,13 @@ Grilling round 1 with human:sothr, 2026-09-29. Decisions:
 - Unit of routing: the session. Each session is routed by rules on the fields the allowlist already uses (cwd, git remote, harness). A project-wide or device-wide default is expressed as a rule. Accepted cost: a project whose remote or cwd changes can end up split across bays.
 - Default bay: every lake has one. Existing data migrates into it, and a session no rule matches lands in it. It is the landing bucket, an inbox. It cannot be deleted. It can be given an alias, a second name it is shown and routable under, which does not make it a different bay. An operator can turn the default off, so every session must match a rule; what happens to an unmatched session then is still open.
 - Treat the default like an inbox and aim for zero: once someone starts sorting, the tooling and docs should help empty it (see which sessions are still unsorted and why, and move them in bulk).
+
+**agent:claude-code/7859b064** at 2026-09-29T01:43:56Z
+
+Grilling round 2 with human:sothr, 2026-09-29. Decisions:
+
+- Default bay access: the default bay (under its own name or an alias) can be read only by operators, admins, and tokens granted it explicitly. Nobody gets it implicitly, because it holds whatever has not been sorted yet. A single-owner lake grants its owner the default bay at migration.
+- Routing is shared between agent and lake. The lake publishes a list of bays to the client, and an agent can be configured to deposit a session into one or more bays. The lake then applies its own rules at ingest, and a matching rule overrides the request: for example, a session started in a sensitive location lands in a holding bay first, and an operator then moves it back to the bays it asked for, moves it somewhere else for good, or keeps it out of a requested bay. Deployed agents carry reasonable defaults, and the operator keeps control of what goes where. Rejected: lake-only routing (it cannot place a session with nothing to match on, such as a scratch directory with no remote) and agent-only routing (the lake could not keep sensitive work out of a bay).
+- Membership: a session can belong to one or more bays. Membership is a catalog relation and never copies data. A machine can submit to several bays. This replaces the round 1 recommendation of exactly one bay per session.
+- Storage: one blob store shared by the whole lake, with dedup across bays. A device can use blobs/check to confirm that a hash it can guess exists somewhere in the lake; that is recorded as a known limit, not fixed.
+- Moving sessions: bay membership can be edited after ingest, every change is audited (who, when, why), and the rules can be run again over stored sessions.
