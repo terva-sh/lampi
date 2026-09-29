@@ -57,6 +57,8 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"deviceURL":     deviceURL,
 	"allowable":     allowable,
 	"denied":        func(reason string) bool { return reason == config.RefusedByDeny },
+	"ruleText":      ruleText,
+	"ownerOf":       ownerOf,
 	"sessionURL":    func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
 	"transcriptURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) + "/transcript" },
 	"rawURL":        func(uid string) string { return rawPath(url.PathEscape(uid)) },

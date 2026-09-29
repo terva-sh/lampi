@@ -158,3 +158,67 @@ func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
 		f.Note = note
 	}
 }
+
+// The widths Allow can add a rule at: the project's own repository, or
+// every repository under its owner.
+const (
+	widthRepository = "repository"
+	widthOwner      = "owner"
+)
+
+// readWidth is the width a form or request names; empty is the
+// repository.
+func readWidth(s string) (string, bool) {
+	switch s {
+	case "", widthRepository:
+		return widthRepository, true
+	case widthOwner:
+		return widthOwner, true
+	}
+	return "", false
+}
+
+// ownerOf is the owner a remote's owner-wide rule would name, or "" when
+// it would be the bare host or the remote folds to nothing.
+func ownerOf(remote string) string {
+	o, ok := remoteOwner(config.ProjectMatch{GitRemote: remote})
+	if !ok || config.NormalizeRemote(remote) == "" {
+		return ""
+	}
+	return o
+}
+
+// allowRuleAt is the rule Allow adds for a refused project at width: at
+// owner width a git_remote_prefix for the remote's owner, and otherwise,
+// or when the owner would be the bare host, allowRule's.
+func allowRuleAt(remote, cwd, width string) (config.ProjectMatch, bool) {
+	if o := ownerOf(remote); width == widthOwner && o != "" {
+		return config.ProjectMatch{GitRemotePrefix: o}, true
+	}
+	return allowRule(remote, cwd)
+}
+
+// withRules is allow with add appended, less every rule of allow that
+// one of add covers and is wider than, and the rules it removed. A rule
+// of add that a kept rule, or another rule of add, covers is not added,
+// so a rule already there stays where it is.
+func withRules(allow, add []config.ProjectMatch) (out, removed []config.ProjectMatch) {
+	add, _ = withoutCovered(add)
+	coveredByAny := func(rules []config.ProjectMatch, r config.ProjectMatch) bool {
+		return slices.ContainsFunc(rules, func(a config.ProjectMatch) bool { return config.Covers(a, r) })
+	}
+	for _, r := range allow {
+		if slices.ContainsFunc(add, func(a config.ProjectMatch) bool { return config.Covers(a, r) && !config.Covers(r, a) }) {
+			removed = append(removed, r)
+			continue
+		}
+		out = append(out, r)
+	}
+	kept := slices.Clone(out)
+	for _, r := range add {
+		if !coveredByAny(kept, r) {
+			out = append(out, r)
+		}
+	}
+	return out, removed
+}

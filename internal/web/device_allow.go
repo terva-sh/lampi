@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
+	"strconv"
 	"strings"
 
 	"terva.sh/lampi/internal/catalog"
@@ -72,7 +72,12 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 		s.renderDevice(w, r, id, false, "An allow rule cannot let that project through: "+row.Reason+".", http.StatusConflict)
 		return
 	}
-	rule, ok := allowRule(row.GitRemote, row.CWD)
+	width, ok := readWidth(r.PostForm.Get("width"))
+	if !ok {
+		s.renderDevice(w, r, id, false, "Allow the repository, or every repository under its owner.", http.StatusBadRequest)
+		return
+	}
+	rule, ok := allowRuleAt(row.GitRemote, row.CWD, width)
 	if !ok {
 		s.renderDevice(w, r, id, false, "That project has no git remote or cwd to allow.", http.StatusBadRequest)
 		return
@@ -93,7 +98,8 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := cur
-	next.Projects.Allow = append(slices.Clone(cur.Projects.Allow), rule)
+	var removed []config.ProjectMatch
+	next.Projects.Allow, removed = withRules(cur.Projects.Allow, []config.ProjectMatch{rule})
 	raw, _ := json.Marshal(next)
 	p, _, err := checkProfile(raw)
 	if err != nil {
@@ -109,7 +115,11 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setReturn(r, &v, back)
 	v.Form.Note = "Allow " + ruleText(rule) + ", refused on " + d.Name
-	v.Notice = "Adds an allow rule for " + ruleText(rule) + " to profile " + name + ", which " + d.Name + " uses. Check the devices it reaches, then save."
+	v.Notice = "Adds an allow rule for " + ruleText(rule) + " to profile " + name + ", which " + d.Name + " uses"
+	if len(removed) > 0 {
+		v.Notice += ", and drops " + strconv.Itoa(len(removed)) + " " + plural(len(removed), "rule", "rules") + " it covers"
+	}
+	v.Notice += ". Check the devices it reaches and the projects it admits, then save."
 	if v.Preview, err = s.preview(r, name, p); err != nil {
 		pageError(w, r, err)
 		return
