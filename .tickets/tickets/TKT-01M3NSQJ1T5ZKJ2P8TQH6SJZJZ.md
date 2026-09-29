@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T05:20:50Z
-updated_at: 2026-09-29T05:22:42Z
+updated_at: 2026-09-29T05:25:42Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -61,7 +61,34 @@ Cut v0.4.0 from main at 1740c08, nine merges past v0.3.0. The owner asked on 202
 
 - [x] A scratch lake seeded by v0.3.0 upgraded with a 1740c08 build: schema 17, counts kept, fsck clean, agents sync nothing new
 - [ ] v0.4.0 is tagged on both forges and its archives and image name the tag
-- [ ] Release notes state the 16 to 17 migration and its rollback, lake-before-agents, and lakes adopt
+- [x] Release notes state the 16 to 17 migration and its rollback, lake-before-agents, and lakes adopt
+
+## Implementation plan
+
+Tag v0.4.0 at 1740c08 (on both mains), push to origin and github, check the archives and image, then prepend these notes to both release bodies.
+
+#### Upgrading from v0.3.0
+
+- **The catalog migrates from schema 16 to 17.** The migration adds `read_tokens`. `serve` migrates when it starts, after copying `catalog.db` into `migration-backups/`. v0.3.0 refuses a schema-17 catalog. To roll back, stop `serve`, restore the catalog from that copy or from a `serve backup` taken before the upgrade, and start v0.3.0. Nothing else on disk changes: blobs, events files and the search index keep their format, so there is nothing to normalize or rebuild.
+- **No group becomes admin on upgrade.** Raw artifact reads and read tokens are admin-only. To use them, map a group to `admin` in the web config's `role_map`. A lake with no admin group starts as before and logs a warning.
+- **Upgrade the lake before the agents.** The capture protocol is unchanged apart from an added field, so v0.3.0 agents keep syncing to a v0.4.0 lake.
+
+#### New
+
+- **`terva-lampi lakes adopt`** pins a lake that a machine already syncs to with a device token, so the machine takes the lake's profiles. Before this, such a machine never fetched a profile. The machine keeps its machine id, token, device and sync state, and nothing is sent again.
+  - The lake's key is checked against a fingerprint you take from `serve identity` on the lake host, then the token is checked, and then the profile is fetched under the pin.
+  - Plain `adopt` keeps the local allow rules. `adopt --allow-from profile` then hands them to the profile.
+  - It refuses any change that would stop uploading a project or turn off a harness, listing what would stop, unless you pass `--force`.
+  - Before uploading projects it did not upload before, it lists them and asks. Without a terminal it refuses unless you pass `--yes`.
+  - See `docs/registration-and-lakes.md#adopting-a-lake-a-machine-already-syncs-to`.
+- **The dashboard marks devices that fetch no profile.** They are named on the review queue, the devices list and the device page, with the `lakes adopt` hint, and are not offered Allow. Agents now report `pinned`.
+- **The admin role**, above operator. It adds:
+  - a **Raw** tab on a session's page, which downloads the session's artifacts, capped at 8 MiB with Range support;
+  - **read tokens**, minted at `/admin/read-tokens`, which let a tool read raw artifacts through `GET /api/raw/v1/sessions/{uid}/artifacts/{sha256}`. A token is scoped to the lake or to listed sessions and expires within 90 days.
+
+  Every mint, revoke and read is audited.
+- **The profile editor previews the effect of an edit.** Changing allow or deny rules lists the projects the change would admit and would stop, taken from each device's newest inventory.
+- **The profile editor can shorten the allow list** (**Fewer rules**). It removes rules another rule already covers, and replaces three or more repositories under one owner with a `git_remote_prefix`. Nothing is saved until you save.
 
 ## Notes
 
