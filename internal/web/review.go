@@ -208,8 +208,10 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 		return e.Config.Projects, nil
 	}
 	// caughtUp reports whether device id has applied its current
-	// profile and sent an inventory since that profile was last saved:
-	// a refusal from it is not waiting on the profile any more.
+	// profile and sent an inventory after both that profile's save and
+	// the report saying it applied it: a refusal in that inventory is
+	// not waiting on the profile any more. Without that order the lake
+	// cannot tell, and the copy stays allow pending.
 	saved := map[string]time.Time{}
 	received := map[string]time.Time{}
 	caughtUp := func(id, profile string) (bool, error) {
@@ -232,7 +234,13 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 			}
 			got, received[id] = inv.Received, inv.Received
 		}
-		return got.After(at), nil
+		reported, err := time.Parse(time.RFC3339Nano, rows[id].Reported)
+		if err != nil {
+			return false, nil
+		}
+		// Reported is cut to the second; an inventory in the same second
+		// may have come first.
+		return got.After(at) && got.After(reported.Add(time.Second)), nil
 	}
 	seen := map[catalog.ProjectKey]int{}
 	for _, p := range q.Projects {

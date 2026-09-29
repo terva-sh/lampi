@@ -299,6 +299,10 @@ func TestReviewAllowPendingOnlyUntilTheDeviceCatchesUp(t *testing.T) {
 	if err := lake.Catalog.PutDeviceReport(ctx, ds[0].ID, protocol.AgentReport{AgentVersion: "v0.2.0", ProfileVersion: def.Version, AllowSource: "lake default", DenySource: "none"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	// The report alone, with no inventory since it, proves nothing.
+	if !strings.Contains(get(h, "/review", cookie).Body.String(), "Allow pending (1)") {
+		t.Fatal("a report of the current profile with no inventory after it ended allow pending")
+	}
 	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: time.Now().Add(time.Minute), Projects: []protocol.InventoryProject{
 		{CWD: "/work/pending", CWDs: 1, Harnesses: []string{"claude"}, Sessions: 1, Reason: config.RefusedNoMatch},
 	}}
