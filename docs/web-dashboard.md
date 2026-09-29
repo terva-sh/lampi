@@ -368,7 +368,10 @@ added and previewed, listing every device the profile reaches and counting
 those whose own `config.json` sets their allow rules, and a note already
 filled in that you can change or clear. Save there, as for any edit: a save
 refused because someone else changed the profile shows it again against what
-is stored now. A project a deny rule refuses has no Allow, since a deny rule
+is stored now. The editor offers Back to the device instead of Cancel, and a
+save returns to the device's page, keeping its *Refused only* filter, with a
+notice naming the revision saved and its note. The project still reads refused
+there until the agent sends its next inventory. A project a deny rule refuses has no Allow, since a deny rule
 wins over any allow rule, and neither does a session with no cwd. Allow
 checks the project against the newest inventory the device sent, and says so
 instead of opening the editor when the project is no longer refused there, or

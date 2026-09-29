@@ -97,9 +97,21 @@ type profileEditView struct {
 	Problem string
 	// Notice says why the editor opened with a change already made, as
 	// the Allow action on a device's page opens it.
-	Notice  string
-	Form    profileForm
-	Preview *profilePreview
+	Notice string
+	// Return is the page that sent the operator here, a returnPath, and
+	// ReturnLabel names it for the Back link. A save goes back to it.
+	Return      string
+	ReturnLabel string
+	Form        profileForm
+	Preview     *profilePreview
+}
+
+// setReturn takes the form's return field, when it names a page the
+// editor may go back to.
+func (s *Server) setReturn(r *http.Request, v *profileEditView, raw string) {
+	if v.Return = returnPath(raw); v.Return != "" {
+		v.ReturnLabel = s.returnLabel(r, v.Return)
+	}
 }
 
 // normalizeRules trims each rule, folds git remotes as the agent
@@ -401,6 +413,7 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := profileEditView{Name: name, Stored: stored, New: !stored && name != config.DefaultProfile}
+	s.setReturn(r, &v, r.PostForm.Get("return"))
 	f, p, err := readProfileForm(r.PostForm)
 	v.Form = f
 	if err == nil {
@@ -482,9 +495,14 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 		base = -1
 	}
 	raw := []byte(r.PostForm.Get("document"))
-	_, status, code, msg := s.saveProfile(r, name, raw, base, r.PostForm.Get("note"))
+	saved, status, code, msg := s.saveProfile(r, name, raw, base, r.PostForm.Get("note"))
+	back := returnPath(r.PostForm.Get("return"))
 	if code == "" {
-		http.Redirect(w, r, profileURL(name), http.StatusSeeOther)
+		to := profileURL(name)
+		if back != "" {
+			to = savedURL(back, saved)
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
 		return
 	}
 	if msg == "" {
@@ -498,6 +516,7 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := profileEditView{Name: name, Stored: stored, New: !stored && name != config.DefaultProfile, Problem: msg, Form: formOf(cur, rev)}
+	s.setReturn(r, &v, back)
 	if p, _, perr := checkProfile(raw); perr == nil {
 		v.Form = formOf(p, rev)
 		v.Form.Note = r.PostForm.Get("note")
