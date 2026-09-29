@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FBQXG8E9SDYXB9NWKGFSY5
 title: Add optional compressed age-encrypted backups and restore
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/d8436f9f
+  branch: tickets/fbqx-design
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-d8436f9f
+  commit: ec1e8486effb8d667b778defc9c0c75351d7bd88
+  session: null
+  claimed_at: 2026-09-29T01:39:06Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T17:20:55Z
-updated_at: 2026-09-29T00:29:47Z
+updated_at: 2026-09-29T01:39:06Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -42,7 +49,7 @@ Demonstrate an encrypted backup restored into a fresh directory with matching ca
 
 ## Acceptance criteria
 
-- [ ] Document the archive, compression, age recipient/identity and compatibility design before implementation.
+- [x] Document the archive, compression, age recipient/identity and compatibility design before implementation.
 - [ ] Optional encrypted backups restore successfully with bounded resources, private permissions and no credential leakage.
 - [ ] Failure and interruption tests cover archive publication, integrity, wrong keys and temporary plaintext cleanup.
 
@@ -164,3 +171,7 @@ No real credentials are created or rotated.
 **agent:claude-code/d8436f9f** at 2026-09-29T00:29:47Z
 
 Design written as the plan and waiting for the owner's decision on the age dependency, the command shape, and what the archive leaves out, before implementation, per acceptance criterion 1. Not claimed, so it stays open to whoever implements it.
+
+**agent:claude-code/d8436f9f** at 2026-09-29T01:39:06Z
+
+On 2026-09-29 the owner approved the proposed design in this ticket's plan: in-process filippo.io/age, serve backup --archive with --recipient, serve restore with --identity-file, and tar, then zstd, then age. The web config and the OIDC secret are left out. Implementation starts after the open PRs land.

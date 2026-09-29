@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K45MVDWED67D3QFK923QJM
 title: "CAS: store objects zstd-compressed; compact re-encodes"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3K45MSX5SG7YZZCR399S9XF
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d8436f9f
-  branch: t3code/check-zstd-compression-tickets
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-d8436f9f
-  commit: f78ca7b7f6cef29c22255d334798d05814021dc6
-  session: null
-  claimed_at: 2026-09-28T23:50:26Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-29T00:16:23Z
+updated_at: 2026-09-29T01:39:06Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -182,3 +175,13 @@ Two PRs.
   them.
 
 Re-review requested as `fix-1291`.
+
+## Summary
+
+Landed in #118 and #119.
+- Every install writes the object as one zstd frame (better level) at sha256/<ab>/<rest>.zst. The key stays the uncompressed digest, and raw objects from older releases still read, verify and back up.
+- serve compact then rewrites each raw object as a frame, hashing it on the way. A damaged one is left for fsck.
+- Backup copies frames as stored. Repair judges each form on its own.
+- The frame's directory entry is synced before a raw copy is removed.
+- An older release cannot read .zst objects, and the upgrade docs say to take a backup first.
+- Review findings are recorded in the notes and as PR dispositions. Three were declined with tests or reasons: review 1292 finding-1, 1294 finding-1 and 1296 finding-1.
