@@ -105,7 +105,11 @@ type Options struct {
 	LakeStateDir string
 	Client       *http.Client
 	Projects     config.Projects
-	UploadHits   bool
+	// Bays is which bays of this lake each session asks to be in. The
+	// lake ignores it before bays, and places a session only in the bays
+	// this device may write.
+	Bays       config.BayRequests
+	UploadHits bool
 	// ProfileVersion, when set, is called with the lake's
 	// protocol.ProfileVersionHeader from each answer that carries one.
 	ProfileVersion func(string)

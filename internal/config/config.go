@@ -152,6 +152,9 @@ func LoadFile(getenv func(string) string) (File, error) {
 		if err := l.Projects.Validate(); err != nil {
 			return File{}, fmt.Errorf("config: %s: lakes.%s.%w", path, name, err)
 		}
+		if err := l.Bays.Validate(); err != nil {
+			return File{}, fmt.Errorf("config: %s: lakes.%s.%w", path, name, err)
+		}
 	}
 	return f, nil
 }

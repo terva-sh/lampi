@@ -667,6 +667,7 @@ func lakeOptions(env Env, file config.File, state string, src []source, lake con
 		StateDir:      state,
 		LakeStateDir:  lakestate.Dir(state, lake.Name),
 		Projects:      lake.Projects,
+		Bays:          lake.Bays,
 		UploadHits:    file.Redaction.UploadHits,
 		Pin:           uploadPin(lake),
 	}, nil

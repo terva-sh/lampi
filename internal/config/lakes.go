@@ -31,6 +31,8 @@ type LakeConfig struct {
 	PublicKey string   `json:"public_key,omitempty"`
 	DeviceID  string   `json:"device_id,omitempty"`
 	Projects  Projects `json:"projects,omitempty"`
+	// Bays is which bays of this lake a session asks to be in.
+	Bays BayRequests `json:"bays,omitzero"`
 }
 
 // Lake is one resolved lake. Projects is what uploads to it are checked
@@ -46,6 +48,7 @@ type Lake struct {
 	PublicKey string
 	DeviceID  string
 	Projects  Projects
+	Bays      BayRequests
 	Legacy    bool
 	// AllowFrom is where Projects.Allow came from once ApplyLakeProfile
 	// ran: "local", or "lake NAME" for the lake's own profile.
@@ -218,6 +221,7 @@ func ResolveLakes(file File, getenv func(string) string, flags LakeFlags) ([]Lak
 				Allow: lc.Projects.Allow,
 				Deny:  append(append([]ProjectMatch(nil), file.Projects.Deny...), lc.Projects.Deny...),
 			},
+			Bays: lc.Bays,
 		})
 	}
 
