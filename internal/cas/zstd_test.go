@@ -313,9 +313,15 @@ func TestReencodeCompressesRawObjects(t *testing.T) {
 	}
 
 	// A raw copy beside the frame, as a re-encode that stopped leaves.
+	// The frame is kept and reported, and no second frame is written.
+	frame, _ := s.zstPath(d)
+	fs, _ := os.Stat(frame)
 	damage(t, raw, body)
-	if before, after, err := s.Reencode(d); err != nil || before != int64(len(body)) || after != 0 {
+	if before, after, err := s.Reencode(d); err != nil || before != int64(len(body)) || after != fs.Size() {
 		t.Fatalf("reencode beside a frame %d -> %d %v", before, after, err)
+	}
+	if again, _ := os.Stat(frame); !again.ModTime().Equal(fs.ModTime()) {
+		t.Fatal("the kept frame was rewritten")
 	}
 	installedAs(t, s, d, body)
 
