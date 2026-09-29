@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N6Y5TET6WT8QPGS394KGEF
 title: "Dashboard: storage card compares blobs with raw transcripts"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d8436f9f
-  branch: web/storage-vs-raw
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-d8436f9f
-  commit: f78ca7b7f6cef29c22255d334798d05814021dc6
-  session: null
-  claimed_at: 2026-09-28T23:52:29Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T23:52:24Z
-updated_at: 2026-09-29T00:30:02Z
+updated_at: 2026-09-29T01:39:06Z
 created_by:
   id: agent:claude-code/d8436f9f
   name: ""
@@ -100,3 +93,7 @@ user, so the PR carries no before-numbers.
 **agent:claude-code/d8436f9f** at 2026-09-29T00:30:02Z
 
 terva-review on #117, head 7dce131, run f0f233f7: clean, no findings at the failure threshold. CI green. Waiting for the owner to merge.
+
+## Summary
+
+Landed in #117. The operations page's storage card is now Compression against raw: the current version of every path, which is what the machines hold, divided by the stored blobs' disk use. Byte-identical current files are counted as duplicates. The sampler records artifacts.current and artifacts.current_unique, and /metrics exports both. Samples from before the change show no ratio.
