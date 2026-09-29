@@ -15,6 +15,7 @@ import (
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/webauth"
 )
@@ -40,6 +41,12 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		return s
 	},
 	"profileURL": profileURL,
+	"projectKey": func(p protocol.InventoryProject) string {
+		if k, ok := catalog.ProjectKeyOf(p); ok {
+			return k.String()
+		}
+		return ""
+	},
 	"reviewTab": func(f reviewFilter, hidden bool) string {
 		f.Hidden = hidden
 		return f.URL()
