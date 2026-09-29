@@ -60,8 +60,8 @@ integrity probe. Later content readers must still detect missing files.
 
 The overview counts catalog artifact versions, not unique blobs or disk bytes.
 Contributing machines are not online machines. Head update timestamps do not
-measure upload throughput. Only the events, search and excerpt routes below
-return transcript text.
+measure upload throughput. Only the events, search, excerpt and raw artifact
+routes below return transcript text.
 No endpoint initiates normalization, export, deletion, merge, or ingestion.
 The registration routes below are the only writes, and only operators reach them.
 
@@ -132,6 +132,67 @@ Each mint and each cancel goes to `audit.jsonl` with the operator as
 actor, and to the catalog as `created_by` or `revoked_by`. A cancel whose
 audit line fails still stands, and answers `500 audit_failed` with the
 code.
+
+## Raw artifacts
+
+Admins can download the bytes an agent uploaded for a session. The
+browser routes need the `admin` role (see [web-dashboard.md](web-dashboard.md)).
+Operators and viewers get `404`. They are browser routes, not under
+`/api/web/v1`, and they exist only when serve wires in the blob store.
+
+| Route | Result |
+|---|---|
+| `GET /sessions/{uid}/raw` | An HTML page listing the session's current artifacts with download links. No query parameters. |
+| `GET /sessions/{uid}/raw/{sha256}` | One artifact's bytes. No query parameters. |
+
+A download names a digest the session links to, current or earlier. Any
+other digest is `404 not_found`, the same answer as a session that is not
+there, so the route cannot probe the blob store.
+
+The response is `application/octet-stream` with `Content-Disposition:
+attachment`, `Accept-Ranges: bytes`, `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`. It carries at most 8 MiB:
+
+- With no `Range` header, an artifact up to 8 MiB is a `200`. A larger
+  one is a `206` with its first 8 MiB, a `Content-Range`, and a
+  `Lampi-Raw-Truncated` header holding the full size.
+- One `Range` of `bytes=a-b`, `bytes=a-` or `bytes=-n` is a `206`. A range
+  longer than 8 MiB stops there and carries `Lampi-Raw-Truncated`.
+- Several ranges, in one `Range` field or in several, another unit, or a
+  range past the end is `416 invalid_range` with `Content-Range: bytes */SIZE`.
+- `HEAD` answers with the same headers and no body.
+
+The lake reads the whole response from the blob store first, then queues
+an `artifact.read` audit event naming the admin, the session, the digest
+and the byte range, then sends it. A read that fails is
+`500 read_failed` and records nothing. A read whose event cannot be queued
+is `500 audit_failed` and sends nothing. `HEAD` sends no bytes and records
+nothing.
+
+### Read tokens
+
+A tool with no browser session reads the same artifacts with a read token
+an admin minted (see [web-dashboard.md](web-dashboard.md#read-tokens)):
+
+```sh
+curl -fsS -H "Authorization: Bearer $(cat token-file)" -o artifact \
+  https://lake.example/api/raw/v1/sessions/SESSION_UID/artifacts/SHA256
+```
+
+| Route | Result |
+|---|---|
+| `GET /api/raw/v1/sessions/{uid}/artifacts/{sha256}` | One artifact's bytes, exactly as the browser route above answers, cap, `Range` and `HEAD` included. |
+
+The token goes in `Authorization: Bearer`. A missing, unknown, expired or
+revoked token is `401 not_authenticated` with a `WWW-Authenticate: Bearer`
+header. A session outside the token's scope is `404 not_found`, the same as
+a session that is not there. A lake that cannot look the token up answers
+`500 read_failed`, so a tool does not drop a token that is still good. The audit event's actor is `token:ID (LABEL)`.
+
+A read token authenticates this route and nothing else. A browser
+session cookie does not reach it, a read token does not reach any other
+route, including `/api/web/v1` and `/v1`, and a device token does not
+reach this one.
 
 ## Transcript events
 
@@ -443,6 +504,9 @@ sent, compared with the lake. It takes no parameters; any parameter is
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.
+- `no_profile` is true for a `token-file` device whose agent reports no
+  profile: it has not pinned the lake, so no profile reaches it.
+  `terva-lampi lakes adopt` on that machine pins it.
 - `last_sync`, `last_error` and the agent fields are absent until the device
   sends a report. `last_contact` is the newest request, or the newest report
   from before serve started.
@@ -557,7 +621,8 @@ narrow the queue; an empty value means all. Anything else is
     it through.
 - `profile` is the profile the device fetches. `local_allow` marks a device
   whose `config.json` sets its own allow rules, which a profile rule does not
-  reach.
+  reach. `no_profile` marks one that fetches no profile at all, as on the
+  devices route; it is also `local_allow`.
 - `first_seen` is when the lake first saw the project on the device.
   `first_seen_at_or_before` marks a project first seen when the lake began
   recording sightings, at `sightings_since`: it may have been there before.

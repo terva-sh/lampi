@@ -98,11 +98,14 @@ func TestEditorOffersFewerRules(t *testing.T) {
 		t.Errorf("fold: %+v, note %q", got, note)
 	}
 
-	// An owner the form holds no remote under changes nothing.
-	v = ruleForm(csrf, p.Revision, rules)
-	v.Set("fold", "git.example")
-	if w := postForm(h, "/profiles/default/preview", v, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "This changes nothing") {
-		t.Errorf("fold of an unknown owner: %d", w.Code)
+	// An owner the editor does not offer changes nothing: one it holds
+	// no remote under, and one with fewer remotes than an offer needs.
+	for _, owner := range []string{"git.example", "github.com/solo"} {
+		v = ruleForm(csrf, p.Revision, rules)
+		v.Set("fold", owner)
+		if w := postForm(h, "/profiles/default/preview", v, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "This changes nothing") {
+			t.Errorf("fold of %s, which is not offered: %d", owner, w.Code)
+		}
 	}
 
 	if cur, _ := lake.Catalog.ProfileByName(ctx, config.DefaultProfile); cur.Revision != p.Revision {

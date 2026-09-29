@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T04:00:55Z
+updated_at: 2026-09-29T04:57:25Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -99,3 +99,7 @@ The review API (`POST /api/web/v1/review/allow`) takes an optional width per key
 - `GOFLAGS=-mod=mod just ci` passes.
 - New tests: `TestAllowSelectedAtOwnerWidth`, `TestAllowSelectedAPIWidth`, `TestAllowOneProjectAtOwnerWidth` and `TestWithRules`.
 - The "drops N rules" wording was wrong in the first draft. It counted the dropped rules where it meant the new ones. The test caught it.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:57:25Z
+
+Review 1339 on PR 141, finding 1 (medium): with nested owners, withRules kept only the wider prefix, but ap.Rules still listed both, so the confirm page and the API rules disagreed with the document. Accepted, and fixed in f876ad74200dbe674cfed24306a4a2cd520be98d: survivingRules keeps only the rules the document adds, and moves a dropped rule's devices to the rule that covers it. The width tests gained a nested-group repository. Removing the call makes them fail.

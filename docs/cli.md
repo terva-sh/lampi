@@ -32,7 +32,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi sync` | One pass: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, harnesses, outbox, watermarks, last sync and attempt, skipped files, server and token file, lake health, and catalog counts. See [What status prints](agent.md#what-status-prints). |
 | `terva-lampi register` | Join a lake with a registration code, read from stdin, a prompt, or `--code-file`. See [Registering a machine](registration-and-lakes.md#registering-a-machine). `--install-service` enables the user unit. |
-| `terva-lampi lakes` | List the lakes this machine reports to, or `remove` one. |
+| `terva-lampi lakes` | List the lakes this machine reports to, `remove` one, or `adopt` one it already syncs to with a device token: pin its key and take its profile, keeping the device, machine id and sync state. `--allow-from profile` hands the allow rules to the profile after listing what that would stop uploading. See [Adopting a lake](registration-and-lakes.md#adopting-a-lake-a-machine-already-syncs-to). |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi quarantine` | `list` the redaction hits held on this machine, or `allow` one digest to upload with an `override` stamp. See [Quarantine](allowlist-and-redaction.md#quarantine). |
 | `terva-lampi self-update` | Install the release the lake runs, capped at the newest release, checked against `checksums.txt`, and restart the agent service. `--check` exits 10, 11 or 12 when a patch, minor or major update is available. See [Upgrading an agent](../deploy/README.md#upgrading-an-agent). |

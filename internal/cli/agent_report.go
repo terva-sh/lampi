@@ -89,7 +89,9 @@ func (r *lakeRunner) report() protocol.AgentReport {
 	if rep.AllowSource == "" {
 		rep.AllowSource = config.OriginLocal
 	}
-	if lakeprofile.Pinned(l.cfg) {
+	pinned := lakeprofile.Pinned(l.cfg)
+	rep.Pinned = &pinned
+	if pinned {
 		if d, ok, err := lakeprofile.Load(l.opt.LakeStateDir, l.cfg); err == nil && ok {
 			rep.Profile, rep.ProfileVersion = d.Payload.Profile, d.Payload.Version
 		}

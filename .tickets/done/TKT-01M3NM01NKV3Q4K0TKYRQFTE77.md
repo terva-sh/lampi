@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01NKV3Q4K0TKYRQFTE77
 title: "Profile editor: find covered rules and fold owner groups"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3NM01KV7WF9SE218PWHR2GN
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/58fb7d84
-  branch: profile-rules/covered
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-58fb7d84
-  commit: e5ac2a26d3910f5f4f15f43c1ca3a68a0acaa7c9
-  session: null
-  claimed_at: 2026-09-29T03:47:45Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T03:53:19Z
+updated_at: 2026-09-29T04:54:29Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -111,3 +104,15 @@ Both actions change the form only. Nothing is saved without the operator.
 ### Verification
 
 `GOFLAGS=-mod=mod just ci` passes. The tests are `TestCovers`, `TestCoversIsSound`, `TestEditorOffersFewerRules` and `TestOwnerFolds`.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:42:48Z
+
+Review 1333 on PR 140, finding 1 (medium): the Fewer rules hint promised that the preview lists every project a change admits. It lists only what the devices' newest inventories show. Accepted, and the hint was reworded in 80fe1c39be472cd95771054b143abfb06a7fd278.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:44:43Z
+
+Review 1335 on PR 140, finding 1 (medium): tidyForm folded any owner a form named, which let a crafted form fold fewer remotes than an offer needs. Accepted, and fixed in c4b8dd715ea10c72f0b12dde1bfb407b71bd4c68: it now folds only an owner that ownerFolds offers for the submitted rules. TestEditorOffersFewerRules covers an owner with two remotes.
+
+## Summary
+
+Landed in #140 (merge 19ab892). config.Covers decides allow-rule coverage field by field, conservatively. TestCoversIsSound checks it on a grid of rules and IDs. The editor's Fewer rules panel removes covered allow rules and folds three or more exact remotes under one owner into one git_remote_prefix, only for an owner it offers. Both change the form and preview it; nothing is saved without the operator. Reviews 1333 (the hint overclaimed the preview) and 1335 (a fold accepted any owner) were fixed before merging.
