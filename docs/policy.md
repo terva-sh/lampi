@@ -283,9 +283,10 @@ routing takes a session out of a bay.
   not read matches no `git_remote` rule. The actions are:
   - `add`: also put the session in the bay.
   - `deny`: keep the session out of the bay, whether it was asked for
-    or another rule adds it. A deny does not remove a session already
-    there, and it does not keep a session out of the default bay when
-    nothing else places it.
+    or another rule adds it. A request it matches is recorded as refused
+    and named in `refused_bays`, as a bay the device may not write is. A
+    deny does not remove a session already there, and it does not keep a
+    session out of the default bay when nothing else places it.
   - `hold`: put a new session in the rule's bay and nowhere else, and
     record every bay it asks for as held. A stored session that a hold
     rule starts matching keeps its bays and is flagged for review; its
@@ -293,7 +294,8 @@ routing takes a session out of a bay.
 - **Release.** An admin releases a held or flagged session in one step.
   Its held requests are resolved again against the device's grants as
   they are then, placed with the rules as they are then, and a held
-  session leaves the hold bay unless it asked for it or a rule adds it.
+  session leaves the hold bay unless it asked for it or a rule adds it,
+  and no deny rule names it.
   One left in no bay goes to the default. A hold released once does not
   return for the same bay.
 - **Nothing places it.** A new session with no accepted request and no
@@ -321,7 +323,9 @@ not delete by age.
 Deleting a [bay](#bays) deletes no data. It removes the bay from each
 session's membership, and only a session left in no bay moves to the
 default bay; a session still in another bay stays there and does not
-enter the inbox. Per-bay retention is a separate decision, not yet
+enter the inbox. A bay that holds sessions is not deleted until an
+admin releases them, so no held request is left with nothing to
+release it. Per-bay retention is a separate decision, not yet
 made.
 
 ## Encryption at rest

@@ -51,6 +51,7 @@ const (
 const (
 	RefusedNoBay      = "no such bay"
 	RefusedNotGranted = "not granted"
+	RefusedDenied     = "denied by a rule"
 )
 
 var (
@@ -58,6 +59,7 @@ var (
 	ErrRuleEmpty  = errors.New("catalog: a rule must match on a project field or a harness")
 	ErrNoRule     = errors.New("catalog: no such rule")
 	ErrNoHold     = errors.New("catalog: the session is not held")
+	ErrBayHolds   = errors.New("catalog: the bay holds sessions")
 	ErrManyBays   = fmt.Errorf("catalog: a manifest may ask for at most %d bays", protocol.MaxManifestBays)
 )
 
@@ -249,8 +251,15 @@ func routeSession(ctx context.Context, tx *sql.Tx, uid string, isNew bool, m pro
 		}
 	}
 	holding := held != "" || hold != nil
+	// A deny rule refuses a request it matches. A held request waits:
+	// the rules are read again when the hold is released.
+	denied := deniedBays(rules, m)
 	var refused []string
-	for _, q := range reqs {
+	for i, q := range reqs {
+		if q.reason == "" && !holding && denied[q.bayID] {
+			q.reason = RefusedDenied
+			reqs[i] = q
+		}
 		outcome := RequestAccepted
 		switch {
 		case q.reason != "":
@@ -403,6 +412,18 @@ func placeHold(ctx context.Context, tx *sql.Tx, uid string, isNew bool, r BayRul
 	return queueAudit(ctx, tx, now, audit.Event{Kind: audit.BayHold, Actor: actor, Detail: fmt.Sprintf("session %s %s by bay %s", uid, state, r.BayID)})
 }
 
+// deniedBays is the bays a deny rule matching m names.
+func deniedBays(rules []BayRule, m protocol.Manifest) map[string]bool {
+	id := projectOf(m)
+	denied := map[string]bool{}
+	for _, r := range rules {
+		if r.Action == RuleDeny && r.matches(id, m.Harness) {
+			denied[r.BayID] = true
+		}
+	}
+	return denied
+}
+
 // place adds uid to accepted and the bays add rules name, less those
 // deny rules name. It only adds.
 func place(ctx context.Context, tx *sql.Tx, uid string, m protocol.Manifest, rules []BayRule, accepted []string, actor string, now time.Time) error {
@@ -505,11 +526,13 @@ func (c *Catalog) ReleaseHold(ctx context.Context, uid, actor string, now time.T
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return fmt.Errorf("catalog: session %s manifest: %w", uid, err)
 	}
-	accepted, err := releaseRequests(ctx, tx, uid, now)
+	rules, err := loadRules(ctx, tx)
 	if err != nil {
 		return err
 	}
-	rules, err := loadRules(ctx, tx)
+	// accepted holds no denied bay, so a held session that asked for
+	// its hold bay still leaves it when a deny rule names it now.
+	accepted, err := releaseRequests(ctx, tx, uid, deniedBays(rules, m), now)
 	if err != nil {
 		return err
 	}
@@ -535,9 +558,9 @@ func (c *Catalog) ReleaseHold(ctx context.Context, uid, actor string, now time.T
 }
 
 // releaseRequests resolves again each request recorded as held, with
-// the device's grants as they are now, records the outcome, and
-// returns the bays accepted.
-func releaseRequests(ctx context.Context, tx *sql.Tx, uid string, now time.Time) ([]string, error) {
+// the device's grants as they are now and refusing a denied bay,
+// records the outcome, and returns the bays accepted.
+func releaseRequests(ctx context.Context, tx *sql.Tx, uid string, denied map[string]bool, now time.Time) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT bay_ref, device_id FROM session_bay_requests WHERE session_uid=? AND outcome=? ORDER BY bay_ref`, uid, RequestHeld)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
@@ -563,6 +586,9 @@ func releaseRequests(ctx context.Context, tx *sql.Tx, uid string, now time.Time)
 			return nil, err
 		}
 		q, outcome := reqs[0], RequestAccepted
+		if q.reason == "" && denied[q.bayID] {
+			q.reason = RefusedDenied
+		}
 		if q.reason != "" {
 			outcome = RequestRefused
 		} else {

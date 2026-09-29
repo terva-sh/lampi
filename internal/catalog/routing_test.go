@@ -318,3 +318,66 @@ func TestTooManyRequestedBays(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// A request a deny rule matches is refused, recorded as denied, and
+// named in the ack like any other refused bay (review 1432).
+func TestADeniedRequestIsRefused(t *testing.T) {
+	r := newRouted(t)
+	r.rule(RuleDeny, config.ProjectMatch{CWDPrefix: "/src/a"}, "work")
+	ack := r.mustPost("sess-1", "/src/a", "work")
+	if !reflect.DeepEqual(ack.RefusedBays, []string{"work"}) {
+		t.Fatalf("refused %v", ack.RefusedBays)
+	}
+	if got := r.requests(ack.SessionUID); got["work"] != RequestRefused+": "+RefusedDenied {
+		t.Fatalf("requests %v", got)
+	}
+	if got := r.bays(ack.SessionUID); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("bays %v", got)
+	}
+}
+
+// A held session that asked for its hold bay leaves it on release when
+// a deny rule names that bay by then (review 1432).
+func TestReleaseDropsADeniedHoldBay(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	if _, err := r.c.AddGrant(ctx, PrincipalDevice, r.dev.DeviceID, "hold", PermWrite, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	r.rule(RuleHold, config.ProjectMatch{CWDPrefix: "/src/client"}, "hold")
+	uid := r.mustPost("sess-1", "/src/client", "hold").SessionUID
+	r.rule(RuleDeny, config.ProjectMatch{CWDPrefix: "/src/client"}, "hold")
+	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.bays(uid); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("bays %v", got)
+	}
+	if got := r.requests(uid); got["hold"] != RequestRefused+": "+RefusedDenied {
+		t.Fatalf("requests %v", got)
+	}
+}
+
+// A bay that holds sessions is not deleted until they are released, so
+// no held request is left with nothing to release it (review 1432).
+func TestABayWithHoldsIsNotDeleted(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	r.rule(RuleHold, config.ProjectMatch{CWDPrefix: "/src/client"}, "hold")
+	uid := r.mustPost("sess-1", "/src/client", "work").SessionUID
+	if _, err := r.c.DeleteBay(ctx, "hold", "admin", time.Now()); !errors.Is(err, ErrBayHolds) {
+		t.Fatalf("delete with a hold: %v", err)
+	}
+	if got := r.bays(uid); !reflect.DeepEqual(got, []string{r.holdB.ID}) {
+		t.Fatalf("bays after refused delete %v", got)
+	}
+	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.c.DeleteBay(ctx, "hold", "admin", time.Now()); err != nil {
+		t.Fatalf("delete after release: %v", err)
+	}
+	if got := r.bays(uid); !reflect.DeepEqual(got, []string{r.work.ID}) {
+		t.Fatalf("bays %v", got)
+	}
+}

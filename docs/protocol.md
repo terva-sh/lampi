@@ -794,8 +794,8 @@ send the missing suffix back.
 ```
 
 `refused_bays` lists each bay in the manifest's `bays` that did not
-place the session: one the device may not write, or one that does not
-exist. It does not say which. It is left out when nothing was refused.
+place the session: one the device may not write, one that does not
+exist, or one a lake rule denies. It does not say which. It is left out when nothing was refused.
 
 `relation` is `head`, `grown_from`, `divergent_copy`, `unchanged`, or
 `stale`. It is the transcript artifact's relation when one is present.
