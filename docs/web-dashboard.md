@@ -384,6 +384,15 @@ when a rule in the profile already covers it, such as a `cwd_prefix` above it:
 the device picks that rule up with its next profile fetch. Allowing for one
 device alone waits for per-device overrides.
 
+A repository under an owner also gets **Allow OWNER/…**, which adds one
+`git_remote_prefix` for the owner instead. For example, `git.example/team`
+covers `git.example/team/app` and every other repository under
+`git.example/team`, on every machine, including repositories nobody has
+reviewed. The editor's preview lists the projects the prefix admits. It is not
+offered when the owner would be the bare host, such as `github.com`. Type a
+host-wide rule in the editor if you mean it. Either Allow also drops the rules
+the new one covers and says how many.
+
 ## Review
 
 `/review` lists every project your devices hold that no one has decided about
@@ -418,10 +427,21 @@ To allow several at once, tick them and press **Allow selected…**. The lake
 checks each against the newest inventories again and builds the rule Allow
 would add for every device copy the page showed: a `git_remote` rule for a
 repository, which covers every checkout, or a `cwd_prefix` rule for a folder.
+**Rules for** picks the width. *Each repository* is the default and builds
+those rules. *Each repository's owner* builds one `git_remote_prefix` per
+owner, as **Allow OWNER/…** does, so ten repositories under one owner become
+one rule. A repository whose owner would be the bare host, and a folder, keep
+their exact rule.
 It then shows a short confirmation instead of the profile editor. For each
-profile that gains rules, the page lists the rules and the devices each is
-for, the devices the profile reaches, and those whose `config.json` sets their
-own allow rules, with the change under a disclosure. One note, filled in for
+profile that gains rules, the page lists:
+
+- the rules, and the devices each is for;
+- the rules they cover, which the save drops;
+- the projects the change admits, as the editor's preview lists them;
+- the devices the profile reaches, and those whose `config.json` sets their
+  own allow rules.
+
+The change itself is under a disclosure. One note, filled in for
 you, goes on every revision. **Save** writes every profile, each against the
 revision the page read. If someone changed one of them first, nothing is
 saved and the page shows the plan again against what is stored. Both Save and

@@ -33,12 +33,16 @@ type allowProfile struct {
 	Stored bool  `json:"stored"`
 	// Rules are the allow rules added, each with the projects and
 	// devices it is for.
-	Rules      []allowRuleView `json:"rules"`
-	Document   string          `json:"-"`
-	Doc        json.RawMessage `json:"document"`
-	Devices    []profileDevice `json:"devices"`
-	LocalAllow int             `json:"local_allow"`
-	Diff       []diffLine      `json:"-"`
+	Rules []allowRuleView `json:"rules"`
+	// Removed are the allow rules the profile had that the new rules
+	// cover, which the plan drops.
+	Removed    []config.ProjectMatch `json:"removed"`
+	Reach      *profileReach         `json:"reach"`
+	Document   string                `json:"-"`
+	Doc        json.RawMessage       `json:"document"`
+	Devices    []profileDevice       `json:"devices"`
+	LocalAllow int                   `json:"local_allow"`
+	Diff       []diffLine            `json:"-"`
 	// Form is the profile with the rules added, laid out for the full
 	// editor.
 	Form profileForm `json:"-"`
@@ -60,6 +64,7 @@ type allowView struct {
 	// devices whose config.json sets their allow rules.
 	Skipped     []catalog.ProjectKey `json:"skipped"`
 	Keys        []string             `json:"-"`
+	Width       string               `json:"-"`
 	Note        string               `json:"-"`
 	Return      string               `json:"-"`
 	ReturnLabel string               `json:"-"`
@@ -85,8 +90,9 @@ func filterOf(back string) reviewFilter {
 
 // planAllow builds what allowing keys adds, for the device copies that
 // still need review under filter f.
-func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewFilter) (allowView, error) {
-	var v allowView
+// width is widthRepository or widthOwner.
+func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewFilter, width string) (allowView, error) {
+	v := allowView{Width: width}
 	ctx, cancel := readContext(r)
 	defer cancel()
 	q, err := s.readReview(ctx, f, s.now())
@@ -107,7 +113,7 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 		}
 		added := false
 		for _, sg := range row.Sightings {
-			rule, ok := allowRule(sg.Project.GitRemote, sg.Project.CWD)
+			rule, ok := allowRuleAt(sg.Project.GitRemote, sg.Project.CWD, width)
 			// A device with its own allow rules takes none from its
 			// profile; a rule there would change nothing for it.
 			// A still-refused copy's profile allows it already.
@@ -127,7 +133,11 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 				ap.Rules = append(ap.Rules, allowRuleView{Rule: rule, Text: ruleText(rule), Key: k})
 				i = len(ap.Rules) - 1
 			}
-			ap.Rules[i].Devices = append(ap.Rules[i].Devices, sg.DeviceName)
+			// At owner width several projects share a rule, and a device
+			// can hold more than one of them.
+			if !slices.Contains(ap.Rules[i].Devices, sg.DeviceName) {
+				ap.Rules[i].Devices = append(ap.Rules[i].Devices, sg.DeviceName)
+			}
 		}
 		if !added {
 			v.Skipped = append(v.Skipped, k)
@@ -140,9 +150,13 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 			return v, err
 		}
 		next := cur
-		next.Projects.Allow = slices.Clone(cur.Projects.Allow)
+		var add []config.ProjectMatch
 		for _, rv := range ap.Rules {
-			next.Projects.Allow = append(next.Projects.Allow, rv.Rule)
+			add = append(add, rv.Rule)
+		}
+		next.Projects.Allow, ap.Removed = withRules(cur.Projects.Allow, add)
+		if ap.Removed == nil {
+			ap.Removed = []config.ProjectMatch{}
 		}
 		raw, _ := json.Marshal(next)
 		p, doc, err := checkProfile(raw)
@@ -155,7 +169,7 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 			return v, err
 		}
 		ap.Base, ap.Stored, ap.Document, ap.Doc = rev, stored, string(doc), doc
-		ap.Devices, ap.LocalAllow, ap.Diff = pv.Devices, 0, pv.Diff
+		ap.Devices, ap.LocalAllow, ap.Diff, ap.Reach = pv.Devices, 0, pv.Diff, pv.Reach
 		for _, d := range pv.Devices {
 			if d.AllowSource == config.OriginLocal {
 				ap.LocalAllow++
@@ -264,7 +278,12 @@ func (s *Server) reviewAllowPage(w http.ResponseWriter, r *http.Request) {
 		s.renderBack(w, r, back, "Choose at least one project to allow, and no more than 500 at once.", http.StatusBadRequest)
 		return
 	}
-	v, err := s.planAllow(r, keys, filterOf(back))
+	width, ok := readWidth(r.PostForm.Get("width"))
+	if !ok {
+		s.renderBack(w, r, back, "Allow each repository, or each repository's owner.", http.StatusBadRequest)
+		return
+	}
+	v, err := s.planAllow(r, keys, filterOf(back), width)
 	if errors.Is(err, errPlan) {
 		s.renderBack(w, r, back, err.Error()+".", http.StatusBadRequest)
 		return
@@ -316,7 +335,12 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 		s.renderBack(w, r, back, "The confirmation form is not valid. Select the projects again.", http.StatusBadRequest)
 		return
 	}
-	v, err := s.planAllow(r, keys, filterOf(back))
+	width, ok := readWidth(r.PostForm.Get("width"))
+	if !ok {
+		s.renderBack(w, r, back, "The confirmation form is not valid. Select the projects again.", http.StatusBadRequest)
+		return
+	}
+	v, err := s.planAllow(r, keys, filterOf(back), width)
 	if errors.Is(err, errPlan) {
 		s.renderBack(w, r, back, "Nothing was saved, and "+err.Error()+".", http.StatusBadRequest)
 		return
@@ -384,6 +408,8 @@ func (s *Server) saveProfiles(r *http.Request, writes []catalog.ProfileWrite, no
 type allowPlanRequest struct {
 	Keys   []catalog.ProjectKey `json:"keys"`
 	Device string               `json:"device"`
+	// Width is "repository", the default, or "owner".
+	Width string `json:"width"`
 }
 
 // allowSaveRequest is the body of POST /api/web/v1/review/allow/save.
@@ -417,7 +443,8 @@ func (s *Server) reviewAllowAPI(w http.ResponseWriter, r *http.Request) {
 	if !decodeStrict(w, r, &req) {
 		return
 	}
-	if len(req.Keys) == 0 || len(req.Keys) > maxReviewBatch || req.Device != "" && !validDeviceID(req.Device) {
+	width, ok := readWidth(req.Width)
+	if !ok || len(req.Keys) == 0 || len(req.Keys) > maxReviewBatch || req.Device != "" && !validDeviceID(req.Device) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -427,7 +454,7 @@ func (s *Server) reviewAllowAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	v, err := s.planAllow(r, req.Keys, reviewFilter{Device: req.Device})
+	v, err := s.planAllow(r, req.Keys, reviewFilter{Device: req.Device}, width)
 	if errors.Is(err, errPlan) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
