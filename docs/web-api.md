@@ -375,8 +375,13 @@ The example shortens `components`, `points` and `machines`.
   - `referenced` is the logical bytes of every artifact row, and `unique` is
     those of each distinct digest counted once. Versions of a growing file are
     distinct digests that share stored bytes, so `unique` is not what the CAS
-    holds; `components.cas` is. The page's deduplication is `referenced`
-    divided by `components.cas`.
+    holds; `components.cas` is.
+  - `current` is the logical bytes of each path's current version: the raw
+    files the machines hold. `current_unique` counts each of those digests
+    once, so `current` minus `current_unique` is files that are byte-for-byte
+    copies of another. The page's compression against raw is `current`
+    divided by `components.cas`. Both are absent from samples taken before
+    serve measured them.
 - **`growth`** has one point per bucket in the range. Each point carries the
   last sample taken in that bucket. A bucket with no sample is `null`, and a
   `null` means not measured, not zero.

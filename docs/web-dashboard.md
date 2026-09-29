@@ -282,10 +282,15 @@ hourly.
     sweeps any that are a day old.
 - **Filesystem free** is the space left on the filesystem that holds the lake,
   whatever else shares that filesystem.
-- **Deduplication** is the logical bytes every artifact row names, divided by
-  the stored blobs' disk use. Every version of a growing transcript counts in
-  full in the first figure, and the lake stores the bytes versions share once,
-  so a lake of long sessions reads well above 1×.
+- **Compression against raw** is the size of the current version of every
+  uploaded file, which is what the machines hold, divided by the stored blobs'
+  disk use.
+  - The blobs also keep every earlier version, so that history counts against
+    the ratio. A version that grew costs a small record, because it shares its
+    bytes with the next.
+  - Duplicate files are current files whose bytes match another's exactly. The
+    lake stores them once. Continuations of a session are not duplicates.
+  - A sample taken before serve measured current versions shows no ratio.
 - **Growth charts** show the lake directory's disk use and the filesystem's
   free space: hourly over the last 7 days, or daily over 30 or 90. Hours or
   days with no sample are hatched and read "not measured".
