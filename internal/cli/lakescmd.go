@@ -18,6 +18,8 @@ const lakesUsage = `terva-lampi lakes — list or remove the lakes this machine 
 usage:
   terva-lampi lakes [list]
   terva-lampi lakes remove NAME [--purge-state]
+  terva-lampi lakes adopt [NAME] [--fingerprint SHA256:...]
+                          [--allow-from keep|profile] [--force] [--yes]
 
 list prints one line per lake in config.json, with its server, token
 file, pinned lake id and allowlist counts, then its base configuration.
@@ -34,6 +36,41 @@ registering it again sends nothing twice. --purge-state deletes it
 too; while an agent is running it refuses and changes nothing. The
 default lake set by the top-level server in config.json is not in the
 lakes map; edit config.json for that one.
+
+adopt pins a lake this machine already syncs to with a device token,
+such as one set by the top-level server and token_file, so the agent
+takes the lake's profile without registering again. NAME defaults to
+default. It checks, in order, and stops at the first check that fails:
+
+  1. the key list at the lake's URL, fetched over a fresh nonce, is
+     signed by an active key; the URL is https, or http to loopback;
+  2. the lake that accepts this machine's token proves that key in
+     hello, over a fresh nonce;
+  3. you confirm the URL, lake id and key fingerprint, on a terminal or
+     with --fingerprint set to what serve identity prints on the lake
+     host;
+  4. the profile the lake signs for this device verifies under that key.
+
+Then it caches the profile and writes the pin, and the device id the
+profile names, into the lake's entry. A default lake set by the
+top-level server and token_file moves into lakes.default with its
+projects.allow; top-level projects.deny stays. The lake keeps its name,
+machine id, token and sync state, so nothing is sent again and the lake
+lists the same device. A running agent is told to reload.
+
+A lake's local allow rules shut out its profile's. --allow-from keep,
+the default, leaves them in force. --allow-from profile removes them,
+so the profile's allow rules apply; on a lake already pinned it does
+only that. The profile's deny rules and harness settings apply either
+way, and its harness settings apply to every lake.
+
+Before it writes anything, adopt reads every session the agent would
+read and lists what the change stops uploading and what it starts
+uploading: each harness the profile turns off or on, with its projects,
+and each project the new rules refuse or allow. It refuses while
+anything stops, unless --force. When anything starts, it asks on a
+terminal, and without one it refuses unless --yes, since a profile
+written for other machines can allow more here than anyone meant.
 `
 
 func runLakes(env Env, args []string) error {
@@ -46,6 +83,12 @@ func runLakes(env Env, args []string) error {
 		sub, args = args[0], args[1:]
 	}
 	var name string
+	if sub == "adopt" {
+		name = config.DefaultLake
+		if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
+			name, args = args[0], args[1:]
+		}
+	}
 	if sub == "remove" {
 		if len(args) == 0 || args[0] == "" || args[0][0] == '-' {
 			fmt.Fprint(env.stdout(), lakesUsage)
@@ -54,9 +97,16 @@ func runLakes(env Env, args []string) error {
 		name, args = args[0], args[1:]
 	}
 	var purge bool
+	adopt := adoptOptions{allowFrom: allowKeep}
 	rest, err := parseFlags(env, args, lakesUsage, func(fs *flag.FlagSet) {
-		if sub == "remove" {
+		switch sub {
+		case "remove":
 			fs.BoolVar(&purge, "purge-state", false, "delete the lake's sync state too")
+		case "adopt":
+			fs.StringVar(&adopt.fingerprint, "fingerprint", "", "the lake key fingerprint serve identity prints")
+			fs.StringVar(&adopt.allowFrom, "allow-from", allowKeep, "keep the local allow rules, or use the profile's")
+			fs.BoolVar(&adopt.force, "force", false, "adopt even if a project stops uploading")
+			fs.BoolVar(&adopt.yes, "yes", false, "adopt even if a project starts uploading")
 		}
 	})
 	if err != nil {
@@ -79,6 +129,11 @@ func runLakes(env Env, args []string) error {
 		return nil
 	case "remove":
 		return removeLake(env, name, purge)
+	case "adopt":
+		if !config.ValidLakeName(name) {
+			return fmt.Errorf("%q is not a lake name; terva-lampi lakes lists them", name)
+		}
+		return adoptLake(env, name, adopt)
 	default:
 		fmt.Fprint(env.stdout(), lakesUsage)
 		return fmt.Errorf("unknown lakes command %q", sub)

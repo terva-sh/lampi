@@ -393,6 +393,7 @@ and asked again at each interval.
   "machine_id": "01M3…",
   "profile": "default",
   "profile_version": "sha256:8427…",
+  "pinned": true,
   "allow_source": "lake default",
   "deny_source": "none",
   "last_sync": {
@@ -410,7 +411,11 @@ Every field is optional. `inventory` is the agent's inventory mode,
 report. `allow_source` and `deny_source` say where the project rules
 came from: `local`, `lake NAME`, both joined by `+`, or `none`; `agent
 config` prints them with a colon for the space. A lake's allow rules do not apply to a device whose
-`allow_source` is `local`. `last_error` is the newest failed sync's
+`allow_source` is `local`. `pinned` says whether the agent pinned this lake's
+key, which it needs before it accepts a profile. A pinned agent whose first
+profile fetch is still pending sends `true` with no `profile`. Agents from
+before the field leave it out, and the dashboard then takes a `token-file`
+device with no profile as unpinned. `last_error` is the newest failed sync's
 error and is empty after a sync succeeds.
 
 The body cap is 64 KiB. The lake cuts each string to 256 bytes, and

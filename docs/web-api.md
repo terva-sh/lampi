@@ -504,6 +504,9 @@ sent, compared with the lake. It takes no parameters; any parameter is
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.
+- `no_profile` is true for a `token-file` device whose agent reports no
+  profile: it has not pinned the lake, so no profile reaches it.
+  `terva-lampi lakes adopt` on that machine pins it.
 - `last_sync`, `last_error` and the agent fields are absent until the device
   sends a report. `last_contact` is the newest request, or the newest report
   from before serve started.
@@ -618,7 +621,8 @@ narrow the queue; an empty value means all. Anything else is
     it through.
 - `profile` is the profile the device fetches. `local_allow` marks a device
   whose `config.json` sets its own allow rules, which a profile rule does not
-  reach.
+  reach. `no_profile` marks one that fetches no profile at all, as on the
+  devices route; it is also `local_allow`.
 - `first_seen` is when the lake first saw the project on the device.
   `first_seen_at_or_before` marks a project first seen when the lake began
   recording sightings, at `sightings_since`: it may have been there before.
