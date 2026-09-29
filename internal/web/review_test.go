@@ -22,8 +22,14 @@ import (
 // now allows, and secret, which a deny rule refuses. locked is strict
 // and old is revoked.
 func reviewLake(t *testing.T, groups ...string) (*api.Server, *testidp.Server, http.Handler, []catalog.Device) {
+	lake, idp, h, ds, _ := reviewLakeDir(t, groups...)
+	return lake, idp, h, ds
+}
+
+// reviewLakeDir is reviewLake and the lake's directory.
+func reviewLakeDir(t *testing.T, groups ...string) (*api.Server, *testidp.Server, http.Handler, []catalog.Device, string) {
 	t.Helper()
-	lake, idp, h, _ := operatorLake(t, "", groups...)
+	lake, idp, h, dir := operatorLake(t, "", groups...)
 	ctx := t.Context()
 	now := time.Now()
 	ds, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{
@@ -64,7 +70,7 @@ func reviewLake(t *testing.T, groups ...string) (*api.Server, *testidp.Server, h
 	if _, err := lake.Catalog.RevokeDeviceByID(ctx, ds[3].ID, "test", now); err != nil {
 		t.Fatal(err)
 	}
-	return lake, idp, h, ds
+	return lake, idp, h, ds, dir
 }
 
 // section is the part of page from the heading h2 to the end of its

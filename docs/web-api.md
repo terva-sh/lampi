@@ -566,6 +566,34 @@ narrow the queue; an empty value means all. Anything else is
 - A `strict` device names no refused project; `strict` gives its totals.
 - Sections are ordered by `first_seen`, newest first.
 
+### Hiding projects
+
+Operators hide projects they will not import, and unhide them. The rules of
+[registration codes](#registration-codes) hold: the `operator` role,
+`404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
+`403 csrf_failed` without it.
+
+| Route under `/api/web/v1` | Body | Result |
+|---|---|---|
+| `POST /review/hide` | `{"keys": [{"kind": "git_remote", "key": "github.com/acme/app"}], "note": "vendored"}` | Hides each key. `note` is optional, at most 500 characters. |
+| `POST /review/unhide` | `{"keys": [...]}` | Removes each key's hide. It takes no note. |
+
+A key is a project as the [review queue](#review-queue) names it: `kind` is
+`git_remote` or `cwd`. Each answers `200` with `{"changed": [KEY, ...]}`, the
+keys it hid or unhid. A key already in that state is left alone, so a repeat
+changes nothing, and a hide keeps its first note. One request takes 1 to 500
+keys, and changes all of them or none.
+
+| Refusal | Status and `error` |
+|---|---|
+| Not one JSON object of these fields, no keys, more than 500, a key that is not a key, or a note on unhide | `400 invalid_request` |
+| A note over 500 characters | `400 invalid_note` |
+
+A hide sends nothing to agents. Each change goes to `audit.jsonl` as
+`project.hidden` or `project.unhidden` with the operator as actor. A change
+whose audit line fails still stands, and answers `500 audit_failed` with
+`changed`.
+
 ## Profiles
 
 `GET /api/web/v1/profiles` and `GET /api/web/v1/profiles/{name}` read the

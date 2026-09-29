@@ -32,6 +32,9 @@ type deviceView struct {
 	Problem  string   `json:"-"`
 	// Notice says what a save that came back to this page saved.
 	Notice string `json:"-"`
+	// Hidden holds the keys, as ProjectKey.String writes them, of the
+	// projects hidden from review.
+	Hidden map[string]bool `json:"-"`
 }
 
 // inventoryView is a device's newest inventory. Allowed and Refused
@@ -131,6 +134,15 @@ func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id st
 				}
 			}
 		}
+	}
+	hides, err := s.catalog.HiddenProjects(ctx)
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	v.Hidden = map[string]bool{}
+	for _, h := range hides {
+		v.Hidden[h.Key.String()] = true
 	}
 	if ident, csrf := webauth.Current(r); ident.Operator && s.reg != nil {
 		v.Actions, v.CSRF = true, csrf

@@ -414,6 +414,17 @@ PROFILE…** for each device's copy. It works like [Allow on a device's
 page](#a-devices-page), and Back and Save both return to the queue with its
 filters.
 
+Operators can also **Hide** a project they will not import, from its row, or
+tick several and press **Hide selected** with an optional note. A hide covers
+the project on every device, now and later. It changes only what the
+dashboard shows: the agent keeps refusing the project, as it did before,
+because nothing allows it. To refuse a project on purpose, add a deny rule to
+the profile. The Hidden tab lists each hide with who made it, when, the note,
+and how many devices still refuse the project. **Unhide** puts the project back
+on the queue. A device's page offers **Hide from review** on each refused
+project and marks the hidden ones. Each hide and unhide goes to `audit.jsonl`
+as `project.hidden` or `project.unhidden`, with the operator as actor.
+
 ## Profiles
 
 `/profiles` lists the lake's profiles, the default first. Each shows its
