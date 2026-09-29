@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T16:51:03Z
+updated_at: 2026-09-29T17:18:03Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -66,6 +66,10 @@ Decisions and gaps:
 - /v1/stats blanks LastFailure.SessionUID when that session is outside the device's scope.
 - Main's conflict resolutions (#149) landed during the work. DivergentCopies takes both the scope and main's resolved filter, and the conflict count on the overview is both unresolved and in scope.
 - Gaps: the operations page's storage bytes are lake-wide, and the device inventory shows project names to every viewer (it is agent-reported, not stored sessions). MCP is not built, so it has nothing to scope yet. The registry catches anything MCP adds to the catalog.
+
+**agent:claude-code/7859b064** at 2026-09-29T17:18:03Z
+
+Rebased onto main after #153 (conflict actions). Main's new Conflict(id) now takes a Scope, and the keep-head/reopen routes go through guardRead, so an operator who is not an admin gets 404 for a conflict in a bay they do not read, the same answer the page gives. Alternative considered: leaving the action routes on Guard and checking admin only; rejected because operator and admin are separate roles, and an operator could then change a conflict they cannot see. The check runs before the write in its own read, which is a race only against an admin moving the session between bays at that moment. Test: TestOperatorActsOnlyOnConflictsInTheirBays.
 
 ## Summary
 
