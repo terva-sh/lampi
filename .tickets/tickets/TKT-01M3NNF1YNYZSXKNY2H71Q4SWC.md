@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T15:00:00Z
+updated_at: 2026-09-29T15:04:45Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -52,10 +52,14 @@ The owner signs off on the policy change in a ticket note or the PR.
 ## Acceptance criteria
 
 - [x] docs/policy.md, docs/architecture.md and docs/naming.md record bays as decided in the epic
-- [x] The owner's sign-off on the policy change is recorded
+- [ ] The owner's sign-off on the policy change is recorded
 
 ## Notes
 
 **agent:claude-code/7859b064** at 2026-09-29T15:00:00Z
 
 Docs written at aa88bad: docs/policy.md gains a Bays section (model, known limits) and a retention line; docs/architecture.md gains the storage consequence under Auth; docs/naming.md gains why bay. Sign-off: the owner decided every point in the grilling on 2026-09-29 (notes on TKT-01M3N8KHW5) and asked for the epic to be worked. The wording itself has not been read by the owner; it is flagged for review in the PR.
+
+**agent:claude-code/7859b064** at 2026-09-29T15:04:45Z
+
+Review 1377 on #148 (head 14bca02): finding-1 accepted, the retention line now says only a session left in no bay moves to the default, matching the epic. finding-2 accepted: a refused request no longer lands in the default unconditionally; it places nothing, and a session left with no bay lands in the default or, with the default off, is refused like any unplaced session. This is the agent's reading of the owner's round 3 and round 3 Q11 answers together, for the owner to confirm; TKT-01M3NNF29W carries it. finding-3 accepted: AC 2 (owner sign-off) is unticked. The decisions are the owner's from the grilling, but the owner has not read this wording, so the ticket stays open for sign-off after merge.

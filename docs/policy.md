@@ -243,8 +243,11 @@ signed-in viewer reads the whole lake, as
   rules that match the way `projects` rules do. The lake records the
   request, then applies its own rules: hold a session for review, add a
   bay, or keep it out of one. A request for a bay the device may not
-  write lands in the default bay with the refusal recorded. A device is
-  told only the bays it may write, because bay names can name clients.
+  write is recorded as refused and does not place the session. A session
+  that its requests and the lake's rules leave with no bay lands in the
+  default bay, or, when the default is off, is refused like any other
+  unplaced session. A device is told only the bays it may write, because
+  bay names can name clients.
 - **Roles.** An admin reads every bay and manages bays, rules and
   grants. An operator adds machines and can be limited to some bays; it
   reads session content only in bays it is granted. A viewer reads only
@@ -273,8 +276,11 @@ until `terva-lampi serve purge --session <uid> --yes` removes that
 session, with `serve` stopped. Purge keeps a blob another session
 names. A backup taken earlier still holds the bytes. This tree does
 not delete by age.
-Deleting a [bay](#bays) deletes no data: its sessions move to the
-default bay. Per-bay retention is a separate decision, not yet made.
+Deleting a [bay](#bays) deletes no data. It removes the bay from each
+session's membership, and only a session left in no bay moves to the
+default bay; a session still in another bay stays there and does not
+enter the inbox. Per-bay retention is a separate decision, not yet
+made.
 
 ## Encryption at rest
 
