@@ -147,6 +147,9 @@ func TestANameAndAnAliasNeverMeet(t *testing.T) {
 	if _, err := c.db.ExecContext(ctx, `INSERT INTO bay_aliases(alias, bay_id) VALUES('old-work', ?)`, work.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := c.db.ExecContext(ctx, `UPDATE bay_aliases SET alias=? WHERE alias='old-work'`, DefaultBayName); err == nil {
+		t.Fatal("an alias was renamed to the default bay's name")
+	}
 	if _, err := c.CreateBay(ctx, "old-work", "admin", time.Now()); !errors.Is(err, ErrBayTaken) {
 		t.Fatalf("create over an alias: %v", err)
 	}

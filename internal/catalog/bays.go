@@ -117,6 +117,9 @@ func migrateBays(tx *sql.Tx) error {
 	CREATE TRIGGER bay_alias_not_a_name BEFORE INSERT ON bay_aliases
 		WHEN EXISTS (SELECT 1 FROM bays WHERE name = NEW.alias)
 		BEGIN SELECT RAISE(ABORT, 'bay name taken'); END;
+	CREATE TRIGGER bay_realias_not_a_name BEFORE UPDATE OF alias ON bay_aliases
+		WHEN EXISTS (SELECT 1 FROM bays WHERE name = NEW.alias)
+		BEGIN SELECT RAISE(ABORT, 'bay name taken'); END;
 	CREATE TRIGGER bay_name_not_an_alias BEFORE INSERT ON bays
 		WHEN EXISTS (SELECT 1 FROM bay_aliases WHERE alias = NEW.name)
 		BEGIN SELECT RAISE(ABORT, 'bay name taken'); END;
