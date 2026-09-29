@@ -21,6 +21,7 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
@@ -52,6 +53,8 @@ usage:
                                  or set the URL agents reach the lake at
   terva-lampi serve devices [list|revoke NAME|unbind NAME|set-profile NAME P] [--data DIR]
                                  list devices, or change one
+  terva-lampi serve bays [list|create|rename|alias|delete|default|grants|grant|revoke]
+                                 manage bays and who reads or writes them
   terva-lampi serve profiles [list|show NAME|set NAME FILE|delete NAME|import FILE]
                                  manage the profiles agents fetch
   terva-lampi serve register --name NAME [--expires 24h] [--profile P]
@@ -179,6 +182,8 @@ func runServe(env Env, args []string) error {
 			return runServeIdentity(env, args[1:])
 		case "devices":
 			return runServeDevices(env, args[1:])
+		case "bays":
+			return runServeBays(env, args[1:])
 		case "profiles":
 			return runServeProfiles(env, args[1:])
 		case "register":
@@ -709,6 +714,9 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 		},
 	}
 	logAdmins(lake.Log, cfg)
+	if err := seedBayGrants(lake.Log, lake.Catalog, data, cfg); err != nil {
+		return err
+	}
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
 	return err
 }
@@ -724,6 +732,41 @@ func logAdmins(log *slog.Logger, cfg webconfig.Config) {
 	} else {
 		log.Warn("web config maps no group to admin; raw artifact reads are off")
 	}
+}
+
+// seedBayGrants gives the groups the web config maps to viewer or
+// operator the default bay, once per lake, so upgrading to bays changes
+// nothing a signed-in user reads. No group is made admin. It logs what
+// it granted, and warns about any viewer or operator group that holds
+// no bay, since such a group signs in to an empty dashboard.
+func seedBayGrants(log *slog.Logger, cat *catalog.Catalog, data string, cfg webconfig.Config) error {
+	ctx := context.Background()
+	viewers, operators := cfg.GroupsWithRole(webconfig.RoleViewer), cfg.GroupsWithRole(webconfig.RoleOperator)
+	made, ran, err := cat.SeedRoleGrants(ctx, viewers, operators, time.Now())
+	if err != nil {
+		return err
+	}
+	if ran {
+		if err := cat.FlushAudit(ctx, data); err != nil && log != nil {
+			log.Warn("bay grants: audit lines stay queued", "err", err)
+		}
+	}
+	if log == nil {
+		return nil
+	}
+	for _, g := range made {
+		log.Info("bays: granted a web group the default bay on upgrade", "group", g.Principal, "permission", g.Permission)
+	}
+	for _, g := range append(viewers, operators...) {
+		bays, err := cat.GroupBays(ctx, []string{g}, catalog.PermRead)
+		if err != nil {
+			return err
+		}
+		if len(bays) == 0 {
+			log.Warn("bays: a web group holds no bay and reads no sessions; grant it one with terva-lampi serve bays grant", "group", g, "role", cfg.OIDC.RoleMap[g])
+		}
+	}
+	return nil
 }
 
 // lakeRelease is the tag this binary was built from, or "" for a build

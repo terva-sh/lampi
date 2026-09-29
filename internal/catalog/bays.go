@@ -587,3 +587,255 @@ func grantDefaultWrite(ctx context.Context, tx *sql.Tx, deviceID string, now tim
 	}
 	return nil
 }
+
+// RenameBay gives a bay a new name and keeps the old one as an alias,
+// so agents that request it by the old name keep reaching it. The
+// default bay keeps its name; an alias gives it another.
+func (c *Catalog) RenameBay(ctx context.Context, ref, name, actor string, now time.Time) error {
+	if !ValidBayName(name) {
+		return fmt.Errorf("%w: %q", ErrBayName, name)
+	}
+	return c.bayChange(ctx, now, func(tx *sql.Tx) (audit.Event, error) {
+		id, err := resolveBayID(ctx, tx, ref)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		if id == DefaultBayID {
+			return audit.Event{}, errors.New("catalog: the default bay keeps its name; give it an alias instead")
+		}
+		if err := nameFree(ctx, tx, name); err != nil {
+			return audit.Event{}, err
+		}
+		var old string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM bays WHERE id=?`, id).Scan(&old); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE bays SET name=? WHERE id=?`, name, id); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO bay_aliases(alias, bay_id) VALUES(?,?)`, old, id); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		return audit.Event{Kind: audit.BayRenamed, Actor: actor, Detail: fmt.Sprintf("bay %s renamed %s to %s; %s stays as an alias", id, old, name, old)}, nil
+	})
+}
+
+// AliasBay gives a bay a second name it is shown and requested under.
+func (c *Catalog) AliasBay(ctx context.Context, ref, alias, actor string, now time.Time) error {
+	if !ValidBayName(alias) {
+		return fmt.Errorf("%w: %q", ErrBayName, alias)
+	}
+	return c.bayChange(ctx, now, func(tx *sql.Tx) (audit.Event, error) {
+		id, err := resolveBayID(ctx, tx, ref)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		if err := nameFree(ctx, tx, alias); err != nil {
+			return audit.Event{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO bay_aliases(alias, bay_id) VALUES(?,?)`, alias, id); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		return audit.Event{Kind: audit.BayAliasAdded, Actor: actor, Detail: fmt.Sprintf("bay %s alias %s", id, alias)}, nil
+	})
+}
+
+// UnaliasBay removes an alias. An agent that still requests the bay by
+// it has the request refused as a bay that does not exist.
+func (c *Catalog) UnaliasBay(ctx context.Context, alias, actor string, now time.Time) error {
+	return c.bayChange(ctx, now, func(tx *sql.Tx) (audit.Event, error) {
+		var id string
+		err := tx.QueryRowContext(ctx, `SELECT bay_id FROM bay_aliases WHERE alias=?`, alias).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return audit.Event{}, fmt.Errorf("%w: no alias %s", ErrNoBay, alias)
+		}
+		if err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM bay_aliases WHERE alias=?`, alias); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		return audit.Event{Kind: audit.BayAliasRemoved, Actor: actor, Detail: fmt.Sprintf("bay %s alias %s", id, alias)}, nil
+	})
+}
+
+// DeleteBay removes a bay, its aliases and its grants, and takes it out
+// of every session's membership. A session left in no bay moves to the
+// default bay, whether or not the default is turned off: that switch
+// applies to ingest, and a stored session is never left in no bay. No
+// data is deleted. It returns how many sessions moved to the default.
+func (c *Catalog) DeleteBay(ctx context.Context, ref, actor string, now time.Time) (int, error) {
+	var moved int
+	err := c.bayChange(ctx, now, func(tx *sql.Tx) (audit.Event, error) {
+		id, err := resolveBayID(ctx, tx, ref)
+		if err != nil {
+			return audit.Event{}, err
+		}
+		if id == DefaultBayID {
+			return audit.Event{}, ErrDefaultOnly
+		}
+		var name string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM bays WHERE id=?`, id).Scan(&name); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO session_bays(session_uid, bay_id, added_at)
+			SELECT session_uid, ?, ? FROM session_bays m
+			WHERE m.bay_id = ? AND NOT EXISTS (
+				SELECT 1 FROM session_bays o WHERE o.session_uid = m.session_uid AND o.bay_id <> m.bay_id)`,
+			DefaultBayID, stamp(now), id)
+		if err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		moved = int(n)
+		for _, q := range []string{
+			`DELETE FROM session_bays WHERE bay_id=?`,
+			`DELETE FROM bay_grants WHERE bay_id=?`,
+			`DELETE FROM bay_aliases WHERE bay_id=?`,
+			`DELETE FROM bays WHERE id=?`,
+		} {
+			if _, err := tx.ExecContext(ctx, q, id); err != nil {
+				return audit.Event{}, fmt.Errorf("catalog: %w", err)
+			}
+		}
+		return audit.Event{Kind: audit.BayDeleted, Actor: actor, Detail: fmt.Sprintf("bay %s (%s) deleted; %d sessions left in no other bay moved to the default", name, id, moved)}, nil
+	})
+	return moved, err
+}
+
+// SetDefaultEnabled turns the default bay on or off. Off applies at
+// ingest: a new session nothing places is refused instead of landing
+// in the inbox. The bay and what is in it stay.
+func (c *Catalog) SetDefaultEnabled(ctx context.Context, on bool, actor string, now time.Time) error {
+	return c.bayChange(ctx, now, func(tx *sql.Tx) (audit.Event, error) {
+		if _, err := tx.ExecContext(ctx, `UPDATE bays SET disabled=? WHERE id=?`, !on, DefaultBayID); err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		state := "off"
+		if on {
+			state = "on"
+		}
+		return audit.Event{Kind: audit.BayDefault, Actor: actor, Detail: "default bay turned " + state}, nil
+	})
+}
+
+// bayChange runs one audited change in a transaction.
+func (c *Catalog) bayChange(ctx context.Context, now time.Time, change func(*sql.Tx) (audit.Event, error)) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	e, err := change(tx)
+	if err != nil {
+		return err
+	}
+	if err := queueAudit(ctx, tx, now, e); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return nil
+}
+
+// bayRoleGrantsKey marks, in lake_meta, that the groups the web config
+// mapped to a role were granted the default bay once.
+const bayRoleGrantsKey = "bay_role_grants_seeded"
+
+// SeedRoleGrants runs once per lake, the first time serve starts with a
+// web config after bays: every group mapped to viewer or operator reads
+// the default bay, and every operator group may mint into it, so the
+// upgrade changes nothing a signed-in user sees. Admin groups need no
+// grant; an admin reads every bay. No group is made admin. A group
+// added to the web config later gets no grant here: an admin grants it
+// bays. It returns the grants it made and whether it ran.
+func (c *Catalog) SeedRoleGrants(ctx context.Context, viewers, operators []string, now time.Time) ([]Grant, bool, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	var done string
+	err = tx.QueryRowContext(ctx, `SELECT value FROM lake_meta WHERE key=?`, bayRoleGrantsKey).Scan(&done)
+	if err == nil {
+		return nil, false, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, false, fmt.Errorf("catalog: %w", err)
+	}
+	var made []Grant
+	add := func(group, perm string) error {
+		ok, err := addGrant(ctx, tx, PrincipalGroup, group, DefaultBayID, perm, "serve: upgrade to bays", now)
+		if ok {
+			made = append(made, Grant{PrincipalKind: PrincipalGroup, Principal: group, BayID: DefaultBayID, Permission: perm})
+		}
+		return err
+	}
+	for _, g := range viewers {
+		if err := add(g, PermRead); err != nil {
+			return nil, false, err
+		}
+	}
+	for _, g := range operators {
+		if err := add(g, PermRead); err != nil {
+			return nil, false, err
+		}
+		if err := add(g, PermWrite); err != nil {
+			return nil, false, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO lake_meta(key, value) VALUES(?, ?)`, bayRoleGrantsKey, stamp(now)); err != nil {
+		return nil, false, fmt.Errorf("catalog: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("catalog: %w", err)
+	}
+	return made, true, nil
+}
+
+// GroupBays is the set of bay ids any of groups holds perm on.
+func (c *Catalog) GroupBays(ctx context.Context, groups []string, perm string) ([]string, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	q := `SELECT DISTINCT bay_id FROM bay_grants WHERE principal_kind=? AND permission=? AND principal IN (?` + strings.Repeat(",?", len(groups)-1) + `) ORDER BY bay_id`
+	args := []any{PrincipalGroup, perm}
+	for _, g := range groups {
+		args = append(args, g)
+	}
+	rows, err := c.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// BaySessionCounts is how many sessions each bay holds, by bay id.
+func (c *Catalog) BaySessionCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT bay_id, count(*) FROM session_bays GROUP BY bay_id`)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}

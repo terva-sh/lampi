@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/webconfig"
 	"testing"
@@ -116,5 +117,20 @@ func TestProviderGroupsAndAvailability(t *testing.T) {
 	s.PlainEndpoint = false
 	if _, err := p.AuthURL(t.Context(), "s", "n", "v"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIdentityKeepsItsGroups(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	// readers maps to viewer; client-x maps to no role but can hold bays.
+	s.Groups = []string{"readers", "client-x", "readers"}
+	p, _ := NewProvider(providerConfig(s), s.Client())
+	id, err := p.Exchange(t.Context(), s.Issue("n", "v", "lake"), "n", "v")
+	if err != nil || !id.Viewer {
+		t.Fatalf("id %+v err=%v", id, err)
+	}
+	if want := []string{"client-x", "readers"}; !slices.Equal(id.Groups, want) {
+		t.Fatalf("groups %v want %v", id.Groups, want)
 	}
 }

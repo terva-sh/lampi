@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,10 @@ import (
 	"golang.org/x/oauth2"
 	"terva.sh/lampi/internal/webconfig"
 )
+
+// maxGroups bounds the groups one identity keeps, so a token naming
+// thousands cannot grow a session without limit.
+const maxGroups = 256
 
 var ErrProvider = errors.New("identity provider unavailable")
 var ErrIdentity = errors.New("identity response did not verify")
@@ -35,6 +40,12 @@ type Identity struct {
 	Operator bool
 	Admin    bool
 	AuthTime time.Time
+	// Groups are the IdP groups the ID token named, sorted, at most
+	// maxGroups. role_map decides the role; bay grants are held by
+	// group, so these decide which bays a viewer or operator reads
+	// (TKT-01M3N8KHW5), including groups that map to no role. They are
+	// a snapshot taken at sign-in.
+	Groups []string
 }
 type discovered struct {
 	oauth    oauth2.Config
@@ -233,6 +244,9 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 		}
 	}
 	for _, g := range groups(claims[p.cfg.OIDC.GroupsClaim]) {
+		if len(out.Groups) < maxGroups && !slices.Contains(out.Groups, g) {
+			out.Groups = append(out.Groups, g)
+		}
 		switch p.cfg.OIDC.RoleMap[g] {
 		case webconfig.RoleViewer:
 			out.Viewer = true
@@ -242,6 +256,7 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 			out.Viewer, out.Operator, out.Admin = true, true, true
 		}
 	}
+	slices.Sort(out.Groups)
 	var authTime json.Number
 	if raw, ok := claims["auth_time"]; ok && json.Unmarshal(raw, &authTime) == nil {
 		if sec, err := authTime.Int64(); err == nil && sec > 0 {
