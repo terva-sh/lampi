@@ -35,6 +35,10 @@ type InboxEntry struct {
 // explains it.
 const ReasonNothingPlaced = "no bay asked for and no rule added one"
 
+// The reason a session in the default bay and another has: something
+// placed it, and the default membership stayed.
+const ReasonAlsoInDefault = "placed in another bay and still in the default; serve bays move BAY --from default with a filter takes it out"
+
 // Inbox lists the sessions that need an admin, oldest first.
 func (c *Catalog) Inbox(ctx context.Context) ([]InboxEntry, error) {
 	rows, err := c.db.QueryContext(ctx, `
@@ -126,9 +130,14 @@ func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[stri
 	rows.Close()
 	switch {
 	case len(e.Bays) == 0:
-		out = append(out, "in no bay, which no write leaves; run serve bays move to place it")
-	case slices.Contains(e.Bays, DefaultBayID) && len(out) == 0:
+		out = append(out, "in no bay, which no write leaves; serve bays move BAY with a filter places it, as from the default bay")
+	case len(out) > 0 || !slices.Contains(e.Bays, DefaultBayID):
+	case len(e.Bays) == 1:
 		out = append(out, ReasonNothingPlaced)
+	default:
+		// A rule or a move put it in another bay and left the default
+		// membership, since both only add (review 1461).
+		out = append(out, ReasonAlsoInDefault)
 	}
 	return out, nil
 }
@@ -204,7 +213,9 @@ func (c *Catalog) MoveSessions(ctx context.Context, m Move, now time.Time) ([]st
 			return nil, err
 		}
 		ms.Bay, ms.Reason = from, "bulk move to "+to
-		if err := removeFromBay(ctx, tx, ms, now); err != nil {
+		// A session in no bay was picked up from the default and has
+		// nothing to leave.
+		if err := removeFromBay(ctx, tx, ms, now); err != nil && !errors.Is(err, ErrNotAMember) {
 			return nil, err
 		}
 	}
@@ -218,6 +229,9 @@ func (c *Catalog) MoveSessions(ctx context.Context, m Move, now time.Time) ([]st
 }
 
 // matchSessions is the sessions in bay that f matches, oldest first.
+// From the default bay it takes a session in no bay too: no write
+// leaves one there, and the default is where one left in no bay goes,
+// so this is how an admin places it (review 1461).
 func matchSessions(ctx context.Context, tx *sql.Tx, bay string, f SessionFilter) ([]string, error) {
 	var machine string
 	if f.Device != "" {
@@ -237,9 +251,11 @@ func matchSessions(ctx context.Context, tx *sql.Tx, bay string, f SessionFilter)
 	}
 	rows, err := tx.QueryContext(ctx, `
 		SELECT s.session_uid, s.harness, COALESCE(s.project_id, ''), s.manifest_json
-		FROM sessions s JOIN session_bays m ON m.session_uid = s.session_uid AND m.bay_id = ?
-		WHERE (? = '' OR EXISTS (SELECT 1 FROM provenance p WHERE p.session_uid = s.session_uid AND p.machine_id = ?))
-		ORDER BY s.ingested_at, s.session_uid`, bay, machine, machine)
+		FROM sessions s
+		WHERE (EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid AND m.bay_id = ?)
+				OR (? AND NOT EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid)))
+			AND (? = '' OR EXISTS (SELECT 1 FROM provenance p WHERE p.session_uid = s.session_uid AND p.machine_id = ?))
+		ORDER BY s.ingested_at, s.session_uid`, bay, bay == DefaultBayID, machine, machine)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}

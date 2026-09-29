@@ -157,3 +157,45 @@ func TestBayProblems(t *testing.T) {
 		t.Fatalf("inbox %v", got)
 	}
 }
+
+// A session in no bay is placed by a move from the default bay, as the
+// inbox says (review 1461).
+func TestMoveFromDefaultPlacesASessionInNoBay(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	uid := r.mustPost("sess-a", "/src/a").SessionUID
+	if _, err := r.c.db.Exec(`DELETE FROM session_bays WHERE session_uid=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := r.c.MoveSessions(ctx, Move{From: "work", To: "secret", Filter: SessionFilter{CWDPrefix: "/src/a"}, Actor: "admin"}, time.Now()); err != nil || len(moved) != 0 {
+		t.Fatalf("from another bay: %v %v", moved, err)
+	}
+	moved, err := r.c.MoveSessions(ctx, Move{From: DefaultBayName, To: "work", Filter: SessionFilter{CWDPrefix: "/src/a"}, Actor: "admin"}, time.Now())
+	if err != nil || !reflect.DeepEqual(moved, []string{uid}) {
+		t.Fatalf("moved %v err=%v", moved, err)
+	}
+	if got := r.bays(uid); !reflect.DeepEqual(got, []string{r.work.ID}) {
+		t.Fatalf("bays %v", got)
+	}
+}
+
+// A session a rule added to another bay, and that stayed in the default,
+// is not described as one nothing placed (review 1461).
+func TestInboxNamesASessionAlsoInDefault(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	uid := r.mustPost("sess-a", "/src/a").SessionUID
+	r.rule(RuleAdd, config.ProjectMatch{CWDPrefix: "/src/a"}, "secret")
+	if _, err := r.c.ApplyRules(ctx, "admin", false, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := inboxReasons(t, r.c)[uid]; !reflect.DeepEqual(got, []string{ReasonAlsoInDefault}) {
+		t.Fatalf("reasons %v", got)
+	}
+	if _, err := r.c.MoveSessions(ctx, Move{From: DefaultBayName, To: "secret", Filter: SessionFilter{CWDPrefix: "/src/a"}, Actor: "admin"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, listed := inboxReasons(t, r.c)[uid]; listed {
+		t.Fatal("still in the inbox after the move its reason names")
+	}
+}

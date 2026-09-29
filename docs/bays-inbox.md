@@ -31,7 +31,8 @@ lake:
    and puts them in the target. The filters are `--project`,
    `--git-remote`, `--git-remote-prefix`, `--cwd-prefix`, `--device`
    and `--harness`, and every one given must match. A move needs at
-   least one.
+   least one. A move from the default bay also takes a matching session
+   that is in no bay.
 4. Grant the bays to the groups that read them:
    `serve bays grant client-x --group client-x-team --read`.
 5. Once the inbox holds only what should stay private to admins, take
@@ -70,11 +71,12 @@ for one folder only is a `cwd_hash`.
 | Reason | What to do |
 |--------|------------|
 | no bay asked for and no rule added one | Add a lake rule, or a request rule on the machine, for sessions like it. Move this one. |
+| placed in another bay and still in the default | A rule or a move added it elsewhere; both only add. `serve bays move BAY --from default` with a filter takes it out of the default. |
 | asked for bay X: refused, not granted | The device asked for a bay it may not write. Grant it, or fix the machine's config. |
 | asked for bay X: refused, no such bay | The machine asks for a bay the lake does not have, or by a name since changed. `serve bays alias` keeps an old name working. |
 | held by hold rule N into bay X | A hold rule sent it for review. `serve bays release UID` places it as it asked. |
 | flagged by hold rule N into bay X | A stored session a hold rule began to match. It keeps its bays until released. |
-| in no bay | No write should leave this. `serve fsck` reports it too. Move it into a bay. |
+| in no bay | No write should leave this. `serve fsck` reports it too. `serve bays move BAY` with a filter places it, as a move from the default bay. |
 
 A reason that keeps coming back is a rule that is missing. Fixing the
 rule empties the inbox for the sessions not yet made, which a move

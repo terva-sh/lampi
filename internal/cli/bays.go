@@ -87,7 +87,8 @@ default bay with nothing that placed it, a request the lake refused
 (docs/bays-inbox.md).
 
 move adds the sessions in --from (default: the default bay) that every
-FILTER matches to BAY, and takes them out of --from. apply-rules routes
+FILTER matches to BAY, and takes them out of --from. From the default
+bay it also places a matching session that is in no bay. apply-rules routes
 every stored session again by the rules as they are now: it only adds,
 and a hold flags. --dry-run lists what either would change and writes
 nothing. Every change is audited.
