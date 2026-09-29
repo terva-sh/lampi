@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T04:06:17Z
+updated_at: 2026-09-29T14:51:58Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -39,6 +39,7 @@ Scope every read path by the caller's read bays, before any session can land in 
 ### Scope
 
 - Recall, search, excerpts, transcripts, activity, overview counts and device views in `internal/recall` and `internal/web` filter by the caller's read bays, joining against catalog membership. An admin reads everything.
+- The raw artifact routes check a read token's bay list as well as its session list. An admin in the browser still reads every session's raw artifacts.
 - search.db may carry each session's bay set so FTS queries filter without a join. It is refreshed on a membership change without re-projecting the session.
 - `terva-lampi export` on the lake host is admin-level and gains `--bay` (repeatable). The training export stays gated by the `projects` allowlist and also by `--bay`.
 - A test lists every catalog query that returns session data and fails when one takes no bay scope. It must fail when a new unscoped query is added, not only check the ones known today.

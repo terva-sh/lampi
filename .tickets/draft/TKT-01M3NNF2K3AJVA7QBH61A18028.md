@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T04:06:17Z
+updated_at: 2026-09-29T14:51:58Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -40,12 +40,12 @@ Dashboard support for bays. Design in the parent epic TKT-01M3N8KHW5 (Bays: segm
 
 - Every view shows only the caller's read bays, using the scoping from the read-path child. Session views name the session's bays.
 - An inbox view: counts, and the list of unsorted, held and refused sessions with their reasons.
-- Admin actions: move one session between bays, and release a hold. These are the dashboard's first writes to session membership, so the web path needs CSRF protection and writes audit entries naming the OIDC user.
+- Admin actions: move one session between bays, and release a hold. These are the dashboard's first writes to session membership. They use the existing CSRF protection, require a sign-in in the last 10 minutes when they add a session to a bay, and queue audit events naming the admin, as raw reads and registration mints already do.
 - Bulk move and rule editing stay on the CLI. The full triage flow is a separate follow-up.
-- `docs/web-dashboard.md` records the admin role and the new actions, and amends "web administration is out of scope" accordingly.
+- `docs/web-dashboard.md` records the new admin actions and bay scoping for viewers and operators, beside the existing admin section.
 
 ## Acceptance criteria
 
 - [ ] Views show only the caller's read bays
-- [ ] An admin can move one session and release a hold, with CSRF protection and an audit entry naming the user
 - [ ] docs/web-dashboard.md documents the admin role and actions
+- [ ] An admin can move one session and release a hold, with CSRF protection, a recent sign-in when access is added, and an audit event naming the admin

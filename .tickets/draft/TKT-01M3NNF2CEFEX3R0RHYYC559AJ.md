@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T04:06:17Z
+updated_at: 2026-09-29T14:51:58Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -36,11 +36,12 @@ Agent side of bays. Design in the parent epic TKT-01M3N8KHW5 (Bays: segment one 
 
 ### Scope
 
-- Each lake's entry in `config.json` gains bay request rules shaped like `projects.allow` (cwd prefix, git remote, harness, naming one or more bays) and `default_bays`. A lake profile may suggest both. Local config wins, as it does for other profile fields.
+- Each lake's entry in `config.json` gains bay request rules using the same matcher as `projects.allow` (`cwd_prefix`, `cwd_glob`, `git_remote`, `git_remote_prefix`, plus harness, naming one or more bays) and `default_bays`. A lake profile may suggest both. Local config wins, as it does for other profile fields.
 - The agent sends the requested bays in the manifest and announces bay support.
 - `terva-lampi bays` lists the bays each lake lets this device write to. `terva-lampi bays which [PATH]` says which lake and bays a session started at PATH would request and which rule caused each.
 - A request for a bay not in the device's writable list warns in `status`, and the request is still sent so the lake records it.
 - A session the lake refuses as "no bay" stays pending and is listed as such in `status`, and reported to the lake so the device view shows it.
+- When per-device overrides land (TKT-01M3N22HC), bay requests can be set there too. Not required for this ticket.
 - Documented in `docs/registration-and-lakes.md` and `docs/allowlist-and-redaction.md`.
 
 ## Acceptance criteria

@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T04:06:22Z
+updated_at: 2026-09-29T14:52:08Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -65,7 +65,10 @@ The owner settled these in a grilling session on 2026-09-29. The notes on this t
   Hold takes precedence. The bays the agent requested are always recorded, so a release restores them in one step. Rejected: lake-only routing, which cannot place a session with nothing to match on, such as a scratch directory with no remote. Rejected: agent-only routing, where the lake could not keep sensitive work out of a bay. Rejected: a per-repository marker file, because a cloned repository could then send your sessions into a shared bay.
 - **A requested bay the device may not write to is recorded, not obeyed.** The session is accepted into the default bay, with the refused request and its reason recorded. Rejected: refusing the manifest, which would strand the session on the machine over what is usually a missing grant.
 - **Every manifest is routed again, add-only.** A session gains a bay when a later append requests one it may write, and the rules run again on each manifest. Nothing is removed automatically. A hold that matches a session already in other bays flags it for review and does not remove it.
-- **Admin and operator are different roles.** An admin reads everything, and creates, renames and deletes bays, rules and grants. An operator mints registration codes and manages devices, can be limited to specific bays, and reads session content only in bays it is granted. A viewer reads only the bays it is granted. A grant is (principal, bay, permission), where a principal is an OIDC group, a device, or later an MCP identity, and the permission is read or write. Rejected: making operator the all-bays role, because letting a machine ingest is a lesser power than reading every session.
+- **Admin and operator are different roles, and bays scope the two below admin.** The admin role already exists (TKT-01M3NM61CZ, Admin role and raw artifact access): admin implies operator, which implies viewer, and only an admin reads raw artifacts and mints `lrt_` read tokens. Bays add scope beneath it. An admin reads every bay, including the default, and creates, renames and deletes bays, rules and grants. An operator mints registration codes and manages devices, can be limited to specific bays, and reads session content only in bays it is granted. A viewer reads only the bays it is granted. A grant is (principal, bay, permission), where a principal is an OIDC group, a device, a read token, or later an MCP identity, and the permission is read or write. Rejected: making operator the all-bays role, because letting a machine ingest is a lesser power than reading every session.
+- **Read tokens take a bay scope.** An `lrt_` token is scoped today to the whole lake or to listed sessions. It gains an optional list of bays, and a token with a bay list reads only sessions in those bays at the time of each read. A token minted before bays keeps its scope. The broader token model planned in TKT-01M3KAMD1Z (Lake-backed sessions: read path, token scope, byte-exact reads) should carry bays as one of its scopes.
+- **Reuse the audit log and the recent sign-in check.** Membership changes, holds, releases, grant edits and bay lifecycle events are queued to the existing audit outbox (`audit.jsonl`) in the same transaction as the change, as registration and raw reads already are. No separate audit table. A dashboard action that adds access (granting a bay, minting a code or read token with bays, moving a session into a bay, releasing a hold) requires a sign-in in the last 10 minutes, as minting a registration code does.
+- **Bay rules reuse the profile rule matcher**: `cwd_prefix`, `cwd_glob`, `git_remote` and `git_remote_prefix`, plus harness. That applies to both the agent's bay requests and the lake's hold, add and deny rules, so the profile preview tooling can show what a bay rule would catch. The matcher's open bug TKT-01M3NQ83 (Allow on a folder project allows everything under it, home dirs too) matters here: a bay rule on a folder must not catch everything beneath it.
 - **Registration grants a device its write bays.** The grants sit on the lake's pending registration row, as the profile already does (`internal/catalog/registrations.go`), are capped at the minting operator's scope, and are applied when the code is redeemed. The code itself (`internal/regcode` `Code`) does not change. A device's bays are changed later by editing its grants on the lake.
 - **A device sees only the bays it may write to.** Bay names can carry client names. The agent gets `terva-lampi bays`, which lists them per lake, and `terva-lampi bays which [PATH]`, which says which lake and bays a session started at PATH would request, and which rule caused each.
 - **Bay lifecycle belongs to admins.** A bay has a stable id. A rename keeps the old name as an alias, so agents that request it keep working. Deleting a bay removes it from every membership, a session left in no bay moves to the default, and no data is deleted.
@@ -74,15 +77,15 @@ The owner settled these in a grilling session on 2026-09-29. The notes on this t
 
 ### Upgrade and compatibility
 
-The upgrade changes no behavior. Existing data is in `default`. Existing viewer groups get an explicit read grant on `default`, existing operator groups become operators scoped to all bays and also admins, and existing devices get a write grant on `default`. The web config gains an `admin` role mapping, and startup logs which groups were granted what.
+The upgrade changes no behavior. Existing data is in `default`. Existing viewer and operator groups get an explicit read grant on `default`, so they read what they read before. Existing operators are scoped to all bays for minting. Existing admins read everything, as they already do. Existing devices get a write grant on `default`, and existing read tokens keep their scope. No group is promoted to admin: the owner confirmed that on 2026-09-29 for TKT-01M3NM61CZ, and it supersedes round 4 of this epic's grilling, which proposed making existing operators admins. A lake with no admin group can still manage bays from the host CLI, and startup already warns about the missing group. Startup logs which groups were granted what.
 
 The protocol change is additive, so `capture_protocol` stays 1. The manifest gains an optional `bays` field, and the lake publishes each device's writable bays. An old agent sends no bays and is placed by the lake's rules and the default. The "no bay" error code goes only to agents that announce bay support; an old agent gets a plain 4xx it already backs off on. The lake upgrades before any agent.
 
 ### Children, in order
 
 1. Policy and docs: amend `docs/policy.md` and `docs/architecture.md`, and add bay to `docs/naming.md`. Owner sign-off.
-2. Catalog: bays, membership, requested bays, membership audit, grants; schema bump and migration.
-3. Roles: admin split from operator, operator bay scope, bay grants on registration and devices.
+2. Catalog: bays, membership, requested bays, grants; audit through the existing outbox; schema bump and migration.
+3. Bay scope for operators, viewers and read tokens; bay grants on registration and devices. The admin role itself already exists.
 4. Read-path scoping and the query-list test.
 5. Protocol and lake routing.
 6. Agent bay requests and `terva-lampi bays`.
@@ -95,6 +98,11 @@ Child 4 lands before child 5, so no bay can hold data until every read path hono
 
 Bay name syntax; `serve backup`, `fsck` and `purge` coverage of the new tables; how long audit entries are kept. MCP identity grants wait on TKT-01M3FPWCH (MCP: authenticate clients as OIDC users).
 
+### Related work
+
+- TKT-01M3N22HC (Per-device overrides on top of agent profiles): bay requests are a natural field for the device override layer once both exist.
+- TKT-01M3FPP3 (Session recall: one query surface for the web UI and an MCP server): the read-path child scopes that query layer.
+
 ### Out of scope, filed as follow-up drafts
 
 A dashboard triage flow for held and refused sessions, and per-bay retention and purge ("delete a bay and its data").
@@ -106,8 +114,9 @@ A dashboard triage flow for held and refused sessions, and per-bay retention and
 - [ ] A request for a bay the device may not write lands the session in default with the refused request recorded
 - [ ] With the default bay off, an unplaced session is refused, stays pending on the agent, and is reported as no bay
 - [ ] A scoped operator can mint a code only for bays within its scope, and cannot read sessions in a bay it is not granted
-- [ ] An existing lake upgrades with no change in behavior: all data in default, viewers still read it, operators become admins, and old agents keep syncing
 - [ ] serve bays inbox lists every unsorted, held and refused session with its reason, and bulk move and apply-rules have --dry-run
+- [ ] An existing lake upgrades with no change in behavior: all data in default, viewers and operators still read it, no group becomes admin, and old agents keep syncing
+- [ ] A read token scoped to a bay reads raw artifacts only of sessions in that bay
 
 ## Definition of done
 
@@ -172,3 +181,13 @@ Grilling round 6 with human:sothr, 2026-09-29. Decisions:
 - Dashboard scope in this epic: inbox counts and a list of unsorted, held and refused sessions with their reasons, plus admin actions to move one session between bays and release a hold. These are the dashboard's first writes to session membership, so the web path needs CSRF protection and records audit entries. Bulk move and rule editing stay CLI-only with --dry-run. The full triage flow is a follow-up.
 - Read paths: every path that returns session data filters by the caller's read bays: recall, search, excerpts, transcripts, activity, overview counts, and MCP when it lands. On the lake host, `terva-lampi export` is admin-level and gains --bay; the training export stays gated by the projects allowlist and also by --bay. A test lists every catalog query that returns session data and fails when a new one takes no bay scope. Considered and not chosen: a single choke point (a query builder that requires a scope), which is stronger but needs internal/recall refactored first.
 - Children, filed as drafts in this order: (1) policy and docs amendment, owner sign-off; (2) catalog: bays, membership, requested bays, audit, grants, migration; (3) roles: admin split from operator, operator bay scope, grants on registration and devices; (4) read-path scoping and the query-list test; (5) protocol and lake routing; (6) agent bay requests and `terva-lampi bays` / `bays which`; (7) inbox tooling and guide; (8) dashboard. 4 lands before 5, so no bay holds data until the read paths honor bays. Follow-up drafts outside the epic: the triage UI, and per-bay retention and purge.
+
+**agent:claude-code/7859b064** at 2026-09-29T14:52:08Z
+
+Plan revised against main at 5ab86ad on 2026-09-29, at the owner's request, for work that landed while this epic was being grilled.
+
+- The admin role exists (TKT-01M3NM61CZ, Admin role and raw artifact access; #132, #134, #135). Admin implies operator implies viewer. The roles child no longer builds the split and is retitled "Bays: bay scope for operators, viewers and read tokens".
+- Upgrade: the owner confirmed on TKT-01M3NM61CZ that no group is promoted to admin on upgrade. That supersedes round 4 here (existing operators become admins). Existing viewers and operators get read on default instead, so behavior is still unchanged. Epic AC 6 and the scope child's AC were rewritten to match.
+- Raw-read tokens (lrt_) are the "tokens granted explicit access" from round 2. They gain an optional bay list; tokens minted before bays keep their scope.
+- Audit goes through the existing audit outbox (audit.jsonl), not a new table, and dashboard actions that add access require a sign-in in the last 10 minutes, as minting does.
+- Bay rules reuse the profile rule matcher, which gained cwd_glob and git_remote_prefix, and inherit the open folder bug TKT-01M3NQ83.
