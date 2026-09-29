@@ -225,3 +225,27 @@ func TestAllowSelectedSkipsLocalAllowDevices(t *testing.T) {
 		t.Fatalf("desk alone: %d", w.Code)
 	}
 }
+
+// Review 1311: a plan one profile of which would be invalid is no plan:
+// neither the confirm page nor the API offers the other profiles alone.
+func TestAllowSelectedRefusesAPartialPlan(t *testing.T) {
+	lake, idp, h, _ := reviewLake(t, "readers", "admins")
+	var rules []string
+	for i := range maxRuleRows {
+		rules = append(rules, `{"cwd_prefix":"/r/`+strconv.Itoa(i)+`"}`)
+	}
+	// ci sorts before default and is full: adding the app's rule to it
+	// is invalid.
+	if _, _, err := lake.Catalog.PutProfile(t.Context(), "ci", []byte(`{"projects":{"allow":[`+strings.Join(rules, ",")+`]}}`), "test", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	w := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "return": {"/review"}, "key": {"git_remote git.example/team/app"}}, cookie)
+	if w.Code != 400 || strings.Contains(w.Body.String(), "/review/allow/save") || !strings.Contains(w.Body.String(), "invalid profile") {
+		t.Fatalf("partial plan: %d", w.Code)
+	}
+	if w := post(h, "/api/web/v1/review/allow", `{"keys":[{"kind":"git_remote","key":"git.example/team/app"}]}`, cookie, map[string]string{CSRFHeader: csrf}); w.Code != 400 || strings.Contains(w.Body.String(), `"profiles"`) {
+		t.Fatalf("api partial plan: %d %s", w.Code, w.Body)
+	}
+}

@@ -67,8 +67,9 @@ func TestHideAndUnhideFromTheReviewQueue(t *testing.T) {
 			t.Errorf("%s: %d", name, w.Code)
 		}
 	}
-	if w := postForm(h, "/review/unhide", url.Values{"csrf": {csrf}, "key": {"cwd /x"}, "note": {"why"}}, cookie); w.Code != 400 {
-		t.Errorf("unhide with a note: %d", w.Code)
+	w = postForm(h, "/review/unhide", url.Values{"csrf": {csrf}, "key": {"cwd /x"}, "note": {"why"}, "return": {"/review?tab=hidden"}}, cookie)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "<h2>Hidden</h2>") {
+		t.Errorf("unhide with a note from the Hidden tab: %d, or not shown on the Hidden tab", w.Code)
 	}
 	if w := postForm(h, "/review/hide", url.Values{"csrf": {"wrong"}, "key": {"cwd /x"}}, cookie); w.Code != 403 {
 		t.Errorf("wrong csrf: %d", w.Code)

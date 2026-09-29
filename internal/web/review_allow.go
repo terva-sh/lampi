@@ -77,8 +77,9 @@ func filterOf(back string) reviewFilter {
 	if id, ok := strings.CutPrefix(u.Path, devicesPath+"/"); ok {
 		return reviewFilter{Device: id}
 	}
+	// The tab stays, so a refused action shows the page it came from;
+	// the queue reads the same either way.
 	f, _ := parseReviewFilter(u.Query())
-	f.Hidden = false
 	return f
 }
 
@@ -144,7 +145,8 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 		raw, _ := json.Marshal(next)
 		p, doc, err := checkProfile(raw)
 		if err != nil {
-			return v, fmt.Errorf("%w: profile %s: %v", errPlan, name, err)
+			// No partial plan: one profile left out would save the rest.
+			return allowView{}, fmt.Errorf("%w: profile %s: %v", errPlan, name, err)
 		}
 		pv, err := s.preview(r, name, p)
 		if err != nil {
@@ -313,7 +315,11 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, err := s.planAllow(r, keys, filterOf(back))
-	if err != nil && !errors.Is(err, errPlan) {
+	if errors.Is(err, errPlan) {
+		s.renderBack(w, r, back, "Nothing was saved, and "+err.Error()+".", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
 		pageError(w, r, err)
 		return
 	}
