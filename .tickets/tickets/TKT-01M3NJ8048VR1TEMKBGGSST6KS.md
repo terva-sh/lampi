@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:10:00Z
-updated_at: 2026-09-29T03:12:28Z
+updated_at: 2026-09-29T03:18:51Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -59,8 +59,8 @@ Cut v0.3.0 from main at a43c5ce, 82 commits past v0.2.0. The owner asked on 2026
 ## Acceptance criteria
 
 - [ ] A scratch lake seeded by v0.2.0 upgraded with an a43c5ce build: schema 16, normalize --all, search rebuilt, fsck clean
-- [ ] v0.3.0 is tagged on both forges and its archives and image name the tag
-- [ ] Release notes state the 15 to 16 migration, the .zst format and its rollback, and lake-before-agents
+- [x] v0.3.0 is tagged on both forges and its archives and image name the tag
+- [x] Release notes state the 15 to 16 migration, the .zst format and its rollback, and lake-before-agents
 
 ## Implementation plan
 
@@ -109,3 +109,7 @@ A scratch lake was seeded by the v0.2.0 release binary (3f71211) with five copie
 - Rollback: v0.2.0 serves a copy of the checkpoint at schema 15. v0.2.0's fsck fails on the upgraded lake, which confirms the backup is the only way back.
 
 Not observed: the search.db rebuild. serve builds search.db only with `--web-config`, which needs a reachable OIDC issuer, so the rehearsal ran without it. `TestIndexRebuildsUnknownVersions` covers the version-4 rebuild, and recall, normalize, catalog and cas tests pass on this commit. The live deploy (TKT-01M3NJ805R) observes the rebuild, so criterion 1 stays unticked until then.
+
+**agent:claude-code/16ebd168** at 2026-09-29T03:18:51Z
+
+Published 2026-09-29. v0.3.0 tagged at a43c5ce on both forges. GitHub release run 36516127940 succeeded (archives and image), and the Forgejo release run succeeded. The linux_amd64 archive matches checksums.txt and prints 'terva-lampi v0.3.0 (a43c5ce91425)'. ghcr.io/terva-sh/lampi has 0.3.0, 0.3, 0, latest and sha-a43c5ce, and pulls without a login (podman run prints v0.3.0). The notes in the plan are prepended to both release bodies. Forgejo was edited through the API, because tea releases edit defaults --draft and --prerelease to true. Criterion 1 waits on the live search.db rebuild in TKT-01M3NJ805R.
