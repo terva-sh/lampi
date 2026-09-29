@@ -79,16 +79,27 @@ func runBays(env Env, args []string) error {
 	}
 	fmt.Fprintln(env.stdout())
 	for _, l := range cc.lakes {
-		if why := l.Projects.Refusal(id); why != "" {
+		// The bays are named for a refused project too, so a rule can be
+		// checked before the project is allowed (review 1440).
+		c := l.Bays.For(harness, id)
+		why := l.Projects.Refusal(id)
+		asks := "asks for"
+		switch {
+		case why != "" && len(c.Bays) == 0:
 			fmt.Fprintf(env.stdout(), "  %s: does not upload: %s\n", l.Name, why)
 			continue
-		}
-		c := l.Bays.For(harness, id)
-		if len(c.Bays) == 0 {
+		case why != "":
+			fmt.Fprintf(env.stdout(), "  %s: does not upload: %s\n", l.Name, why)
+			asks = "would ask for"
+		case len(c.Bays) == 0:
 			fmt.Fprintf(env.stdout(), "  %s: asks for no bay; the lake's rules place it, or its default bay\n", l.Name)
 			continue
 		}
-		fmt.Fprintf(env.stdout(), "  %s: asks for %s\n", l.Name, strings.Join(c.Bays, ", "))
+		if why != "" {
+			fmt.Fprintf(env.stdout(), "    %s %s\n", asks, strings.Join(c.Bays, ", "))
+		} else {
+			fmt.Fprintf(env.stdout(), "  %s: %s %s\n", l.Name, asks, strings.Join(c.Bays, ", "))
+		}
 		if c.Default {
 			fmt.Fprintf(env.stdout(), "    bays.default: %s\n", strings.Join(l.Bays.Default, ", "))
 		}

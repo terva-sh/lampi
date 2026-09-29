@@ -109,6 +109,17 @@ func TestBaysWhich(t *testing.T) {
 	if !strings.Contains(f.stdout.String(), "bays.default: personal") {
 		t.Errorf("default not named:\n%s", f.stdout)
 	}
+	// A project the lake refuses still names the bays it would ask for,
+	// so a rule can be checked first (review 1440).
+	f.stdout.Reset()
+	if err := f.run("bays", "which", "/elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"work: does not upload: no allow rule matches", "would ask for personal", "bays.default: personal"} {
+		if !strings.Contains(f.stdout.String(), want) {
+			t.Errorf("refused project: missing %q in:\n%s", want, f.stdout)
+		}
+	}
 	if err := f.run("bays", "nope"); err == nil {
 		t.Error("unknown subcommand accepted")
 	}

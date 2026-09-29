@@ -285,7 +285,9 @@ them ([Bays](policy.md#bays)). A lake entry's `bays` says which:
   none; move it into the map as `default` to ask for bays.
 - `terva-lampi bays which [PATH]` prints, for each lake, whether a
   session started at PATH uploads there, the bays it asks for, and the
-  rule or default that named each.
+  rule or default that named each. For a project the lake refuses it
+  still names the bays it would ask for, so a rule can be checked
+  before the project is allowed.
 
 ### A machine with no lake
 
