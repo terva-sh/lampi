@@ -226,6 +226,9 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 			}
 			id := config.ProjectID{CWD: sg.Project.CWD, CWDHash: sg.Project.CWDHash, GitRemote: sg.Project.GitRemote}
 			switch {
+			// A profile's deny rules are added to the device's own, whatever
+			// its deny source says (config.ApplyLakeProfile), so a
+			// profile deny is always the device's decision.
 			case !allowable(sg.Project.Reason), projects.Refusal(id) == config.RefusedByDeny:
 				rs.State = stateDenied
 			case !rs.LocalAllow && projects.Permitted(id):

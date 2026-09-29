@@ -28,7 +28,12 @@ func returnPath(raw string) string {
 		return ""
 	}
 	if u.Path == reviewPath {
-		f, ok := parseReviewFilter(u.Query())
+		// Query would drop a malformed pair and accept the rest.
+		q, err := url.ParseQuery(u.RawQuery)
+		if err != nil {
+			return ""
+		}
+		f, ok := parseReviewFilter(q)
 		if !ok {
 			return ""
 		}

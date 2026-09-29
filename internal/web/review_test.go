@@ -240,6 +240,8 @@ func TestReturnPathAcceptsTheReviewQueue(t *testing.T) {
 		"/review?x=1":                          "",
 		"/review?device=laptop":                "",
 		"/review/../devices":                   "",
+		"/review?x=%ZZ":                        "",
+		"/review?device=dev_abc234&x=%ZZ":      "",
 	} {
 		if got := returnPath(raw); got != want {
 			t.Errorf("returnPath(%q) = %q, want %q", raw, got, want)
@@ -266,5 +268,16 @@ func TestReviewLocalAllowRulesAreNotPending(t *testing.T) {
 	}
 	if !strings.Contains(needs, "Sets its own allow rules in config.json") {
 		t.Fatal("the copy does not say why")
+	}
+}
+
+// Review 1302: a malformed query is refused, not read as no filter.
+func TestReviewRefusesAMalformedQuery(t *testing.T) {
+	_, idp, h, _ := reviewLake(t, "readers")
+	cookie, _ := signIn(t, idp, h)
+	for _, path := range []string{"/review?unknown=%ZZ", "/api/web/v1/review?device=%ZZ"} {
+		if w := get(h, path, cookie); w.Code != 400 {
+			t.Errorf("%s: %d", path, w.Code)
+		}
 	}
 }
