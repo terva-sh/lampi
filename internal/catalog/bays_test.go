@@ -44,7 +44,7 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Back to the schema before bays: a lake with sessions and a device.
-	if _, err := c.db.Exec(`DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; PRAGMA user_version = 18`); err != nil {
+	if _, err := c.db.Exec(`DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; ALTER TABLE registrations DROP COLUMN bays; ALTER TABLE read_tokens DROP COLUMN bay_scoped; PRAGMA user_version = 18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Close(); err != nil {
@@ -55,7 +55,7 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if m := c.Migrated(); m.From != 18 || len(m.Steps) != 1 || m.Steps[0] != "migrateBays" {
+	if m := c.Migrated(); m.From != 18 || len(m.Steps) != 2 || m.Steps[0] != "migrateBays" {
 		t.Fatalf("migration: %+v", m)
 	}
 	for _, uid := range []string{a, b} {
@@ -422,5 +422,90 @@ func TestRenameKeepsTheOldNameAsAnAlias(t *testing.T) {
 	}
 	if err := c.RenameBay(ctx, DefaultBayName, "inbox", "admin", time.Now()); err == nil {
 		t.Fatal("renamed the default bay")
+	}
+}
+
+func TestCodeBaysBecomeDeviceGrants(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	now := time.Now()
+	work, _ := c.CreateBay(ctx, "work", "admin", now)
+	gone, _ := c.CreateBay(ctx, "gone", "admin", now)
+	if _, err := c.CreateRegistrationInBays(ctx, "box", strings.Repeat("1", 64), "", "k1", "cli", []string{"nope"}, now, now.Add(time.Hour)); !errors.Is(err, ErrNoBay) {
+		t.Fatalf("unknown bay: %v", err)
+	}
+	r, err := c.CreateRegistrationInBays(ctx, "box", strings.Repeat("1", 64), "", "k1", "cli", []string{"work", work.ID}, now, now.Add(time.Hour))
+	if err != nil || !reflect.DeepEqual(r.Bays, []string{work.ID}) {
+		t.Fatalf("registration %+v err=%v", r, err)
+	}
+	d, got, err := c.Redeem(ctx, strings.Repeat("1", 64), strings.Repeat("a", 64), "m1", nil, now, nil)
+	if err != nil || !reflect.DeepEqual(got.Bays, []string{work.ID}) {
+		t.Fatalf("redeem %+v err=%v", got, err)
+	}
+	if g, _ := c.Grants(ctx, PrincipalDevice, d.ID); len(g) != 1 || g[0].BayID != work.ID || g[0].Permission != PermWrite {
+		t.Fatalf("device grants %+v", g)
+	}
+	// A code whose only bay was deleted before it was used writes the
+	// inbox rather than nothing.
+	if _, err := c.CreateRegistrationInBays(ctx, "box2", strings.Repeat("2", 64), "", "k1", "cli", []string{"gone"}, now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DeleteBay(ctx, gone.ID, "admin", now); err != nil {
+		t.Fatal(err)
+	}
+	d2, _, err := c.Redeem(ctx, strings.Repeat("2", 64), strings.Repeat("b", 64), "m2", nil, now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := c.Grants(ctx, PrincipalDevice, d2.ID); len(g) != 1 || g[0].BayID != DefaultBayID {
+		t.Fatalf("device from a code with a deleted bay: %+v", g)
+	}
+}
+
+func TestBayScopedReadTokens(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	now := time.Now()
+	inWork := newSession(t, c, "sess-work")
+	inbox := newSession(t, c, "sess-inbox")
+	work, _ := c.CreateBay(ctx, "work", "admin", now)
+	if _, err := c.AddToBay(ctx, Membership{SessionUID: inWork, Bay: "work", Actor: "admin", Via: ViaCLI}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateReadToken(ctx, ReadToken{Label: "x", Permissions: []string{PermRawRead}, BayScoped: true, CreatedBy: "admin", Expires: now.Add(time.Hour)}, strings.Repeat("0", 64), now); err == nil {
+		t.Fatal("a bay-scoped token with no bay was minted")
+	}
+	tok, err := c.CreateReadToken(ctx, ReadToken{Label: "ci", Permissions: []string{PermRawRead}, BayScoped: true, Bays: []string{"work"}, CreatedBy: "admin", Expires: now.Add(time.Hour)}, strings.Repeat("1", 64), now)
+	if err != nil || !reflect.DeepEqual(tok.Bays, []string{work.ID}) {
+		t.Fatalf("token %+v err=%v", tok, err)
+	}
+	lake, err := c.CreateReadToken(ctx, ReadToken{Label: "all", Permissions: []string{PermRawRead}, CreatedBy: "admin", Expires: now.Add(time.Hour)}, strings.Repeat("2", 64), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, ok, err := c.ReadTokenBySecret(ctx, strings.Repeat("1", 64))
+	if err != nil || !ok || !stored.BayScoped {
+		t.Fatalf("stored token %+v ok=%v err=%v", stored, ok, err)
+	}
+	reach := func(t2 ReadToken, uid string) bool {
+		ok, err := c.ReadTokenReaches(ctx, t2, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if !reach(stored, inWork) || reach(stored, inbox) {
+		t.Fatal("bay-scoped token reaches the wrong sessions")
+	}
+	if !reach(lake, inWork) || !reach(lake, inbox) {
+		t.Fatal("a token from before bays lost its reach")
+	}
+	// Revoking its last bay leaves the token reading nothing, not the
+	// whole lake.
+	if _, err := c.RemoveGrant(ctx, PrincipalReadToken, tok.ID, "work", PermRead, "admin", now); err != nil {
+		t.Fatal(err)
+	}
+	if reach(stored, inWork) || reach(stored, inbox) {
+		t.Fatal("token with no bay left still reads")
 	}
 }

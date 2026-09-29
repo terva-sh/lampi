@@ -575,6 +575,40 @@ func (c *Catalog) Grants(ctx context.Context, kind, principal string) ([]Grant, 
 	return out, rows.Err()
 }
 
+// migrateBayScopes lets a registration code carry the bays its device
+// may write, and marks a read token as limited to bays. A token's bays
+// are its read grants in bay_grants; bay_scoped keeps a token whose
+// last bay was revoked from widening to the whole lake.
+func migrateBayScopes(tx *sql.Tx) error {
+	_, err := tx.Exec(`ALTER TABLE registrations ADD COLUMN bays TEXT NOT NULL DEFAULT '';
+	ALTER TABLE read_tokens ADD COLUMN bay_scoped INTEGER NOT NULL DEFAULT 0;`)
+	return err
+}
+
+// grantCodeBays gives a device made from a code write on the code's
+// bays, or on the default bay when the code named none. A bay deleted
+// since the mint is skipped; a code whose every bay is gone writes the
+// default bay, the inbox, rather than nothing.
+func grantCodeBays(ctx context.Context, tx *sql.Tx, deviceID string, bays []string, now time.Time) error {
+	granted := 0
+	for _, id := range bays {
+		ok, err := addGrant(ctx, tx, PrincipalDevice, deviceID, id, PermWrite, "registration", now)
+		if errors.Is(err, ErrNoBay) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if ok {
+			granted++
+		}
+	}
+	if granted > 0 {
+		return nil
+	}
+	return grantDefaultWrite(ctx, tx, deviceID, now)
+}
+
 // grantDefaultWrite gives a new device write on the default bay, inside
 // the transaction that makes it, so a device made after the upgrade
 // uploads where every device did before bays. Registration with bay

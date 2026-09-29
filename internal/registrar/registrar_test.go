@@ -42,13 +42,13 @@ func TestMintAndRevokeRecordTheActor(t *testing.T) {
 	now := time.Now()
 	op := registrar.Actor{Catalog: "web:sub-1", Audit: "web:sub-1 (Op One)"}
 
-	if _, err := registrar.Mint(ctx, l, "box", "", 31*24*time.Hour, op, now); !errors.Is(err, registrar.ErrLifetime) {
+	if _, err := registrar.Mint(ctx, l, "box", "", nil, 31*24*time.Hour, op, now); !errors.Is(err, registrar.ErrLifetime) {
 		t.Fatalf("long lifetime: %v", err)
 	}
-	if _, err := registrar.Mint(ctx, l, "box", "nope", time.Hour, op, now); !errors.Is(err, registrar.ErrNoProfile) {
+	if _, err := registrar.Mint(ctx, l, "box", "nope", nil, time.Hour, op, now); !errors.Is(err, registrar.ErrNoProfile) {
 		t.Fatalf("unknown profile: %v", err)
 	}
-	m, err := registrar.Mint(ctx, l, "box", "ci", time.Hour, op, now)
+	m, err := registrar.Mint(ctx, l, "box", "ci", nil, time.Hour, op, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestListRecordsExpiries(t *testing.T) {
 	l := testLake(t)
 	ctx := t.Context()
 	now := time.Now()
-	if _, err := registrar.Mint(ctx, l, "old", "", time.Minute, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register"}, now); err != nil {
+	if _, err := registrar.Mint(ctx, l, "old", "", nil, time.Minute, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register"}, now); err != nil {
 		t.Fatal(err)
 	}
 	regs, err := registrar.List(ctx, l, "web:sub-1", now.Add(time.Hour))

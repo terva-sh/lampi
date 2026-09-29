@@ -88,7 +88,7 @@ type readTokensView struct {
 	Example string
 }
 
-type readTokenForm struct{ Label, Sessions, Expires string }
+type readTokenForm struct{ Label, Sessions, Bays, Expires string }
 
 func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v readTokensView, status int) {
 	now := s.now()
@@ -130,6 +130,8 @@ var readTokenProblems = map[string]string{
 	"invalid_expiry":   "Choose one of the listed expiries.",
 	"invalid_sessions": "List session UIDs separated by spaces or new lines, at most 100, or leave the list empty for every session.",
 	"unknown_session":  "A listed session is not in the lake. Check the UIDs.",
+	"unknown_bay":      "A listed bay is not in the lake. serve bays list names them.",
+	"invalid_bays":     "The bays field holds separators and no bay. Leave it empty for no bay limit.",
 	"mint_failed":      "Minting failed. Operator logs hold the details.",
 	"audit_failed":     "Writing the mint to the audit log failed, so the token was revoked and is not shown. Operator logs hold the details. Fix the audit log and mint again.",
 }
@@ -145,7 +147,7 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, webauth.FreshLoginURL(adminReadTokensPath), http.StatusSeeOther)
 		return
 	}
-	form := readTokenForm{Label: strings.TrimSpace(r.PostForm.Get("label")), Sessions: r.PostForm.Get("sessions"), Expires: r.PostForm.Get("expires")}
+	form := readTokenForm{Label: strings.TrimSpace(r.PostForm.Get("label")), Sessions: r.PostForm.Get("sessions"), Bays: r.PostForm.Get("bays"), Expires: r.PostForm.Get("expires")}
 	attempt := r.PostForm.Get("attempt")
 	if prior, ok := s.attempts.claim(attempt, now); !ok {
 		problem := "This form was already sent, or is out of date. Mint again from the form below."
@@ -234,8 +236,27 @@ func (s *Server) readTokenRequest(r *http.Request, f readTokenForm, now time.Tim
 			return catalog.ReadToken{}, "unknown_session"
 		}
 	}
+	// A bay list limits the token to sessions in those bays, checked on
+	// each read, so a session sorted out of them later is out of reach.
+	var bays []string
+	for _, ref := range strings.FieldsFunc(f.Bays, func(r rune) bool { return unicode.IsSpace(r) || r == ',' }) {
+		b, err := s.catalog.ResolveBay(r.Context(), ref)
+		if errors.Is(err, catalog.ErrNoBay) {
+			return catalog.ReadToken{}, "unknown_bay"
+		}
+		if err != nil {
+			s.logError(r, "checking a read token's bays failed", err)
+			return catalog.ReadToken{}, "mint_failed"
+		}
+		if !slices.Contains(bays, b.ID) {
+			bays = append(bays, b.ID)
+		}
+	}
+	if len(bays) == 0 && strings.TrimSpace(f.Bays) != "" {
+		return catalog.ReadToken{}, "invalid_bays"
+	}
 	id, _ := webauth.Current(r)
-	return catalog.ReadToken{Label: f.Label, Permissions: []string{catalog.PermRawRead}, Sessions: sessions, CreatedBy: actor(id).Audit, Expires: now.Add(life)}, ""
+	return catalog.ReadToken{Label: f.Label, Permissions: []string{catalog.PermRawRead}, Sessions: sessions, BayScoped: len(bays) > 0, Bays: bays, CreatedBy: actor(id).Audit, Expires: now.Add(life)}, ""
 }
 
 func (s *Server) revokeReadTokenPage(w http.ResponseWriter, r *http.Request) {
@@ -292,6 +313,16 @@ func (s *Server) rawByToken(w http.ResponseWriter, r *http.Request) {
 	}
 	uid := r.PathValue("uid")
 	if !t.Allows(catalog.PermRawRead, uid, now) {
+		apiError(w, http.StatusNotFound, "not_found")
+		return
+	}
+	reach, err := s.catalog.ReadTokenReaches(r.Context(), t, uid)
+	if err != nil {
+		s.logError(r, "checking a read token's bays failed", err)
+		apiError(w, http.StatusInternalServerError, "read_failed")
+		return
+	}
+	if !reach {
 		apiError(w, http.StatusNotFound, "not_found")
 		return
 	}

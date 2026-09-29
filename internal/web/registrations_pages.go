@@ -22,6 +22,8 @@ type codesView struct {
 	Fresh    bool
 	FreshURL string
 	Profiles []string
+	// Bays are the bays this user may mint a device into.
+	Bays []catalog.Bay
 	// Form holds what the operator typed when a mint is refused.
 	Form mintRequest
 	// Attempt names this form's mint, so a resubmission is recognised.
@@ -78,6 +80,10 @@ func (s *Server) renderCodes(w http.ResponseWriter, r *http.Request, v codesView
 	v.Fresh = webauth.Fresh(r, now)
 	v.Attempt = s.attempts.issue(now)
 	v.FreshURL = webauth.FreshLoginURL(adminRegistrationsPath)
+	id, _ := webauth.Current(r)
+	if v.Bays, err = s.mintBays(r, id); err != nil {
+		s.logError(r, "listing bays failed", err)
+	}
 	v.Profiles, err = s.reg.Lake().Catalog.ProfileNames(r.Context())
 	if err != nil {
 		// The form still offers the default, which is always there.
@@ -115,6 +121,8 @@ var mintProblems = map[string]string{
 	"invalid_name":    "A device name is lowercase letters, digits, '.', '-' and '_', at most 64 characters.",
 	"invalid_expiry":  "Choose one of the listed expiries.",
 	"unknown_profile": "That profile is not in the lake any more. Choose another.",
+	"bay_not_allowed": "You may not add a machine to that bay. Choose bays from the list; with none chosen the machine uploads to the default bay, which needs it in your scope too.",
+	"unknown_bay":     "That bay is not in the lake any more. Choose another.",
 	"name_taken":      "A device or a pending code already has that name. Cancel the pending code first, or choose another name.",
 	"rate_limited":    "Too many codes were minted just now. Wait a minute and try again.",
 	"lake_not_ready":  "The lake cannot mint yet: it needs an identity and a public URL that reaches it. Operator logs hold the details.",
@@ -125,7 +133,7 @@ func (s *Server) mintPage(w http.ResponseWriter, r *http.Request) {
 	if !s.readForm(w, r) {
 		return
 	}
-	req := mintRequest{Name: strings.TrimSpace(r.PostForm.Get("name")), Profile: r.PostForm.Get("profile"), Expires: r.PostForm.Get("expires")}
+	req := mintRequest{Name: strings.TrimSpace(r.PostForm.Get("name")), Profile: r.PostForm.Get("profile"), Expires: r.PostForm.Get("expires"), Bays: r.PostForm["bay"]}
 	// A reload of the page that showed a code posts the same form again.
 	// It must not mint a second code, and it cannot show the first again,
 	// so it says what happened.

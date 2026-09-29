@@ -23,7 +23,7 @@ import (
 const serveRegisterUsage = `terva-lampi serve register — mint, list, or revoke registration codes
 
 usage:
-  terva-lampi serve register --name NAME [--expires 24h] [--profile P] [--data DIR]
+  terva-lampi serve register --name NAME [--expires 24h] [--profile P] [--bay BAY]... [--data DIR]
   terva-lampi serve register --list [--data DIR]
   terva-lampi serve register --revoke NAME|ID [--data DIR]
 
@@ -42,9 +42,12 @@ The code goes to stdout and nothing else does. It is a secret: hand it
 over on stdin or in a file, not as a command argument, and not where it
 is logged. --name is the device's name, --expires its lifetime (at most
 30 days), --profile the profile its agent fetches (see serve --help).
+--bay, repeated, names a bay the device may upload into, by id, name or
+alias (see serve bays). Without --bay the device writes the default bay,
+the inbox.
 
 --list prints each code: its id, device name, state (pending, used,
-expired or revoked), profile and expiry. --revoke stops a pending code;
+expired or revoked), profile, bays and expiry. --revoke stops a pending code;
 a used code made a device, which serve devices revoke stops.
 
 Every mint, redemption, expiry, revocation and refused attempt goes to
@@ -60,6 +63,7 @@ func runServeRegister(env Env, args []string) error {
 	}
 	var data, name, profile, revoke string
 	var list bool
+	var bays bayList
 	expires := 24 * time.Hour
 	rest, err := parseFlags(env, args, serveRegisterUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
@@ -68,6 +72,7 @@ func runServeRegister(env Env, args []string) error {
 		fs.DurationVar(&expires, "expires", expires, "how long the code stays valid")
 		fs.BoolVar(&list, "list", false, "list codes")
 		fs.StringVar(&revoke, "revoke", "", "revoke a pending code by device name or id")
+		fs.Var(&bays, "bay", "a bay the device may write (repeatable)")
 	})
 	if err != nil {
 		return err
@@ -116,7 +121,11 @@ func runServeRegister(env Env, args []string) error {
 			if prof == "" {
 				prof = config.DefaultProfile
 			}
-			line := fmt.Sprintf("%s %s %s profile=%s expires=%s", r.ID, r.Name, r.State(now), prof, r.Expires.Format(time.RFC3339))
+			codeBays := catalog.DefaultBayName
+			if len(r.Bays) > 0 {
+				codeBays = strings.Join(r.Bays, ",")
+			}
+			line := fmt.Sprintf("%s %s %s profile=%s bays=%s expires=%s", r.ID, r.Name, r.State(now), prof, codeBays, r.Expires.Format(time.RFC3339))
 			if r.DeviceID != "" {
 				line += " device=" + r.DeviceID
 			}
@@ -174,7 +183,7 @@ func runServeRegister(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	m, err := registrar.Mint(ctx, lake, name, profile, expires, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register"}, now)
+	m, err := registrar.Mint(ctx, lake, name, profile, bays, expires, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register"}, now)
 	if err != nil {
 		return err
 	}
@@ -238,4 +247,17 @@ func listValue(v string) string {
 		return strconv.Quote(v)
 	}
 	return v
+}
+
+// bayList is a repeatable --bay flag.
+type bayList []string
+
+func (b *bayList) String() string { return strings.Join(*b, ",") }
+
+func (b *bayList) Set(v string) error {
+	if v == "" {
+		return errors.New("empty bay")
+	}
+	*b = append(*b, v)
+	return nil
 }

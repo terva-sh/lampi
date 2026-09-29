@@ -8,12 +8,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/testidp"
@@ -46,6 +48,11 @@ func operatorLake(t *testing.T, release string, groups ...string) (*api.Server, 
 			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir}
 		},
 		Release: release,
+	}
+	// serve grants the role groups the default bay on its first start
+	// with a web config, as an upgrade to bays does.
+	if _, _, err := lake.Catalog.SeedRoleGrants(t.Context(), cfg.GroupsWithRole(webconfig.RoleViewer), cfg.GroupsWithRole(webconfig.RoleOperator), time.Now()); err != nil {
+		t.Fatal(err)
 	}
 	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, nil, idp.Client())
 	if err != nil {
@@ -238,5 +245,52 @@ func TestInstallCommandFallsBackToLatest(t *testing.T) {
 		if pinned || line != " curl -fsSL https://raw.githubusercontent.com/terva-sh/lampi/main/install.sh | TERVA_LAMPI_CODE='lampi1.x.y' sh -s -- --register --fingerprint SHA256:abc" {
 			t.Fatalf("%q: %v %q", release, pinned, line)
 		}
+	}
+}
+
+// TKT-01M3NNF24A: an operator mints only into bays its groups may write.
+func TestOperatorMintsOnlyIntoItsBays(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "admins")
+	ctx := t.Context()
+	for _, name := range []string{"work", "secret"} {
+		if _, err := lake.Catalog.CreateBay(ctx, name, "test", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := lake.Catalog.AddGrant(ctx, catalog.PrincipalGroup, "admins", "work", catalog.PermWrite, "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	idp.AuthTime = time.Now()
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	hdr := map[string]string{CSRFHeader: csrf}
+	if w := post(h, "/api/web/v1/registrations", `{"name":"box-a","bays":["work"]}`, cookie, hdr); w.Code != 201 {
+		t.Fatalf("mint into work: %d %s", w.Code, w.Body)
+	}
+	if w := post(h, "/api/web/v1/registrations", `{"name":"box-b","bays":["secret"]}`, cookie, hdr); w.Code != 403 || !strings.Contains(w.Body.String(), "bay_not_allowed") {
+		t.Fatalf("mint into secret: %d %s", w.Code, w.Body)
+	}
+	if w := post(h, "/api/web/v1/registrations", `{"name":"box-c","bays":["nope"]}`, cookie, hdr); w.Code != 400 || !strings.Contains(w.Body.String(), "unknown_bay") {
+		t.Fatalf("mint into a missing bay: %d %s", w.Code, w.Body)
+	}
+	// No bays is the default bay, which the upgrade gave this operator.
+	if w := post(h, "/api/web/v1/registrations", `{"name":"box-d"}`, cookie, hdr); w.Code != 201 {
+		t.Fatalf("mint into the default: %d %s", w.Code, w.Body)
+	}
+	if _, err := lake.Catalog.RemoveGrant(ctx, catalog.PrincipalGroup, "admins", catalog.DefaultBayID, catalog.PermWrite, "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if w := post(h, "/api/web/v1/registrations", `{"name":"box-e"}`, cookie, hdr); w.Code != 403 {
+		t.Fatalf("mint into the default without it in scope: %d %s", w.Code, w.Body)
+	}
+	regs, _ := lake.Catalog.Registrations(ctx)
+	var got []string
+	for _, r := range regs {
+		got = append(got, r.Name+"="+strings.Join(r.Bays, ","))
+	}
+	slices.Sort(got)
+	work, _ := lake.Catalog.ResolveBay(ctx, "work")
+	if want := []string{"box-a=" + work.ID, "box-d="}; !slices.Equal(got, want) {
+		t.Fatalf("codes %v want %v", got, want)
 	}
 }

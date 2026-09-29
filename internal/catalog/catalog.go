@@ -213,6 +213,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateReadTokens,
 	migrateConflictResolutions,
 	migrateBays,
+	migrateBayScopes,
 }
 
 // upgrade runs each step above the file's user_version, one

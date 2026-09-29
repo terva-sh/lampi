@@ -93,10 +93,15 @@ minted before it was recorded. The list never holds a code's secret.
 Listing writes the expiries since the last look to `audit.jsonl`, as
 `serve register --list` does.
 
-A mint takes a JSON body `{name, profile, expires}`. `name` is the
+A mint takes a JSON body `{name, profile, expires, bays}`. `name` is the
 device name: lowercase letters, digits, `.`, `-` and `_`. `profile`
 defaults to `default`. `expires` is a duration such as `1h` or `72h`,
-default `1h`, at most 30 days. Minting also needs a sign-in at the IdP
+default `1h`, at most 30 days. `bays` lists the
+[bays](policy.md#bays) the device may upload into, by id, name or
+alias; empty is the default bay. An operator may name only bays its
+groups hold write on, and an empty list needs the default bay in that
+scope; otherwise the mint is `403 bay_not_allowed`. An admin may name
+any bay. A bay that does not exist is `400 unknown_bay`. Minting also needs a sign-in at the IdP
 in the last 10 minutes; otherwise it is `403 fresh_login_required` with
 a `login` URL that signs in again. The response holds the code in
 `code`, the lake's `lake_id` and key `fingerprint`, and
