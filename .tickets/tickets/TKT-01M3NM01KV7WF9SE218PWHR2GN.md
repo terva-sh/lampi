@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T03:51:37Z
+updated_at: 2026-09-29T04:00:08Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -66,7 +66,7 @@ Each row names the key, the devices, and the session count. Put the list on the 
 - [x] The preview lists each project whose verdict changes, as admitted or dropped, with its devices and session count
 - [x] Devices with local allow rules are left out, and strict devices and devices with no inventory are counted
 - [x] Tests cover admit, drop, local allow, strict and deny rows; docs describe the list
-- [x] A deny-refused row is left out only when the device reports local deny rules, applied the stored profile, and the stored deny rules do not match it
+- [x] A deny-refused row is left out only when the device reports local deny rules and its inventory was made under the stored profile, and the stored deny rules do not match it
 
 ## Implementation plan
 
@@ -104,3 +104,15 @@ This supersedes the "Local deny rules are inferred" and "Criterion 3" points of 
   Otherwise the row is evaluated like any other, and the preview may list a project the device still denies itself. `profileDevice` carries the device's `deny_source` and applied version, as `json:"-"` fields so the profiles API is unchanged.
 - **Finding 2, low.** `.tickets/epics.md` linked the epic's draft path, because the index was regenerated before promotion. Fixed with `check --fix`.
 - **Criterion 4** now states the revised rule.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:00:08Z
+
+### Review 1320 on PR 131, and the local-deny rule revised again
+
+This supersedes the rule stated in the note on review 1318.
+
+- **Finding 1, high.** The deny reason comes from the device's newest inventory, but the "applied the stored profile" signal came from its newest report. A report sent after an older inventory would make an older profile's refusal look local. Accepted and fixed.
+- **The rule now matches the review queue's `caughtUp`.** The inventory counts as made under the stored profile only when the device reported that version and the lake received the inventory after both the report and the save.
+- **Carried fields.** `profileDevice` carries the report's receive time. `reach` takes the stored profile's version and save time.
+- **Tests.** `TestPreviewListsTheProjectsAChangeAdmitsAndDrops` orders the save, then the report, then the inventory, and adds the case of a report after the inventory. Dropping the report-time condition makes that case fail.
+- **CI** passed on 7d19689 before this change.

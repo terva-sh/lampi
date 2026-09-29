@@ -5,6 +5,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -25,11 +26,15 @@ import (
 // for what they would admit. A deny rule on the device itself is not
 // visible either. A project the device refused under a deny rule is
 // taken to be denied locally, and is never listed, only when the device
-// says it has deny rules of its own, it applied the stored profile, and
-// the stored profile's deny rules do not match the project. Short of
-// that the refusal may come from an older profile, and the project is
-// evaluated like any other: the list may then name a project the device
-// denies itself, which errs toward showing the operator more.
+// says it has deny rules of its own, the inventory was made under the
+// stored profile, and the stored profile's deny rules do not match the
+// project. The inventory was made under the stored profile when the
+// device reported applying it and the lake received the inventory after
+// both that report and the save, as the review queue decides a copy is
+// still refused. Short of that the refusal may come from an older
+// profile, and the project is evaluated like any other: the list may
+// then name a project the device denies itself, which errs toward
+// showing the operator more.
 
 // projectChange is one project a change admits or drops, across the
 // devices whose newest inventory holds it.
@@ -50,8 +55,9 @@ type profileReach struct {
 
 // reach evaluates before and after, the stored and edited rules of a
 // profile, against the newest inventory of each device that fetches it.
-// storedVersion is the stored profile's version.
-func (s *Server) reach(ctx context.Context, before, after config.Projects, storedVersion string, devices []profileDevice) (profileReach, error) {
+// stored is the stored profile: its version, and when it was saved,
+// zero for one never saved.
+func (s *Server) reach(ctx context.Context, before, after config.Projects, stored storedProfile, devices []profileDevice) (profileReach, error) {
 	var out profileReach
 	admits := map[catalog.ProjectKey]*projectChange{}
 	drops := map[catalog.ProjectKey]*projectChange{}
@@ -69,7 +75,8 @@ func (s *Server) reach(ctx context.Context, before, after config.Projects, store
 		if !ok {
 			continue
 		}
-		denyLocal := d.Applied == storedVersion && slices.Contains(strings.Split(d.DenySource, "+"), config.OriginLocal)
+		madeUnderStored := d.Applied == stored.Version && inv.Received.After(stored.Saved) && inv.Received.After(d.Reported)
+		denyLocal := madeUnderStored && slices.Contains(strings.Split(d.DenySource, "+"), config.OriginLocal)
 		for _, p := range inv.Inventory.Projects {
 			k, ok := catalog.ProjectKeyOf(p)
 			if !ok {
@@ -100,6 +107,12 @@ func (s *Server) reach(ctx context.Context, before, after config.Projects, store
 	}
 	out.Admits, out.Drops = sortedChanges(admits), sortedChanges(drops)
 	return out, nil
+}
+
+// storedProfile is what reach needs of the stored profile.
+type storedProfile struct {
+	Version string
+	Saved   time.Time
 }
 
 // sortedChanges is the changes, most sessions first, then by key.
