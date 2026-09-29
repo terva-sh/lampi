@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T03:41:08Z
+updated_at: 2026-09-29T06:17:57Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -59,3 +59,32 @@ An operator can describe the sessions they care about in a handful of rules, and
 - **No `git_remote_glob` for now.** `git_remote_prefix` already covers an owner, a group or a host. The case left over, one repository name under any owner (forks), has no user yet. File it when one appears.
 - **No named rule sets or rule sharing between profiles.** Several profiles hold the same list only when several profiles exist. The problem today is one profile that is too long.
 - **Widening stays an operator decision.** The tools suggest and preview. Nothing widens a profile without a save the operator makes.
+
+## Notes
+
+**agent:claude-code/58fb7d84** at 2026-09-29T06:17:57Z
+
+### Status after the first run, 2026-09-29
+
+Four of five tickets have landed on `main`, each through its own PR with CI and terva-review:
+
+- TKT-01M3NM01K (Profile preview: list the projects a change admits and drops), #131.
+- TKT-01M3NM01N (Profile editor: find covered rules and fold owner groups), #140.
+- TKT-01M3NM01Q (Allow: choose repository or owner width for the new rule), #141.
+- TKT-01M3NM01S (cwd_glob rule field for allow and deny), #145.
+
+TKT-01M3NM01T (Consolidate the internal lake's default profile) is blocked on two things. It needs an operator dashboard session, which an agent cannot get through OIDC, and a lake release that carries the four PRs. The live profile was never read during this run.
+
+### How it went
+
+- **Build order.** Each ticket depends on the one before: the preview, then `Covers`, then the Allow width, then the glob. So the branches were stacked, and each was brought up to date by merging `main` after its predecessor landed. The branches were never rebased once pushed, so no force-push was needed.
+- **Reviews.** terva-review found real problems in every PR, and each was fixed before merging. The per-ticket notes record them. The biggest was the preview's local-deny inference, which took two rounds to get right (reviews 1318 and 1320).
+- **Merging under a moving `main`.** Other agents merged about every 15 minutes. Every merge was preceded by a full `just ci` on a scratch worktree of the PR merged with the newest `origin/main`.
+- **One mistake.** #141 merged while its last Lint and Test run was red. The failure was the known `internal/cli` load flake, TKT-01M3MJDS. The merge step checked that the branch held `main` but not the CI result. `main`'s own CI on the merge commit passed. From #145 on, the merge step checks every status.
+- **Filed on the way.** TKT-01M3NW0VQW (Flaky under load: hangup reload outlives its test and panics). It failed #145's first CI run and is unrelated to this epic.
+
+### Not done, by decision
+
+- `git_remote_glob`: no user yet.
+- Coverage between deny rules: a redundant deny rule is harmless.
+- Glob-contains-glob in `Covers`: only identical patterns count.

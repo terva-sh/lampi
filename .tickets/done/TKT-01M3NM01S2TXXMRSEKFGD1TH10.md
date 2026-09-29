@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01S2TXXMRSEKFGD1TH10
 title: cwd_glob rule field for allow and deny
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3NM01NKV3Q4K0TKYRQFTE77
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/58fb7d84
-  branch: profile-rules/cwd-glob
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-58fb7d84
-  commit: 563a65a34f3db873e105163209afbad1669de074
-  session: null
-  claimed_at: 2026-09-29T04:01:02Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:40:37Z
-updated_at: 2026-09-29T06:01:11Z
+updated_at: 2026-09-29T06:17:38Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -108,3 +101,7 @@ Profiles decode strictly. An older lake refuses to load a `profiles.json` that u
 **agent:claude-code/58fb7d84** at 2026-09-29T06:01:11Z
 
 Review 1355 on PR 145, finding 1 (medium): checkGlob refuses ** inside a longer folder name (proj-**), which the docs did not say. Accepted, and documented rather than changed, in bfe60a6296ff89543f00103267658035d408ba83. The refusal is deliberate: proj-** looks as if it reaches into subfolders, and it would not. The same CI run failed on TKT-01M3NW0VQW (Flaky under load: hangup reload outlives its test and panics), a serve test this PR does not touch.
+
+## Summary
+
+Landed in #145 (merge 7ee24f9). cwd_glob names a folder layout: * matches within one folder name, a ** folder matches any number of folders, and nothing else is special. It matches the folder and everything under it. Profiles and config.json refuse a pattern that is relative, has an empty, . or .. folder, has more than four **, or has no plain folder; an invalid pattern in config.json stops the agent. A deny glob ignores case and tries the resolved cwd. Review 1355 asked why ** inside a folder name is refused; that is now documented. Upgrade order: the lake first, then the agents.
