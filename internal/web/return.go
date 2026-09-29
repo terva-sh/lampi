@@ -19,7 +19,7 @@ import (
 // returnPath is raw as a page to come back to, or "" when it is not
 // one: a device's page, with its refused filter if it had one.
 func returnPath(raw string) string {
-	if raw == "" || strings.ContainsAny(raw, "\\\r\n\t") || strings.HasPrefix(raw, "//") {
+	if raw == "" || strings.ContainsAny(raw, "\\\r\n\t#") || strings.HasPrefix(raw, "//") {
 		return ""
 	}
 	u, err := url.Parse(raw)

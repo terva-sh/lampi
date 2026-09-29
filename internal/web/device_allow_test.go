@@ -246,6 +246,8 @@ func TestReturnPathAcceptsDashboardPagesOnly(t *testing.T) {
 		"/devices/dev_abc234?next=//evil.example": "",
 		"/devices/dev_abc234?show=all":            "",
 		"/devices/dev_abc234#top":                 "",
+		"/devices/dev_abc234#":                    "",
+		"/devices/dev_abc234?show=refused#":       "",
 		"/devices/dev_abc234/../../profiles":      "",
 		"/devices/dev_ab%2Fc":                     "",
 		"/devices/dev_":                           "",
