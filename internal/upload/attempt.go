@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -76,6 +77,16 @@ func recordAttempt(stateDir string, now time.Time, skipped, noBay []string, err 
 		a.NoBayLines = append(a.NoBayLines, oneLine(line, maxSkippedLine))
 	}
 	if !runFinished(err) {
+		// A pass that failed may not have reached the sessions waiting
+		// for a bay, and they are still in the outbox. The ones the
+		// last pass knew of stay listed until a pass finishes
+		// (review 1449).
+		for _, line := range prev.NoBayLines {
+			if len(a.NoBayLines) < maxSkippedLines && !slices.Contains(a.NoBayLines, line) {
+				a.NoBayLines = append(a.NoBayLines, line)
+			}
+		}
+		a.NoBay = max(a.NoBay, prev.NoBay, len(a.NoBayLines))
 		a.Error = err.Error()
 		a.LastError = a.Error
 		a.LastErrorAt = a.At

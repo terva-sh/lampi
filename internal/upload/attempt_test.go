@@ -35,3 +35,22 @@ func TestAttemptRecordsSkipped(t *testing.T) {
 		t.Fatalf("a clean pass kept the skips: %+v", a)
 	}
 }
+
+// A pass that fails keeps the sessions the last pass saw waiting for a
+// bay; only a pass that finishes clears them (review 1449).
+func TestAFailedPassKeepsTheWaitingSessions(t *testing.T) {
+	state := t.TempDir()
+	recordAttempt(state, time.Now(), nil, []string{"codex s1", "codex s2"}, nil)
+	recordAttempt(state, time.Now(), nil, nil, errors.New("upload: POST /v1/hello: refused"))
+	if a, _, _ := ReadAttempt(state); a.NoBay != 2 || len(a.NoBayLines) != 2 || a.Error == "" {
+		t.Fatalf("failed pass: %+v", a)
+	}
+	recordAttempt(state, time.Now(), nil, []string{"codex s3"}, errors.New("upload: POST /v1/manifests: 500"))
+	if a, _, _ := ReadAttempt(state); a.NoBay != 3 || len(a.NoBayLines) != 3 {
+		t.Fatalf("failed pass that met another: %+v", a)
+	}
+	recordAttempt(state, time.Now(), nil, nil, nil)
+	if a, _, _ := ReadAttempt(state); a.NoBay != 0 || a.NoBayLines != nil {
+		t.Fatalf("finished pass: %+v", a)
+	}
+}
