@@ -381,3 +381,24 @@ func TestABayWithHoldsIsNotDeleted(t *testing.T) {
 		t.Fatalf("bays %v", got)
 	}
 }
+
+// A post can move a session to another project and keep its head, so
+// its stored manifest stays behind. A release applies the rules to what
+// the session was last routed as (review 1433).
+func TestReleaseRoutesByTheLastPostedProject(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	uid := r.mustPost("sess-1", "/old").SessionUID
+	r.rule(RuleHold, config.ProjectMatch{CWDPrefix: "/new"}, "hold")
+	r.rule(RuleAdd, config.ProjectMatch{CWDPrefix: "/new"}, "secret")
+	r.mustPost("sess-1", "/new")
+	if holds, err := r.c.Holds(ctx); err != nil || len(holds) != 1 || holds[0].State != HoldFlagged {
+		t.Fatalf("holds %+v %v", holds, err)
+	}
+	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.bays(uid); !reflect.DeepEqual(got, sorted(DefaultBayID, r.secret.ID)) {
+		t.Fatalf("bays %v, want the /new rule applied", got)
+	}
+}

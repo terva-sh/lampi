@@ -83,6 +83,7 @@ func migrateBayRules(tx *sql.Tx) error {
 		created_at TEXT NOT NULL,
 		released_at TEXT NOT NULL DEFAULT '',
 		released_by TEXT NOT NULL DEFAULT '',
+		routed_json TEXT NOT NULL DEFAULT '',
 		PRIMARY KEY (session_uid, bay_id)
 	);
 	CREATE INDEX session_holds_state ON session_holds(state);`)
@@ -251,6 +252,11 @@ func routeSession(ctx context.Context, tx *sql.Tx, uid string, isNew bool, m pro
 		}
 	}
 	holding := held != "" || hold != nil
+	if held != "" {
+		if err := noteRouted(ctx, tx, uid, held, m); err != nil {
+			return nil, err
+		}
+	}
 	// A deny rule refuses a request it matches. A held request waits:
 	// the rules are read again when the hold is released.
 	denied := deniedBays(rules, m)
@@ -277,7 +283,7 @@ func routeSession(ctx context.Context, tx *sql.Tx, uid string, isNew bool, m pro
 		}
 	}
 	if hold != nil {
-		if err := placeHold(ctx, tx, uid, isNew, *hold, now); err != nil {
+		if err := placeHold(ctx, tx, uid, isNew, *hold, m, now); err != nil {
 			return nil, err
 		}
 	}
@@ -392,15 +398,33 @@ func projectOf(m protocol.Manifest) config.ProjectID {
 	return config.ProjectID{CWD: m.Project.CWD, CWDHash: m.Project.CWDHash, GitRemote: m.Project.GitRemote}
 }
 
+// routedJSON is what rules match of m: its harness and project. A hold
+// keeps it, so a release applies the rules to what the session was
+// last routed as. The session's stored manifest moves only with its
+// head, and a post can change the project and keep the head.
+func routedJSON(m protocol.Manifest) string {
+	b, _ := json.Marshal(protocol.Manifest{Harness: m.Harness, Project: m.Project})
+	return string(b)
+}
+
+// noteRouted records m as what uid was last routed as, on its hold in
+// bay.
+func noteRouted(ctx context.Context, tx *sql.Tx, uid, bay string, m protocol.Manifest) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE session_holds SET routed_json=? WHERE session_uid=? AND bay_id=?`, routedJSON(m), uid, bay); err != nil {
+		return fmt.Errorf("catalog: hold: %w", err)
+	}
+	return nil
+}
+
 // placeHold holds a new session in the rule's bay, or flags a stored
 // one, which keeps its bays, for an admin to review.
-func placeHold(ctx context.Context, tx *sql.Tx, uid string, isNew bool, r BayRule, now time.Time) error {
+func placeHold(ctx context.Context, tx *sql.Tx, uid string, isNew bool, r BayRule, m protocol.Manifest, now time.Time) error {
 	state := HoldFlagged
 	if isNew {
 		state = HoldHeld
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO session_holds(session_uid, bay_id, rule_id, state, created_at) VALUES(?,?,?,?,?)`,
-		uid, r.BayID, r.ID, state, stamp(now)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_holds(session_uid, bay_id, rule_id, state, created_at, routed_json) VALUES(?,?,?,?,?,?)`,
+		uid, r.BayID, r.ID, state, stamp(now), routedJSON(m)); err != nil {
 		return fmt.Errorf("catalog: hold: %w", err)
 	}
 	actor := "rule:" + strconv.FormatInt(r.ID, 10)
@@ -510,18 +534,16 @@ func (c *Catalog) ReleaseHold(ctx context.Context, uid, actor string, now time.T
 		return fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	var bay, state string
-	err = tx.QueryRowContext(ctx, `SELECT bay_id, state FROM session_holds WHERE session_uid=? AND state IN (?,?) ORDER BY created_at LIMIT 1`, uid, HoldHeld, HoldFlagged).Scan(&bay, &state)
+	var bay, state, raw string
+	err = tx.QueryRowContext(ctx, `SELECT bay_id, state, routed_json FROM session_holds WHERE session_uid=? AND state IN (?,?) ORDER BY created_at LIMIT 1`, uid, HoldHeld, HoldFlagged).Scan(&bay, &state, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s", ErrNoHold, uid)
 	}
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}
-	var raw string
-	if err := tx.QueryRowContext(ctx, `SELECT manifest_json FROM sessions WHERE session_uid=?`, uid).Scan(&raw); err != nil {
-		return fmt.Errorf("catalog: session: %w", err)
-	}
+	// The rules match what the session was last routed as, which the
+	// hold keeps (review 1433).
 	var m protocol.Manifest
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return fmt.Errorf("catalog: session %s manifest: %w", uid, err)
