@@ -182,14 +182,28 @@ func (s *Store) ObjectSize(digest string) (int64, bool, error) {
 	return n, true, nil
 }
 
-// StoredSize is the disk size of digest's object file, compressed or
-// not, and false when it has none. It is what removing the object frees.
+// StoredSize is the disk size of digest's object files, the frame and
+// any raw copy beside it, and false when it has neither. It is what
+// removing the object frees.
 func (s *Store) StoredSize(digest string) (int64, bool, error) {
-	o, ok, err := s.object(digest)
-	if err != nil || !ok {
+	raw, err := s.Path(digest)
+	if err != nil {
 		return 0, false, err
 	}
-	return o.size, true, nil
+	var size int64
+	found := false
+	for _, p := range []string{raw + zstSuffix, raw} {
+		st, err := os.Lstat(p)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return 0, false, fmt.Errorf("cas: %w", err)
+		}
+		size += st.Size()
+		found = true
+	}
+	return size, found, nil
 }
 
 // prefixReader is the first left bytes of rc. A base that ends early is

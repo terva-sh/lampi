@@ -175,3 +175,40 @@ func TestBackupCopiesTheStoredForm(t *testing.T) {
 	}
 	installedAs(t, backup, dl, legacy)
 }
+
+// A damaged frame beside an intact raw copy is removed on its own, so
+// repair leaves the object readable rather than missing. StoredSize
+// counts both files, since removing the object frees both.
+func TestRepairKeepsAnIntactRawCopy(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("the raw copy is the good one\n")
+	d := mustPut(t, s, body)
+	raw, _ := s.Path(d)
+	damage(t, raw, body)
+	frame, _ := s.zstPath(d)
+	fs, _ := os.Lstat(frame)
+	if n, _, err := s.StoredSize(d); err != nil || n != fs.Size()+int64(len(body)) {
+		t.Fatalf("stored size %d %v, want both files", n, err)
+	}
+	damage(t, frame, []byte("not a frame"))
+
+	var bad []Problem
+	if _, err := s.Verify(func(p Problem) { bad = append(bad, p) }); err != nil || len(bad) != 1 {
+		t.Fatalf("verify %v %v", bad, err)
+	}
+	if fixed, err := s.Repair(bad[0]); err != nil || !fixed {
+		t.Fatalf("repair %v %v", fixed, err)
+	}
+	if _, err := os.Lstat(frame); !os.IsNotExist(err) {
+		t.Fatalf("damaged frame kept: %v", err)
+	}
+	if got, err := s.Read(d); err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("read after repair %q %v", got, err)
+	}
+	if fixed, err := s.Repair(bad[0]); err != nil || fixed {
+		t.Fatalf("second repair %v %v", fixed, err)
+	}
+}

@@ -224,17 +224,8 @@ func (s *Store) Repair(p Problem) (fixed bool, err error) {
 	defer s.mu.Unlock()
 	if !p.Logical {
 		// Hash again under the lock: a put since Verify may have
-		// replaced the object with good bytes. The compressed form is
-		// the one hashed, so a damaged raw copy beside an intact frame
-		// is removed on its own.
-		ok, err := s.intactLocked(p.Digest, -1)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			return s.removeRawCopyLocked(p.Digest)
-		}
-		return true, s.removeObjectLocked(p.Digest)
+		// replaced the object with good bytes.
+		return s.repairObjectLocked(p.Digest)
 	}
 	if _, err := s.readLogical(p.Digest); err == nil || errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -249,22 +240,40 @@ func (s *Store) Repair(p Problem) (fixed bool, err error) {
 	return true, syncDir(filepath.Dir(path))
 }
 
-// removeRawCopyLocked removes digest's raw object when a compressed one
-// is beside it. removed is false when there was no such pair. The caller
-// holds s.mu.
-func (s *Store) removeRawCopyLocked(digest string) (removed bool, err error) {
+// repairObjectLocked removes each of digest's object files, compressed
+// and raw, whose bytes are not digest, and keeps any that are. Judging
+// each form on its own keeps an intact raw copy when the frame beside
+// it is damaged. fixed is false when every file there was intact. The
+// caller holds s.mu.
+func (s *Store) repairObjectLocked(digest string) (fixed bool, err error) {
 	raw, err := s.Path(digest)
 	if err != nil {
 		return false, err
 	}
-	if _, err := os.Lstat(raw + zstSuffix); err != nil {
-		return false, nil
-	}
-	if err := os.Remove(raw); err != nil {
+	for _, o := range []storedObject{{path: raw + zstSuffix, compressed: true}, {path: raw}} {
+		st, err := os.Lstat(o.path)
 		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+			continue
 		}
-		return false, fmt.Errorf("cas: %w", err)
+		if err != nil {
+			return fixed, fmt.Errorf("cas: %w", err)
+		}
+		if st.Mode().IsRegular() {
+			sum, err := o.sum()
+			if err != nil && !errors.Is(err, errDamaged) {
+				return fixed, err
+			}
+			if err == nil && sum == digest {
+				continue
+			}
+		}
+		if err := os.Remove(o.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fixed, fmt.Errorf("cas: %w", err)
+		}
+		fixed = true
+	}
+	if !fixed {
+		return false, nil
 	}
 	return true, syncDir(filepath.Dir(raw))
 }
