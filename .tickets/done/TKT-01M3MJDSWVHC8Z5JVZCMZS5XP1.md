@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MJDSWVHC8Z5JVZCMZS5XP1
 title: "Flaky under load: TestAgentReportsItsSyncAndProfileToTheLake"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: fix/agent-report-flake
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: 913b2b4acfb6bc3882385ca7099dc9b8e898fd5f
-  session: null
-  claimed_at: 2026-09-29T05:05:00Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T17:53:56Z
-updated_at: 2026-09-29T05:08:51Z
+updated_at: 2026-09-29T05:31:37Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -105,3 +98,7 @@ The agent code is unchanged.
   all passed. So the cause of the *extra pass* comes from the two
   failure logs, not a reproduction. The fix doesn't depend on it: any
   later unchanged pass is now accepted.
+
+## Summary
+
+Fixed in #143. The test waited for the lake's newest report to show the upload, but the lake keeps only the newest report, and under load a reload-before-watch leaves an extra unchanged pass that replaces it. The test now waits for the session in the lake and a report whose sync saw it (uploaded or unchanged). No agent change. A simulated overwrite fails the old test with the field message and passes the new one; the real timing was not reproduced (see the note).
