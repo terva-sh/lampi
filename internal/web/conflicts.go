@@ -86,9 +86,10 @@ func conflictURL(id string) string { return conflictsPath + "/" + url.PathEscape
 // head, which resolves it as kept_head, and reopen, which removes a
 // resolution. Each is CSRF-checked, recorded with the signed-in operator
 // as its actor, and written to the audit log before it answers, as the
-// device actions are (TKT-01M3PTMWHR).
+// device actions are (TKT-01M3PTMWHR). guardRead sets the operator's
+// bays, so a conflict in a bay they cannot read is not found.
 func (s *Server) conflictRoutes(m *http.ServeMux) {
-	op := func(h http.HandlerFunc) http.Handler { return s.auth.Guard(webauth.OperatorOnly(h)) }
+	op := func(h http.HandlerFunc) http.Handler { return s.guardRead(webauth.OperatorOnly(h).ServeHTTP) }
 	m.Handle("POST /api/web/v1/conflicts/{id}/{action}", op(s.conflictActionAPI))
 	m.Handle("POST "+conflictsPath+"/{id}/{action}", op(s.conflictActionPage))
 }
@@ -191,7 +192,7 @@ func endOf(err error) bool { return errors.Is(err, io.EOF) || errors.Is(err, io.
 func (s *Server) loadConflict(r *http.Request, id string) (conflictDetail, bool, error) {
 	ctx, cancel := readContext(r)
 	defer cancel()
-	d, ok, err := s.catalog.Conflict(ctx, id)
+	d, ok, err := s.catalog.Conflict(ctx, scopeOf(r), id)
 	if err != nil || !ok {
 		return conflictDetail{}, ok, err
 	}
@@ -304,6 +305,13 @@ func (s *Server) changeConflict(r *http.Request, id, action, note string) (int, 
 		return http.StatusBadRequest, "invalid_note"
 	}
 	note = strings.TrimSpace(note)
+	// An operator acts only on a conflict in a bay they read.
+	if _, ok, err := lake.Catalog.Conflict(ctx, scopeOf(r), id); err != nil {
+		s.logError(r, "reading a conflict failed", err)
+		return http.StatusInternalServerError, "action_failed"
+	} else if !ok {
+		return http.StatusNotFound, "not_found"
+	}
 	ident, _ := webauth.Current(r)
 	who, now := actor(ident).Audit, s.now()
 	var err error

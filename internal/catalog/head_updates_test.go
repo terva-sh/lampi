@@ -246,7 +246,7 @@ func TestHeadUpdatesMigrationInventsNothing(t *testing.T) {
 	if err != nil || !ok || since.Before(before) || since.After(time.Now().Add(time.Second)) {
 		t.Fatalf("coverage since %v ok=%v err=%v, want about now", since, ok, err)
 	}
-	n, err := c.Counts(context.Background())
+	n, err := c.Counts(context.Background(), AllBays())
 	if err != nil || n.Sessions != 1 {
 		t.Fatalf("sessions after migration: %+v %v", n, err)
 	}

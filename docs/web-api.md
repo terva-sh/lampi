@@ -13,6 +13,11 @@ All reads are GET, return JSON and `Cache-Control: no-store`, and have a five-se
 catalog-query budget. Unauthenticated reads return `401 not_authenticated`,
 unmapped session identities `403 not_authorized`, unknown sessions `404 not_found`,
 bad input `400 invalid_filters_or_cursor`, and unavailable reads `503 read_unavailable`.
+Every read is limited to the [bays](policy.md#bays) the signed-in user reads:
+every bay for an admin, and otherwise the bays its IdP groups are granted. A
+session outside them is `404 not_found`, the same answer as one that is not
+stored, and lists, counts and search hits leave it out. The search `coverage`
+object counts the whole lake, so it is zero for anyone but an admin.
 Other catalog failures are `500 read_failed`. Detailed normalization errors and
 raw manifests never appear in these responses.
 

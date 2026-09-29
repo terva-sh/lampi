@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 )
 
@@ -50,10 +51,14 @@ type ExcerptRequest struct {
 
 // Excerpt renders the span of uid's published events as text. It pins
 // one generation the way Events does, so a copy never mixes two. A
-// span that starts past the end is ErrInvalid.
-func (r *Reader) Excerpt(ctx context.Context, uid string, req ExcerptRequest) (Excerpt, error) {
+// span that starts past the end is ErrInvalid. A session outside scope
+// is ErrNotFound, as one that is not stored.
+func (r *Reader) Excerpt(ctx context.Context, scope catalog.Scope, uid string, req ExcerptRequest) (Excerpt, error) {
 	if req.From < 0 || req.Count < 1 || req.Count > ExcerptMaxEvents || req.Gen < 0 {
 		return Excerpt{}, ErrInvalid
+	}
+	if err := r.inScope(ctx, scope, uid); err != nil {
+		return Excerpt{}, err
 	}
 	snap, err := r.open(ctx, uid)
 	if err != nil {
@@ -63,7 +68,7 @@ func (r *Reader) Excerpt(ctx context.Context, uid string, req ExcerptRequest) (E
 	if req.Pinned && req.Gen != snap.pub.Gen {
 		return Excerpt{}, ErrGenerationChanged
 	}
-	summary, err := r.catalog.DashboardSession(ctx, uid)
+	summary, err := r.catalog.DashboardSession(ctx, scope, uid)
 	if err != nil {
 		return Excerpt{}, err
 	}

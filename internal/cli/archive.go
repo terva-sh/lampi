@@ -249,7 +249,7 @@ func snapshotCatalog(ctx context.Context, src, dest string) (int, error) {
 		return 0, err
 	}
 	defer check.Close()
-	n, err := check.Counts(context.Background())
+	n, err := check.Counts(context.Background(), catalog.AllBays())
 	if err != nil {
 		return 0, err
 	}
@@ -380,7 +380,7 @@ func checkRestored(env Env, data string) error {
 	if err != nil {
 		return fmt.Errorf("serve restore: the restored catalog does not open: %w", err)
 	}
-	n, err := cat.Counts(context.Background())
+	n, err := cat.Counts(context.Background(), catalog.AllBays())
 	cat.Close()
 	if err != nil {
 		return fmt.Errorf("serve restore: %w", err)

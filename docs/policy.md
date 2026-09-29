@@ -217,9 +217,10 @@ effect when the agent restarts.
 The registration epic ruled out multi-tenant lakes. On 2026-09-29 Drew
 reopened that for access inside one lake and decided the model in this
 section. The work is tracked under TKT-01M3N8KHW5 (Bays: segment one
-lake and route sessions to a bay). Until its children land, every
-signed-in viewer reads the whole lake, as
-[web-dashboard.md](web-dashboard.md) says.
+lake and route sessions to a bay). Every read path honours bays
+(TKT-01M3NNF27A): a signed-in viewer or operator reads only the bays its
+IdP groups are granted, an admin reads all of them, and a device's
+`/v1/stats` and `/v1/conflicts` cover only the bays it writes.
 
 ### The model
 

@@ -96,7 +96,7 @@ func TestReadOnlyCatalogReadsAndDoesNotWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { cp.Close() })
-	n, err := cp.Counts(ctx)
+	n, err := cp.Counts(ctx, AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,8 +36,14 @@ The repository does not name or provision a live deployment.
    `scopes` when your provider uses different scopes. `openid` is always included.
 4. Map the actual group claim and exact group names. A successful IdP login grants
    no access unless a configured group maps to `viewer`, `operator` or `admin`.
-   A viewer reads metadata for the whole lake; this release has no per-project
-   viewer isolation. An `operator` is also a viewer and can manage registration
+   A viewer reads the [bays](policy.md#bays) its groups are granted, and
+   nothing else: pages, search, transcripts and counts all leave out the
+   rest. The first start with a web config after bays grants every
+   viewer and operator group the default bay, so an upgrade changes
+   nothing; a group added later reads nothing until
+   `serve bays grant BAY --group G --read` gives it a bay, and startup
+   warns about such a group. Search coverage and other counts of the
+   whole lake are shown only to an admin. An `operator` is also a viewer and can manage registration
    codes, which adds machines to the lake. Map it to a small group. An `admin`
    is also an operator and can download a session's
    [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded. Map

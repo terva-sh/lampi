@@ -79,7 +79,7 @@ func TestActivityBuckets(t *testing.T) {
 	insertUpdate(t, c, "codex", h(3).Add(-1), 0, 40)                // last nanosecond of hour 2
 	insertUpdate(t, c, "opencode", h(4).Add(time.Hour/2), 900, 300) // a rewrite that shrank
 
-	a, err := c.Activity(ctx, ActivityRequest{Bucket: BucketHour, From: h(0), Until: h(6)}, now)
+	a, err := c.Activity(ctx, AllBays(), ActivityRequest{Bucket: BucketHour, From: h(0), Until: h(6)}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestActivityBuckets(t *testing.T) {
 		t.Fatalf("none bucket JSON %s", b)
 	}
 
-	terva, err := c.Activity(ctx, ActivityRequest{Bucket: BucketDay, Harness: "terva"}, now)
+	terva, err := c.Activity(ctx, AllBays(), ActivityRequest{Bucket: BucketDay, Harness: "terva"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestActivityWithoutCoverageMarker(t *testing.T) {
 	if _, err := c.db.Exec(`DELETE FROM lake_meta WHERE key = 'head_updates_since'`); err != nil {
 		t.Fatal(err)
 	}
-	a, err := c.Activity(context.Background(), ActivityRequest{}, now)
+	a, err := c.Activity(context.Background(), AllBays(), ActivityRequest{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestActivityQueryUsesCoveringIndexes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		q, args := activitySQL(r)
+		q, args := activitySQL(AllBays(), r)
 		rows, err := c.db.Query("EXPLAIN QUERY PLAN "+q, args...)
 		if err != nil {
 			t.Fatal(err)
@@ -217,7 +217,7 @@ func TestActivity90DaysWithinReadDeadline(t *testing.T) {
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), deadline)
 		began := time.Now()
-		a, err := c.Activity(ctx, req, now)
+		a, err := c.Activity(ctx, AllBays(), req, now)
 		cancel()
 		if err != nil {
 			t.Fatalf("%+v: %v", req, err)

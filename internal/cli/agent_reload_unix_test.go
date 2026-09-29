@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/catalog"
 )
 
 func TestAgentSIGHUPReloadsTheLakes(t *testing.T) {
@@ -63,7 +64,7 @@ func TestAgentSIGHUPReloadsTheLakes(t *testing.T) {
 
 	// A lake added to a standalone agent starts with a full pass.
 	hup(work("/work/app"), "reload: added work", "checked 1, missing 1, uploaded 1")
-	if n, _ := lake.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := lake.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("sessions %d\n%s", n.Sessions, buf.String())
 	}
 	// The same settings keep the runner; new rules restart it.

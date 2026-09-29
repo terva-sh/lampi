@@ -13,6 +13,7 @@ import (
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
 
@@ -111,7 +112,7 @@ func TestSeedBayGrantsOnUpgrade(t *testing.T) {
 	cfg := webconfig.Config{OIDC: webconfig.OIDC{RoleMap: map[string]string{"readers": "viewer", "ops": "operator", "admins": "admin"}}}
 	var logged bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logged, nil))
-	if err := seedBayGrants(log, cat, dir, cfg); err != nil {
+	if err := web.SeedBayGrants(log, cat, cfg); err != nil {
 		t.Fatal(err)
 	}
 	grants, _ := cat.Grants(t.Context(), "", "")
@@ -125,11 +126,14 @@ func TestSeedBayGrantsOnUpgrade(t *testing.T) {
 	// A group added later gets nothing and is named at startup.
 	cfg.OIDC.RoleMap["late"] = "viewer"
 	logged.Reset()
-	if err := seedBayGrants(log, cat, dir, cfg); err != nil {
+	if err := web.SeedBayGrants(log, cat, cfg); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(logged.String(), "group=late") || strings.Contains(logged.String(), "group=readers") {
 		t.Fatalf("startup log:\n%s", logged.String())
+	}
+	if err := cat.FlushAudit(t.Context(), dir); err != nil {
+		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(audit.Path(dir))
 	if strings.Count(string(raw), `"kind":"bay.grant.added"`) != 3 {
@@ -152,13 +156,21 @@ func TestSeedGrantLinesReachTheAuditOnALaterStart(t *testing.T) {
 	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedBayGrants(nil, cat, dir, cfg); err != nil {
-		t.Fatal(err)
+	// What startWeb does on every start: seed through web.New, then
+	// flush whatever is queued.
+	start := func() error {
+		if err := web.SeedBayGrants(nil, cat, cfg); err != nil {
+			t.Fatal(err)
+		}
+		return cat.FlushAudit(t.Context(), dir)
+	}
+	if err := start(); err == nil {
+		t.Fatal("the audit write did not fail")
 	}
 	if err := os.Remove(audit.Path(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if err := seedBayGrants(nil, cat, dir, cfg); err != nil {
+	if err := start(); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(audit.Path(dir))

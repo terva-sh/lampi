@@ -49,11 +49,6 @@ func operatorLake(t *testing.T, release string, groups ...string) (*api.Server, 
 		},
 		Release: release,
 	}
-	// serve grants the role groups the default bay on its first start
-	// with a web config, as an upgrade to bays does.
-	if _, _, err := lake.Catalog.SeedRoleGrants(t.Context(), cfg.GroupsWithRole(webconfig.RoleViewer), cfg.GroupsWithRole(webconfig.RoleOperator), time.Now()); err != nil {
-		t.Fatal(err)
-	}
 	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, nil, idp.Client())
 	if err != nil {
 		t.Fatal(err)

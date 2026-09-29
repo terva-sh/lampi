@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 
@@ -566,4 +568,53 @@ func queryContent(t *testing.T, path, like string) string {
 		t.Fatalf("query: %v", err)
 	}
 	return got
+}
+
+// TKT-01M3NNF27A: --bay exports only the sessions in the bays named.
+func TestExportByBay(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Allow("sekret")
+	h := lake.Handler()
+	var uids []string
+	for _, native := range []string{"sid-work", "sid-inbox"} {
+		body := []byte(strings.Replace(string(fixturePrompt()), proofPrompt, "prompt of "+native, 1))
+		sum, _, err := cas.Hash(bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		putBlob(t, h, sum, body)
+		uids = append(uids, postManifest(t, h, manifest(native, "sessions/x/"+native+".jsonl", sum, int64(len(body)))).SessionUID)
+	}
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.CreateBay(t.Context(), "work", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.AddToBay(t.Context(), catalog.Membership{SessionUID: uids[0], Bay: "work", Actor: "test", Via: catalog.ViaCLI}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+	export := func(args ...string) string {
+		var out bytes.Buffer
+		if err := Run(append([]string{"export", "--data", dir}, args...), Env{Stdout: &out, Stderr: &bytes.Buffer{}}); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	if all := export(); !strings.Contains(all, "prompt of sid-work") || !strings.Contains(all, "prompt of sid-inbox") {
+		t.Fatal("export without --bay left a session out")
+	}
+	if work := export("--bay", "work"); !strings.Contains(work, "prompt of sid-work") || strings.Contains(work, "prompt of sid-inbox") {
+		t.Fatalf("export --bay work:\n%s", work)
+	}
+	if err := Run([]string{"export", "--data", dir, "--bay", "nope"}, Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err == nil {
+		t.Fatal("unknown bay accepted")
+	}
 }
