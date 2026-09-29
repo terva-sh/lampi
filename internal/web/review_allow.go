@@ -55,8 +55,9 @@ type allowRuleView struct {
 // allowView is the confirm page, and the API's plan.
 type allowView struct {
 	Profiles []allowProfile `json:"profiles"`
-	// Skipped are selected projects that no longer need review in the
-	// devices the page showed: allowed, hidden, denied, or gone.
+	// Skipped are selected projects no rule is added for: they no
+	// longer need review in the devices the page showed, or are only on
+	// devices whose config.json sets their allow rules.
 	Skipped     []catalog.ProjectKey `json:"skipped"`
 	Keys        []string             `json:"-"`
 	Note        string               `json:"-"`
@@ -103,11 +104,15 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 			v.Skipped = append(v.Skipped, k)
 			continue
 		}
+		added := false
 		for _, sg := range row.Sightings {
 			rule, ok := allowRule(sg.Project.GitRemote, sg.Project.CWD)
-			if !ok {
+			// A device with its own allow rules takes none from its
+			// profile; a rule there would change nothing for it.
+			if !ok || sg.LocalAllow {
 				continue
 			}
+			added = true
 			ap := byProfile[sg.ProfileName]
 			if ap == nil {
 				ap = &allowProfile{Name: sg.ProfileName}
@@ -119,6 +124,9 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 				i = len(ap.Rules) - 1
 			}
 			ap.Rules[i].Devices = append(ap.Rules[i].Devices, sg.DeviceName)
+		}
+		if !added {
+			v.Skipped = append(v.Skipped, k)
 		}
 	}
 	for _, name := range sortedKeys(byProfile) {
@@ -261,7 +269,7 @@ func (s *Server) reviewAllowPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(v.Profiles) == 0 {
-		s.renderBack(w, r, back, "None of the selected projects needs review any more: each is allowed, hidden, denied, or no longer on a device. Reload to see the queue as it is now.", http.StatusConflict)
+		s.renderBack(w, r, back, "No rule can be added for the selected projects: each is allowed, hidden, denied, no longer on a device, or only on devices whose config.json sets their own allow rules. Reload to see the queue as it is now.", http.StatusConflict)
 		return
 	}
 	v.Return = back
@@ -309,7 +317,7 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(v.Profiles) == 0 {
-		s.renderBack(w, r, back, "Nothing was saved, and none of the selected projects needs review any more.", status)
+		s.renderBack(w, r, back, "Nothing was saved, and no rule can be added for the selected projects any more.", status)
 		return
 	}
 	v.Return, v.Note = back, note

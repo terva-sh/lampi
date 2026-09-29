@@ -426,7 +426,8 @@ you, goes on every revision. **Save** writes every profile, each against the
 revision the page read. If someone changed one of them first, nothing is
 saved and the page shows the plan again against what is stored. Both Save and
 **Back** return to where you started. A selected project that no longer needs
-review is left out, and the page says so. **Edit PROFILE in the full editor…**
+review, or is only on devices whose `config.json` sets their own allow
+rules, is left out, and the page says so. **Edit PROFILE in the full editor…**
 opens that profile in the editor with its rules added. A device's page has
 the same checkboxes, with **Allow selected…** and **Hide selected**, for that
 device's copies alone.

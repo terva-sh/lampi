@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
 )
 
 var hiddenInput = regexp.MustCompile(`<input type="hidden" name="([^"]+)" value="([^"]*)">`)
@@ -53,7 +54,7 @@ func TestAllowSelectedFromTheQueue(t *testing.T) {
 	for _, want := range []string{
 		`gains 1 allow rule</h2>`, `gains 2 allow rules</h2>`,
 		"git_remote git.example/team/app", "cwd_prefix /home/me/scratch",
-		"1 selected project no longer needs review", "/work/pending",
+		"1 selected project is left out", "/work/pending",
 		"← Back to review", "Save 2 profiles", "Allow 2 projects from review",
 	} {
 		if !strings.Contains(page, want) {
@@ -119,7 +120,7 @@ func TestAllowSelectedIsAllOrNothing(t *testing.T) {
 	}
 
 	// Nothing left to allow, a bad key, or a viewer: refused.
-	if w := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "key": {"cwd /home/me/scratch"}}, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "needs review any more") {
+	if w := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "key": {"cwd /home/me/scratch"}}, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "No rule can be added") {
 		t.Fatalf("nothing to allow: %d", w.Code)
 	}
 	if w := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "key": {"bogus"}}, cookie); w.Code != 400 {
@@ -199,5 +200,24 @@ func TestAllowSelectedAPI(t *testing.T) {
 	}
 	if w := post(h, "/api/web/v1/review/allow", `{"keys":[{"kind":"cwd","key":"/a"}]}`, cookie, nil); w.Code != 403 {
 		t.Fatalf("no csrf: %d", w.Code)
+	}
+}
+
+// TKT-01M3N8FHZR: a copy on a device whose config.json sets its allow
+// rules gets no profile rule, since none would reach it.
+func TestAllowSelectedSkipsLocalAllowDevices(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[1].ID, protocol.AgentReport{AgentVersion: "v0.2.0", AllowSource: config.OriginLocal, DenySource: "none"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	page := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "return": {"/review"}, "key": {"git_remote git.example/team/app"}}, cookie).Body.String()
+	if strings.Contains(page, `Profile <a href="/profiles/ci">ci</a>`) || !strings.Contains(page, `Profile <a href="/profiles/default">default</a>`) {
+		t.Fatal("desk's local allow rules still got a rule in ci, or laptop's copy got none")
+	}
+	// Selecting only desk's copy leaves nothing to add.
+	if w := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "return": {"/review?device=" + ds[1].ID}, "key": {"git_remote git.example/team/app"}}, cookie); w.Code != 409 {
+		t.Fatalf("desk alone: %d", w.Code)
 	}
 }
