@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF21HT08545KY8QX9FHR3
 title: "Bays: catalog tables, membership audit, grants and migration"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T15:00:30Z
+updated_at: 2026-09-29T15:21:34Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -57,3 +57,7 @@ No bay other than `default` can hold data yet: the read-path child lands before 
 - [ ] serve backup, restore, fsck and purge cover the new tables
 - [ ] Bay name syntax is decided and enforced, with aliases unique across names
 - [ ] Every membership change queues an audit event to the existing outbox in the same transaction
+
+## Implementation plan
+
+One schema step, migrateBays (schema 18): bays, bay_aliases, session_bays (many-to-many, indexed by bay), session_bay_requests (latest request per session and bay ref, with outcome and reason, for the routing child), and bay_grants (principal kind group, device or read_token; read or write). The migration creates bay_default named default, puts every stored session in it and grants every device write on it. New sessions land in default inside the ingest transaction and new devices get write on default when made, with no audit line, since routing replaces that. Membership and grant changes queue audit events in the same transaction through the existing outbox. Purge removes a session's membership and request rows; backup is VACUUM INTO, so it covers the tables. Holds and review flags are left to the routing child's own migration so each PR stays small.
