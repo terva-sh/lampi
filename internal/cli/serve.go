@@ -694,8 +694,9 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 		Lake: func() registrar.Lake {
 			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: data}
 		},
-		Release: lakeRelease(),
-		Blobs:   lake.CAS,
+		Release:   lakeRelease(),
+		Blobs:     lake.CAS,
+		Normalize: lake.ReloadNormalizeJobs,
 	}
 	ops := &web.Operations{
 		Version: strings.TrimPrefix(versionLine(), "terva-lampi "),

@@ -74,6 +74,11 @@ const (
 	BayAliasRemoved  = "bay.alias.removed"
 	BayDeleted       = "bay.deleted"
 	BayDefault       = "bay.default"
+
+	// ConflictHeadChanged records an operator making a divergent copy
+	// the session's head. Detail names the copy and the head it
+	// replaced, whose bytes stay stored.
+	ConflictHeadChanged = "conflict.head_changed"
 )
 
 // Event is one line. Device is the device name. Actor is where the

@@ -42,8 +42,9 @@ func rawLake(t *testing.T, auditCat func(dir string) *catalog.Catalog) (*api.Ser
 		cat = auditCat(dir)
 	}
 	reg := &Registrations{
-		Lake:  func() registrar.Lake { return registrar.Lake{Catalog: cat, Dir: dir} },
-		Blobs: lake.CAS,
+		Lake:      func() registrar.Lake { return registrar.Lake{Catalog: cat, Dir: dir} },
+		Blobs:     lake.CAS,
+		Normalize: lake.ReloadNormalizeJobs,
 	}
 	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, nil, idp.Client())
 	if err != nil {

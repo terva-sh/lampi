@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3PTMWHRS56CX6QZEV8EER13
 title: "Conflicts: operator keeps the head or reopens a conflict"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3PTMKG9Y2S51V5Q59YZ0P7D
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: feat/conflict-actions
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: b52913940b55fd388850fa5629a1584da9d629f8
-  session: null
-  claimed_at: 2026-09-29T15:17:59Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T14:56:05Z
-updated_at: 2026-09-29T16:46:16Z
+updated_at: 2026-09-29T17:02:13Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -72,3 +65,7 @@ terva-review 1406 (run 3dd865a8): two medium findings, both accepted and fixed i
 **agent:claude-code/cd41c9ac** at 2026-09-29T16:46:16Z
 
 terva-review 1411 (run 2003286e): prior two verified resolved; new medium (reopen accepted an empty or null note) and low (first-byte case did not name byte 0/line 1) both accepted and fixed; dispositions posted on #153.
+
+## Summary
+
+Merged as #153 (main f2b0881). /conflicts/{artifact} shows one conflict to any viewer: both sides, the devices behind each, and where the copies part (byte offset and line, reading up to 64 MiB of each, offsets only), with raw downloads of both sides for an admin. An operator resolves it as kept_head, with an optional one-line note, or reopens it, from the page or POST /api/web/v1/conflicts/{id}/{keep-head|reopen}; each is CSRF-checked, audited in its transaction and flushed before it answers. Five terva-review rounds; findings accepted and fixed: no blob store reported as a read failure, notes checked after trimming and in bytes, reopen accepting an empty or null note, first-byte case not naming byte 0, null body accepted. Dispositions are posted on #153.
