@@ -193,6 +193,28 @@ harness, project and recorded date. Each result names its session and event and
 links straight to that event in the transcript. The page states how many ready
 sessions the index covers. Raw blobs and export are absent.
 
+### Conflicts
+
+A conflict is a copy of a session file whose bytes neither continue the
+copy the lake holds nor are continued by it. The lake keeps both, leaves
+the session's head where it was, and merges nothing. `/conflicts` lists
+the open ones across the lake, and each session's Conflicts tab lists
+its own. The page opens with what a conflict is and what to check. Each
+row gives both sides' size, the machines that posted each (by device
+name when a device is bound to the machine), and both digests.
+
+- A copy from a different machine than the head means two machines wrote
+  the same session.
+- A copy marked *shorter* was rewritten or truncated, for example when a
+  harness compacted the conversation.
+- *N open copies at this path* means the harness rewrote the file and
+  kept appending: every post is another copy, and the session in the
+  lake has stopped moving.
+
+A resolved conflict leaves the list and the overview count. Open and
+resolved lists both, each with its resolution. Resolving never deletes
+bytes.
+
 ### Theme
 
 The dashboard follows the system's light or dark setting. The theme button

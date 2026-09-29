@@ -84,16 +84,26 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return fmt.Sprint(*p)
 	},
-	"deref":       func(p *bool) bool { return p != nil && *p },
-	"derefInt":    func(p *int64) int64 { return *p },
-	"int64":       func(n int) int64 { return int64(n) },
-	"sub":         func(a, b float64) float64 { return a - b },
-	"signedBytes": signedBytes,
-	"bytes":       bytesIEC,
-	"permille":    func(n int64) string { return fmt.Sprintf("%.1f%%", float64(n)/10) },
-	"kib":         func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
-	"lifetimes":   func() []struct{ Value, Label string } { return codeLifetimes },
-	"revokeURL":   func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
+	"deref":           func(p *bool) bool { return p != nil && *p },
+	"derefInt":        func(p *int64) int64 { return *p },
+	"int64":           func(n int) int64 { return int64(n) },
+	"sub":             func(a, b float64) float64 { return a - b },
+	"signedBytes":     signedBytes,
+	"bytes":           bytesIEC,
+	"permille":        func(n int64) string { return fmt.Sprintf("%.1f%%", float64(n)/10) },
+	"kib":             func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
+	"lifetimes":       func() []struct{ Value, Label string } { return codeLifetimes },
+	"revokeURL":       func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
+	"resolutionLabel": resolutionLabel,
+	"machineName": func(names map[string]string, id string) string {
+		if n, ok := names[id]; ok {
+			return n
+		}
+		if len(id) > 14 {
+			return id[:10] + "…"
+		}
+		return id
+	},
 	"collectionURL": func(uid, kind string) string {
 		return "/sessions/" + url.PathEscape(uid) + "?collection=" + url.QueryEscape(kind)
 	},
@@ -127,6 +137,8 @@ type pageData struct {
 	Admin bool
 	RawOn bool
 	Raw   rawView
+	// Conflicts is the Conflicts page, and a session's Conflicts tab.
+	Conflicts conflictsView
 	// ReadTokens is the admin's read token page.
 	ReadTokens readTokensView
 	Codes      codesView
@@ -280,7 +292,11 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Session details", View: "detail", Session: summary, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)})
+	d := pageData{Title: "Session details", View: "detail", Session: summary, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)}
+	if kind == "conflicts" {
+		d.Conflicts = s.newConflictsView(ctx, records, p, *r.URL, uid)
+	}
+	render(w, r, d)
 }
 func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), false, "conflicts")
@@ -295,7 +311,7 @@ func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor)})
+	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, Conflicts: s.newConflictsView(ctx, v, p, *r.URL, ""), AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor)})
 }
 
 // transcriptPage shows one page of a session's published events. at
