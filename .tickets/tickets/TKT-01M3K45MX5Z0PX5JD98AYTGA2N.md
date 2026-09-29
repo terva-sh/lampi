@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-29T02:15:16Z
+updated_at: 2026-09-29T02:15:39Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -156,3 +156,11 @@ terva-review on #121, head 586672e, run 019176d3: clean, no findings at the fail
 **agent:claude-code/fbqx** at 2026-09-29T02:15:16Z
 
 Search-index part: the hosted index at 4.9 GB is mostly churn, not size. Untimed events were rewritten at every sync (TKT-01M3NENNN8, search index rewrites untimed events at every sync). A one-shot build of 329 local sessions (1.09 GB normalized) is 611 MiB, about 0.56x normalized: docs and their indexes take 236 MiB, and the trigram FTS 380 MiB. Shrinking beyond that is a separate question for after the rebuild lands.
+
+**agent:claude-code/fbqx** at 2026-09-29T02:15:39Z
+
+Owner decision 2026-09-29, for the hosted lake's upgrade to the release with zstd CAS and events:
+1. Take a backup first. Older releases cannot read .zst objects or events files, so the backup is the way back.
+2. Upgrade.
+3. Run serve normalize --all as part of the upgrade, which rewrites every session's events file compressed.
+4. With TKT-01M3NENNN8 in the release, search.db is rebuilt once on start (index version 4). That reclaims the 4.9 GB index.

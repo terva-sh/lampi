@@ -39,6 +39,8 @@ usage:
                     [--metrics-addr ADDR [--metrics-public]] [--behind-proxy]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
+  terva-lampi serve backup --archive FILE --recipient age1… [--data DIR] [--token-file PATH]
+  terva-lampi serve restore --archive FILE --identity-file PATH --data DIR
   terva-lampi serve fsck [--data DIR] [--repair]
                                  re-hash every stored object
   terva-lampi serve purge --session UID [--data DIR] [--yes]
@@ -167,6 +169,8 @@ func runServe(env Env, args []string) error {
 			return runServeBackup(env, args[1:])
 		case "fsck":
 			return runServeFsck(env, args[1:])
+		case "restore":
+			return runServeRestore(env, args[1:])
 		case "purge":
 			return runServePurge(env, args[1:])
 		case "compact":
