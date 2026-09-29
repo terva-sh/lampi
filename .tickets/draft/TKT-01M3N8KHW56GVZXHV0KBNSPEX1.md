@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T01:43:56Z
+updated_at: 2026-09-29T02:11:10Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -68,3 +68,14 @@ Grilling round 2 with human:sothr, 2026-09-29. Decisions:
 - Membership: a session can belong to one or more bays. Membership is a catalog relation and never copies data. A machine can submit to several bays. This replaces the round 1 recommendation of exactly one bay per session.
 - Storage: one blob store shared by the whole lake, with dedup across bays. A device can use blobs/check to confirm that a hash it can guess exists somewhere in the lake; that is recorded as a known limit, not fixed.
 - Moving sessions: bay membership can be edited after ingest, every change is audited (who, when, why), and the rules can be run again over stored sessions.
+
+**agent:claude-code/7859b064** at 2026-09-29T02:11:10Z
+
+Grilling round 3 with human:sothr, 2026-09-29. Decisions:
+
+- Derived views are not partitioned by bay. Membership lives only in the catalog, and every read path (recall, search, export, dashboard, MCP) joins against it. search.db may carry the bay set per session so FTS queries can filter, refreshed when membership changes, without re-projecting. Access to the lake's filesystem (DuckDB on parquet/, the catalog file) is admin-level access, and the docs say so. This corrects the round 2 suggestion of a bay= parquet partition, which cannot work once a session is in more than one bay.
+- Lake rule actions: hold (replace the requested bays with a holding bay until an operator or admin releases it), add (keep the requested bays and add another), and deny (keep the session out of one named bay). Hold takes precedence. The bays the agent requested are always recorded, so a release restores them in one step.
+- A requested bay the device may not write to: accept the session, place it in the default bay, and record which request was refused and why. A later version may add a UI for working through these held and refused sessions; that is a follow-up, not part of this epic.
+- Default bay turned off and nothing places the session: the lake refuses the manifest with a distinct error code. The agent keeps the session pending and reports it as "no bay" in status and in the dashboard's device view. Accepted cost: a refused session exists only on its machine until a rule or grant is added.
+- Roles: admin and operator are different roles. Admin can read everything in the lake. Operator is the lesser power: minting registration codes to allow ingest, and an operator can be limited to uploading into specific bays. A viewer sees only the bays it is granted. Grants are (principal, bay, permission), where a principal is an OIDC group, a device, or later an MCP identity. This replaces the round 2 recommendation of operator as the all-bays role.
+- The list of bays the lake publishes to a device contains only the bays that device may write to, because bay names can carry client names.
