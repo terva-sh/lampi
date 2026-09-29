@@ -295,7 +295,7 @@ const maxConflictNote = 500
 // operator. It returns an HTTP status and an error code, which is empty
 // on success. A change that stands but whose audit line did not land
 // returns audit_failed.
-func (s *Server) changeConflict(r *http.Request, id, action, note string) (int, string) {
+func (s *Server) changeConflict(r *http.Request, id, action, note, head string) (int, string) {
 	lake := s.reg.Lake()
 	ctx := r.Context()
 	// The note is checked as sent: one line of at most maxConflictNote
@@ -315,6 +315,19 @@ func (s *Server) changeConflict(r *http.Request, id, action, note string) (int, 
 			return http.StatusBadRequest, "invalid_note"
 		}
 		err = lake.Catalog.ReopenConflict(ctx, id, who, now)
+	case "make-head":
+		// head is the session head the operator saw, so a head that moved
+		// since is never replaced unseen.
+		if len(head) != 64 || s.reg.Blobs == nil {
+			return http.StatusBadRequest, "invalid_request"
+		}
+		_, err = lake.Catalog.MakeConflictHead(ctx, s.reg.Blobs, id, head, who, note, now)
+		if err == nil && s.reg.Normalize != nil {
+			if _, nerr := s.reg.Normalize(ctx); nerr != nil {
+				// The job row is committed; the next start or SIGHUP runs it.
+				s.logError(r, "queueing normalization after a head change failed", nerr)
+			}
+		}
 	default:
 		return http.StatusNotFound, "not_found"
 	}
@@ -325,6 +338,12 @@ func (s *Server) changeConflict(r *http.Request, id, action, note string) (int, 
 		return http.StatusConflict, "already_resolved"
 	case errors.Is(err, catalog.ErrConflictOpen):
 		return http.StatusConflict, "not_resolved"
+	case errors.Is(err, catalog.ErrConflictIsHead):
+		return http.StatusConflict, "is_head"
+	case errors.Is(err, catalog.ErrHeadMoved):
+		return http.StatusConflict, "head_moved"
+	case errors.Is(err, catalog.ErrNotHeadCandidate):
+		return http.StatusConflict, "not_head_candidate"
 	case err != nil:
 		s.logError(r, "changing a conflict failed", err)
 		return http.StatusInternalServerError, "action_failed"
@@ -340,11 +359,15 @@ func (s *Server) changeConflict(r *http.Request, id, action, note string) (int, 
 
 // conflictProblems says what to do about each refusal the page can meet.
 var conflictProblems = map[string]string{
-	"invalid_note":     "A note is one line of at most 500 characters.",
-	"already_resolved": "Someone resolved this conflict already. Its resolution is shown below.",
-	"not_resolved":     "This conflict is open already.",
-	"audit_failed":     "The change stands, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.",
-	"action_failed":    "The change failed. Operator logs hold the details.",
+	"invalid_note":       "A note is one line of at most 500 characters.",
+	"already_resolved":   "Someone resolved this conflict already. Its resolution is shown below.",
+	"not_resolved":       "This conflict is open already.",
+	"is_head":            "This copy is the session's head now, so it cannot be reopened as a conflict with it.",
+	"head_moved":         "The session's head changed since this page was loaded, so nothing was changed. Check the copies below again.",
+	"not_head_candidate": "This copy cannot be the session's head: it is a companion file of the head, such as a subagent transcript, or another kind of file.",
+	"invalid_request":    "The request was not complete. Reload the page and try again.",
+	"audit_failed":       "The change stands, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.",
+	"action_failed":      "The change failed. Operator logs hold the details.",
 }
 
 func (s *Server) conflictActionPage(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +375,7 @@ func (s *Server) conflictActionPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	status, code := s.changeConflict(r, id, r.PathValue("action"), r.PostForm.Get("note"))
+	status, code := s.changeConflict(r, id, r.PathValue("action"), r.PostForm.Get("note"), r.PostForm.Get("head"))
 	switch code {
 	case "":
 		http.Redirect(w, r, conflictURL(id), http.StatusSeeOther)
@@ -366,15 +389,16 @@ func (s *Server) conflictActionPage(w http.ResponseWriter, r *http.Request) {
 // conflictFields are the body fields each action takes. A field named
 // is refused on an action that does not take it, whatever its value,
 // null included.
-var conflictFields = map[string][]string{"keep-head": {"note"}, "reopen": nil}
+var conflictFields = map[string][]string{"keep-head": {"note"}, "make-head": {"note", "head"}, "reopen": nil}
 
 func (s *Server) conflictActionAPI(w http.ResponseWriter, r *http.Request) {
 	if !s.auth.CheckWrite(r, r.Header.Get(CSRFHeader)) {
 		apiError(w, http.StatusForbidden, "csrf_failed")
 		return
 	}
-	// keep-head takes {"note": TEXT} or no body; reopen takes no body,
-	// or an empty object.
+	// keep-head takes {"note": TEXT} or no body; make-head takes
+	// {"head": DIGEST, "note": TEXT}; reopen takes no body, or an empty
+	// object.
 	// A pointer, so a body of null is told apart from none, as the
 	// device actions do.
 	var req *map[string]json.RawMessage
@@ -402,13 +426,17 @@ func (s *Server) conflictActionAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var note string
+	var note, head string
 	if raw, ok := fields["note"]; ok && json.Unmarshal(raw, &note) != nil {
 		apiError(w, http.StatusBadRequest, "invalid_note")
 		return
 	}
-	status, code := s.changeConflict(r, id, action, note)
-	if code == "not_found" || code == "invalid_note" {
+	if raw, ok := fields["head"]; ok && json.Unmarshal(raw, &head) != nil {
+		apiError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	status, code := s.changeConflict(r, id, action, note, head)
+	if code == "not_found" || code == "invalid_note" || code == "invalid_request" {
 		apiError(w, status, code)
 		return
 	}

@@ -246,3 +246,157 @@ func TestResolveAndReopenConflict(t *testing.T) {
 		t.Errorf("resolutions after purge %d %v", n, err)
 	}
 }
+
+func currentAt(t *testing.T, c *Catalog, uid string) map[string]string {
+	t.Helper()
+	rows, err := c.db.Query(`SELECT relpath, sha256 FROM artifacts WHERE session_uid = ? AND current = 1`, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var rel, sha string
+		if err := rows.Scan(&rel, &sha); err != nil {
+			t.Fatal(err)
+		}
+		out[rel] = sha
+	}
+	return out
+}
+
+func artifactOf(t *testing.T, c *Catalog, sha string) string {
+	t.Helper()
+	var id string
+	if err := c.db.QueryRow(`SELECT artifact_id FROM artifacts WHERE sha256 = ?`, sha).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// Making a copy the head moves the head and the current row, supersedes
+// the older copies it extends, records the update, queues normalization,
+// and lets the next post that extends it move the head (TKT-01M3PTMWM9).
+func TestMakeConflictHead(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := context.Background()
+	p := &transcriptPoster{t: t, c: c, blobs: memBlobs{}, now: time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)}
+	rel := "sessions/aaaa/sess-1.jsonl"
+	base := []byte("{\"n\":1}\n{\"n\":2}\n")
+	// The harness rewrote the file and kept appending to it.
+	f1 := []byte("{\"summary\":1}\n")
+	f2 := append(append([]byte{}, f1...), "{\"n\":3}\n"...)
+	other := []byte("{\"other\":1}\n")
+	first := p.mustPost("machine-a", rel, base)
+	uid := first.SessionUID
+	for _, b := range [][]byte{f1, f2, other} {
+		if ack := p.mustPost("machine-a", rel, b); ack.HeadSHA256 != digestHex(base) {
+			t.Fatalf("a fork moved the head: %+v", ack)
+		}
+	}
+	gen := func() int64 {
+		var g int64
+		if err := c.db.QueryRow(`SELECT normalize_gen FROM sessions WHERE session_uid = ?`, uid).Scan(&g); err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	before := gen()
+	id2 := artifactOf(t, c, digestHex(f2))
+	when := p.now.Add(time.Minute)
+
+	if _, err := c.MakeConflictHead(ctx, p.blobs, id2, digestHex(f1), "op", "", when); !errors.Is(err, ErrHeadMoved) {
+		t.Fatalf("a stale head: %v", err)
+	}
+	made, err := c.MakeConflictHead(ctx, p.blobs, id2, digestHex(base), "user:ada", "rewritten after compaction", when)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if made.SessionUID != uid || made.OldHead != digestHex(base) || len(made.Superseded) != 1 || made.Superseded[0] != artifactOf(t, c, digestHex(f1)) {
+		t.Errorf("made %+v", made)
+	}
+	if cur := currentAt(t, c, uid); len(cur) != 1 || cur[rel] != digestHex(f2) {
+		t.Errorf("current rows %v", cur)
+	}
+	v, _, err := c.Head(ctx, protocol.HarnessTerva, "sess-1")
+	if err != nil || v.HeadSHA256 != digestHex(f2) {
+		t.Fatalf("head %s %v", v.HeadSHA256, err)
+	}
+	all := openConflicts(t, c, true)
+	if r := all[digestHex(f2)]; r == nil || r.Resolution != ResolutionMadeHead || r.Note != "rewritten after compaction" {
+		t.Errorf("f2 resolution %+v", r)
+	}
+	if r := all[digestHex(f1)]; r == nil || r.Resolution != ResolutionSuperseded {
+		t.Errorf("f1 resolution %+v", r)
+	}
+	if r := all[digestHex(other)]; r != nil {
+		t.Errorf("an unrelated copy was resolved: %+v", r)
+	}
+	ups := headUpdateRows(t, c)
+	last := ups[len(ups)-1]
+	if last.Relation != ResolutionMadeHead || last.OldSHA != digestHex(base) || last.NewSHA != digestHex(f2) || last.Machine != "machine-a" || last.NewSize != int64(len(f2)) || last.OldSize != int64(len(base)) {
+		t.Errorf("head update %+v", last)
+	}
+	var job int64
+	if err := c.db.QueryRow(`SELECT gen FROM normalize_jobs WHERE session_uid = ?`, uid).Scan(&job); err != nil || gen() != before+1 || job != before+1 {
+		t.Errorf("normalization gen %d job %d (%v), before %d", gen(), job, err, before)
+	}
+	if got := queuedEvents(t, c, "conflict.head_changed"); len(got) != 1 || !strings.Contains(got[0], "old_head="+digestHex(base)) || !strings.Contains(got[0], `"actor":"user:ada"`) {
+		t.Errorf("head_changed events %v", got)
+	}
+	if got := queuedEvents(t, c, "conflict.resolved"); len(got) != 2 {
+		t.Errorf("resolved events %v", got)
+	}
+
+	if err := c.ReopenConflict(ctx, id2, "op", when); !errors.Is(err, ErrConflictIsHead) {
+		t.Errorf("reopening the head: %v", err)
+	}
+	if _, err := c.MakeConflictHead(ctx, p.blobs, id2, digestHex(f2), "op", "", when); !errors.Is(err, ErrConflictResolved) {
+		t.Errorf("making it the head twice: %v", err)
+	}
+	// The machine goes on appending: the next post extends the new head.
+	f3 := append(append([]byte{}, f2...), "{\"n\":4}\n"...)
+	if ack := p.mustPost("machine-a", rel, f3); ack.HeadSHA256 != digestHex(f3) || ack.Relation != protocol.RelationGrownFrom {
+		t.Errorf("after make-head, the next append: %+v", ack)
+	}
+}
+
+// A copy under another path, as from a second machine's cwd, becomes
+// the head and the old path stops being current. A companion of the
+// head, such as a subagent transcript, is refused.
+func TestMakeConflictHeadAcrossPathsAndRefusals(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := context.Background()
+	p := &transcriptPoster{t: t, c: c, blobs: memBlobs{}, now: time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)}
+	relA, relB := "sessions/aaaa/sess-1.jsonl", "sessions/bbbb/sess-1.jsonl"
+	base := []byte("{\"n\":1}\n")
+	moved := []byte("{\"m\":1}\n")
+	uid := p.mustPost("machine-a", relA, base).SessionUID
+	p.mustPost("machine-b", relB, moved)
+	id := artifactOf(t, c, digestHex(moved))
+	if _, err := c.MakeConflictHead(ctx, p.blobs, id, digestHex(base), "op", "", p.now); err != nil {
+		t.Fatal(err)
+	}
+	if cur := currentAt(t, c, uid); len(cur) != 1 || cur[relB] != digestHex(moved) {
+		t.Errorf("current rows %v", cur)
+	}
+	if ups := headUpdateRows(t, c); ups[len(ups)-1].Machine != "machine-b" {
+		t.Errorf("attributed to %q", ups[len(ups)-1].Machine)
+	}
+
+	sub := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-b", Harness: protocol.HarnessTerva, NativeSessionID: "sess-1",
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/bbbb/sess-1/sub.jsonl", Size: 3, SHA256: digestHex([]byte("sub"))}}}
+	ack, err := c.Ingest(ctx, sub, p.now, []Decision{{Relation: protocol.RelationDivergentCopy, Record: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.MakeConflictHead(ctx, p.blobs, ack.ArtifactIDs[0], digestHex(moved), "op", "", p.now); !errors.Is(err, ErrNotHeadCandidate) {
+		t.Errorf("a companion: %v", err)
+	}
+	if _, err := c.MakeConflictHead(ctx, p.blobs, artifactOf(t, c, digestHex(moved)), digestHex(moved), "op", "", p.now); !errors.Is(err, ErrConflictResolved) {
+		t.Errorf("the head itself: %v", err)
+	}
+	if _, err := c.MakeConflictHead(ctx, p.blobs, "nope", digestHex(moved), "op", "", p.now); !errors.Is(err, ErrNoConflict) {
+		t.Errorf("no such conflict: %v", err)
+	}
+}

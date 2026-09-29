@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -30,6 +31,10 @@ type Registrations struct {
 	// Blobs is the lake's blob store. When set, admins can read a
 	// session's raw artifacts; nil leaves those routes out.
 	Blobs *cas.Store
+	// Normalize queues the catalog's normalize jobs this process does
+	// not hold yet, after a web change moved a session's head. nil
+	// leaves them for the next start or SIGHUP.
+	Normalize func(context.Context) (int, error)
 }
 
 // DefaultCodeLifetime is the expiry the dashboard offers first. A code

@@ -259,3 +259,74 @@ func TestConflictPageNamesTheFirstByte(t *testing.T) {
 		t.Error("the first-byte case does not name the offset and line")
 	}
 }
+
+// An operator makes a copy the head from its page. The form carries the
+// head the page showed, so a head that moved since is refused
+// (TKT-01M3PTMWM9).
+func TestOperatorMakesACopyTheHead(t *testing.T) {
+	lake, idp, h, dir := rawLake(t, nil)
+	uid, id := forkSession(t, lake, "forked", "one\ntwo\n", "summary\n")
+	viewer := signInAs(t, idp, h, "readers")
+	if strings.Contains(get(h, conflictURL(id), viewer).Body.String(), "Make this the head") {
+		t.Error("a viewer sees make-head")
+	}
+	op := signInAs(t, idp, h, "ops")
+	csrf := csrfOf(t, h, op)
+	head := putBlob(t, lake, []byte("one\ntwo\n"))
+	if !strings.Contains(get(h, conflictURL(id), op).Body.String(), `name="head" value="`+head+`"`) {
+		t.Fatal("the make-head form does not carry the head")
+	}
+	stale := strings.Repeat("0", 64)
+	if w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrf}, "head": {stale}}, op); w.Code != 409 || !strings.Contains(w.Body.String(), "changed since this page was loaded") {
+		t.Errorf("stale head: %d", w.Code)
+	}
+	if w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrf}}, op); w.Code != 400 {
+		t.Errorf("no head: %d", w.Code)
+	}
+	w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrf}, "head": {head}, "note": {"compacted"}}, op)
+	if w.Code != 303 {
+		t.Fatalf("make-head: %d %s", w.Code, w.Body)
+	}
+	sum, err := lake.Catalog.DashboardSession(t.Context(), uid)
+	if err != nil || sum.HeadSHA256 != putBlob(t, lake, []byte("summary\n")) {
+		t.Fatalf("head %s %v", sum.HeadSHA256, err)
+	}
+	page := get(h, conflictURL(id), op).Body.String()
+	for _, want := range []string{"Made the head", "this copy is the session's head now", "There is nothing to settle."} {
+		if !strings.Contains(page, want) {
+			t.Errorf("after make-head the page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, ">Reopen<") {
+		t.Error("the head can be reopened")
+	}
+	if err := lake.WaitNormalized(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// The job the change queued ran in this process, not at the next
+	// start.
+	if jobs, err := lake.Catalog.ListNormalizeJobs(t.Context()); err != nil || len(jobs) != 0 {
+		t.Errorf("normalize jobs left: %+v %v", jobs, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, audit.FileName))
+	if err != nil || !strings.Contains(string(raw), `"kind":"conflict.head_changed"`) {
+		t.Errorf("audit log: %v\n%s", err, raw)
+	}
+
+	// The API refuses a head digest on other actions.
+	hdr := map[string]string{CSRFHeader: csrf}
+	if w := post(h, "/api/web/v1/conflicts/"+id+"/keep-head", `{"head":"`+head+`"}`, op, hdr); w.Code != 400 {
+		t.Errorf("keep-head with a head: %d", w.Code)
+	}
+	_, id2 := forkSession(t, lake, "second", "a\nb\n", "c\n")
+	for _, body := range []string{``, `{"head":null}`, `{"head":7}`, `{"head":"short"}`} {
+		if w := post(h, "/api/web/v1/conflicts/"+id2+"/make-head", body, op, hdr); w.Code != 400 {
+			t.Errorf("make-head with %q: %d", body, w.Code)
+		}
+	}
+	h2 := putBlob(t, lake, []byte("a\nb\n"))
+	w = post(h, "/api/web/v1/conflicts/"+id2+"/make-head", `{"head":"`+h2+`","note":"api"}`, op, hdr)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"resolution":"made_head"`) || !strings.Contains(w.Body.String(), `"same":true`) {
+		t.Errorf("make-head over the API: %d %s", w.Code, w.Body)
+	}
+}
