@@ -1165,6 +1165,25 @@ type DivergentCopy struct {
 // Machine lists come from provenance for that session, path, and digest.
 // An empty catalog returns an empty slice.
 func (c *Catalog) DivergentCopies(ctx context.Context, resolved bool) ([]DivergentCopy, error) {
+	return c.divergentCopies(ctx, resolved, "")
+}
+
+// Conflict is the divergent copy artifactID, resolved or not. ok is
+// false when there is no such artifact or it is not a divergent copy.
+func (c *Catalog) Conflict(ctx context.Context, artifactID string) (DivergentCopy, bool, error) {
+	if artifactID == "" {
+		return DivergentCopy{}, false, nil
+	}
+	out, err := c.divergentCopies(ctx, true, artifactID)
+	if err != nil || len(out) == 0 {
+		return DivergentCopy{}, false, err
+	}
+	return out[0], true, nil
+}
+
+// divergentCopies lists the copies, or the one copy artifactID when it
+// is set.
+func (c *Catalog) divergentCopies(ctx context.Context, resolved bool, artifactID string) ([]DivergentCopy, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT
 			a.session_uid,
@@ -1188,8 +1207,8 @@ func (c *Catalog) DivergentCopies(ctx context.Context, resolved bool) ([]Diverge
 		FROM artifacts a
 		JOIN sessions s ON s.session_uid = a.session_uid
 		LEFT JOIN conflict_resolutions r ON r.artifact_id = a.artifact_id
-		WHERE a.relation = ? AND (? OR r.artifact_id IS NULL)
-		ORDER BY a.rowid`, protocol.RelationDivergentCopy, resolved)
+		WHERE a.relation = ? AND (? OR r.artifact_id IS NULL) AND (? = '' OR a.artifact_id = ?)
+		ORDER BY a.rowid`, protocol.RelationDivergentCopy, resolved, artifactID, artifactID)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
 	}
