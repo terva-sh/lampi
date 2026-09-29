@@ -264,3 +264,32 @@ func TestDefaultOffRefusesANewSession(t *testing.T) {
 		t.Fatalf("kept session bays %v", got)
 	}
 }
+
+// A stored session that loses its last bay goes to the inbox even with
+// the default off: that switch is about new sessions at ingest.
+func TestLastBayRemovedWithTheDefaultOffGoesToTheInbox(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	uid := newSession(t, c, "sess-sorted")
+	if _, err := c.CreateBay(ctx, "work", "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	m := Membership{SessionUID: uid, Bay: "work", Actor: "admin", Via: ViaCLI}
+	if _, err := c.AddToBay(ctx, m, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	m.Bay = DefaultBayName
+	if err := c.RemoveFromBay(ctx, m, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.db.Exec(`UPDATE bays SET disabled=1 WHERE id=?`, DefaultBayID); err != nil {
+		t.Fatal(err)
+	}
+	m.Bay = "work"
+	if err := c.RemoveFromBay(ctx, m, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := c.SessionBays(ctx, uid); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("bays %v", got)
+	}
+}

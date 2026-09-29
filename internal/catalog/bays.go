@@ -356,7 +356,10 @@ func addToBay(ctx context.Context, tx *sql.Tx, m Membership, now time.Time) (boo
 
 // RemoveFromBay takes a session out of a bay. A session left in no bay
 // moves to the default bay, and the default bay cannot be taken from a
-// session that is in no other.
+// session that is in no other. That holds when the default is turned
+// off too: the switch refuses new sessions at ingest, and a stored
+// session is never left in no bay, where no read path would reach it
+// (docs/policy.md#bays).
 func (c *Catalog) RemoveFromBay(ctx context.Context, m Membership, now time.Time) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
