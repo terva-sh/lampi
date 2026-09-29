@@ -8,7 +8,8 @@ The dashboard shows lake totals, a harness breakdown, normalization status,
 recent and filtered sessions, artifact metadata, provenance, and divergent
 copies. It reads normalized transcripts, searches them, and copies a span of
 events as text, and charts how often session heads changed. It is read-only.
-Downloads remain a future release in [web-ui-plan.md](web-ui-plan.md).
+An admin can also download a session's [raw artifacts](#raw-artifacts). Other
+downloads remain a future release in [web-ui-plan.md](web-ui-plan.md).
 
 ![The lampi dashboard overview with synthetic data](images/dashboard-overview.png)
 
@@ -38,11 +39,12 @@ The repository does not name or provision a live deployment.
    A viewer reads metadata for the whole lake; this release has no per-project
    viewer isolation. An `operator` is also a viewer and can manage registration
    codes, which adds machines to the lake. Map it to a small group. An `admin`
-   is also an operator. This release gives an admin nothing more than an
-   operator has; the role exists so that a group can be mapped before
-   admin-only pages arrive. No group becomes admin on upgrade, and a lake with
-   no admin group starts, logs a warning, and works as before. Operator routes
-   answer 404 to a viewer, and admin routes will answer 404 to an operator.
+   is also an operator and can download a session's
+   [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded. Map
+   it to the smallest group you have, or to none. No group becomes admin on
+   upgrade, and a lake with no admin group starts, logs a warning, and offers
+   no raw reads. Operator routes answer 404 to a viewer, and admin routes
+   answer 404 to an operator.
 5. For operator actions that add access, the dashboard asks the provider to sign
    the user in again with OIDC `max_age` and requires an `auth_time` from the
    last 10 minutes. The provider must return `auth_time` in the ID token when
@@ -199,6 +201,29 @@ the browser's local storage, not on the lake, and is applied before the
 page paints. Without scripts the button is hidden and the system setting
 applies. Both themes keep body text at WCAG AA contrast, and a test checks
 this against the colour tokens in `lake.css`.
+
+## Raw artifacts
+
+An admin sees a **Raw** tab on a session's page. It lists the session's
+current artifacts, each with a **Download** link. This is how to see what
+an agent uploaded when normalization failed, without a shell on the lake
+host. Operators and viewers get no tab, and the raw routes answer them
+404. The tab also stays hidden when serve runs without registrations, as
+in tests.
+
+The files are not redacted. Ruleset v2 quarantines a file with a hit but
+never rewrites one, so a file that was let through can still hold a
+secret. Treat a download as you would the lake's disk.
+
+Each download is written to `audit.jsonl` as `artifact.read` with the
+admin as actor and the session, digest and byte range in `detail`, never
+the content. The line is queued before a byte is sent. If it cannot be
+queued, the download is refused.
+
+A download stops at 8 MiB. A cut-short response is a `206` with a
+`Lampi-Raw-Truncated` header holding the full size. Fetch the rest with
+HTTP `Range` requests; the routes are in
+[web-api.md](web-api.md#raw-artifacts).
 
 ## Registration codes
 

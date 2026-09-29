@@ -60,8 +60,8 @@ integrity probe. Later content readers must still detect missing files.
 
 The overview counts catalog artifact versions, not unique blobs or disk bytes.
 Contributing machines are not online machines. Head update timestamps do not
-measure upload throughput. Only the events, search and excerpt routes below
-return transcript text.
+measure upload throughput. Only the events, search, excerpt and raw artifact
+routes below return transcript text.
 No endpoint initiates normalization, export, deletion, merge, or ingestion.
 The registration routes below are the only writes, and only operators reach them.
 
@@ -132,6 +132,38 @@ Each mint and each cancel goes to `audit.jsonl` with the operator as
 actor, and to the catalog as `created_by` or `revoked_by`. A cancel whose
 audit line fails still stands, and answers `500 audit_failed` with the
 code.
+
+## Raw artifacts
+
+Admins can download the bytes an agent uploaded for a session. These
+routes need the `admin` role (see [web-dashboard.md](web-dashboard.md)).
+Operators and viewers get `404`. They are browser routes, not under
+`/api/web/v1`, and they exist only when serve wires in the blob store.
+
+| Route | Result |
+|---|---|
+| `GET /sessions/{uid}/raw` | An HTML page listing the session's current artifacts with download links. No query parameters. |
+| `GET /sessions/{uid}/raw/{sha256}` | One artifact's bytes. No query parameters. |
+
+A download names a digest the session links to, current or earlier. Any
+other digest is `404 not_found`, the same answer as a session that is not
+there, so the route cannot probe the blob store.
+
+The response is `application/octet-stream` with `Content-Disposition:
+attachment`, `Accept-Ranges: bytes`, `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`. It carries at most 8 MiB:
+
+- With no `Range` header, an artifact up to 8 MiB is a `200`. A larger
+  one is a `206` with its first 8 MiB, a `Content-Range`, and a
+  `Lampi-Raw-Truncated` header holding the full size.
+- One `Range` of `bytes=a-b`, `bytes=a-` or `bytes=-n` is a `206`. A range
+  longer than 8 MiB stops there and carries `Lampi-Raw-Truncated`.
+- Several ranges, another unit, or a range past the end is
+  `416 invalid_range` with `Content-Range: bytes */SIZE`.
+
+Every read queues an `artifact.read` audit event naming the admin, the
+session, the digest and the byte range before a byte is sent. A read whose
+event cannot be queued is `500 audit_failed` and sends nothing.
 
 ## Transcript events
 
