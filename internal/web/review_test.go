@@ -281,3 +281,32 @@ func TestReviewRefusesAMalformedQuery(t *testing.T) {
 		}
 	}
 }
+
+// Review 1304: a copy whose profile allows it is allow pending only while
+// its device has not caught up; once the device applied the current
+// profile and sent an inventory since, a refusal needs review again.
+func TestReviewAllowPendingOnlyUntilTheDeviceCatchesUp(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	ctx := t.Context()
+	cookie, _ := signIn(t, idp, h)
+	if !strings.Contains(get(h, "/review", cookie).Body.String(), "Allow pending (1)") {
+		t.Fatal("pending project not allow pending before the device catches up")
+	}
+	def, err := lake.Catalog.ResolveProfile(ctx, ds[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Catalog.PutDeviceReport(ctx, ds[0].ID, protocol.AgentReport{AgentVersion: "v0.2.0", ProfileVersion: def.Version, AllowSource: "lake default", DenySource: "none"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: time.Now().Add(time.Minute), Projects: []protocol.InventoryProject{
+		{CWD: "/work/pending", CWDs: 1, Harnesses: []string{"claude"}, Sessions: 1, Reason: config.RefusedNoMatch},
+	}}
+	if _, err := lake.Catalog.PutDeviceInventory(ctx, ds[0].ID, inv, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	page := get(h, "/review", cookie).Body.String()
+	if strings.Contains(page, "Allow pending (") || !strings.Contains(section(t, page, "<h2>Needs review</h2>"), "refused it after applying that profile") {
+		t.Fatal("a device that caught up and still refuses reads allow pending")
+	}
+}

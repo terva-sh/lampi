@@ -111,6 +111,10 @@ type reviewSighting struct {
 	// LocalAllow is a device whose config.json sets its allow rules, so
 	// a rule in its profile does not reach it.
 	LocalAllow bool `json:"local_allow,omitempty"`
+	// StillRefused is a copy whose profile allows it, from a device
+	// that applied that profile and refused the project in an inventory
+	// it sent since: waiting will not change it.
+	StillRefused bool `json:"still_refused,omitempty"`
 }
 
 // reviewRow is one project, with the device copies the filter keeps.
@@ -203,6 +207,33 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 		effective[sg.DeviceID] = e.Config.Projects
 		return e.Config.Projects, nil
 	}
+	// caughtUp reports whether device id has applied its current
+	// profile and sent an inventory since that profile was last saved:
+	// a refusal from it is not waiting on the profile any more.
+	saved := map[string]time.Time{}
+	received := map[string]time.Time{}
+	caughtUp := func(id, profile string) (bool, error) {
+		if rows[id].ProfileState != "current" {
+			return false, nil
+		}
+		at, ok := saved[profile]
+		if !ok {
+			p, err := s.catalog.ProfileByName(ctx, profile)
+			if err != nil && !isNoProfile(err) {
+				return false, err
+			}
+			at, saved[profile] = p.Updated, p.Updated
+		}
+		got, ok := received[id]
+		if !ok {
+			inv, _, err := s.catalog.DeviceInventoryOf(ctx, id)
+			if err != nil {
+				return false, err
+			}
+			got, received[id] = inv.Received, inv.Received
+		}
+		return got.After(at), nil
+	}
 	seen := map[catalog.ProjectKey]int{}
 	for _, p := range q.Projects {
 		byState := map[string]*reviewRow{}
@@ -234,8 +265,17 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 			case !rs.LocalAllow && projects.Permitted(id):
 				// A device whose config.json sets its allow rules takes
 				// none from its profile, so a profile rule is no
-				// decision for it: its copy still needs one.
+				// decision for it: its copy still needs one. A device
+				// that applied the profile and refused the project
+				// since is not waiting on anything either.
 				rs.State = statePending
+				done, err := caughtUp(sg.DeviceID, name)
+				if err != nil {
+					return v, err
+				}
+				if done {
+					rs.State, rs.StillRefused = stateNeeds, true
+				}
 			default:
 				rs.State = stateNeeds
 			}

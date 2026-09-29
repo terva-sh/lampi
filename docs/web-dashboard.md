@@ -400,7 +400,9 @@ and checkouts.
 - **Allow pending** holds projects a rule now allows whose device has not sent
   a new inventory yet. They leave once it does.
   A device whose `config.json` sets its own allow rules takes none from its
-  profile, so its copies stay in Needs review, marked, with no Allow.
+  profile, so its copies stay in Needs review, marked, with no Allow. A copy
+  from a device that applied the profile allowing it and still refused it
+  afterwards returns to Needs review, marked, since waiting will not help.
 - **Denied** holds projects a deny rule refuses, or sessions with no working
   directory. An allow rule cannot let those through.
 - **Hidden** is a tab of the projects hidden from review.
