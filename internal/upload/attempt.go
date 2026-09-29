@@ -27,6 +27,10 @@ type Attempt struct {
 	LastErrorAt  time.Time `json:"last_error_at,omitzero"`
 	Skipped      int       `json:"skipped,omitempty"`
 	SkippedLines []string  `json:"skipped_lines,omitempty"`
+	// NoBay counts the sessions the lake refused because nothing places
+	// them; they wait in the outbox. NoBayLines names the first few.
+	NoBay      int      `json:"no_bay,omitempty"`
+	NoBayLines []string `json:"no_bay_lines,omitempty"`
 }
 
 const (
@@ -58,7 +62,7 @@ func ReadAttempt(stateDir string) (Attempt, bool, error) {
 // recordAttempt rewrites the record after a run. A refusal is a
 // finished run, as it is for last_sync.json. A record that cannot be
 // written does not fail the run it describes.
-func recordAttempt(stateDir string, now time.Time, skipped []string, err error) {
+func recordAttempt(stateDir string, now time.Time, skipped, noBay []string, err error) {
 	if stateDir == "" {
 		return
 	}
@@ -66,6 +70,10 @@ func recordAttempt(stateDir string, now time.Time, skipped []string, err error) 
 	a := Attempt{At: now.UTC(), LastError: prev.LastError, LastErrorAt: prev.LastErrorAt, Skipped: len(skipped)}
 	for _, line := range skipped[:min(len(skipped), maxSkippedLines)] {
 		a.SkippedLines = append(a.SkippedLines, oneLine(line, maxSkippedLine))
+	}
+	a.NoBay = len(noBay)
+	for _, line := range noBay[:min(len(noBay), maxSkippedLines)] {
+		a.NoBayLines = append(a.NoBayLines, oneLine(line, maxSkippedLine))
 	}
 	if !runFinished(err) {
 		a.Error = err.Error()

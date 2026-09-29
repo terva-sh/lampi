@@ -283,6 +283,11 @@ them ([Bays](policy.md#bays)). A lake entry's `bays` says which:
   not take a session out of one.
 - `bays` is set on an entry of `lakes`. The legacy top-level lake has
   none; move it into the map as `default` to ask for bays.
+- An agent that asks for bays sets `bay_aware`, so the lake answers a
+  session nothing places with `no_bay`. The session waits in the outbox
+  and `status` lists it under `no_bay`.
+- `terva-lampi bays` lists, for each lake, the bays this device may
+  write, and names any bay asked for that is not among them.
 - `terva-lampi bays which [PATH]` prints, for each lake, whether a
   session started at PATH uploads there, the bays it asks for, and the
   rule or default that named each. For a project the lake refuses it

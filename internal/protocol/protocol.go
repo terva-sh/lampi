@@ -344,6 +344,10 @@ type AgentSyncReport struct {
 	Refused     int       `json:"refused"`
 	Quarantined int       `json:"quarantined"`
 	Unchanged   int       `json:"unchanged"`
+	// NoBay counts sessions the lake refused because nothing places
+	// them (CodeNoBay). They wait on the machine. Agents from before
+	// bays leave it out.
+	NoBay int `json:"no_bay,omitempty"`
 }
 
 // RegisterPath redeems a registration code. It needs no token.

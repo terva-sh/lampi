@@ -761,7 +761,12 @@ func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix strin
 			fmt.Fprintf(env.stderr(), "terva-lampi: %s%v\n", prefix, &upload.Rejected{Reasons: fresh})
 		}
 	}
-	printSync(env.stdout(), env.stderr(), prefix, res)
+	// A waiting session prints once, but the report counts them all.
+	printed := res
+	if err == nil || isRejected {
+		printed.NoBay = seen.fresh("no_bay", res.NoBay)
+	}
+	printSync(env.stdout(), env.stderr(), prefix, printed)
 	return res, err
 }
 

@@ -430,14 +430,16 @@ and asked again at each interval.
   "last_sync": {
     "at": "2026-09-28T15:00:00Z",
     "checked": 221, "missing": 0, "uploaded": 12, "manifests": 4,
-    "refused": 3, "quarantined": 0, "unchanged": 202
+    "refused": 3, "quarantined": 0, "unchanged": 202, "no_bay": 1
   },
   "last_error": "",
   "last_error_at": "0001-01-01T00:00:00Z"
 }
 ```
 
-Every field is optional. `inventory` is the agent's inventory mode,
+Every field is optional. `last_sync.no_bay` counts the sessions the
+lake refused with `no_bay` on that sync; they wait on the machine.
+`inventory` is the agent's inventory mode,
 `sociable` or `strict`, and is empty from an agent without the inventory
 report. `allow_source` and `deny_source` say where the project rules
 came from: `local`, `lake NAME`, both joined by `+`, or `none`; `agent

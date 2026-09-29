@@ -122,10 +122,19 @@ uploads on its next start.
 - the last finished sync, and the last attempt (`ok` or `failed`) with
   the most recent error;
 - the files that attempt skipped (`last_skipped`, with up to five named);
+- the sessions the lake refused because nothing places them and its
+  default bay is off (`no_bay`, with up to five named). They stay in the
+  outbox and are posted again every pass, so they upload once the lake
+  grants a bay, adds a rule, or turns its default on. `sync` and the
+  agent print each one once, as `waiting for a bay`;
 - the server and the token file, each with its `source`;
 - whether `/healthz` answered, catalog counts from `GET /v1/stats`, and the
   lake's normalization: sessions by state, the job backlog, and the last
   failure (`lake_normalization`, `lake_normalize_jobs`,
-  `lake_normalize_last_failure`).
+  `lake_normalize_last_failure`);
+- the bays the lake lets this device write (`bays`), and any bay
+  config.json asks for that is not among them (`bays_refused`). A lake
+  from before bays prints nothing, or says it ignores the bays asked
+  for. `terva-lampi bays` prints the same for every lake.
 
 With more than one lake, `status` prints one block per lake.
