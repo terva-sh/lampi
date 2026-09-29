@@ -27,12 +27,15 @@ func storeEntries(t *testing.T, s *Server) []string {
 	return out
 }
 
+// objectBytes is what the objects hold once decompressed.
 func objectBytes(t *testing.T, s *Server) int64 {
 	t.Helper()
 	var n int64
 	err := s.CAS.Entries(func(e cas.Entry) error {
 		if !e.Logical {
-			n += e.Size
+			size, _, err := s.CAS.ObjectSize(e.Digest)
+			n += size
+			return err
 		}
 		return nil
 	})
@@ -44,7 +47,7 @@ func objectBytes(t *testing.T, s *Server) int64 {
 
 func ageObject(t *testing.T, s *Server, digest string, by time.Duration) {
 	t.Helper()
-	p, err := s.CAS.Path(digest)
+	p, _, err := s.CAS.ObjectPath(digest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +94,7 @@ func TestCompactFoldsWholeCopiesAndDropsOldTails(t *testing.T) {
 	h := s.Handler()
 	var versions [][]byte
 	var file []byte
-	var olderBytes int64
+	var reclaimed []string
 	for i := 0; i < 5; i++ {
 		file = append(file, line(i)...)
 		v := append([]byte(nil), file...)
@@ -99,13 +102,23 @@ func TestCompactFoldsWholeCopiesAndDropsOldTails(t *testing.T) {
 		postManifest(t, h, manifest("m", "sid", v, d, 0, d))
 		versions = append(versions, v)
 		if i < 4 {
-			olderBytes += int64(len(v))
+			reclaimed = append(reclaimed, d)
 		}
 	}
 	oldTail := []byte("an assembled tail nothing names\n")
 	fresh := []byte("a tail whose manifest is in flight\n")
-	ageObject(t, s, putRaw(t, h, oldTail), 2*time.Hour)
+	oldSHA := putRaw(t, h, oldTail)
+	ageObject(t, s, oldSHA, 2*time.Hour)
 	freshSHA := putRaw(t, h, fresh)
+	// Reclaimed is disk bytes: the objects are compressed.
+	var olderBytes int64
+	for _, d := range append(reclaimed, oldSHA) {
+		n, _, err := s.CAS.StoredSize(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		olderBytes += n
+	}
 
 	before := storeEntries(t, s)
 	dry, err := s.Compact(t.Context(), CompactOptions{DryRun: true, MinAge: time.Hour})
@@ -115,7 +128,7 @@ func TestCompactFoldsWholeCopiesAndDropsOldTails(t *testing.T) {
 	if got := storeEntries(t, s); strings.Join(got, "\n") != strings.Join(before, "\n") {
 		t.Fatalf("the dry run wrote:\nbefore %v\nafter  %v", before, got)
 	}
-	want := CompactReport{Paths: 1, Versions: 4, Folded: 4, Unreferenced: 1, Reclaimed: olderBytes + int64(len(oldTail))}
+	want := CompactReport{Paths: 1, Versions: 4, Folded: 4, Unreferenced: 1, Reclaimed: olderBytes}
 	if fmt.Sprint(dry) != fmt.Sprint(want) {
 		t.Fatalf("dry run %+v\nwant    %+v", dry, want)
 	}
@@ -239,7 +252,7 @@ func TestCompactDryRunRefusesAFoldThatWouldLoop(t *testing.T) {
 	d2 := putRaw(t, h, v2)
 	postManifest(t, h, manifest("m", "sid", v2, d2, 0, d2))
 	dt := putRaw(t, h, tail)
-	p, err := s.CAS.Path(d2)
+	p, _, err := s.CAS.ObjectPath(d2)
 	if err != nil {
 		t.Fatal(err)
 	}

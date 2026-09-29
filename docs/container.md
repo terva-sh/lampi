@@ -321,6 +321,12 @@ the same volume. Compose names the volume `lampi_lake`.
 Manifests accepted since the upgrade are not in the restored catalog,
 so roll back soon after an upgrade, not days later.
 
+A release that stores blobs compressed writes each new object as a
+`.zst` file, and a release from before it cannot read one. After such an
+upgrade, a rollback reads every blob stored before the upgrade and none
+stored since. So take a backup before that upgrade, and restore it to
+roll back.
+
 Do not let a tool such as Watchtower pull a new release on its own. An
 update tool that opens a pull request for the version bump, such as
 Renovate, leaves you the step of reading the release notes.

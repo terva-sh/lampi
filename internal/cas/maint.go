@@ -140,8 +140,9 @@ func (p Problem) String() string {
 	return "object " + p.Digest + ": " + p.Reason
 }
 
-// Verify re-hashes every object and reads every logical index. Each
-// object whose bytes do not hash to its name, each index that does not
+// Verify re-hashes every object, decompressing a compressed one, and
+// reads every logical index. Each object whose bytes do not hash to its
+// name or whose frame does not decode, each index that does not
 // parse or names a chunk that is not stored, and each prefix record
 // whose chain does not reach a file holding its length, is passed to
 // bad. A prefix record's bytes are not re-hashed here: they are its
@@ -150,13 +151,18 @@ func (p Problem) String() string {
 // problem too, named by its path under the store. checked counts the
 // entries read.
 func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
-	err = walkEntries(filepath.Join(s.Root, "sha256"), func(path, digest string) error {
+	err = walkEntries(filepath.Join(s.Root, "sha256"), true, func(path, digest string) error {
 		checked++
 		if digest == "" {
 			bad(Problem{Digest: s.rel(path), Reason: "not a digest path"})
 			return nil
 		}
-		sum, err := hashFile(path)
+		_, compressed := objectName(filepath.Base(path))
+		sum, err := storedObject{path: path, compressed: compressed}.sum()
+		if errors.Is(err, errDamaged) {
+			bad(Problem{Digest: digest, Reason: err.Error()})
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -168,7 +174,7 @@ func (s *Store) Verify(bad func(Problem)) (checked int, err error) {
 	if err != nil {
 		return checked, err
 	}
-	err = walkEntries(filepath.Join(s.Root, "logical"), func(path, digest string) error {
+	err = walkEntries(filepath.Join(s.Root, "logical"), false, func(path, digest string) error {
 		checked++
 		if digest == "" {
 			bad(Problem{Digest: s.rel(path), Logical: true, Reason: "not a digest path"})
@@ -219,11 +225,7 @@ func (s *Store) Repair(p Problem) (fixed bool, err error) {
 	if !p.Logical {
 		// Hash again under the lock: a put since Verify may have
 		// replaced the object with good bytes.
-		ok, err := s.intactLocked(p.Digest, -1)
-		if err != nil || ok {
-			return false, err
-		}
-		return true, s.removeObjectLocked(p.Digest)
+		return s.repairObjectLocked(p.Digest)
 	}
 	if _, err := s.readLogical(p.Digest); err == nil || errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -238,6 +240,44 @@ func (s *Store) Repair(p Problem) (fixed bool, err error) {
 	return true, syncDir(filepath.Dir(path))
 }
 
+// repairObjectLocked removes each of digest's object files, compressed
+// and raw, whose bytes are not digest, and keeps any that are. Judging
+// each form on its own keeps an intact raw copy when the frame beside
+// it is damaged. fixed is false when every file there was intact. The
+// caller holds s.mu.
+func (s *Store) repairObjectLocked(digest string) (fixed bool, err error) {
+	raw, err := s.Path(digest)
+	if err != nil {
+		return false, err
+	}
+	for _, o := range []storedObject{{path: raw + zstSuffix, compressed: true}, {path: raw}} {
+		st, err := os.Lstat(o.path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fixed, fmt.Errorf("cas: %w", err)
+		}
+		if st.Mode().IsRegular() {
+			sum, err := o.sum()
+			if err != nil && !errors.Is(err, errDamaged) {
+				return fixed, err
+			}
+			if err == nil && sum == digest {
+				continue
+			}
+		}
+		if err := os.Remove(o.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fixed, fmt.Errorf("cas: %w", err)
+		}
+		fixed = true
+	}
+	if !fixed {
+		return false, nil
+	}
+	return true, syncDir(filepath.Dir(raw))
+}
+
 func (s *Store) rel(path string) string {
 	if r, err := filepath.Rel(s.Root, path); err == nil {
 		return filepath.ToSlash(r)
@@ -247,8 +287,9 @@ func (s *Store) rel(path string) string {
 
 // walkEntries calls fn for every file under root/<ab>/<rest> except
 // temp files. digest is empty when the path is not a valid digest.
-// A missing root has no entries.
-func walkEntries(root string, fn func(path, digest string) error) error {
+// Under objects, <rest> may end in .zst, the compressed form. A missing
+// root has no entries.
+func walkEntries(root string, objects bool, fn func(path, digest string) error) error {
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) && path == root {
@@ -262,6 +303,9 @@ func walkEntries(root string, fn func(path, digest string) error) error {
 		digest := ""
 		if rel, err := filepath.Rel(root, path); err == nil {
 			shard, rest, ok := strings.Cut(filepath.ToSlash(rel), "/")
+			if objects {
+				rest, _ = objectName(rest)
+			}
 			if ok && len(shard) == 2 && protocol.ValidDigest(shard+rest) {
 				digest = shard + rest
 			}
@@ -276,8 +320,12 @@ func walkEntries(root string, fn func(path, digest string) error) error {
 
 // Backup copies every object and logical index into the store layout
 // under dest: sha256/ first, then logical/, so an index is not copied
-// before its chunks or its base. Temp files and partial uploads are
-// left out. An entry already in dest with the same size is kept, so a
+// before its chunks or its base. An object is copied as it is stored,
+// compressed or not. A raw object with a compressed one beside it is
+// left out, and a raw copy dest holds of an object now compressed is
+// removed once the compressed one is there. A frame dest holds of an
+// object the store keeps only raw, one repair removed, is removed too. Temp files and partial
+// uploads are left out. An entry already in dest with the same size is kept, so a
 // second backup into the same directory copies only what is new. Each
 // copy is synced and renamed into place.
 //
@@ -291,12 +339,27 @@ func walkEntries(root string, fn func(path, digest string) error) error {
 func (s *Store) Backup(dest string) (copied int, err error) {
 	for _, sub := range []string{"sha256", "logical"} {
 		root := filepath.Join(s.Root, sub)
-		err := walkEntries(root, func(path, _ string) error {
+		objects := sub == "sha256"
+		err := walkEntries(root, objects, func(path, _ string) error {
 			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				return err
 			}
 			out := filepath.Join(dest, sub, rel)
+			compressed := false
+			if objects {
+				if _, compressed = objectName(filepath.Base(path)); !compressed {
+					if _, err := os.Lstat(path + zstSuffix); err == nil {
+						return nil
+					}
+					// The store has no frame for this object, so one
+					// dest holds is stale, a damaged frame repair has
+					// removed here, and readers of dest would prefer it.
+					if err := os.Remove(out + zstSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return err
+					}
+				}
+			}
 			// An index is rewritten in place when a prefix record is
 			// pointed further along its chain, at the same size, so it
 			// is compared by content.
@@ -305,7 +368,16 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil
 			}
-			return err
+			if err != nil {
+				return err
+			}
+			if compressed {
+				raw := strings.TrimSuffix(out, zstSuffix)
+				if err := os.Remove(raw); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
+			return nil
 		})
 		if err != nil {
 			return copied, err
@@ -326,7 +398,7 @@ func (s *Store) closeRecords(dest string) (copied int, err error) {
 	// that copies nothing new cannot be followed by one that does.
 	for {
 		want := map[string]bool{}
-		err := walkEntries(filepath.Join(dest, "logical"), func(_, digest string) error {
+		err := walkEntries(filepath.Join(dest, "logical"), false, func(_, digest string) error {
 			if digest == "" {
 				return nil
 			}
@@ -389,18 +461,20 @@ func (s *Store) firstMissing(base string) string {
 	return ""
 }
 
-// copyEntry copies digest's object, or else its logical entry, from
-// the store into dest.
+// copyEntry copies digest's object, compressed or else raw, or else its
+// logical entry, from the store into dest.
 func (s *Store) copyEntry(digest, dest string) (int, error) {
 	if !protocol.ValidDigest(digest) {
 		return 0, fmt.Errorf("cas: invalid digest %q", digest)
 	}
 	rel := filepath.Join(digest[:2], digest[2:])
-	n, err := copyIfMissing(filepath.Join(s.Root, "sha256", rel), filepath.Join(dest, "sha256", rel), false)
-	if !errors.Is(err, os.ErrNotExist) {
-		return n, err
+	for _, name := range []string{rel + zstSuffix, rel} {
+		n, err := copyIfMissing(filepath.Join(s.Root, "sha256", name), filepath.Join(dest, "sha256", name), false)
+		if !errors.Is(err, os.ErrNotExist) {
+			return n, err
+		}
 	}
-	n, err = copyIfMissing(filepath.Join(s.Root, "logical", rel), filepath.Join(dest, "logical", rel), true)
+	n, err := copyIfMissing(filepath.Join(s.Root, "logical", rel), filepath.Join(dest, "logical", rel), true)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, fmt.Errorf("cas: backup: %s is in neither sha256/ nor logical/", digest)
 	}

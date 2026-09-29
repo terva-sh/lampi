@@ -494,7 +494,9 @@ that is already stored is a success and writes nothing:
 ```
 
 `exists` is false when this call stored the object. The filesystem key is
-`sha256/<ab>/<rest of the digest>`. `complete` is true for a finished
+`sha256/<ab>/<rest of the digest>`, and the lake stores the object there
+compressed, as `<rest>.zst`. The digest is always of the bytes the client
+sent, before compression. `complete` is true for a finished
 object, including one that already existed.
 
 A stored object whose size or hash does not match its key is damaged.

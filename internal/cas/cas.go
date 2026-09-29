@@ -1,7 +1,8 @@
 // Package cas is a content-addressed blob store on the local filesystem.
 //
 // The object key is sha256/<ab>/<cdef…>, the hex digest split after two
-// characters so one directory does not hold every object. A put of a
+// characters so one directory does not hold every object. The file is
+// that name with .zst, a zstd frame of the bytes (see zstd.go). A put of a
 // digest that is already present is a success and writes nothing: that
 // is the whole of dedup layer A. A present object whose size or hash is
 // wrong is replaced by the verified new one.
@@ -47,7 +48,8 @@ func Open(root string) (*Store, error) {
 	return &Store{Root: root}, nil
 }
 
-// Path returns the filesystem path for a lowercase sha256 hex digest.
+// Path returns the filesystem path for a lowercase sha256 hex digest,
+// uncompressed. An object installed now is that path with .zst.
 func (s *Store) Path(digest string) (string, error) {
 	if !protocol.ValidDigest(digest) {
 		return "", fmt.Errorf("cas: invalid digest %q", digest)
@@ -65,18 +67,13 @@ const emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b785
 // answer makes the client put it again, which replaces it. Other damage
 // is still reported, and the next put of that digest replaces it.
 func (s *Store) Has(digest string) (bool, error) {
-	p, err := s.Path(digest)
-	if err != nil {
+	o, ok, err := s.object(digest)
+	if err != nil || !ok {
 		return false, err
 	}
-	fi, err := os.Stat(p)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if fi.Size() == 0 && digest != emptyDigest {
+	// Every frame holds a header, so an empty compressed file is always
+	// that crash.
+	if o.size == 0 && (o.compressed || digest != emptyDigest) {
 		return false, nil
 	}
 	return true, nil
@@ -133,15 +130,20 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 	if sum != digest {
 		return false, fmt.Errorf("cas: body sha256 %s does not match %s: %w", sum, digest, ErrRejected)
 	}
-	if err := tmp.Chmod(0o600); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
+	// Compress before taking the lock, so a large body does not hold
+	// up other writers.
+	z, err := s.seal(tmpName, digest, n)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if z != "" {
+			os.Remove(z)
+		}
+	}()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -153,13 +155,13 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 			return present, err
 		}
 	}
-	exists, err = s.commitFileLocked(digest, tmpName, n)
+	exists, err = s.commitFileLocked(digest, z, n)
 	if err != nil {
 		return false, err
 	}
 	if !exists {
 		// Rename succeeded, so the deferred Remove must not delete the blob.
-		tmpName = ""
+		z = ""
 	}
 	return exists, nil
 }
@@ -170,21 +172,26 @@ func (s *Store) Put(digest string, r io.Reader, limit int64) (exists bool, err e
 // object was installed under the blob cap, and damage truncates or
 // zero-fills, so the hash is still bounded. The caller holds s.mu.
 func (s *Store) intactLocked(digest string, size int64) (bool, error) {
-	p, err := s.Path(digest)
-	if err != nil {
+	o, ok, err := s.object(digest)
+	if err != nil || !ok || !o.mode.IsRegular() {
 		return false, err
 	}
-	st, err := os.Stat(p)
-	if errors.Is(err, os.ErrNotExist) {
+	if size >= 0 {
+		n, err := o.logicalSize()
+		if errors.Is(err, errDamaged) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if n != size {
+			return false, nil
+		}
+	}
+	sum, err := o.sum()
+	if errors.Is(err, errDamaged) {
 		return false, nil
 	}
-	if err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
-	if !st.Mode().IsRegular() || (size >= 0 && st.Size() != size) {
-		return false, nil
-	}
-	sum, err := hashFile(p)
 	if err != nil {
 		return false, err
 	}
@@ -296,17 +303,20 @@ func (s *Store) Size(digest string) (int64, error) {
 	return n, nil
 }
 
-// OpenBlob opens a stored object for reading.
-func (s *Store) OpenBlob(digest string) (*os.File, error) {
-	p, err := s.Path(digest)
+// OpenBlob opens a stored object for reading its bytes, decompressed.
+// It tries the compressed form first and then the raw one, each by
+// opening it, so an object re-encoded between the two is still found.
+// Neither there is an error that wraps os.ErrNotExist.
+func (s *Store) OpenBlob(digest string) (io.ReadCloser, error) {
+	raw, err := s.Path(digest)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, fmt.Errorf("cas: %w", err)
+	rc, err := openObjectFile(raw+zstSuffix, true)
+	if !errors.Is(err, os.ErrNotExist) {
+		return rc, err
 	}
-	return f, nil
+	return openObjectFile(raw, false)
 }
 
 // Hash reads r and returns its lowercase sha256 hex digest and byte count.

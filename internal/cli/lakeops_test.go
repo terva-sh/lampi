@@ -272,7 +272,7 @@ func TestBackupPruneReportsAMissingDigest(t *testing.T) {
 	}
 	// Lost from the lake, so the next backup cannot copy it either.
 	for _, root := range []string{dir, out} {
-		p, err := (&cas.Store{Root: filepath.Join(root, "cas")}).Path(two)
+		p, _, err := (&cas.Store{Root: filepath.Join(root, "cas")}).ObjectPath(two)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -294,7 +294,7 @@ func TestBackupPruneReportsAMissingDigest(t *testing.T) {
 
 func TestFsckNamesBadObjectsAndRefusesRepairBesideServe(t *testing.T) {
 	dir, lake, _, sum := liveLake(t)
-	p, err := lake.CAS.Path(sum)
+	p, _, err := lake.CAS.ObjectPath(sum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestFsckRepairRemovesBadObject(t *testing.T) {
 		}
 	}
 	badSum, _, _ := cas.Hash(bytes.NewReader(bad))
-	p, _ := store.Path(badSum)
+	p, _, _ := store.ObjectPath(badSum)
 	if err := os.WriteFile(p, []byte("bod"), 0o600); err != nil {
 		t.Fatal(err)
 	}

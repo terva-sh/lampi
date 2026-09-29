@@ -19,7 +19,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 |-------|---------|--------|
 | CLI dispatch | `internal/cli` | `serve` (and `serve backup`, `serve fsck`, `serve purge`, `serve compact`, `serve identity`, `serve devices`, `serve register`, `serve normalize`, `serve healthcheck`, `serve migrate`), `agent`, `sync`, `status`, `register`, `lakes`, `login`, `export`, `conflicts`, `quarantine`. See [cli.md](cli.md) |
 | Wire types | `internal/protocol` | Capture protocol 1. See [protocol.md](protocol.md) |
-| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Fsynced before the ACK. A put repairs a damaged object |
+| Blob store | `internal/cas` | Filesystem, key `sha256/<ab>/<rest>`, idempotent put. Each object is one zstd frame at the key with `.zst`; one stored before compression is the raw bytes at the key. Fsynced before the ACK. A put repairs a damaged object |
 | Catalog | `internal/catalog` | SQLite. Session uid, project id, artifacts, provenance, head-update history, storage samples |
 | Storage | `internal/storage` | Disk use of the lake directory by component, and the filesystem's capacity |
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |

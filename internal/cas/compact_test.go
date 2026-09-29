@@ -16,9 +16,13 @@ func TestFoldFreesTheObjectAndRefusesALoop(t *testing.T) {
 	}
 	short, long := []byte("abc\n"), []byte("abc\ndef\n")
 	ds, dl := mustPut(t, s, short), mustPut(t, s, long)
+	stored, _, err := s.StoredSize(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	freed, err := s.Fold(ds, dl, int64(len(short)))
-	if err != nil || freed != int64(len(short)) {
+	if err != nil || freed != stored {
 		t.Fatalf("fold = %d %v", freed, err)
 	}
 	if got, err := s.Read(ds); err != nil || !bytes.Equal(got, short) {
@@ -93,17 +97,7 @@ func TestFoldGrowthRecordsTheLastChunkOfAChunkedFile(t *testing.T) {
 		}
 	}
 	// Only the newest version's chunks remain objects.
-	var held int64
-	err = s.Entries(func(e Entry) error {
-		if !e.Logical {
-			held += e.Size
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if held != int64(len(file)) {
+	if held := objectBytes(t, s); held != int64(len(file)) {
 		t.Fatalf("objects hold %d bytes for a %d-byte file", held, len(file))
 	}
 	var bad []Problem

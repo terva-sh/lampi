@@ -25,6 +25,12 @@ const proofPrompt = "normalize-proof prompt: lampi-pond-7f3a"
 // that did not normalize is named on stderr, and its raw blob stays as
 // it was. The five-step MVP gate, which queries this same prompt after
 // a real sync, is internal/accept.TestMVPAcceptance.
+// readCAS reads digest's bytes from the lake under dir as the store
+// holds them, decompressed.
+func readCAS(dir, digest string) ([]byte, error) {
+	return (&cas.Store{Root: filepath.Join(dir, "cas")}).Read(digest)
+}
+
 func TestKnownPromptAfterIngest(t *testing.T) {
 	dir := t.TempDir()
 	lake, err := api.Open(dir)
@@ -83,7 +89,7 @@ func TestKnownPromptAfterIngest(t *testing.T) {
 		t.Fatal("query missed the fixture prompt")
 	}
 
-	left, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", badSum[:2], badSum[2:]))
+	left, err := readCAS(dir, badSum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +286,7 @@ func TestShareGPTExportAllowlistLineageAndOpaque(t *testing.T) {
 		{privateSum, privateBody},
 		{badSum, bad},
 	} {
-		left, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", item.sum[:2], item.sum[2:]))
+		left, err := readCAS(dir, item.sum)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -429,7 +435,7 @@ func TestShareGPTExportStripsTrainingTextOnly(t *testing.T) {
 	if !strings.Contains(string(normalized), github) || !strings.Contains(string(normalized), slack) {
 		t.Fatalf("normalized lake was stripped:\n%s", normalized)
 	}
-	left, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", sum[:2], sum[2:]))
+	left, err := readCAS(dir, sum)
 	if err != nil {
 		t.Fatal(err)
 	}
