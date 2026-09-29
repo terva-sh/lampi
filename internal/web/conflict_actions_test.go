@@ -291,7 +291,7 @@ func TestOperatorMakesACopyTheHead(t *testing.T) {
 	if w.Code != 303 {
 		t.Fatalf("make-head: %d %s", w.Code, w.Body)
 	}
-	sum, err := lake.Catalog.DashboardSession(t.Context(), uid)
+	sum, err := lake.Catalog.DashboardSession(t.Context(), catalog.AllBays(), uid)
 	if err != nil || sum.HeadSHA256 != putBlob(t, lake, []byte("summary\n")) {
 		t.Fatalf("head %s %v", sum.HeadSHA256, err)
 	}
@@ -374,7 +374,7 @@ func TestMakeHeadReportsAFailedNormalizeKick(t *testing.T) {
 	if w.Code != 500 || !strings.Contains(w.Body.String(), "could not be started") || !strings.Contains(w.Body.String(), "Made the head") {
 		t.Errorf("failed kick: %d", w.Code)
 	}
-	if sum, err := lake.Catalog.DashboardSession(t.Context(), uid); err != nil || sum.HeadSHA256 != putBlob(t, lake, []byte("two\n")) {
+	if sum, err := lake.Catalog.DashboardSession(t.Context(), catalog.AllBays(), uid); err != nil || sum.HeadSHA256 != putBlob(t, lake, []byte("two\n")) {
 		t.Errorf("the head change did not stand: %s %v", sum.HeadSHA256, err)
 	}
 	if jobs, err := lake.Catalog.ListNormalizeJobs(t.Context()); err != nil || len(jobs) != 1 {

@@ -95,7 +95,8 @@ func TestNoRouteShowsASessionOutsideTheViewersBays(t *testing.T) {
 }
 
 // An operator who does not read a conflict's bay can neither see it nor
-// keep its head or reopen it: each answers as if it were not there.
+// keep its head, make it the head or reopen it: each answers as if it
+// were not there.
 func TestOperatorActsOnlyOnConflictsInTheirBays(t *testing.T) {
 	lake, idp, h, _ := rawLake(t, nil)
 	uid, id := forkSession(t, lake, "forked", "one\ntwo\n", "one\nzzz\n")
@@ -122,7 +123,15 @@ func TestOperatorActsOnlyOnConflictsInTheirBays(t *testing.T) {
 			t.Errorf("form %s: %d", action, w.Code)
 		}
 	}
-	if d, ok, err := lake.Catalog.Conflict(ctx, catalog.AllBays(), id); err != nil || !ok || d.Resolution != nil {
+	// make-head with the real head, so only the scope stops it.
+	head := putBlob(t, lake, []byte("one\ntwo\n"))
+	if w := post(h, "/api/web/v1/conflicts/"+id+"/make-head", `{"head":"`+head+`"}`, op, map[string]string{CSRFHeader: csrf}); w.Code != 404 {
+		t.Errorf("api make-head: %d %s", w.Code, w.Body)
+	}
+	if w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrf}, "head": {head}}, op); w.Code != 404 {
+		t.Errorf("form make-head: %d", w.Code)
+	}
+	if d, ok, err := lake.Catalog.Conflict(ctx, catalog.AllBays(), id); err != nil || !ok || d.Resolution != nil || d.HeadSHA256 != head {
 		t.Errorf("the conflict changed: %+v %v %v", d, ok, err)
 	}
 }
