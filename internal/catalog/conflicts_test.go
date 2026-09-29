@@ -48,7 +48,7 @@ var (
 
 func openConflicts(t *testing.T, c *Catalog, resolved bool) map[string]*Resolution {
 	t.Helper()
-	rows, err := c.DivergentCopies(context.Background(), resolved)
+	rows, err := c.DivergentCopies(context.Background(), AllBays(), resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 	if len(events) != 3 || !strings.Contains(events[0], l.artifact(bug1)) || !strings.Contains(events[1], "resolution=not_a_conflict") {
 		t.Errorf("audit events %v", events)
 	}
-	ov, err := c.DashboardOverview(context.Background())
+	ov, err := c.DashboardOverview(context.Background(), AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,15 +209,15 @@ func TestResolveAndReopenConflict(t *testing.T) {
 	if r == nil || r.Resolution != ResolutionKeptHead || r.By != "user:ada" || r.Note != "checked" || !r.At.Equal(when) {
 		t.Errorf("resolution %+v", r)
 	}
-	page, err := c.DashboardRecords(ctx, "", "conflicts", PageRequest{})
+	page, err := c.DashboardRecords(ctx, AllBays(), "", "conflicts", PageRequest{})
 	if err != nil || len(page.Items) != 0 {
 		t.Errorf("dashboard open conflicts %v %v", page.Items, err)
 	}
-	page, err = c.DashboardRecords(ctx, "", "conflicts", PageRequest{Resolved: true})
+	page, err = c.DashboardRecords(ctx, AllBays(), "", "conflicts", PageRequest{Resolved: true})
 	if err != nil || len(page.Items) != 1 || page.Items[0].Resolution != ResolutionKeptHead {
 		t.Errorf("dashboard with resolved %v %v", page.Items, err)
 	}
-	if _, err := c.DashboardRecords(ctx, page.Items[0].SessionUID, "artifacts", PageRequest{Resolved: true}); !errors.Is(err, ErrPage) {
+	if _, err := c.DashboardRecords(ctx, AllBays(), page.Items[0].SessionUID, "artifacts", PageRequest{Resolved: true}); !errors.Is(err, ErrPage) {
 		t.Errorf("artifacts took resolved: %v", err)
 	}
 

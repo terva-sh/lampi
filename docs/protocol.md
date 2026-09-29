@@ -38,6 +38,10 @@ web requires device tokens even on loopback; no capture response schema changes.
 
 Catalog counts for an operator. This is not healthz. It uses the same
 bearer check as the other `/v1` routes, and it returns no session bodies.
+The counts cover the sessions in the [bays](policy.md#bays) the device
+may write. The normalization backlog is the lake's queue depth, and
+`last_failure` names its session only when that session is in those
+bays.
 
 ```json
 {
@@ -84,7 +88,8 @@ failure, `lake_normalize_last_failure`.
 ## GET /v1/conflicts
 
 Catalog artifacts whose `relation` is `divergent_copy` and that are not
-resolved. Same bearer check as the other `/v1` routes. The list is the
+resolved, in the sessions of the [bays](policy.md#bays) the device may
+write. Same bearer check as the other `/v1` routes. The list is the
 stored rows. It does not merge the copies or move `head_sha256`.
 `conflicts` is `[]` when there are none. `terva-lampi conflicts` prints
 this list.

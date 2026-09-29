@@ -115,7 +115,7 @@ func TestMachinesActivity(t *testing.T) {
 	for _, at := range []time.Time{now.Add(-30 * time.Hour), now.Add(-time.Hour), now.Add(-time.Minute)} {
 		exec(`INSERT INTO head_updates(session_uid,machine_id,harness,received_ns,old_sha256,new_sha256,old_size,new_size,relation) VALUES('s1','m-old','terva',?,'','x',0,1,'head')`, at.UnixNano())
 	}
-	got, err := c.MachinesActivity(ctx, now.Add(-24*time.Hour))
+	got, err := c.MachinesActivity(ctx, AllBays(), now.Add(-24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

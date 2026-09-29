@@ -259,7 +259,7 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 		}
 	}
 
-	overview, err := s.Catalog.DashboardOverview(ctx)
+	overview, err := s.Catalog.DashboardOverview(ctx, catalog.AllBays())
 	if err != nil {
 		return err
 	}
@@ -280,7 +280,7 @@ func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo
 	if err != nil {
 		return err
 	}
-	activity, err := s.Catalog.MachinesActivity(ctx, s.now().Add(-24*time.Hour))
+	activity, err := s.Catalog.MachinesActivity(ctx, catalog.AllBays(), s.now().Add(-24*time.Hour))
 	if err != nil {
 		return err
 	}

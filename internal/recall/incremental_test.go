@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 )
 
@@ -49,10 +50,10 @@ func TestNewGenerationWritesOnlyChangedRows(t *testing.T) {
 	if x.deleted {
 		t.Fatal("a pass that only added rows asked for a forced merge")
 	}
-	if p := search(t, x, SearchRequest{Query: "incremental event 104"}); len(p.Items) != 1 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "incremental event 104"}); len(p.Items) != 1 {
 		t.Fatal("the new event is not searchable", len(p.Items))
 	}
-	if p := search(t, x, SearchRequest{Query: "incremental event 3"}); len(p.Items) == 0 || p.Items[0].Generation != grown {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "incremental event 3"}); len(p.Items) == 0 || p.Items[0].Generation != grown {
 		t.Fatal("a kept row does not report the current generation", p.Items)
 	}
 
@@ -68,11 +69,11 @@ func TestNewGenerationWritesOnlyChangedRows(t *testing.T) {
 	if len(last) != 50 || last[7] == after[7] || last[8] != after[8] {
 		t.Fatalf("rows %d, 7: %d->%d, 8: %d->%d", len(last), after[7], last[7], after[8], last[8])
 	}
-	if p := search(t, x, SearchRequest{Query: "rewritten seven"}); len(p.Items) != 1 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "rewritten seven"}); len(p.Items) != 1 {
 		t.Fatal("the changed event is not searchable")
 	}
 	// Event 7's old text and events 70 to 79 are gone.
-	if p := search(t, x, SearchRequest{Query: "incremental event 7"}); len(p.Items) != 0 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "incremental event 7"}); len(p.Items) != 0 {
 		t.Fatal("stale text still searchable", len(p.Items))
 	}
 }
@@ -106,11 +107,11 @@ func TestUntimedEventsAreNotRewrittenEachGeneration(t *testing.T) {
 			t.Fatalf("row %d was rewritten although only its projection time changed", pos)
 		}
 	}
-	p := search(t, x, SearchRequest{Query: "untimed event 4"})
+	p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "untimed event 4"})
 	if len(p.Items) != 1 || p.Items[0].RecordedAt != nil {
 		t.Fatalf("an untimed event: %+v", p.Items)
 	}
-	p = search(t, x, SearchRequest{Query: "untimed event 5"})
+	p = search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "untimed event 5"})
 	if len(p.Items) != 1 || p.Items[0].RecordedAt == nil {
 		t.Fatalf("a timed event lost its time: %+v", p.Items)
 	}

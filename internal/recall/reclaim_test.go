@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"terva.sh/lampi/internal/catalog"
 )
 
 // indexBytes is the index file and its WAL after a checkpoint.
@@ -67,7 +69,7 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 	if got := indexBytes(t, x, path); got > 2*live {
 		t.Fatalf("index is %d bytes after %d generations, %d after the first", got, gens, live)
 	}
-	if p := search(t, x, SearchRequest{Query: text[first+(gens-1)*10-1][:20]}); len(p.Items) == 0 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: text[first+(gens-1)*10-1][:20]}); len(p.Items) == 0 {
 		t.Fatal("the newest events are not searchable")
 	}
 }

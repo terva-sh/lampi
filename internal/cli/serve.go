@@ -21,7 +21,6 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
-	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
@@ -715,11 +714,16 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 		},
 	}
 	logAdmins(lake.Log, cfg)
-	if err := seedBayGrants(lake.Log, lake.Catalog, data, cfg); err != nil {
+	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
+	if err != nil {
 		return err
 	}
-	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
-	return err
+	// web.New may have granted the role groups the default bay; write
+	// those audit lines now rather than at the next audited change.
+	if err := lake.Catalog.FlushAudit(context.Background(), data); err != nil && lake.Log != nil {
+		lake.Log.Warn("bay grants: audit lines stay queued", "err", err)
+	}
+	return nil
 }
 
 // logAdmins says at startup which groups hold admin. A lake with none
@@ -733,42 +737,6 @@ func logAdmins(log *slog.Logger, cfg webconfig.Config) {
 	} else {
 		log.Warn("web config maps no group to admin; raw artifact reads are off")
 	}
-}
-
-// seedBayGrants gives the groups the web config maps to viewer or
-// operator the default bay, once per lake, so upgrading to bays changes
-// nothing a signed-in user reads. No group is made admin. It logs what
-// it granted, and warns about any viewer or operator group that holds
-// no bay, since such a group signs in to an empty dashboard.
-func seedBayGrants(log *slog.Logger, cat *catalog.Catalog, data string, cfg webconfig.Config) error {
-	ctx := context.Background()
-	viewers, operators := cfg.GroupsWithRole(webconfig.RoleViewer), cfg.GroupsWithRole(webconfig.RoleOperator)
-	made, _, err := cat.SeedRoleGrants(ctx, viewers, operators, time.Now())
-	if err != nil {
-		return err
-	}
-	// Every start flushes, not only the one that seeded: a flush that
-	// failed then leaves the grant lines queued, and a later start
-	// writes them once audit.jsonl can be written (review 1403).
-	if err := cat.FlushAudit(ctx, data); err != nil && log != nil {
-		log.Warn("bay grants: audit lines stay queued", "err", err)
-	}
-	if log == nil {
-		return nil
-	}
-	for _, g := range made {
-		log.Info("bays: granted a web group the default bay on upgrade", "group", g.Principal, "permission", g.Permission)
-	}
-	for _, g := range append(viewers, operators...) {
-		bays, err := cat.GroupBays(ctx, []string{g}, catalog.PermRead)
-		if err != nil {
-			return err
-		}
-		if len(bays) == 0 {
-			log.Warn("bays: a web group holds no bay and reads no sessions; grant it one with terva-lampi serve bays grant", "group", g, "role", cfg.OIDC.RoleMap[g])
-		}
-	}
-	return nil
 }
 
 // lakeRelease is the tag this binary was built from, or "" for a build

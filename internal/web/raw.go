@@ -59,7 +59,7 @@ func (s *Server) rawPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	uid := r.PathValue("uid")
-	summary, err := s.catalog.DashboardSession(ctx, uid)
+	summary, err := s.catalog.DashboardSession(ctx, catalog.AllBays(), uid)
 	if err != nil {
 		pageError(w, r, err)
 		return

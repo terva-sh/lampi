@@ -174,7 +174,7 @@ func (s *snapshot) lines(ctx context.Context, pos, off int64) (br *bufio.Reader,
 // sides of the open means the descriptor holds that generation. A
 // rename after the open does not change what the descriptor reads.
 func (r *Reader) open(ctx context.Context, uid string) (*snapshot, error) {
-	if uid == "" || len(uid) > 128 || filepath.Base(uid) != uid || uid == "." || uid == ".." {
+	if !validUID(uid) {
 		return nil, ErrInvalid
 	}
 	for attempt := 0; ; attempt++ {
@@ -293,7 +293,10 @@ func (r *Reader) verifySigned(s string) ([]byte, error) {
 }
 
 // Events reads one page of uid's published events.
-func (r *Reader) Events(ctx context.Context, uid string, req EventRequest) (EventPage, error) {
+func (r *Reader) Events(ctx context.Context, scope catalog.Scope, uid string, req EventRequest) (EventPage, error) {
+	if err := r.inScope(ctx, scope, uid); err != nil {
+		return EventPage{}, err
+	}
 	if req.Limit == 0 {
 		req.Limit = DefaultLimit
 	}
@@ -510,4 +513,25 @@ func skipLines(ctx context.Context, br *bufio.Reader, n int64) (int64, int64, er
 		lines++
 	}
 	return bytesRead, lines, nil
+}
+
+// inScope is ErrNotFound for a session outside scope, the answer a
+// session that is not stored gets, so a caller learns nothing about
+// sessions in bays it does not read.
+func (r *Reader) inScope(ctx context.Context, scope catalog.Scope, uid string) error {
+	if !validUID(uid) {
+		return ErrInvalid
+	}
+	ok, err := r.catalog.SessionInScope(ctx, scope, uid)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func validUID(uid string) bool {
+	return uid != "" && len(uid) <= 128 && filepath.Base(uid) == uid && uid != "." && uid != ".."
 }

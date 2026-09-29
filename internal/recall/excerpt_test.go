@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 )
 
@@ -22,7 +23,7 @@ func TestExcerptRendersBoundedPlainText(t *testing.T) {
 	evs[6].ContentText = &long
 	gen := publish(t, s, uid, evs)
 	r := NewReader(s.Catalog, s.Normalized)
-	ex, err := r.Excerpt(t.Context(), uid, ExcerptRequest{From: 2, Count: 5, Gen: gen, Pinned: true, Origin: "https://lake.example"})
+	ex, err := r.Excerpt(t.Context(), catalog.AllBays(), uid, ExcerptRequest{From: 2, Count: 5, Gen: gen, Pinned: true, Origin: "https://lake.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,16 +47,16 @@ func TestExcerptRendersBoundedPlainText(t *testing.T) {
 	}
 	// The byte cap ends the span and says where.
 	publish(t, s, uid, events(ExcerptMaxEvents, func(int) string { return strings.Repeat("x", 8<<10) }))
-	ex, err = r.Excerpt(t.Context(), uid, ExcerptRequest{Count: ExcerptMaxEvents})
+	ex, err = r.Excerpt(t.Context(), catalog.AllBays(), uid, ExcerptRequest{Count: ExcerptMaxEvents})
 	if err != nil || !ex.Truncated || ex.Events >= ExcerptMaxEvents || len(ex.Text) > ExcerptBytes+4096 || !strings.Contains(ex.Text, "size limit reached") {
 		t.Fatal("byte bound", err, ex.Truncated, ex.Events, len(ex.Text))
 	}
 	for _, req := range []ExcerptRequest{{Count: 0}, {Count: ExcerptMaxEvents + 1}, {From: -1, Count: 1}, {From: 9999, Count: 1}} {
-		if _, err := r.Excerpt(t.Context(), uid, req); !errors.Is(err, ErrInvalid) {
+		if _, err := r.Excerpt(t.Context(), catalog.AllBays(), uid, req); !errors.Is(err, ErrInvalid) {
 			t.Errorf("accepted %+v: %v", req, err)
 		}
 	}
-	if _, err := r.Excerpt(t.Context(), uid, ExcerptRequest{Count: 1, Gen: gen, Pinned: true}); !errors.Is(err, ErrGenerationChanged) {
+	if _, err := r.Excerpt(t.Context(), catalog.AllBays(), uid, ExcerptRequest{Count: 1, Gen: gen, Pinned: true}); !errors.Is(err, ErrGenerationChanged) {
 		t.Fatal("stale generation", err)
 	}
 }

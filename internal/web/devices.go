@@ -175,7 +175,7 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 	for _, rep := range reports {
 		byDevice[rep.DeviceID] = rep
 	}
-	activity, err := s.catalog.MachinesActivity(ctx, now.Add(-24*time.Hour))
+	activity, err := s.catalog.MachinesActivity(ctx, scopeIn(ctx), now.Add(-24*time.Hour))
 	if err != nil {
 		return v, err
 	}

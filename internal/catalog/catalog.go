@@ -422,14 +422,18 @@ type Counts struct {
 	Machines  int
 }
 
-// Counts reads how many sessions, artifacts, and machines are stored.
-func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
+// Counts reads how many sessions scope reads, their artifacts, and the
+// machines that uploaded them.
+func (c *Catalog) Counts(ctx context.Context, scope Scope) (Counts, error) {
 	var n Counts
+	inS, sArgs := scope.where("s.session_uid")
+	inA, aArgs := scope.where("a.session_uid")
+	inP, pArgs := scope.where("p.session_uid")
 	err := c.db.QueryRowContext(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM sessions),
-			(SELECT COUNT(*) FROM artifacts),
-			(SELECT COUNT(DISTINCT machine_id) FROM provenance)`).Scan(&n.Sessions, &n.Artifacts, &n.Machines)
+			(SELECT COUNT(*) FROM sessions s WHERE `+inS+`),
+			(SELECT COUNT(*) FROM artifacts a WHERE `+inA+`),
+			(SELECT COUNT(DISTINCT machine_id) FROM provenance p WHERE `+inP+`)`, append(append(append([]any{}, sArgs...), aArgs...), pArgs...)...).Scan(&n.Sessions, &n.Artifacts, &n.Machines)
 	if err != nil {
 		return Counts{}, fmt.Errorf("catalog: %w", err)
 	}
@@ -1167,27 +1171,30 @@ type DivergentCopy struct {
 // the unresolved ones, or with resolved every one.
 // The rows are the ones Ingest stored. This does not read the CAS.
 // Machine lists come from provenance for that session, path, and digest.
-// An empty catalog returns an empty slice.
-func (c *Catalog) DivergentCopies(ctx context.Context, resolved bool) ([]DivergentCopy, error) {
-	return c.divergentCopies(ctx, resolved, "")
+// An empty catalog returns an empty slice. Only sessions in scope are
+// listed.
+func (c *Catalog) DivergentCopies(ctx context.Context, scope Scope, resolved bool) ([]DivergentCopy, error) {
+	return c.divergentCopies(ctx, scope, resolved, "")
 }
 
 // Conflict is the divergent copy artifactID, resolved or not. ok is
-// false when there is no such artifact or it is not a divergent copy.
-func (c *Catalog) Conflict(ctx context.Context, artifactID string) (DivergentCopy, bool, error) {
+// false when there is no such artifact, it is not a divergent copy, or
+// its session is out of scope.
+func (c *Catalog) Conflict(ctx context.Context, scope Scope, artifactID string) (DivergentCopy, bool, error) {
 	if artifactID == "" {
 		return DivergentCopy{}, false, nil
 	}
-	out, err := c.divergentCopies(ctx, true, artifactID)
+	out, err := c.divergentCopies(ctx, scope, true, artifactID)
 	if err != nil || len(out) == 0 {
 		return DivergentCopy{}, false, err
 	}
 	return out[0], true, nil
 }
 
-// divergentCopies lists the copies, or the one copy artifactID when it
-// is set.
-func (c *Catalog) divergentCopies(ctx context.Context, resolved bool, artifactID string) ([]DivergentCopy, error) {
+// divergentCopies lists the copies in scope, or the one copy artifactID
+// when it is set.
+func (c *Catalog) divergentCopies(ctx context.Context, scope Scope, resolved bool, artifactID string) ([]DivergentCopy, error) {
+	inA, aArgs := scope.where("a.session_uid")
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT
 			a.session_uid,
@@ -1212,8 +1219,8 @@ func (c *Catalog) divergentCopies(ctx context.Context, resolved bool, artifactID
 		FROM artifacts a
 		JOIN sessions s ON s.session_uid = a.session_uid
 		LEFT JOIN conflict_resolutions r ON r.artifact_id = a.artifact_id
-		WHERE a.relation = ? AND (? OR r.artifact_id IS NULL) AND (? = '' OR a.artifact_id = ?)
-		ORDER BY a.rowid`, protocol.RelationDivergentCopy, resolved, artifactID, artifactID)
+		WHERE a.relation = ? AND (? OR r.artifact_id IS NULL) AND (? = '' OR a.artifact_id = ?) AND `+inA+`
+		ORDER BY a.rowid`, append([]any{protocol.RelationDivergentCopy, resolved, artifactID, artifactID}, aArgs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
 	}

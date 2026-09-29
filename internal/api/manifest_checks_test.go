@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -86,7 +87,7 @@ func TestManifestRefusesBadSizeHarnessKind(t *testing.T) {
 			}
 		})
 	}
-	counts, err := s.Catalog.Counts(t.Context())
+	counts, err := s.Catalog.Counts(t.Context(), catalog.AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}

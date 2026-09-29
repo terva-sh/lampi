@@ -80,7 +80,7 @@ func (s *Server) activityPage(w http.ResponseWriter, r *http.Request) {
 	req.From = resolved.Until.Add(-preset.Span)
 	ctx, cancel := readContext(r)
 	defer cancel()
-	a, err := s.catalog.Activity(ctx, req, now)
+	a, err := s.catalog.Activity(ctx, scopeOf(r), req, now)
 	if err != nil {
 		pageError(w, r, err)
 		return

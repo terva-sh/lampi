@@ -55,7 +55,7 @@ func TestDashboardPaginationAndFilters(t *testing.T) {
 	r := PageRequest{Limit: 7}
 	var prev int64 = 1<<63 - 1
 	for {
-		p, err := c.DashboardSessions(t.Context(), r)
+		p, err := c.DashboardSessions(t.Context(), AllBays(), r)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,7 +74,7 @@ func TestDashboardPaginationAndFilters(t *testing.T) {
 	if len(seen) != 123 {
 		t.Fatal(len(seen))
 	}
-	p, err := c.DashboardSessions(t.Context(), PageRequest{Harness: "codex", Project: "repo", Limit: 2})
+	p, err := c.DashboardSessions(t.Context(), AllBays(), PageRequest{Harness: "codex", Project: "repo", Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,18 +83,18 @@ func TestDashboardPaginationAndFilters(t *testing.T) {
 	}
 	decoded, _ := base64.RawURLEncoding.DecodeString(p.NextCursor)
 	malformed := base64.RawURLEncoding.EncodeToString(append(decoded, []byte(" {}")...))
-	if _, err := c.DashboardSessions(t.Context(), PageRequest{Harness: "codex", Project: "repo", Limit: 2, Cursor: malformed}); err != ErrPage {
+	if _, err := c.DashboardSessions(t.Context(), AllBays(), PageRequest{Harness: "codex", Project: "repo", Limit: 2, Cursor: malformed}); err != ErrPage {
 		t.Fatal("trailing cursor JSON accepted")
 	}
-	if _, err := c.DashboardSessions(t.Context(), PageRequest{Harness: "terva", Limit: 2, Cursor: p.NextCursor}); err != ErrPage {
+	if _, err := c.DashboardSessions(t.Context(), AllBays(), PageRequest{Harness: "terva", Limit: 2, Cursor: p.NextCursor}); err != ErrPage {
 		t.Fatal("cross-filter cursor accepted")
 	}
 	for _, r := range []PageRequest{{Limit: 201}, {Limit: -1}, {Harness: "unknown"}, {State: "complete"}, {Cursor: "bad!"}, {Project: "repo", Unlinked: true}} {
-		if _, err := c.DashboardSessions(t.Context(), r); err != ErrPage {
+		if _, err := c.DashboardSessions(t.Context(), AllBays(), r); err != ErrPage {
 			t.Fatal("bad input accepted")
 		}
 	}
-	p, err = c.DashboardSessions(t.Context(), PageRequest{Unlinked: true})
+	p, err = c.DashboardSessions(t.Context(), AllBays(), PageRequest{Unlinked: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,25 +116,25 @@ func TestDashboardCountsStatesAndBoundedChildren(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	o, err := c.DashboardOverview(ctx)
+	o, err := c.DashboardOverview(ctx, AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if o.Sessions != 5 || o.Artifacts != 5 || o.Machines != 13 || o.Normalization["ready"] != 1 || o.Normalization["failed"] != 1 || o.Normalization["pending"] != 1 || o.Normalization["unknown"] != 2 {
 		t.Fatalf("counts %+v", o)
 	}
-	s, err := c.DashboardSession(ctx, "session-000000")
+	s, err := c.DashboardSession(ctx, AllBays(), "session-000000")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Machines) != 5 || s.MachineCount != 13 {
 		t.Fatal("machine summary not bounded")
 	}
-	p, err := c.DashboardRecords(ctx, s.UID, "provenance", PageRequest{Limit: 4})
+	p, err := c.DashboardRecords(ctx, AllBays(), s.UID, "provenance", PageRequest{Limit: 4})
 	if err != nil || len(p.Items) != 4 || p.NextCursor == "" {
 		t.Fatalf("provenance %v %+v", err, p)
 	}
-	if _, err := c.DashboardRecords(ctx, "session-000001", "provenance", PageRequest{Limit: 4, Cursor: p.NextCursor}); err != ErrPage {
+	if _, err := c.DashboardRecords(ctx, AllBays(), "session-000001", "provenance", PageRequest{Limit: 4, Cursor: p.NextCursor}); err != ErrPage {
 		t.Fatal("cross-session cursor")
 	}
 	b, _ := json.Marshal(o)
@@ -151,7 +151,7 @@ func TestDashboard20KIndexedPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, args := sessionSQL(r, cur, "")
+	q, args := sessionSQL(AllBays(), r, cur, "")
 	rows, err := c.db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+q, args...)
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestDashboard20KIndexedPages(t *testing.T) {
 	if !strings.Contains(strings.Join(details, "\n"), "web_sessions_project_harness") {
 		t.Fatalf("missing composite index: %v", details)
 	}
-	p, err := c.DashboardSessions(ctx, r)
+	p, err := c.DashboardSessions(ctx, AllBays(), r)
 	if err != nil || len(p.Items) != 50 || p.NextCursor == "" {
 		t.Fatalf("page %d err %v", len(p.Items), err)
 	}
@@ -178,10 +178,10 @@ func TestDashboard20KIndexedPages(t *testing.T) {
 		t.Fatal("unbounded response")
 	}
 	r.Cursor = p.NextCursor
-	if _, err := c.DashboardSessions(ctx, r); err != nil {
+	if _, err := c.DashboardSessions(ctx, AllBays(), r); err != nil {
 		t.Fatal(err)
 	}
-	o, err := c.DashboardOverview(ctx)
+	o, err := c.DashboardOverview(ctx, AllBays())
 	if err != nil || o.Sessions != 20000 {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestDashboard20KDuringIngest(t *testing.T) {
 	}()
 	start := time.Now()
 	for i := 0; i < 30; i++ {
-		p, err := c.DashboardSessions(ctx, PageRequest{Limit: 50})
+		p, err := c.DashboardSessions(ctx, AllBays(), PageRequest{Limit: 50})
 		if err != nil || len(p.Items) != 50 {
 			t.Fatalf("read during ingest %v", err)
 		}
@@ -213,7 +213,7 @@ func TestDashboard20KDuringIngest(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	o, err := c.DashboardOverview(ctx)
+	o, err := c.DashboardOverview(ctx, AllBays())
 	if err != nil || o.Sessions != 20030 {
 		t.Fatalf("after ingestion %+v %v", o, err)
 	}

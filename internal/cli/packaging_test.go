@@ -16,6 +16,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
@@ -564,7 +565,7 @@ func TestBackupRestoresWithoutDerivedFiles(t *testing.T) {
 	if err := lake.WaitNormalized(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	want, err := lake.Catalog.Counts(t.Context())
+	want, err := lake.Catalog.Counts(t.Context(), catalog.AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +623,7 @@ func TestBackupRestoresWithoutDerivedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer back.Close()
-	got, err := back.Catalog.Counts(t.Context())
+	got, err := back.Catalog.Counts(t.Context(), catalog.AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
