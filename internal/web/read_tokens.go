@@ -161,7 +161,11 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		if !slices.ContainsFunc(readTokenLifetimes, func(l struct{ Value, Label string }) bool { return l.Value == form.Expires }) {
 			form.Expires = ""
 		}
-		s.renderReadTokens(w, r, readTokensView{Form: form, Problem: readTokenProblems[code]}, http.StatusBadRequest)
+		status := http.StatusBadRequest
+		if code == "mint_failed" {
+			status = http.StatusInternalServerError
+		}
+		s.renderReadTokens(w, r, readTokensView{Form: form, Problem: readTokenProblems[code]}, status)
 		return
 	}
 	secret, err := newReadTokenSecret()
@@ -216,7 +220,9 @@ func (s *Server) readTokenRequest(r *http.Request, f readTokenForm, now time.Tim
 			sessions = append(sessions, uid)
 		}
 	}
-	if len(sessions) > catalog.MaxReadTokenSessions {
+	// An empty list means every session, so only a blank field may ask
+	// for it. Separators alone are a mistyped scope, not a wider one.
+	if len(sessions) > catalog.MaxReadTokenSessions || (len(sessions) == 0 && strings.TrimSpace(f.Sessions) != "") {
 		return catalog.ReadToken{}, "invalid_sessions"
 	}
 	for _, uid := range sessions {

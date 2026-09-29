@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -147,13 +148,17 @@ func TestReadTokenScope(t *testing.T) {
 	if w.Code != 400 || mintedToken.MatchString(w.Body.String()) || !strings.Contains(w.Body.String(), "not in the lake") {
 		t.Fatalf("unknown session mint: %d", w.Code)
 	}
-	for _, bad := range []url.Values{{"label": {""}, "expires": {"24h"}}, {"label": {"x"}, "expires": {"8760h"}}} {
+	for _, bad := range []url.Values{{"label": {""}, "expires": {"24h"}}, {"label": {"x"}, "expires": {"8760h"}}, {"label": {"separators"}, "sessions": {" , ,\n"}, "expires": {"24h"}}} {
 		a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
 		bad.Set("csrf", csrfOf(t, h, admin))
 		bad.Set("attempt", a[1])
-		if w := postForm(h, adminReadTokensPath, bad, admin); w.Code != 400 {
+		if w := postForm(h, adminReadTokensPath, bad, admin); w.Code != 400 || mintedToken.MatchString(w.Body.String()) {
 			t.Errorf("mint %v: %d", bad, w.Code)
 		}
+	}
+	// review 1331 finding-1: none of those minted, so one token exists.
+	if tokens, err := lake.Catalog.ReadTokens(t.Context()); err != nil || len(tokens) != 1 {
+		t.Fatalf("tokens after refused mints: %d %v", len(tokens), err)
 	}
 }
 
@@ -253,5 +258,31 @@ func TestRevokeWithQueuedAuditSaysItIsRevoked(t *testing.T) {
 	}
 	if n, err := lake.Catalog.PendingAudit(t.Context()); err != nil || n < 1 {
 		t.Fatalf("revocation not queued: %d %v", n, err)
+	}
+}
+
+// review 1331 finding-2: a catalog failure while checking the sessions is
+// a server error, not a bad form.
+func TestMintSessionCheckFailureIsAServerError(t *testing.T) {
+	// The page lists tokens through its own handle on the catalog, so
+	// closing the dashboard's handle fails only the session check.
+	lake, idp, h, _ := rawLake(t, func(dir string) *catalog.Catalog {
+		c, err := catalog.Open(filepath.Join(dir, "catalog.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		return c
+	})
+	uid, _ := storeSession(t, lake, "tok-db", []byte("db\n"))
+	admin := signInAs(t, idp, h, "owners")
+	a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
+	csrf := csrfOf(t, h, admin)
+	if err := lake.Catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrf}, "attempt": {a[1]}, "label": {"x"}, "sessions": {uid}, "expires": {"24h"}}, admin)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "Minting failed") {
+		t.Fatalf("session check on a closed catalog: %d", w.Code)
 	}
 }
