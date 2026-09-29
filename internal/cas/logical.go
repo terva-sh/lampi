@@ -85,7 +85,9 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 	}
 	// An index is written only once its chunks hash to digest, so the
 	// same index already here needs no second read. A chunk damaged
-	// since is fsck's to find, as it is for an object Has reports.
+	// since is fsck's to find, as it is for an object Has reports; a
+	// chunk gone since failed the size check above. An intact object
+	// returned before either, so what this removes is a damaged one.
 	prev, readErr := s.readLogical(digest)
 	if readErr == nil && sameLogical(prev, idx) {
 		return true, s.removeObjectLocked(digest)
