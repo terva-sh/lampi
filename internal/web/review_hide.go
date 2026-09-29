@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"terva.sh/lampi/internal/catalog"
@@ -31,6 +30,10 @@ func (s *Server) reviewRoutes(m *http.ServeMux) {
 	op := func(h http.HandlerFunc) http.Handler { return s.auth.Guard(webauth.OperatorOnly(h)) }
 	m.Handle("POST "+reviewPath+"/{action}", op(s.reviewHidePage))
 	m.Handle("POST /api/web/v1/review/{action}", op(s.reviewHideAPI))
+	m.Handle("POST "+reviewPath+"/allow", op(s.reviewAllowPage))
+	m.Handle("POST "+reviewPath+"/allow/save", op(s.reviewAllowSavePage))
+	m.Handle("POST /api/web/v1/review/allow", op(s.reviewAllowAPI))
+	m.Handle("POST /api/web/v1/review/allow/save", op(s.reviewAllowSaveAPI))
 }
 
 // parseKey reads a key as ProjectKey.String writes it: the kind, one
@@ -92,9 +95,7 @@ var hideProblems = map[string]string{
 }
 
 func (s *Server) reviewHidePage(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxReviewForm)
-	if r.ParseForm() != nil || !s.auth.CheckWrite(r, r.PostForm.Get("csrf")) {
-		renderStatus(w, r, pageData{Title: "Request refused", View: "refused"}, http.StatusForbidden)
+	if !s.readReviewForm(w, r) {
 		return
 	}
 	action := r.PathValue("action")
@@ -122,16 +123,7 @@ func (s *Server) reviewHidePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Show the page the form was on, with what went wrong.
-	if id, ok := strings.CutPrefix(back, devicesPath+"/"); ok {
-		id, refused := strings.CutSuffix(id, "?show=refused")
-		s.renderDevice(w, r, id, refused, hideProblems[code], status)
-		return
-	}
-	f := reviewFilter{}
-	if u, err := url.Parse(back); err == nil && back != "" {
-		f, _ = parseReviewFilter(u.Query())
-	}
-	s.renderReview(w, r, f, hideProblems[code], "", 0, status)
+	s.renderBack(w, r, back, hideProblems[code], status)
 }
 
 // hideRequest is the body of POST /api/web/v1/review/{hide,unhide}.

@@ -594,6 +594,44 @@ A hide sends nothing to agents. Each change goes to `audit.jsonl` as
 whose audit line fails still stands, and answers `500 audit_failed` with
 `changed`.
 
+### Allowing projects
+
+Allow selected, as the browser API. The same operator and CSRF rules hold.
+
+`POST /api/web/v1/review/allow` plans. It takes
+`{"keys": [KEY, ...], "device": "dev_..."}`, where `device` is optional and
+narrows the plan to that device's copies. It saves nothing and answers `200`:
+
+```json
+{
+  "profiles": [
+    {"name": "default", "base_revision": 7, "stored": true,
+     "rules": [{"rule": {"git_remote": "github.com/acme/app"},
+                "key": {"kind": "git_remote", "key": "github.com/acme/app"},
+                "for_devices": ["laptop"]}],
+     "document": {"projects": {"allow": ["..."]}},
+     "devices": [{"id": "dev_...", "name": "laptop"}], "local_allow": 0}
+  ],
+  "skipped": [{"kind": "cwd", "key": "/home/me/done"}]
+}
+```
+
+`skipped` lists keys that no longer need review. `POST
+/api/web/v1/review/allow/save` saves the plan with
+`{"profiles": [{"name", "base_revision", "document"}], "note": "..."}`. It
+saves every profile or none, and answers `200` with
+`{"profiles": [{"name", "version", "revision"}]}`.
+
+| Refusal | Status and `error` |
+|---|---|
+| Not one JSON object of these fields, no keys or profiles, or more than 500 | `400 invalid_request` |
+| A document the agent would refuse | `400 invalid_profile`, with `message` |
+| A note over 500 characters | `400 invalid_note` |
+| A profile moved since `base_revision`; nothing is saved | `409 changed` |
+
+Each saved profile gets its own revision with the note, and a `profile.put`
+line in `audit.jsonl`.
+
 ## Profiles
 
 `GET /api/web/v1/profiles` and `GET /api/web/v1/profiles/{name}` read the

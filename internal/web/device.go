@@ -81,7 +81,7 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	saved, rev, present := savedQuery(q)
+	saved, present := savedQuery(q)
 	if present {
 		q.Del("saved")
 		q.Del("revision")
@@ -91,19 +91,19 @@ func (s *Server) devicePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, catalog.ErrPage)
 		return
 	}
-	s.renderDeviceSaved(w, r, r.PathValue("id"), refused, "", saved, rev, http.StatusOK)
+	s.renderDeviceSaved(w, r, r.PathValue("id"), refused, "", saved, http.StatusOK)
 }
 
 // renderDevice shows device id with problem, after an operator's
 // action on it was refused.
 func (s *Server) renderDevice(w http.ResponseWriter, r *http.Request, id string, refused bool, problem string, status int) {
-	s.renderDeviceSaved(w, r, id, refused, problem, "", 0, status)
+	s.renderDeviceSaved(w, r, id, refused, problem, nil, status)
 }
 
-// renderDeviceSaved is renderDevice after a save of profile saved at
-// revision rev came back to the page. The notice shows only for the
-// profile the device uses.
-func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id string, refused bool, problem, saved string, rev int64, status int) {
+// renderDeviceSaved is renderDevice after a save of the saved profile
+// revisions came back to the page. The notice names only the profile
+// the device uses.
+func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id string, refused bool, problem string, saved []savedRef, status int) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readDevice(ctx, id, s.now())
@@ -121,9 +121,7 @@ func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id st
 		refused = false
 	}
 	v.RefusedOnly, v.Problem = refused, problem
-	if saved != "" && saved == v.Device.Profile {
-		v.Notice = s.savedNotice(r, saved, rev)
-	}
+	v.Notice = s.savedNotice(r, saved, func(name string) bool { return name == v.Device.Profile })
 	if iv := v.Inventory; iv != nil {
 		iv.Shown = iv.Projects
 		if refused {

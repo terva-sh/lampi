@@ -414,6 +414,23 @@ PROFILE…** for each device's copy. It works like [Allow on a device's
 page](#a-devices-page), and Back and Save both return to the queue with its
 filters.
 
+To allow several at once, tick them and press **Allow selected…**. The lake
+checks each against the newest inventories again and builds the rule Allow
+would add for every device copy the page showed: a `git_remote` rule for a
+repository, which covers every checkout, or a `cwd_prefix` rule for a folder.
+It then shows a short confirmation instead of the profile editor. For each
+profile that gains rules, the page lists the rules and the devices each is
+for, the devices the profile reaches, and those whose `config.json` sets their
+own allow rules, with the change under a disclosure. One note, filled in for
+you, goes on every revision. **Save** writes every profile, each against the
+revision the page read. If someone changed one of them first, nothing is
+saved and the page shows the plan again against what is stored. Both Save and
+**Back** return to where you started. A selected project that no longer needs
+review is left out, and the page says so. **Edit PROFILE in the full editor…**
+opens that profile in the editor with its rules added. A device's page has
+the same checkboxes, with **Allow selected…** and **Hide selected**, for that
+device's copies alone.
+
 Operators can also **Hide** a project they will not import, from its row, or
 tick several and press **Hide selected** with an optional note. A hide covers
 the project on every device, now and later. It changes only what the

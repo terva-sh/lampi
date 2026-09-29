@@ -366,7 +366,7 @@ func (s *Server) review(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) reviewPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	saved, rev, present := savedQuery(q)
+	saved, present := savedQuery(q)
 	if present {
 		q.Del("saved")
 		q.Del("revision")
@@ -376,12 +376,12 @@ func (s *Server) reviewPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, catalog.ErrPage)
 		return
 	}
-	s.renderReview(w, r, f, "", saved, rev, http.StatusOK)
+	s.renderReview(w, r, f, "", saved, http.StatusOK)
 }
 
 // renderReview shows the queue narrowed by f, with problem after a
 // refused action, or a notice of what a save that came back here saved.
-func (s *Server) renderReview(w http.ResponseWriter, r *http.Request, f reviewFilter, problem, saved string, rev int64, status int) {
+func (s *Server) renderReview(w http.ResponseWriter, r *http.Request, f reviewFilter, problem string, saved []savedRef, status int) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	v, err := s.readReview(ctx, f, s.now())
@@ -390,9 +390,7 @@ func (s *Server) renderReview(w http.ResponseWriter, r *http.Request, f reviewFi
 		return
 	}
 	v.Here, v.Problem = f.URL(), problem
-	if saved != "" {
-		v.Notice = s.savedNotice(r, saved, rev)
-	}
+	v.Notice = s.savedNotice(r, saved, func(string) bool { return true })
 	if ident, csrf := webauth.Current(r); ident.Operator && s.reg != nil {
 		v.Actions, v.CSRF = true, csrf
 	}
