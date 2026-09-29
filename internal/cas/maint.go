@@ -343,7 +343,8 @@ func walkEntries(root string, objects bool, fn func(path, digest string) error) 
 // before its chunks or its base. An object is copied as it is stored,
 // compressed or not. A raw object with a compressed one beside it is
 // left out, and a raw copy dest holds of an object now compressed is
-// removed once the compressed one is there. Temp files and partial
+// removed once the compressed one is there. A frame dest holds of an
+// object the store keeps only raw, one repair removed, is removed too. Temp files and partial
 // uploads are left out. An entry already in dest with the same size is kept, so a
 // second backup into the same directory copies only what is new. Each
 // copy is synced and renamed into place.
@@ -370,6 +371,12 @@ func (s *Store) Backup(dest string) (copied int, err error) {
 				if _, compressed = objectName(filepath.Base(path)); !compressed {
 					if _, err := os.Lstat(path + zstSuffix); err == nil {
 						return nil
+					}
+					// The store has no frame for this object, so one
+					// dest holds is stale, a damaged frame repair has
+					// removed here, and readers of dest would prefer it.
+					if err := os.Remove(out + zstSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return err
 					}
 				}
 			}

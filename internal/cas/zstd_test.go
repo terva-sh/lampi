@@ -214,6 +214,79 @@ func TestRepairKeepsAnIntactRawCopy(t *testing.T) {
 	}
 }
 
+// A backup that holds a frame the store has since lost to repair, with
+// an intact raw copy kept, drops the stale frame, so the backup reads
+// the raw copy rather than the damage.
+func TestBackupDropsAFrameRepairRemoved(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("kept raw after repair\n")
+	d := mustPut(t, s, body)
+	raw, _ := s.Path(d)
+	damage(t, raw, body)
+	frame, _ := s.zstPath(d)
+	damage(t, frame, []byte("not a frame"))
+	dest := t.TempDir()
+	if _, err := s.Backup(dest); err != nil {
+		t.Fatal(err)
+	}
+	var bad []Problem
+	if _, err := s.Verify(func(p Problem) { bad = append(bad, p) }); err != nil || len(bad) != 1 {
+		t.Fatalf("verify %v %v", bad, err)
+	}
+	if _, err := s.Repair(bad[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Backup(dest); err != nil {
+		t.Fatal(err)
+	}
+	backup := &Store{Root: dest}
+	if got, err := backup.Read(d); err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("backup reads %q %v", got, err)
+	}
+	if _, ok, _ := backup.object(d); !ok {
+		t.Fatal("backup lost the object")
+	}
+	if _, err := os.Lstat(filepath.Join(dest, "sha256", d[:2], d[2:]+zstSuffix)); !os.IsNotExist(err) {
+		t.Fatalf("stale frame kept in the backup: %v", err)
+	}
+}
+
+// BindLogical's shortcut for an index already recorded does not reach
+// an intact object, which returns first, nor a chunk list missing a
+// chunk, which fails its size check (review 1292, finding-1).
+func TestBindLogicalShortcutKeepsAReadableCopy(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, right := []byte("hello "), []byte("world")
+	whole := append(append([]byte{}, left...), right...)
+	full := digestOf(whole)
+	putAll(t, s, left, right, whole)
+	parts, lengths := []string{digestOf(left), digestOf(right)}, []int64{6, 5}
+	if err := s.writeLogical(full, logicalIndex{ChunkSHA256s: parts, ChunkLengths: lengths}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveEntry(Entry{Digest: parts[1]}); err != nil {
+		t.Fatal(err)
+	}
+	if exists, err := s.BindLogical(full, parts, lengths); err != nil || !exists {
+		t.Fatalf("bind over an intact object: %v %v", exists, err)
+	}
+	installedAs(t, s, full, whole)
+
+	// Without the object, the missing chunk is an error, not a success.
+	if err := s.RemoveEntry(Entry{Digest: full}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BindLogical(full, parts, lengths); err == nil {
+		t.Fatal("bind over a chunk list missing a chunk succeeded")
+	}
+}
+
 // Reencode rewrites a raw object as a frame and removes the raw file.
 // A raw object that is not its digest is left, and a raw copy beside a
 // frame is removed with nothing written.
