@@ -24,7 +24,7 @@ func (s *Server) SampleStorage(ctx context.Context) (catalog.StorageSample, erro
 	if err != nil {
 		return catalog.StorageSample{}, err
 	}
-	sample := catalog.StorageSample{At: at, Measures: make(map[string]catalog.StorageUse, len(use)+4)}
+	sample := catalog.StorageSample{At: at, Measures: make(map[string]catalog.StorageUse, len(use)+6)}
 	for c, u := range use {
 		sample.Measures[c] = catalog.StorageUse{Bytes: u.Bytes, Files: u.Files}
 	}
@@ -36,12 +36,14 @@ func (s *Server) SampleStorage(ctx context.Context) (catalog.StorageSample, erro
 	case !errors.Is(err, storage.ErrUnsupported):
 		return catalog.StorageSample{}, err
 	}
-	referenced, unique, err := s.Catalog.ArtifactBytes(ctx)
+	art, err := s.Catalog.ArtifactBytes(ctx)
 	if err != nil {
 		return catalog.StorageSample{}, err
 	}
-	sample.Measures[catalog.MeasureReferenced] = referenced
-	sample.Measures[catalog.MeasureUnique] = unique
+	sample.Measures[catalog.MeasureReferenced] = art.Referenced
+	sample.Measures[catalog.MeasureUnique] = art.Unique
+	sample.Measures[catalog.MeasureCurrent] = art.Current
+	sample.Measures[catalog.MeasureCurrentUnique] = art.CurrentUnique
 	if err := s.Catalog.RecordStorage(ctx, sample); err != nil {
 		return catalog.StorageSample{}, err
 	}

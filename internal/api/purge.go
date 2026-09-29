@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 
 	"terva.sh/lampi/internal/catalog"
@@ -259,7 +258,7 @@ func (s *Server) Purge(ctx context.Context, plan PurgePlan) error {
 		}
 	}
 	uid := plan.Session.UID
-	if err := removeDerived(filepath.Join(s.Normalized, uid+".jsonl"), s.Parquet, uid); err != nil {
+	if err := removeDerived(s.Normalized, s.Parquet, uid); err != nil {
 		return err
 	}
 	_, err := s.Catalog.DeleteSession(ctx, uid)

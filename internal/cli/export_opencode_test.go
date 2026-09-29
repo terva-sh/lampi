@@ -13,6 +13,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -42,7 +43,7 @@ func TestOpenCodeExportEventsShareGPTAndTrajectory(t *testing.T) {
 			t.Fatalf("normalize_error %s %q ok=%v err=%v", uid, msg, ok, err)
 		}
 	}
-	normalizedPath := filepath.Join(dir, "normalized", ack.SessionUID+".jsonl")
+	normalizedPath := filepath.Join(dir, "normalized", ack.SessionUID+normalize.EventsExt)
 	beforeNorm, err := os.ReadFile(normalizedPath)
 	if err != nil {
 		t.Fatal(err)

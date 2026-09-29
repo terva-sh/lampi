@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -59,7 +60,7 @@ func TestNormalizePanicRecordsErrorAndKeepsServing(t *testing.T) {
 	if err != nil || !ok || !strings.Contains(got, "panic: projector fell over") {
 		t.Fatalf("normalize_error %q ok=%v err=%v", got, ok, err)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived jsonl kept after a panic: %v", err)
 	}
 	jobs, err := s.Catalog.ListNormalizeJobs(t.Context())
