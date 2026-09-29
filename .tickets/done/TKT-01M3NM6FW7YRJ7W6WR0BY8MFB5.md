@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM6FW7YRJ7W6WR0BY8MFB5
 title: "Raw-read tokens: admins mint scoped tokens for raw artifacts"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M3NKY2V3KA0G5458R62ZD9H7
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: web/read-tokens
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: e7ed2db264e2c020a41428f612753bde686917e8
-  session: null
-  claimed_at: 2026-09-29T03:59:47Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:44:08Z
-updated_at: 2026-09-29T04:04:58Z
+updated_at: 2026-09-29T04:32:59Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -138,3 +131,39 @@ rather than building a second kind:
 - **Accept the browser session on the token route too.** Rejected: the
   route is for tools, and a cookie there would open it to CSRF-style
   cross-site GETs. Browsers use `/sessions/{uid}/raw/{sha256}`.
+
+## Summary
+
+Landed in #135 (merge 227aeb4). Reviewed clean at e95285a.
+
+- **Admin page.** Admins mint, list and revoke read tokens at
+  `/admin/read-tokens`. Minting needs a sign-in in the last 10 minutes.
+- **Tokens.** A token (`lrt_` plus 32 random bytes) is shown once and
+  stored as its SHA-256. It carries a label, a scope (the lake or listed
+  session UIDs), an expiry of up to 90 days, and a permission set
+  holding `raw:read`.
+- **Route.** `GET /api/raw/v1/sessions/{uid}/artifacts/{sha256}` takes
+  only `Authorization: Bearer`. It shares `serveRaw` with the dashboard
+  route.
+- **Separation.** Device tokens and browser cookies don't reach the
+  token route, and a read token reaches no other route.
+- **Audit.** Mint, revoke and every read are audited.
+- **Migration.** Catalog migration 17 adds `read_tokens`.
+
+### Review rounds
+
+terva-review ran four times, and every finding was accepted and fixed
+with a test that fails on the code before the fix:
+
+- **1330 (high).** A mint whose audit line failed still showed the
+  token. It is now revoked and not shown, as `registrar.Mint` does with
+  a code.
+- **1330 (medium).** A revoke that committed but couldn't flush answered
+  500. It now answers 200 and says the line is queued.
+- **1331 (high).** A separator-only session list became a lake-wide
+  token. It is now refused.
+- **1331 (medium).** A failed session check answered 400. It is now 500.
+- **1332 (medium).** A failed token lookup answered 401, which tells a
+  tool to drop a good token. It is now 500.
+
+The note on this ticket tells TKT-01M3KAMD1Z what to reuse.
