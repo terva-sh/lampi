@@ -401,6 +401,10 @@ func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
 	// ?resolved=true adds the resolved conflicts. Without it, or with
 	// false, the list is the open ones.
 	var resolved bool
+	if len(r.URL.Query()["resolved"]) > 1 {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "resolved is true or false"})
+		return
+	}
 	switch r.URL.Query().Get("resolved") {
 	case "", "false":
 	case "true":

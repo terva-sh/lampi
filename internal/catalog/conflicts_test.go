@@ -141,8 +141,12 @@ func TestResolveAndReopenConflict(t *testing.T) {
 	if err := c.ResolveConflict(ctx, l.artifact(head), ResolutionKeptHead, "op", "", when); !errors.Is(err, ErrNoConflict) {
 		t.Errorf("resolving the head: %v, want ErrNoConflict", err)
 	}
-	if err := c.ResolveConflict(ctx, id, "merged", "op", "", when); err == nil {
-		t.Error("an unknown resolution was recorded")
+	// made_head and superseded say the head moved, which resolving alone
+	// does not do.
+	for _, r := range []string{"merged", ResolutionMadeHead, ResolutionSuperseded} {
+		if err := c.ResolveConflict(ctx, id, r, "op", "", when); err == nil {
+			t.Errorf("%s was recorded without moving the head", r)
+		}
 	}
 	if err := c.ReopenConflict(ctx, id, "op", when); !errors.Is(err, ErrConflictOpen) {
 		t.Errorf("reopening an open conflict: %v", err)
@@ -150,7 +154,7 @@ func TestResolveAndReopenConflict(t *testing.T) {
 	if err := c.ResolveConflict(ctx, id, ResolutionKeptHead, "user:ada", "checked", when); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.ResolveConflict(ctx, id, ResolutionMadeHead, "user:bob", "", when); !errors.Is(err, ErrConflictResolved) {
+	if err := c.ResolveConflict(ctx, id, ResolutionNotAConflict, "user:bob", "", when); !errors.Is(err, ErrConflictResolved) {
 		t.Errorf("resolving twice: %v", err)
 	}
 	if len(openConflicts(t, c, false)) != 0 {

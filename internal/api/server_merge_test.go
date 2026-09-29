@@ -219,8 +219,10 @@ func TestConflictsEndpoint(t *testing.T) {
 	if code != http.StatusOK || len(body.Conflicts) != 1 || body.Conflicts[0].Resolution == nil || body.Conflicts[0].Resolution.Resolution != catalog.ResolutionKeptHead || body.Conflicts[0].Resolution.ResolvedBy != "user:ada" {
 		t.Fatalf("resolved: %d %+v", code, body)
 	}
-	if code, _ := list("?resolved=yes"); code != http.StatusBadRequest {
-		t.Fatalf("resolved=yes: %d", code)
+	for _, q := range []string{"?resolved=yes", "?resolved=true&resolved=false"} {
+		if code, _ := list(q); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", q, code)
+		}
 	}
 }
 

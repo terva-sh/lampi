@@ -34,13 +34,11 @@ var (
 	ErrConflictOpen     = errors.New("catalog: conflict is not resolved")
 )
 
-// ValidResolution reports whether r is a resolution a caller may record.
+// ValidResolution reports whether r is a resolution ResolveConflict
+// records on its own. made_head and superseded say the head moved, so
+// only the operation that moves it records them, in its transaction.
 func ValidResolution(r string) bool {
-	switch r {
-	case ResolutionKeptHead, ResolutionMadeHead, ResolutionSuperseded, ResolutionNotAConflict:
-		return true
-	}
-	return false
+	return r == ResolutionKeptHead || r == ResolutionNotAConflict
 }
 
 // Resolution is what was decided about one conflict.
@@ -171,9 +169,10 @@ func conflictSession(ctx context.Context, tx *sql.Tx, artifactID string) (string
 	return uid, nil
 }
 
-// ResolveConflict records resolution for the divergent copy artifactID
-// and queues its conflict.resolved event in the same transaction. A
-// conflict already resolved is ErrConflictResolved and nothing changes.
+// ResolveConflict records resolution, kept_head or not_a_conflict, for
+// the divergent copy artifactID and queues its conflict.resolved event
+// in the same transaction. A conflict already resolved is
+// ErrConflictResolved and nothing changes.
 func (c *Catalog) ResolveConflict(ctx context.Context, artifactID, resolution, by, note string, now time.Time) error {
 	if !ValidResolution(resolution) {
 		return fmt.Errorf("catalog: unknown resolution %q", resolution)

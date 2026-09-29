@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T14:55:56Z
-updated_at: 2026-09-29T15:03:17Z
+updated_at: 2026-09-29T15:25:30Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -115,3 +115,7 @@ a new table records the decision.
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:03:17Z
 
 Not run against the live dev lake's catalog: /var/lib/terva-lampi/catalog.db is not readable by this user. The migration test builds the three shapes (pre-fix leftovers, a post-fix divergence at the same path, a moved transcript); each rule was mutation-checked (dropping the no-earlier-row clause, the companion check, or the list filter fails the tests). Expected on the dev lake after upgrade: the 184 rows resolve as not_a_conflict and the Conflicts page is empty.
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T15:25:30Z
+
+terva-review 1387 (run a9b15e2a) on 9260d95: two findings, both accepted and fixed. high: ResolveConflict accepted made_head/superseded, which would record a head change that did not happen; now it takes kept_head and not_a_conflict only, and only MakeConflictHead (TKT-01M3PTMWM) records the other two in the transaction that moves the head. low: GET /v1/conflicts?resolved=true&resolved=false read the first value; a repeated resolved is now 400. Tests cover both.
