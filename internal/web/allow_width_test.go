@@ -47,6 +47,7 @@ func widthLake(t *testing.T) (*lakeFixture, catalog.Device) {
 		refused("git.example/team/app", "/work/app", 3),
 		refused("git.example/team/lib", "/work/lib", 2),
 		refused("git.example/team/unselected", "/work/unselected", 7),
+		refused("git.example/team/sub/app", "/work/sub", 2),
 		refused("git.example/solo", "/work/solo", 1),
 		refused("", "/home/me/scratch", 4),
 	}}
@@ -68,7 +69,7 @@ func TestAllowSelectedAtOwnerWidth(t *testing.T) {
 		t.Fatal("the queue offers no owner width")
 	}
 	sel := url.Values{"csrf": {f.csrf}, "return": {"/review"}, "width": {"owner"},
-		"key": {"git_remote git.example/team/app", "git_remote git.example/team/lib", "git_remote git.example/solo", "cwd /home/me/scratch"}}
+		"key": {"git_remote git.example/team/app", "git_remote git.example/team/lib", "git_remote git.example/team/sub/app", "git_remote git.example/solo", "cwd /home/me/scratch"}}
 	w := postForm(f.h, "/review/allow", sel, f.cookie)
 	if w.Code != 200 {
 		t.Fatalf("allow selected: %d %s", w.Code, w.Body)
@@ -82,12 +83,17 @@ func TestAllowSelectedAtOwnerWidth(t *testing.T) {
 		"git_remote git.example/solo for laptop",
 		"cwd_prefix /home/me/scratch for laptop",
 		"It drops 1 rule that the new rules cover: git_remote git.example/team/old",
-		"Admits 5 projects",
+		"Admits 6 projects",
 		"git.example/team/unselected repository on laptop · 7 sessions",
 	} {
 		if !strings.Contains(squash(page), want) {
 			t.Errorf("confirm page lacks %q", want)
 		}
+	}
+	// The nested group's prefix is under git.example/team, so the plan
+	// neither adds nor lists it.
+	if strings.Contains(page, "git_remote_prefix git.example/team/sub") {
+		t.Error("the confirm page lists a rule the document does not add")
 	}
 	save := formFields(t, w.Body.String(), "/review/allow/save")
 	if save.Get("width") != "owner" {
@@ -131,8 +137,12 @@ func TestAllowSelectedAPIWidth(t *testing.T) {
 	if p.Rules[0].Rule != (config.ProjectMatch{GitRemotePrefix: "git.example/team"}) || !slices.Equal(p.Removed, []config.ProjectMatch{{GitRemote: "git.example/team/old"}}) {
 		t.Errorf("owner plan rules %+v removed %+v", p.Rules, p.Removed)
 	}
-	if p.Reach == nil || len(p.Reach.Admits) != 3 {
+	if p.Reach == nil || len(p.Reach.Admits) != 4 {
 		t.Errorf("owner plan reach %+v", p.Reach)
+	}
+	code, v = plan(`{"keys":[{"kind":"git_remote","key":"git.example/team/sub/app"},{"kind":"git_remote","key":"git.example/team/app"}],"width":"owner"}`)
+	if code != 200 || len(v.Profiles[0].Rules) != 1 || v.Profiles[0].Rules[0].Rule != (config.ProjectMatch{GitRemotePrefix: "git.example/team"}) {
+		t.Errorf("nested owners: %d %+v", code, v.Profiles[0].Rules)
 	}
 	code, v = plan(`{"keys":[{"kind":"git_remote","key":"git.example/team/app"}]}`)
 	if code != 200 || v.Profiles[0].Rules[0].Rule != (config.ProjectMatch{GitRemote: "git.example/team/app"}) || len(v.Profiles[0].Removed) != 0 {

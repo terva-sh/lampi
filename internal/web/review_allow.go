@@ -158,6 +158,7 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 		if ap.Removed == nil {
 			ap.Removed = []config.ProjectMatch{}
 		}
+		ap.Rules = survivingRules(ap.Rules, next.Projects.Allow)
 		raw, _ := json.Marshal(next)
 		p, doc, err := checkProfile(raw)
 		if err != nil {
@@ -188,6 +189,35 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 		v.Profiles = []allowProfile{}
 	}
 	return v, nil
+}
+
+// survivingRules is rules less those withRules left out of allow, as a
+// nested owner's prefix under a wider one is. A rule left out hands its
+// devices to a surviving rule that covers it, so the page still says
+// which devices the selection was for.
+func survivingRules(rules []allowRuleView, allow []config.ProjectMatch) []allowRuleView {
+	var out []allowRuleView
+	var gone []allowRuleView
+	for _, rv := range rules {
+		if slices.Contains(allow, rv.Rule) {
+			out = append(out, rv)
+		} else {
+			gone = append(gone, rv)
+		}
+	}
+	for _, g := range gone {
+		for i := range out {
+			if config.Covers(out[i].Rule, g.Rule) {
+				for _, d := range g.Devices {
+					if !slices.Contains(out[i].Devices, d) {
+						out[i].Devices = append(out[i].Devices, d)
+					}
+				}
+				break
+			}
+		}
+	}
+	return out
 }
 
 // errPlan is a plan that would make an invalid profile.
