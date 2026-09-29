@@ -94,6 +94,9 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	real3 := l.post(sub3, divergentDecision)
+	// A companion that is not under subagents/: not the shape the bug
+	// left, so a real move into that directory stays open.
+	nested := l.post("projects/p/S/moved/S.jsonl", divergentDecision)
 
 	if _, err := c.db.Exec(`DROP TABLE conflict_resolutions; DELETE FROM audit_outbox`); err != nil {
 		t.Fatal(err)
@@ -110,14 +113,14 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 	}
 
 	open := openConflicts(t, c, false)
-	for name, sha := range map[string]string{"real1": real1, "real2": real2, "moved": moved, "real3": real3} {
+	for name, sha := range map[string]string{"real1": real1, "real2": real2, "moved": moved, "real3": real3, "nested": nested} {
 		if _, ok := open[sha]; !ok {
 			t.Errorf("%s was resolved; open %v", name, open)
 		}
 	}
 	// cur3 is a leftover like bug1: it had nothing at its path.
-	if len(open) != 4 {
-		t.Errorf("open conflicts %d, want 4", len(open))
+	if len(open) != 5 {
+		t.Errorf("open conflicts %d, want 5", len(open))
 	}
 	all := openConflicts(t, c, true)
 	for name, sha := range map[string]string{"bug1": bug1, "bug2": bug2} {
@@ -134,8 +137,40 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Conflicts != 4 {
-		t.Errorf("overview conflicts %d, want 4", ov.Conflicts)
+	if ov.Conflicts != 5 {
+		t.Errorf("overview conflicts %d, want 5", ov.Conflicts)
+	}
+}
+
+// Only Claude sessions are touched: a terva session with the same
+// shape keeps its conflict.
+func TestMigrateConflictResolutionsOnlyTouchesClaude(t *testing.T) {
+	c, _ := openTemp(t)
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	post := func(rel string, d Decision) {
+		m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "m", Harness: protocol.HarnessTerva, NativeSessionID: "T",
+			Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: rel, Size: 1, SHA256: digestHex([]byte(rel + d.Relation))}}}
+		if _, err := c.Ingest(context.Background(), m, now, []Decision{d}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post("sessions/x/T.jsonl", sessionHead)
+	post("sessions/x/T/subagents/a.jsonl", divergentDecision)
+	if _, err := c.db.Exec(`DROP TABLE conflict_resolutions`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := c.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateConflictResolutions(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if open := openConflicts(t, c, false); len(open) != 1 {
+		t.Errorf("open %v", open)
 	}
 }
 

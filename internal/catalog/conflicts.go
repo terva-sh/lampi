@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
@@ -59,8 +61,9 @@ const unresolvedSQL = `NOT EXISTS (SELECT 1 FROM conflict_resolutions r WHERE r.
 // growth of the file was stored again as a divergent copy of it.
 // migrateSubagentHeads made the newest current and left the rest.
 //
-// A copy qualifies when its path is a companion of the session head's,
-// under the directory named for the head's file, and no earlier
+// A copy qualifies when it is a Claude transcript_jsonl under the
+// subagents directory of the session head's file, the only shape that
+// bug produced, and no earlier
 // artifact at its session and path is current or anything but a
 // divergent copy: it had nothing at its own path to diverge from, so it
 // was compared with another file. migrateSubagentHeads relabelled the
@@ -109,11 +112,12 @@ func migrateConflictResolutions(tx *sql.Tx) error {
 	var leftovers []copyRow
 	rows, err = tx.Query(`
 		SELECT a.artifact_id, a.session_uid, a.relpath FROM artifacts a
-		WHERE a.relation = 'divergent_copy'
+		JOIN sessions s ON s.session_uid = a.session_uid
+		WHERE a.relation = 'divergent_copy' AND s.harness = ? AND a.kind = ?
 		  AND NOT EXISTS (SELECT 1 FROM artifacts b
 		                  WHERE b.session_uid = a.session_uid AND b.relpath = a.relpath
 		                    AND b.artifact_id < a.artifact_id AND (b.relation <> 'divergent_copy' OR b.current = 1))
-		ORDER BY a.artifact_id`)
+		ORDER BY a.artifact_id`, protocol.HarnessClaude, protocol.KindTranscriptJSONL)
 	if err != nil {
 		return err
 	}
@@ -123,7 +127,7 @@ func migrateConflictResolutions(tx *sql.Tx) error {
 			rows.Close()
 			return err
 		}
-		if head, ok := heads[c.uid]; ok && companion(c.rel, head) {
+		if head, ok := heads[c.uid]; ok && subagentOf(c.rel, head) {
 			leftovers = append(leftovers, c)
 		}
 	}
@@ -143,6 +147,14 @@ func migrateConflictResolutions(tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+// subagentOf reports whether rel is a Claude subagent transcript of the
+// session file head: <head without .jsonl>/subagents/NAME.
+func subagentOf(rel, head string) bool {
+	stem := strings.TrimSuffix(path.Clean(head), path.Ext(head))
+	name, ok := strings.CutPrefix(path.Clean(rel), stem+"/subagents/")
+	return ok && name != "" && !strings.Contains(name, "/")
 }
 
 // migrationActor names the catalog migration in a resolution and its

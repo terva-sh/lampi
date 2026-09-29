@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T14:55:56Z
-updated_at: 2026-09-29T15:36:04Z
+updated_at: 2026-09-29T15:42:23Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -123,3 +123,7 @@ terva-review 1387 (run a9b15e2a) on 9260d95: two findings, both accepted and fix
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:36:04Z
 
 terva-review 1389 (run 9981626d) on 9adc1a0: prior two findings verified resolved. New high finding: the migration treats an earlier divergent_copy row as nothing to diverge from, even if it is current. Premise was wrong: migration 12 relabels the copy it makes current as relation='head' (headrepair.go:92,134), so the test's setup is the real state; the PR text 'left every row labelled divergent_copy' misled the reviewer and was corrected. Accepted as hardening anyway, since MakeConflictHead (TKT-01M3PTMWM) leaves a current divergent_copy row: an earlier row now counts when it is current, whatever its relation. Test adds that shape; mutation-checked.
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T15:42:23Z
+
+terva-review 1391 (run 3e595b59) on 24ee0fc: prior finding verified resolved. New high: the migration matched any companion path of any harness, so a real move into the head's directory could be resolved. Accepted: the rule is now Claude sessions, transcript_jsonl, <head stem>/subagents/NAME (one level), the only shape TKT-01M3M5VEQ left. Tests add a nested non-subagents companion (stays open) and a terva session with the subagent shape (stays open); mutation-checked (companion() instead of subagentOf, and dropping the harness/kind filter, each fail).
