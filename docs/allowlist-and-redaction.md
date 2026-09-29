@@ -28,6 +28,7 @@ behind that default is in [policy.md](policy.md#off-box-raw).
       {"cwd_prefix": "/home/you/src/foo"},
       {"git_remote": "git@github.com:terva-sh/lampi.git"},
       {"git_remote_prefix": "git@github.com:terva-sh"},
+      {"cwd_glob": "/home/*/notes"},
       {"cwd_hash": "a1b2c3d4e5f60708"}
     ],
     "deny": [
@@ -82,10 +83,10 @@ its reasons are in
 
 ### How a rule matches
 
-A rule matches the session's cwd (a path prefix, on a boundary), its
-terva cwd hash, its git remote, or a git remote prefix. Every field set
-on a rule has to match. `projects.deny` wins over allow. An empty rule
-matches nothing.
+A rule matches the session's cwd (a path prefix on a boundary, or a
+glob), its terva cwd hash, its git remote, or a git remote prefix. Every
+field set on a rule has to match. `projects.deny` wins over allow. An
+empty rule matches nothing.
 
 The cwd is the one the harness recorded, such as the terva meta line.
 It is not the path of the transcript file.
@@ -104,6 +105,33 @@ A deny rule reads a doubt as a match:
   exists outside any repository has no remote, and a `git_remote` deny
   does not match it. Add a `cwd_prefix` to a `git_remote` deny to limit
   it to one tree.
+
+### Folder layouts: cwd_glob
+
+A `cwd_prefix` names a path on one machine. A `cwd_glob` names a layout,
+so one rule covers it on every machine and under every home directory:
+
+- `*` matches any part of one folder name. `/home/*/notes` matches
+  `/home/me/notes`, but not `/home/notes` or `/home/a/b/notes`.
+- A folder that is exactly `**` matches any number of folders, none
+  included. `/home/**/notes` matches all three.
+- Every other character is itself. There is no `?`, `[` or escape, so a
+  path that holds one means what it says.
+- Like `cwd_prefix`, it matches the folder it names and everything
+  under it. `/home/*/.t3/worktrees` covers every worktree below it.
+
+A pattern must start with `/`, has no empty, `.` or `..` folder, holds at
+most four `**`, and needs at least one folder with no `*`, so that no
+pattern matches every directory. A profile that breaks these rules is
+refused, and so is a `config.json`: the agent does not start, rather than
+run with a deny rule that denies nothing.
+
+An allow `cwd_glob` compares exactly. A deny `cwd_glob` ignores case and
+also tries the cwd with its symlinks resolved.
+
+A lake or agent from before `cwd_glob` refuses a profile that uses it. An
+older agent keeps its cached profile and reports the error. Upgrade the
+lake first, then the agents, as for `git_remote_prefix`.
 
 ### Git remotes
 

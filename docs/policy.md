@@ -233,12 +233,15 @@ implemented in `internal/config`. This policy confirms that surface.
 
 - Default deny. An empty `projects.allow` refuses every project.
 - `projects.deny` wins over allow.
-- A rule matches a cwd prefix on a path boundary, a git remote, a git
-  remote prefix on a `/` boundary, or terva's cwd hash
+- A rule matches a cwd prefix on a path boundary, a cwd glob, a git
+  remote, a git remote prefix on a `/` boundary, or terva's cwd hash
   (`hex(sha256(cwd)[:8])`). Every field set on the rule has to match.
-  A rule with no fields matches nothing.
-- A deny rule reads a doubt as a match. `cwd_prefix` ignores case
-  and is checked with and without symlinks resolved. `cwd_hash` also
+  A rule with no fields matches nothing. A cwd glob that could match
+  every directory is refused where rules load, in a profile or in
+  `config.json`.
+- A deny rule reads a doubt as a match. `cwd_prefix` and `cwd_glob`
+  ignore case and are checked against the cwd with and without symlinks
+  resolved; `cwd_prefix` is also tried with its own symlinks resolved. `cwd_hash` also
   matches the resolved cwd. `git_remote` and `git_remote_prefix` also
   match a session whose remote cannot be read. A cwd outside any repository has no remote
   and does not match it. Allow rules compare exactly.

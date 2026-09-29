@@ -151,6 +151,7 @@ func ruleText(m config.ProjectMatch) string {
 		{"git_remote_prefix", m.GitRemotePrefix},
 		{"cwd_prefix", m.CWDPrefix},
 		{"cwd_hash", m.CWDHash},
+		{"cwd_glob", m.CWDGlob},
 	} {
 		if f.value != "" {
 			parts = append(parts, f.name+" "+f.value)

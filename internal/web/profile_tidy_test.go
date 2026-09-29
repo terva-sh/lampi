@@ -22,6 +22,7 @@ func ruleForm(csrf string, base int64, rules []config.ProjectMatch) url.Values {
 		f.Set(p+"git_remote_prefix", r.GitRemotePrefix)
 		f.Set(p+"cwd_prefix", r.CWDPrefix)
 		f.Set(p+"cwd_hash", r.CWDHash)
+		f.Set(p+"cwd_glob", r.CWDGlob)
 	}
 	return f
 }
