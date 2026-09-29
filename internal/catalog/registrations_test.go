@@ -47,6 +47,9 @@ func TestRegistrationRedeemsOnce(t *testing.T) {
 	if err != nil || !found || got.ID != d.ID {
 		t.Fatalf("device by token hash: %+v %v %v", got, found, err)
 	}
+	if g, err := c.Grants(ctx, PrincipalDevice, d.ID); err != nil || len(g) != 1 || g[0].BayID != DefaultBayID || g[0].Permission != PermWrite {
+		t.Fatalf("registered device grants %+v err=%v", g, err)
+	}
 	if _, r2, err := c.Redeem(ctx, secret, strings.Repeat("d", 64), "m2", nil, now.Add(2*time.Minute), nil); !errors.Is(err, ErrRegistrationUsed) || r2.ID != r.ID {
 		t.Fatalf("second redeem: %v", err)
 	}
