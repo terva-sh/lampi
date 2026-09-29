@@ -547,6 +547,18 @@ report to several lakes replace the manual copy. They are planned under
 TKT-01M3FHHB, and [policy.md](policy.md#registration-and-many-lakes)
 records the model. The manual copy stays as the fallback.
 
+Bays are planned under TKT-01M3N8KHW5, and
+[policy.md](policy.md#bays) records the model. A bay is an access
+boundary inside one lake, and a session can be in several. The design
+keeps the storage as it is: one CAS with dedup across bays, derived
+files keyed by session uid and not split by bay, and bay membership as
+catalog rows only. Moving a session between bays is then one catalog
+write, and no file is rewritten. The cost is that every read path must
+join against membership, and a test lists every catalog query that
+returns session data so that a new one without a bay scope fails the
+build. The lake directory holds every bay, so reading it directly is
+admin access.
+
 Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
 `--token-file` is an error. The data directory is the XDG state dir
 `terva-lampi/` (override with `--data`), mode 0700, separate from

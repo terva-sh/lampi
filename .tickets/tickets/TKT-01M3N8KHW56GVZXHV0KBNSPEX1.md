@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N8KHW56GVZXHV0KBNSPEX1
 title: "Bays: segment one lake and route sessions to a bay"
 type: epic
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -20,10 +20,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/7859b064
+  branch: bays/policy-docs
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
+  commit: 0afc10f1e1a1973ecb897701a561647a725baf67
+  session: null
+  claimed_at: 2026-09-29T14:58:27Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T14:52:08Z
+updated_at: 2026-09-29T15:05:05Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -63,7 +70,7 @@ The owner settled these in a grilling session on 2026-09-29. The notes on this t
   - **deny** keeps the session out of one named bay.
 
   Hold takes precedence. The bays the agent requested are always recorded, so a release restores them in one step. Rejected: lake-only routing, which cannot place a session with nothing to match on, such as a scratch directory with no remote. Rejected: agent-only routing, where the lake could not keep sensitive work out of a bay. Rejected: a per-repository marker file, because a cloned repository could then send your sessions into a shared bay.
-- **A requested bay the device may not write to is recorded, not obeyed.** The session is accepted into the default bay, with the refused request and its reason recorded. Rejected: refusing the manifest, which would strand the session on the machine over what is usually a missing grant.
+- **A requested bay the device may not write to is recorded, not obeyed.** The refused request and its reason are recorded and place nothing, so a session with only refused requests lands in the default bay, or is refused when the default is off. The owner chose the default bay for this case; the default-off case was settled by the agent from the owner's Q11 answer, after review 1377 on #148 found the two rules in conflict. Rejected: refusing the manifest, which would strand the session on the machine over what is usually a missing grant.
 - **Every manifest is routed again, add-only.** A session gains a bay when a later append requests one it may write, and the rules run again on each manifest. Nothing is removed automatically. A hold that matches a session already in other bays flags it for review and does not remove it.
 - **Admin and operator are different roles, and bays scope the two below admin.** The admin role already exists (TKT-01M3NM61CZ, Admin role and raw artifact access): admin implies operator, which implies viewer, and only an admin reads raw artifacts and mints `lrt_` read tokens. Bays add scope beneath it. An admin reads every bay, including the default, and creates, renames and deletes bays, rules and grants. An operator mints registration codes and manages devices, can be limited to specific bays, and reads session content only in bays it is granted. A viewer reads only the bays it is granted. A grant is (principal, bay, permission), where a principal is an OIDC group, a device, a read token, or later an MCP identity, and the permission is read or write. Rejected: making operator the all-bays role, because letting a machine ingest is a lesser power than reading every session.
 - **Read tokens take a bay scope.** An `lrt_` token is scoped today to the whole lake or to listed sessions. It gains an optional list of bays, and a token with a bay list reads only sessions in those bays at the time of each read. A token minted before bays keeps its scope. The broader token model planned in TKT-01M3KAMD1Z (Lake-backed sessions: read path, token scope, byte-exact reads) should carry bays as one of its scopes.
