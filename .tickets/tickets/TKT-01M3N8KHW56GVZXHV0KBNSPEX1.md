@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T15:05:05Z
+updated_at: 2026-09-29T20:04:29Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -198,3 +198,47 @@ Plan revised against main at 5ab86ad on 2026-09-29, at the owner's request, for 
 - Raw-read tokens (lrt_) are the "tokens granted explicit access" from round 2. They gain an optional bay list; tokens minted before bays keep their scope.
 - Audit goes through the existing audit outbox (audit.jsonl), not a new table, and dashboard actions that add access require a sign-in in the last 10 minutes, as minting does.
 - Bay rules reuse the profile rule matcher, which gained cwd_glob and git_remote_prefix, and inherit the open folder bug TKT-01M3NQ83.
+
+**agent:claude-code/7859b064** at 2026-09-29T20:04:29Z
+
+Implementation landed. Each child merged as its own Forgejo PR, each after green CI, a terva-review with a disposition posted for every finding, and a check that it contained current main:
+
+- #148 docs (TKT-01M3NNF1YN): blocked only on owner sign-off
+- #150 catalog (TKT-01M3NNF21H)
+- #152, #154 scope for operators, viewers and read tokens (TKT-01M3NNF24A)
+- #156 read scope (TKT-01M3NNF27A)
+- #157, #159 manifest bays and lake routing (TKT-01M3NNF29W)
+- #160, #161 agent bay requests (TKT-01M3NNF2CE)
+- #162 inbox tooling and sorting guide (TKT-01M3NNF2FE)
+- #163 dashboard (TKT-01M3NNF2K3)
+
+Each child ticket's notes carry that child's review findings and the alternatives that lost. The decisions that cross children:
+
+### Reads and scope
+- A zero Scope reads nothing. Every exported Catalog method takes a Scope, or is listed with its reason in scope_test.go.
+- A route test asks every web GET for a session outside the viewer's bays. With scoping switched off it found 59 leaks across 14 routes.
+- Main's conflict actions (#153, #155) go through the read guard, so an operator who is not an admin gets 404 outside their bays.
+- A request with no device is the tokenless lake (every bay) only when the lake has no tokens. This one rule, requestDevice, backs deviceScope, hello and manifests.
+
+### Holds
+A hold keeps a session for review, and nothing else places it:
+- every request waits while held;
+- a move (bulk or single) refuses a held session;
+- DeleteBay refuses a bay with active holds;
+- release matches rules against the harness and project of the post that last routed the session, kept on the hold row.
+
+### Deny
+A deny is decided before a request's outcome is recorded, both at ingest and at release. A denied ref is refused and listed in refused_bays; the ack never says why.
+
+### Sessions in no bay
+No write leaves a session in no bay, and every path that could sends it to the default instead. A move from the default is how an admin places one found by fsck (CLI and dashboard). fsck reports memberships, grants, rules, aliases and holds that name a bay that is gone.
+
+### Process
+- A PR whose branch lacked only the lower PR's own merge commit was merged without merging main again. This was done when `git merge-tree` of main and the branch equalled the reviewed tree (#156, #159).
+- Every other time main moved, main was merged in and the PR was reviewed again.
+- One finding was rejected: review 1437, a claim of no release path, which ships in the next PR.
+- A second was rejected: review 1451, which assumed queued manifests are reposted as stored; they are prepared again each pass.
+
+### Still open
+- TKT-01M3NNF1YN needs the owner to read the Bays section of docs/policy.md and sign off. The epic stays open until then.
+- Two follow-up drafts are filed and not started: TKT-01M3NNF2NN (dashboard triage flow for held and refused sessions, which also covers editing device grants) and TKT-01M3NNF2R9 (per-bay retention and purge).
