@@ -132,6 +132,7 @@ func normalizeRules(in []config.ProjectMatch) []config.ProjectMatch {
 			GitRemote:       config.NormalizeRemote(r.GitRemote),
 			GitRemotePrefix: config.NormalizeRemote(r.GitRemotePrefix),
 			CWDHash:         strings.ToLower(strings.TrimSpace(r.CWDHash)),
+			CWDGlob:         strings.TrimSpace(r.CWDGlob),
 		}
 		if r != (config.ProjectMatch{}) {
 			out = append(out, r)
@@ -207,7 +208,7 @@ func readRules(v url.Values, list string) ([]config.ProjectMatch, error) {
 	for i := range rows {
 		p := list + "." + strconv.Itoa(i) + "."
 		rows[i] = config.ProjectMatch{CWDPrefix: v.Get(p + "cwd_prefix"), GitRemote: v.Get(p + "git_remote"),
-			GitRemotePrefix: v.Get(p + "git_remote_prefix"), CWDHash: v.Get(p + "cwd_hash")}
+			GitRemotePrefix: v.Get(p + "git_remote_prefix"), CWDHash: v.Get(p + "cwd_hash"), CWDGlob: v.Get(p + "cwd_glob")}
 	}
 	return rows, nil
 }

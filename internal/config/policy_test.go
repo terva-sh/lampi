@@ -291,6 +291,10 @@ func TestCovers(t *testing.T) {
 		{"hash does not cover a folder", ProjectMatch{CWDHash: "a1b2c3d4e5f60708"}, ProjectMatch{CWDPrefix: "/work"}, false},
 		{"empty covers nothing", ProjectMatch{}, ProjectMatch{GitRemote: "github.com/acme/app"}, false},
 		{"nothing covers empty", ProjectMatch{GitRemotePrefix: "github.com"}, ProjectMatch{}, false},
+		{"a glob covers the same glob", ProjectMatch{CWDGlob: "/home/*/notes"}, ProjectMatch{CWDGlob: "/home/*/notes", GitRemote: "github.com/acme/app"}, true},
+		{"a glob does not cover what it happens to match", ProjectMatch{CWDGlob: "/home/*/notes"}, ProjectMatch{CWDPrefix: "/home/me/notes"}, false},
+		{"a glob that cannot be used covers nothing", ProjectMatch{CWDGlob: "/**"}, ProjectMatch{CWDGlob: "/**"}, false},
+		{"a prefix covers a rule that also sets a glob", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemote: "github.com/acme/app", CWDGlob: "/home/*/notes"}, true},
 	} {
 		if got := Covers(c.a, c.b); got != c.want {
 			t.Errorf("%s: Covers(%+v, %+v) = %v, want %v", c.name, c.a, c.b, got, c.want)
@@ -312,6 +316,9 @@ func TestCoversIsSound(t *testing.T) {
 	}
 	for _, h := range hashes {
 		rules = append(rules, ProjectMatch{CWDHash: h}, ProjectMatch{CWDHash: h, GitRemotePrefix: "github.com/acme"})
+	}
+	for _, g := range []string{"/work/*", "/work/**/sub", "/*/app", "/**"} {
+		rules = append(rules, ProjectMatch{CWDGlob: g}, ProjectMatch{CWDGlob: g, GitRemotePrefix: "github.com/acme"}, ProjectMatch{CWDGlob: g, CWDPrefix: "/work"})
 	}
 	var ids []ProjectID
 	for _, r := range remotes {
