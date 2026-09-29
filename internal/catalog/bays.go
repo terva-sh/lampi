@@ -382,6 +382,16 @@ func (c *Catalog) RemoveFromBay(ctx context.Context, m Membership, now time.Time
 		return fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
+	if err := removeFromBay(ctx, tx, m, now); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return nil
+}
+
+func removeFromBay(ctx context.Context, tx *sql.Tx, m Membership, now time.Time) error {
 	id, err := resolveBayID(ctx, tx, m.Bay)
 	if err != nil {
 		return err
@@ -409,9 +419,6 @@ func (c *Catalog) RemoveFromBay(ctx context.Context, m Membership, now time.Time
 		if _, err := addToBay(ctx, tx, back, now); err != nil {
 			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("catalog: %w", err)
 	}
 	return nil
 }

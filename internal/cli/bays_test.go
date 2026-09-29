@@ -2,17 +2,20 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/web"
 	"terva.sh/lampi/internal/webconfig"
 )
@@ -232,5 +235,74 @@ func TestServeBaysRules(t *testing.T) {
 		if !strings.Contains(string(raw), `"`+kind+`"`) {
 			t.Errorf("audit log has no %s", kind)
 		}
+	}
+}
+
+func TestServeBaysInboxMoveAndApplyRules(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uids []string
+	for i, cwd := range []string{"/src/client/app", "/src/client/lib", "/src/other"} {
+		native := fmt.Sprintf("sid-%d", i)
+		m := protocol.Manifest{
+			CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: protocol.HarnessTerva, NativeSessionID: native,
+			Project:   protocol.Project{CWD: cwd},
+			Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + ".jsonl", Size: 4, SHA256: strings.Repeat(fmt.Sprintf("%02d", i), 32)}},
+		}
+		ack, err := lake.Catalog.Ingest(t.Context(), m, time.Now(), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		uids = append(uids, ack.SessionUID)
+	}
+	lake.Close()
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := Run(append([]string{"serve", "bays"}, append(args, "--data", dir)...), Env{Stdout: &out, Stderr: ioDiscard()})
+		return out.String(), err
+	}
+	must := func(want string, args ...string) string {
+		t.Helper()
+		out, err := run(args...)
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("%v: %q %v", args, out, err)
+		}
+		return out
+	}
+	out := must(uids[0]+" terva sid-0 /src/client/app bays=default", "inbox")
+	if strings.Count(out, catalog.ReasonNothingPlaced) != 3 {
+		t.Fatalf("inbox:\n%s", out)
+	}
+	must("created bay client", "create", "client")
+	if _, err := run("move", "client"); err == nil {
+		t.Fatal("a move with no filter ran")
+	}
+	must("would move 2 sessions from default to client; nothing was written", "move", "client", "--cwd-prefix", "/src/client", "--dry-run")
+	must(uids[1], "move", "client", "--cwd-prefix", "/src/client")
+	out = must(uids[2], "inbox")
+	if strings.Contains(out, uids[0]) {
+		t.Fatalf("a moved session is still in the inbox:\n%s", out)
+	}
+	must("created bay other", "create", "other")
+	must("added rule 1", "rule", "other", "--add", "--cwd-prefix", "/src/other")
+	must(uids[2]+" added to other by rule 1\nwould make 1 changes", "apply-rules", "--dry-run")
+	must("applied the rules: 1 changes", "apply-rules")
+	// Add-only: the default stays until someone moves it out.
+	must("moved 1 sessions from default to other", "move", "other", "--harness", "terva")
+	must("the inbox is empty", "inbox")
+
+	var fsck bytes.Buffer
+	if err := Run([]string{"serve", "fsck", "--data", dir}, Env{Stdout: &fsck, Stderr: ioDiscard()}); err != nil {
+		t.Fatalf("fsck on a sorted lake: %v\n%s", err, fsck.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, audit.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), `"`+audit.BayMemberRemoved+`"`); n != 3 {
+		t.Errorf("audit has %d removals, want 3", n)
 	}
 }

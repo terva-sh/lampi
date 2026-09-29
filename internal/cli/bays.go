@@ -34,9 +34,14 @@ usage:
   terva-lampi serve bays unrule ID [--data DIR]
   terva-lampi serve bays holds [--data DIR]
   terva-lampi serve bays release SESSION-UID [--data DIR]
+  terva-lampi serve bays inbox [--data DIR]
+  terva-lampi serve bays move BAY [--from BAY] FILTER... [--dry-run] [--data DIR]
+  terva-lampi serve bays apply-rules [--dry-run] [--data DIR]
 
 MATCH is one or more of --cwd-prefix P, --cwd-glob G, --cwd-hash H,
---git-remote R, --git-remote-prefix R and --harness H.
+--git-remote R, --git-remote-prefix R and --harness H. FILTER is one or
+more of --project ID, --git-remote R, --git-remote-prefix R, --cwd-prefix
+P, --cwd-glob G, --cwd-hash H, --device NAME and --harness H.
 
 A bay is a named segment of the lake and an access boundary
 (docs/policy.md#bays). A session is in one or more bays. BAY is a bay's
@@ -76,6 +81,19 @@ holds lists the sessions held or flagged. release ends a session's hold:
 the bays it asked for while held are placed, and a held session leaves
 the hold bay.
 
+inbox lists the sessions that need an admin, each with why: in the
+default bay with nothing that placed it, a request the lake refused
+(which bay, and why), or a hold. The aim is an empty inbox
+(docs/bays-inbox.md).
+
+move adds the sessions in --from (default: the default bay) that every
+FILTER matches to BAY, and takes them out of --from. From the default
+bay it also places a matching session that is in no bay. A move that
+matches a session held for review is refused; release it first. apply-rules routes
+every stored session again by the rules as they are now: it only adds,
+and a hold flags. --dry-run lists what either would change and writes
+nothing. Every change is audited.
+
 Every command runs while serve runs. The changes are written to the
 catalog and to audit.jsonl in the lake directory.
 `
@@ -89,7 +107,7 @@ func runServeBays(env Env, args []string) error {
 	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
 		sub, args = args[0], args[1:]
 	}
-	need := map[string]int{"list": 0, "grants": 0, "rules": 0, "holds": 0, "create": 1, "unalias": 1, "delete": 1, "default": 1, "grant": 1, "revoke": 1, "rule": 1, "unrule": 1, "release": 1, "rename": 2, "alias": 2}
+	need := map[string]int{"list": 0, "grants": 0, "rules": 0, "holds": 0, "inbox": 0, "apply-rules": 0, "move": 1, "create": 1, "unalias": 1, "delete": 1, "default": 1, "grant": 1, "revoke": 1, "rule": 1, "unrule": 1, "release": 1, "rename": 2, "alias": 2}
 	n, known := need[sub]
 	if !known {
 		fmt.Fprint(env.stdout(), baysUsage)
@@ -104,7 +122,8 @@ func runServeBays(env Env, args []string) error {
 		pos, args = append(pos, args[0]), args[1:]
 	}
 	var data, group, device, token string
-	var read, write, yes, hold, add, deny bool
+	var read, write, yes, hold, add, deny, dryRun bool
+	var from, project string
 	var match config.ProjectMatch
 	var harness string
 	rest, err := parseFlags(env, args, baysUsage, func(fs *flag.FlagSet) {
@@ -124,6 +143,9 @@ func runServeBays(env Env, args []string) error {
 		fs.StringVar(&match.GitRemote, "git-remote", "", "match this git remote")
 		fs.StringVar(&match.GitRemotePrefix, "git-remote-prefix", "", "match remotes under this owner or host")
 		fs.StringVar(&harness, "harness", "", "match this harness")
+		fs.BoolVar(&dryRun, "dry-run", false, "list what would change and write nothing")
+		fs.StringVar(&from, "from", catalog.DefaultBayName, "the bay move takes sessions out of")
+		fs.StringVar(&project, "project", "", "a project id, as the dashboard shows it")
 	})
 	if err != nil {
 		return err
@@ -140,7 +162,7 @@ func runServeBays(env Env, args []string) error {
 		return fmt.Errorf("serve bays: %w", err)
 	}
 	ctx := context.Background()
-	if lister, ok := map[string]func(context.Context, Env, *catalog.Catalog) error{"list": listBays, "grants": listGrants, "rules": listRules, "holds": listHolds}[sub]; ok {
+	if lister, ok := map[string]func(context.Context, Env, *catalog.Catalog) error{"list": listBays, "grants": listGrants, "rules": listRules, "holds": listHolds, "inbox": listInbox}[sub]; ok {
 		cat, err := catalog.OpenReadOnly(path)
 		if err != nil {
 			return err
@@ -250,6 +272,51 @@ func runServeBays(env Env, args []string) error {
 			return err
 		}
 		done = fmt.Sprintf("removed rule %d", id)
+	case "move":
+		f := catalog.SessionFilter{Project: project, GitRemote: match.GitRemote, GitRemotePrefix: match.GitRemotePrefix, CWDPrefix: match.CWDPrefix, CWDGlob: match.CWDGlob, CWDHash: match.CWDHash, Harness: harness}
+		if device != "" {
+			d, err := cat.DeviceByName(ctx, device)
+			if err != nil {
+				return fmt.Errorf("no device named %s; serve devices list shows them", device)
+			}
+			f.Device = d.ID
+		}
+		uids, err := cat.MoveSessions(ctx, catalog.Move{From: from, To: pos[0], Filter: f, Actor: actor, DryRun: dryRun}, now)
+		if errors.Is(err, catalog.ErrNoFilter) {
+			fmt.Fprint(env.stdout(), baysUsage)
+		}
+		if err != nil {
+			return err
+		}
+		for _, uid := range uids {
+			fmt.Fprintln(env.stdout(), uid)
+		}
+		if dryRun {
+			fmt.Fprintf(env.stdout(), "would move %d sessions from %s to %s; nothing was written\n", len(uids), from, pos[0])
+			return nil
+		}
+		done = fmt.Sprintf("moved %d sessions from %s to %s", len(uids), from, pos[0])
+	case "apply-rules":
+		applied, err := cat.ApplyRules(ctx, actor, dryRun, now)
+		if err != nil {
+			return err
+		}
+		names, err := bayNames(ctx, cat)
+		if err != nil {
+			return err
+		}
+		for _, a := range applied {
+			verb := "added to"
+			if a.Action == catalog.RuleHold {
+				verb = "flagged for"
+			}
+			fmt.Fprintf(env.stdout(), "%s %s %s by rule %d\n", a.SessionUID, verb, names[a.BayID], a.RuleID)
+		}
+		if dryRun {
+			fmt.Fprintf(env.stdout(), "would make %d changes; nothing was written\n", len(applied))
+			return nil
+		}
+		done = fmt.Sprintf("applied the rules: %d changes", len(applied))
 	case "release":
 		if err := cat.ReleaseHold(ctx, pos[0], actor, now); err != nil {
 			return err
@@ -318,6 +385,35 @@ func listRules(ctx context.Context, env Env, cat *catalog.Catalog) error {
 	}
 	if len(rules) == 0 {
 		fmt.Fprintln(env.stdout(), "no rules")
+	}
+	return nil
+}
+
+func listInbox(ctx context.Context, env Env, cat *catalog.Catalog) error {
+	entries, err := cat.Inbox(ctx)
+	if err != nil {
+		return err
+	}
+	names, err := bayNames(ctx, cat)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		var bays []string
+		for _, id := range e.Bays {
+			bays = append(bays, names[id])
+		}
+		where := e.CWD
+		if e.GitRemote != "" {
+			where += " " + e.GitRemote
+		}
+		fmt.Fprintf(env.stdout(), "%s %s %s %s bays=%s\n", e.SessionUID, e.Harness, e.NativeID, where, strings.Join(bays, ","))
+		for _, r := range e.Reasons {
+			fmt.Fprintf(env.stdout(), "  %s\n", r)
+		}
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(env.stdout(), "the inbox is empty")
 	}
 	return nil
 }

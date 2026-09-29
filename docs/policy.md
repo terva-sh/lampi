@@ -304,6 +304,9 @@ routing takes a session out of a bay.
   code `no_bay`. Any other gets `403`, which an agent from before bays
   already waits the full backoff on.
 
+Sorting the default bay, and keeping it empty, is in
+[bays-inbox.md](bays-inbox.md).
+
 ### Known limits
 
 - `blobs/check` tells a device whether the lake holds a digest. A device
