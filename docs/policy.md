@@ -212,6 +212,60 @@ upgrade it.
 Windows has no SIGHUP. On Windows, adding or removing a lake takes
 effect when the agent restarts.
 
+## Bays
+
+The registration epic ruled out multi-tenant lakes. On 2026-09-29 Drew
+reopened that for access inside one lake and decided the model in this
+section. The work is tracked under TKT-01M3N8KHW5 (Bays: segment one
+lake and route sessions to a bay). Until its children land, every
+signed-in viewer reads the whole lake, as
+[web-dashboard.md](web-dashboard.md) says.
+
+### The model
+
+- **A bay is an access boundary.** A lake can be split into named bays.
+  A dashboard user, a read token, or later an MCP client is granted some
+  bays and not others, and reads only the sessions in them. Filtering
+  search, export and views by bay comes with it. Separate retention,
+  backup or encryption per bay is not part of the model: a separate lake
+  gives that ([Registration and many lakes](#registration-and-many-lakes)).
+- **A session can be in several bays.** Membership is a catalog row and
+  never copies data. The blob store stays shared, with dedup across
+  bays, and the derived views are not split by bay. Every read path
+  checks membership in the catalog.
+- **The default bay is an inbox.** Every lake has one. Data from before
+  bays is in it, and a session that nothing places lands in it. It
+  cannot be deleted and can have an alias. Only admins, and principals
+  granted it by name, read it, because it holds sessions nobody has
+  sorted. The aim is to keep it empty. An admin can turn it off, and then
+  a session that nothing places is refused and stays on its machine.
+- **The agent asks and the lake decides.** An agent requests bays with
+  rules that match the way `projects` rules do. The lake records the
+  request, then applies its own rules: hold a session for review, add a
+  bay, or keep it out of one. A request for a bay the device may not
+  write lands in the default bay with the refusal recorded. A device is
+  told only the bays it may write, because bay names can name clients.
+- **Roles.** An admin reads every bay and manages bays, rules and
+  grants. An operator adds machines and can be limited to some bays; it
+  reads session content only in bays it is granted. A viewer reads only
+  the bays it is granted. A registration code grants its device write
+  bays within the minting operator's scope. Upgrading promotes no group
+  to admin: existing viewers and operators are granted the default bay,
+  so they read what they read before.
+- **Every change is audited.** Membership changes, holds, releases,
+  grants and bay changes go to the audit log through the same queue as
+  the events in [Audit](#audit). A dashboard action that adds access
+  needs a fresh IdP sign-in, as minting a code does.
+
+### Known limits
+
+- `blobs/check` tells a device whether the lake holds a digest. A device
+  that can guess a file's bytes can learn that some session in another
+  bay holds them. Devices are the owner's machines, so this is recorded
+  and not fixed.
+- Reading the lake directory is reading every bay. Shell access to the
+  lake host, a backup, or DuckDB pointed at `parquet/` is admin access.
+
 ## Retention
 
 No TTL. Session bytes, catalog rows, and normalized projections stay
@@ -219,6 +273,8 @@ until `terva-lampi serve purge --session <uid> --yes` removes that
 session, with `serve` stopped. Purge keeps a blob another session
 names. A backup taken earlier still holds the bytes. This tree does
 not delete by age.
+Deleting a [bay](#bays) deletes no data: its sessions move to the
+default bay. Per-bay retention is a separate decision, not yet made.
 
 ## Encryption at rest
 

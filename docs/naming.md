@@ -27,6 +27,19 @@ that warning itself.
 [deploy/install-lampi-alias.sh](../deploy/install-lampi-alias.sh) makes
 the symlink and refuses to replace an existing `lampi`.
 
+## Bays
+
+A lake can be split into bays ([policy.md](policy.md#bays)). A bay is
+part of a lake and shares its water, which fits: a session in a bay is
+still in the one lake, stored once. The Finnish word is *lahti*.
+
+Other names were considered and dropped. *Pond* was the first word for
+it, but lampi already means pond. *Partition* is taken by the parquet
+partitions. *Space* and *collection* already appear in the code and
+docs with other meanings. *Basin* suggests a separate container, which
+is what a second lake is, and *cove* and *inlet* suggest something
+small, when a user's own bay can outgrow the default one.
+
 ## Other products named Lampi
 
 The word also belongs to other products: Lampi AI at lampi.ai, a
