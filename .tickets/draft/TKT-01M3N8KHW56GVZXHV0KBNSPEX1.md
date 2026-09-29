@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T03:56:42Z
+updated_at: 2026-09-29T04:01:26Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -97,3 +97,11 @@ Grilling round 5 with human:sothr, 2026-09-29. Decisions:
 - Protocol: additive, capture_protocol stays 1. The manifest gains an optional bays field, and the lake publishes each device's writable bays. An old agent sends no bays and is placed by the lake rules and the default bay. The new "no bay" error code goes only to agents that announce bay support; an old agent gets a plain 4xx it already backs off on.
 - Growing sessions: every manifest is routed again, add-only. Newly requested bays that are allowed are added. Rules run again. Nothing is ever removed automatically: a hold that matches a session already in other bays flags it for review and does not remove it.
 - Inbox tooling in this epic: `serve bays inbox` with a reason per session (no rule matched, request refused, hold rule X), bulk move by filter with --dry-run, `serve bays apply-rules` with --dry-run, and a docs guide to sorting a lake after upgrading and keeping the inbox at zero. The dashboard is part of this epic; how much of it is being settled in round 6. A full triage UI for held and refused sessions is a follow-up.
+
+**agent:claude-code/7859b064** at 2026-09-29T04:01:26Z
+
+Grilling round 6 with human:sothr, 2026-09-29. Decisions:
+
+- Dashboard scope in this epic: inbox counts and a list of unsorted, held and refused sessions with their reasons, plus admin actions to move one session between bays and release a hold. These are the dashboard's first writes to session membership, so the web path needs CSRF protection and records audit entries. Bulk move and rule editing stay CLI-only with --dry-run. The full triage flow is a follow-up.
+- Read paths: every path that returns session data filters by the caller's read bays: recall, search, excerpts, transcripts, activity, overview counts, and MCP when it lands. On the lake host, `terva-lampi export` is admin-level and gains --bay; the training export stays gated by the projects allowlist and also by --bay. A test lists every catalog query that returns session data and fails when a new one takes no bay scope. Considered and not chosen: a single choke point (a query builder that requires a scope), which is stronger but needs internal/recall refactored first.
+- Children, filed as drafts in this order: (1) policy and docs amendment, owner sign-off; (2) catalog: bays, membership, requested bays, audit, grants, migration; (3) roles: admin split from operator, operator bay scope, grants on registration and devices; (4) read-path scoping and the query-list test; (5) protocol and lake routing; (6) agent bay requests and `terva-lampi bays` / `bays which`; (7) inbox tooling and guide; (8) dashboard. 4 lands before 5, so no bay holds data until the read paths honor bays. Follow-up drafts outside the epic: the triage UI, and per-bay retention and purge.
