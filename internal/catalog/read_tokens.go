@@ -49,7 +49,13 @@ type ReadToken struct {
 	Permissions []string
 	// Sessions is the session UIDs the token may read. Empty is every
 	// session in the lake.
-	Sessions  []string
+	Sessions []string
+	// BayScoped limits the token to sessions in the bays it holds read
+	// grants on (bay_grants, principal read_token). Bays lists them when
+	// the token was read with its grants. A bay-scoped token with no
+	// grant left reads nothing.
+	BayScoped bool
+	Bays      []string
 	Created   time.Time
 	CreatedBy string
 	Expires   time.Time
@@ -84,12 +90,12 @@ var (
 	ErrReadTokenRevoked = errors.New("catalog: read token was already revoked")
 )
 
-const readTokenCols = `id, label, permissions, sessions, created_at, created_by, expires_at, COALESCE(revoked_at, ''), COALESCE(revoked_by, ''), COALESCE(last_used_at, '')`
+const readTokenCols = `id, label, permissions, sessions, created_at, created_by, expires_at, COALESCE(revoked_at, ''), COALESCE(revoked_by, ''), COALESCE(last_used_at, ''), bay_scoped`
 
 func scanReadToken(row interface{ Scan(...any) error }) (ReadToken, error) {
 	var t ReadToken
 	var perms, sessions, created, expires, revoked, used string
-	if err := row.Scan(&t.ID, &t.Label, &perms, &sessions, &created, &t.CreatedBy, &expires, &revoked, &t.RevokedBy, &used); err != nil {
+	if err := row.Scan(&t.ID, &t.Label, &perms, &sessions, &created, &t.CreatedBy, &expires, &revoked, &t.RevokedBy, &used, &t.BayScoped); err != nil {
 		return ReadToken{}, err
 	}
 	t.Permissions = strings.Fields(perms)
@@ -131,10 +137,28 @@ func (c *Catalog) CreateReadToken(ctx context.Context, t ReadToken, secretSHA256
 		return ReadToken{}, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO read_tokens(id, label, token_sha256, permissions, sessions, created_at, created_by, expires_at) VALUES(?,?,?,?,?,?,?,?)`,
-		t.ID, t.Label, secretSHA256, strings.Join(t.Permissions, " "), sessions, stamp(t.Created), t.CreatedBy, stamp(t.Expires)); err != nil {
+	if t.BayScoped && len(t.Bays) == 0 {
+		return ReadToken{}, errors.New("catalog: a bay-scoped read token needs a bay")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO read_tokens(id, label, token_sha256, permissions, sessions, created_at, created_by, expires_at, bay_scoped) VALUES(?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.Label, secretSHA256, strings.Join(t.Permissions, " "), sessions, stamp(t.Created), t.CreatedBy, stamp(t.Expires), t.BayScoped); err != nil {
 		return ReadToken{}, fmt.Errorf("catalog: %w", err)
 	}
+	var ids []string
+	for _, ref := range t.Bays {
+		id, err := resolveBayID(ctx, tx, ref)
+		if err != nil {
+			return ReadToken{}, err
+		}
+		if _, err := addGrant(ctx, tx, PrincipalReadToken, t.ID, id, PermRead, t.CreatedBy, now); err != nil {
+			return ReadToken{}, err
+		}
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	t.Bays = ids
 	if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.ReadTokenCreated, Actor: t.CreatedBy, Detail: readTokenDetail(t)}); err != nil {
 		return ReadToken{}, err
 	}
@@ -150,6 +174,9 @@ func readTokenDetail(t ReadToken) string {
 	scope := "lake"
 	if len(t.Sessions) > 0 {
 		scope = "sessions:" + strings.Join(t.Sessions, ",")
+	}
+	if t.BayScoped {
+		scope += " bays:" + strings.Join(t.Bays, ",")
 	}
 	return fmt.Sprintf("read_token=%s label=%q permissions=%s scope=%s expires=%s", t.ID, t.Label, strings.Join(t.Permissions, ","), scope, stamp(t.Expires))
 }
@@ -169,7 +196,24 @@ func (c *Catalog) ReadTokens(ctx context.Context) ([]ReadToken, error) {
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	rows.Close()
+	// Bays are the token's read grants as they are now, so a bay
+	// revoked with serve bays revoke --read-token leaves the list.
+	grants, err := c.Grants(ctx, "", "")
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		for _, g := range grants {
+			if g.PrincipalKind == PrincipalReadToken && g.Principal == out[i].ID && g.Permission == PermRead {
+				out[i].Bays = append(out[i].Bays, g.BayID)
+			}
+		}
+	}
+	return out, nil
 }
 
 // ReadTokenBySecret finds the token whose secret hashes to
@@ -223,4 +267,26 @@ func (c *Catalog) RevokeReadToken(ctx context.Context, id, by string, now time.T
 		return ReadToken{}, fmt.Errorf("catalog: %w", err)
 	}
 	return t, nil
+}
+
+// ReadTokenReaches reports whether a token's bays let it read a
+// session: always for a token from before bays, and for a bay-scoped
+// token only when the session is in a bay it holds read on now. Allows
+// checks the rest of the token's scope.
+func (c *Catalog) ReadTokenReaches(ctx context.Context, t ReadToken, sessionUID string) (bool, error) {
+	if !t.BayScoped {
+		return true, nil
+	}
+	var one int
+	err := c.db.QueryRowContext(ctx, `
+		SELECT 1 FROM session_bays m JOIN bay_grants g ON g.bay_id = m.bay_id
+		WHERE m.session_uid = ? AND g.principal_kind = ? AND g.principal = ? AND g.permission = ?
+		LIMIT 1`, sessionUID, PrincipalReadToken, t.ID, PermRead).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	return true, nil
 }

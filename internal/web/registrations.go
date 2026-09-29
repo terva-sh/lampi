@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -230,6 +232,10 @@ type mintRequest struct {
 	Name    string `json:"name"`
 	Profile string `json:"profile"`
 	Expires string `json:"expires"`
+	// Bays are the bays the device may write, by id, name or alias.
+	// None is the default bay. An operator may name only bays its
+	// groups hold write on; an admin may name any.
+	Bays []string `json:"bays"`
 }
 
 // errFresh is a mint by an operator whose sign-in is older than
@@ -273,7 +279,15 @@ func (s *Server) mint(r *http.Request, req mintRequest) (mintedView, error) {
 		return mintedView{}, errMintRate
 	}
 	id, _ := webauth.Current(r)
-	m, err := registrar.Mint(r.Context(), lake, req.Name, req.Profile, lifetime, actor(id), now)
+	if err := s.checkMintBays(r, id, req.Bays); err != nil {
+		return mintedView{}, err
+	}
+	// checkMintBays answers early with a clear refusal; the minter's
+	// grants are checked again where the code is stored, in the same
+	// transaction, so a grant revoked in between is honoured.
+	by := actor(id)
+	by.Minter = catalog.Minter{Admin: id.Admin, Groups: id.Groups}
+	m, err := registrar.Mint(r.Context(), lake, req.Name, req.Profile, req.Bays, lifetime, by, now)
 	if err != nil {
 		return mintedView{}, err
 	}
@@ -282,7 +296,58 @@ func (s *Server) mint(r *http.Request, req mintRequest) (mintedView, error) {
 	return v, nil
 }
 
+// mintBays lists the bays id may mint a device into: every bay for an
+// admin, and for an operator the bays its groups hold write on.
+func (s *Server) mintBays(r *http.Request, id webauth.Identity) ([]catalog.Bay, error) {
+	all, err := s.catalog.Bays(r.Context())
+	if err != nil || id.Admin {
+		return all, err
+	}
+	scope, err := s.catalog.GroupBays(r.Context(), id.Groups, catalog.PermWrite)
+	if err != nil {
+		return nil, err
+	}
+	var out []catalog.Bay
+	for _, b := range all {
+		if slices.Contains(scope, b.ID) {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+// checkMintBays refuses a mint into a bay outside id's scope. No bays
+// is the default bay, so it needs the default in scope too.
+func (s *Server) checkMintBays(r *http.Request, id webauth.Identity, refs []string) error {
+	if id.Admin {
+		for _, ref := range refs {
+			if _, err := s.catalog.ResolveBay(r.Context(), ref); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	allowed, err := s.mintBays(r, id)
+	if err != nil {
+		return err
+	}
+	if len(refs) == 0 {
+		refs = []string{catalog.DefaultBayID}
+	}
+	for _, ref := range refs {
+		b, err := s.catalog.ResolveBay(r.Context(), ref)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(allowed, func(a catalog.Bay) bool { return a.ID == b.ID }) {
+			return fmt.Errorf("%w: %s", errBayScope, b.Name)
+		}
+	}
+	return nil
+}
+
 var (
+	errBayScope = errors.New("you may not mint a device into that bay")
 	errBadName  = errors.New("a device name is lowercase letters, digits, '.', '-' and '_', at most 64")
 	errMintRate = errors.New("too many codes minted just now; wait a minute")
 )
@@ -302,6 +367,10 @@ func mintStatus(err error) (int, string) {
 		return http.StatusBadRequest, "unknown_profile"
 	case errors.Is(err, catalog.ErrNameTaken):
 		return http.StatusConflict, "name_taken"
+	case errors.Is(err, errBayScope), errors.Is(err, catalog.ErrBayScope):
+		return http.StatusForbidden, "bay_not_allowed"
+	case errors.Is(err, catalog.ErrNoBay):
+		return http.StatusBadRequest, "unknown_bay"
 	case errors.Is(err, errMintRate):
 		return http.StatusTooManyRequests, "rate_limited"
 	case errors.Is(err, registrar.ErrNoIdentity), errors.Is(err, registrar.ErrNoURL), errors.As(err, &urlErr):

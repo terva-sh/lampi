@@ -311,3 +311,50 @@ func TestTokenLookupFailureIsAServerError(t *testing.T) {
 		t.Fatalf("lookup on a closed catalog: %d %v", w.Code, w.Header())
 	}
 }
+
+// TKT-01M3NNF24A: a token minted with bays reads only sessions in them,
+// decided at each read.
+func TestReadTokenBayScope(t *testing.T) {
+	lake, idp, h, _ := rawLake(t, nil)
+	work, workDigest := storeSession(t, lake, "tok-work", []byte("work\n"))
+	inbox, inboxDigest := storeSession(t, lake, "tok-inbox", []byte("inbox\n"))
+	ctx := t.Context()
+	if _, err := lake.Catalog.CreateBay(ctx, "work", "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.AddToBay(ctx, catalog.Membership{SessionUID: work, Bay: "work", Actor: "test", Via: catalog.ViaCLI}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	admin := signInAs(t, idp, h, "owners")
+	a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"work only"}, "bays": {"work"}, "expires": {"24h"}}, admin)
+	m := mintedToken.FindStringSubmatch(w.Body.String())
+	if w.Code != 200 || m == nil {
+		t.Fatalf("mint %d: %s", w.Code, w.Body.String())
+	}
+	tok := m[1]
+	// The shown-once panel and the list say the token is limited
+	// (review 1415).
+	if body := w.Body.String(); !strings.Contains(body, "It reads raw artifacts of the sessions in bays work until") || !strings.Contains(get(h, adminReadTokensPath, admin).Body.String(), "Sessions in bays work") {
+		i := strings.Index(body, "It reads raw artifacts")
+		t.Fatalf("the minted panel or the token list does not name the bay limit: %q", body[i:min(len(body), i+200)])
+	}
+	if w := bearer(h, "GET", rawTokenPath(work, workDigest), tok); w.Code != 200 {
+		t.Fatalf("in bay: %d", w.Code)
+	}
+	if w := bearer(h, "GET", rawTokenPath(inbox, inboxDigest), tok); w.Code != 404 {
+		t.Fatalf("outside the bay: %d", w.Code)
+	}
+	// Sorted out of the bay, the session is out of reach.
+	if err := lake.Catalog.RemoveFromBay(ctx, catalog.Membership{SessionUID: work, Bay: "work", Actor: "test", Via: catalog.ViaCLI}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if w := bearer(h, "GET", rawTokenPath(work, workDigest), tok); w.Code != 404 {
+		t.Fatalf("after leaving the bay: %d", w.Code)
+	}
+	a = attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
+	w = postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"typo"}, "bays": {"nope"}, "expires": {"24h"}}, admin)
+	if w.Code != 400 || mintedToken.MatchString(w.Body.String()) || !strings.Contains(w.Body.String(), "not in the lake") {
+		t.Fatalf("unknown bay mint: %d", w.Code)
+	}
+}

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF27AS0NCTG7N8XFDMWMK
 title: "Bays: scope every read path by the caller's bays"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -19,10 +19,17 @@ dependencies:
   - TKT-01M3NNF24AXMQ130VWR71QHQZ3
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/7859b064
+  branch: bays/scope-tokens
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
+  commit: 8539fca309b3eeed939bd4838ae1e05386ace24a
+  session: null
+  claimed_at: 2026-09-29T16:49:29Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T14:58:27Z
+updated_at: 2026-09-29T16:49:29Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
