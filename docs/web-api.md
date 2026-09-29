@@ -597,7 +597,8 @@ the line it is on, counted from 1. `ends` is `copy` or `head` when that file
 ends first with every byte before equal. `same` is set when the copy is now the
 head. `beyond` is set when no difference turned up in the first 64 MiB of each,
 which is as far as the lake reads for this. `part` is absent when the lake could
-not read both files. It names offsets, never content.
+not read both files, or when the server has no blob store to read. It names
+offsets, never content.
 
 ### Conflict actions
 
@@ -607,7 +608,7 @@ role, `404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
 
 | Route under `/api/web/v1` | Result |
 |---|---|
-| `POST /conflicts/{id}/keep-head` | Resolves the conflict as `kept_head`. Takes no body or `{"note": TEXT}`: one line, at most 500 characters. |
+| `POST /conflicts/{id}/keep-head` | Resolves the conflict as `kept_head`. Takes no body or `{"note": TEXT}`: one line, at most 500 characters, with no control characters, checked as sent; surrounding spaces are then dropped. |
 | `POST /conflicts/{id}/reopen` | Removes the resolution. Takes no body. It does not move the head. |
 
 Each answers `200` with `{conflict}` as above.

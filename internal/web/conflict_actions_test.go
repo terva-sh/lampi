@@ -118,10 +118,19 @@ func TestOperatorKeepsTheHeadAndReopens(t *testing.T) {
 	if w := postForm(h, conflictURL(id)+"/keep-head", url.Values{"note": {"checked"}}, op); w.Code != 403 {
 		t.Errorf("without csrf: %d", w.Code)
 	}
-	if w := postForm(h, conflictURL(id)+"/keep-head", url.Values{"csrf": {csrf}, "note": {"bad\nnote"}}, op); w.Code != 400 || !strings.Contains(w.Body.String(), "one line") {
-		t.Errorf("multi-line note: %d", w.Code)
+	for _, note := range []string{"bad\nnote", "checked\n", "tab\there", strings.Repeat("x", maxConflictNote+1)} {
+		if w := postForm(h, conflictURL(id)+"/keep-head", url.Values{"csrf": {csrf}, "note": {note}}, op); w.Code != 400 || !strings.Contains(w.Body.String(), "one line") {
+			t.Errorf("note %.20q: %d", note, w.Code)
+		}
 	}
-	w := postForm(h, conflictURL(id)+"/keep-head", url.Values{"csrf": {csrf}, "note": {"same session, other laptop"}}, op)
+	// 500 characters is the limit, not 500 bytes.
+	if w := post(h, "/api/web/v1/conflicts/"+id+"/keep-head", `{"note":"`+strings.Repeat("é", maxConflictNote)+`"}`, op, map[string]string{CSRFHeader: csrf}); w.Code != 200 {
+		t.Fatalf("a 500-character note: %d %s", w.Code, w.Body)
+	}
+	if w := post(h, "/api/web/v1/conflicts/"+id+"/reopen", "", op, map[string]string{CSRFHeader: csrf}); w.Code != 200 {
+		t.Fatalf("reopen: %d", w.Code)
+	}
+	w := postForm(h, conflictURL(id)+"/keep-head", url.Values{"csrf": {csrf}, "note": {"  same session, other laptop "}}, op)
 	if w.Code != 303 || w.Header().Get("Location") != conflictURL(id) {
 		t.Fatalf("keep-head: %d %s", w.Code, w.Header().Get("Location"))
 	}
@@ -205,5 +214,33 @@ func TestConflictAPI(t *testing.T) {
 	}
 	if w := post(h, "/api/web/v1/conflicts/"+id+"/reopen", "", op, hdr); w.Code != 200 {
 		t.Errorf("reopen: %d %s", w.Code, w.Body)
+	}
+}
+
+// A server with no blob store says it cannot compare, rather than that a
+// read failed.
+func TestConflictPageWithoutABlobStore(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	_, id := seedConflict(t, lake.Catalog, "forked")
+	cookie, _ := signIn(t, idp, h)
+	body := get(h, conflictURL(id), cookie).Body.String()
+	if !strings.Contains(body, "does not read stored bytes") || strings.Contains(body, "could not read both files") {
+		t.Error("the page blames a read failure")
+	}
+}
+
+// A lake whose store cannot read one side says the read failed.
+func TestConflictPageWhenAReadFails(t *testing.T) {
+	lake, idp, h, _ := rawLake(t, nil)
+	storeSession(t, lake, "forked", []byte("one\n"))
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-b", Harness: "codex", NativeSessionID: "forked",
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/forked/rollout.jsonl", SHA256: strings.Repeat("d", 64), Size: 9}}}
+	ack, err := lake.Catalog.Ingest(t.Context(), m, time.Now(), []catalog.Decision{{Relation: protocol.RelationDivergentCopy, Record: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := get(h, conflictURL(ack.ArtifactIDs[0]), signInAs(t, idp, h, "readers")).Body.String()
+	if !strings.Contains(body, "could not read both files") || strings.Contains(body, "does not read stored bytes") {
+		t.Error("a failed read is not reported as one")
 	}
 }

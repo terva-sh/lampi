@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
@@ -96,6 +98,9 @@ type conflictDetail struct {
 	// Part is where the copy and the head part, when the blob store
 	// could be read.
 	Part *partView
+	// Compared is false when this server has no blob store to compare
+	// with, as opposed to a comparison that failed.
+	Compared bool
 }
 
 // partView says where two files part: at byte Offset, on line Line
@@ -191,6 +196,7 @@ func (s *Server) loadConflict(r *http.Request, id string) (conflictDetail, bool,
 	}
 	out := conflictDetail{DivergentCopy: d}
 	if s.reg != nil && s.reg.Blobs != nil {
+		out.Compared = true
 		if p, err := whereTheyPart(ctx, s.reg.Blobs, d.SHA256, d.HeadSHA256, partCompareLimit); err == nil {
 			out.Part = &p
 		} else {
@@ -291,10 +297,12 @@ const maxConflictNote = 500
 func (s *Server) changeConflict(r *http.Request, id, action, note string) (int, string) {
 	lake := s.reg.Lake()
 	ctx := r.Context()
-	note = strings.TrimSpace(note)
-	if len(note) > maxConflictNote || strings.ContainsFunc(note, func(c rune) bool { return c < ' ' && c != '\t' }) {
+	// The note is checked as sent: one line of at most maxConflictNote
+	// characters. Only then are surrounding spaces dropped.
+	if utf8.RuneCountInString(note) > maxConflictNote || !utf8.ValidString(note) || strings.ContainsFunc(note, unicode.IsControl) {
 		return http.StatusBadRequest, "invalid_note"
 	}
+	note = strings.TrimSpace(note)
 	ident, _ := webauth.Current(r)
 	who, now := actor(ident).Audit, s.now()
 	var err error
