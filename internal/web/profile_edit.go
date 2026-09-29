@@ -108,6 +108,10 @@ type profileEditView struct {
 	ReturnLabel string
 	Form        profileForm
 	Preview     *profilePreview
+	// Covered and Folds are the editor's offers to shorten the allow
+	// list, from the rules the form holds.
+	Covered []coveredRule
+	Folds   []ownerFold
 }
 
 // setReturn takes the form's return field, when it names a page the
@@ -329,6 +333,8 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
+	allow := normalizeRules(v.Form.Allow)
+	v.Covered, v.Folds = coveredRules(allow), ownerFolds(allow)
 	title := "Edit profile " + v.Name
 	if v.New {
 		title = "New profile " + v.Name
@@ -426,6 +432,9 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 	v := profileEditView{Name: name, Stored: stored, New: !stored && name != config.DefaultProfile}
 	s.setReturn(r, &v, r.PostForm.Get("return"))
 	f, p, err := readProfileForm(r.PostForm)
+	if err == nil {
+		tidyForm(r.PostForm, &f, &p)
+	}
 	v.Form = f
 	if err == nil {
 		raw, _ := json.Marshal(p)
