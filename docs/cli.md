@@ -48,7 +48,9 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 ## Export
 
 `terva-lampi export --format events`, the default, writes one
-normalized event per line.
+normalized event per line. `--bay`, repeated, limits either format to
+the sessions in those [bays](policy.md#bays); without it export reads
+every bay, as anything that reads the lake directory does.
 
 `--format sharegpt` and `--format trajectory` write one ShareGPT
 conversation per session that `config.json` allowlists and that has a

@@ -55,6 +55,10 @@ type SearchRequest struct {
 	RawType   string
 	Limit     int
 	Cursor    string
+	// Scope drops hits in sessions the caller does not read. The zero
+	// Scope reads nothing. A page can then hold fewer hits than Limit,
+	// as it already can when a hit's generation is stale.
+	Scope catalog.Scope
 }
 
 // EventTypes and Actors are the values the event filters accept: the
@@ -150,6 +154,11 @@ func ftsLiteral(q string) string {
 // points at content that is stale, failed or purged.
 func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, error) {
 	page := SearchPage{Items: []Hit{}, AsOf: time.Now().UTC().Format(time.RFC3339Nano), Coverage: x.Coverage()}
+	// Coverage counts sessions across the whole lake, so only a caller
+	// that reads every bay is told it.
+	if !req.Scope.All() {
+		page.Coverage = Coverage{}
+	}
 	if req.Limit == 0 {
 		req.Limit = SearchDefaultLimit
 	}
@@ -242,8 +251,13 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 		default:
 			return page, err
 		}
-		summary, err := x.reader.catalog.DashboardSession(ctx, uid)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		summary, err := x.reader.catalog.DashboardSession(ctx, req.Scope, uid)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Not stored, or outside scope: no hit from it is shown.
+			current[uid] = -1
+			continue
+		}
+		if err != nil {
 			return page, err
 		}
 		labels[uid] = summary

@@ -235,13 +235,13 @@ func (s *Server) readOperations(ctx context.Context, rg opsRange, now time.Time)
 	if v.Queues.AuditPending, err = s.catalog.PendingAudit(ctx); err != nil {
 		return v, err
 	}
-	overview, err := s.catalog.DashboardOverview(ctx)
+	overview, err := s.catalog.DashboardOverview(ctx, scopeIn(ctx))
 	if err != nil {
 		return v, err
 	}
 	v.Queues.NormalizePending = overview.Normalization["pending"]
 	v.Queues.NormalizeFailed = overview.Normalization["failed"]
-	if s.index != nil {
+	if s.index != nil && scopeIn(ctx).All() {
 		c := s.index.Coverage()
 		v.Queues.Search = &c
 	}
@@ -330,7 +330,7 @@ func buildGrowth(rg opsRange, samples []catalog.StorageSample, start, until time
 // the machines bound to no device: those that posted before devices
 // were recorded, or under a token that is gone.
 func (s *Server) readMachines(ctx context.Context, now time.Time) ([]opsMachine, error) {
-	activity, err := s.catalog.MachinesActivity(ctx, now.Add(-24*time.Hour))
+	activity, err := s.catalog.MachinesActivity(ctx, scopeIn(ctx), now.Add(-24*time.Hour))
 	if err != nil {
 		return nil, err
 	}

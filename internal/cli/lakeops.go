@@ -270,7 +270,7 @@ func backupCatalog(src, dest string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	n, err := check.Counts(context.Background())
+	n, err := check.Counts(context.Background(), catalog.AllBays())
 	check.Close()
 	if err != nil {
 		return 0, err

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/testharness"
 	"terva.sh/lampi/internal/upload"
 )
@@ -273,7 +274,7 @@ func TestGoLive20KSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first sync: %v %s", err, errs)
 	}
-	counts, err := lake.Catalog.Counts(t.Context())
+	counts, err := lake.Catalog.Counts(t.Context(), catalog.AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}

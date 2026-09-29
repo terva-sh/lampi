@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -42,7 +43,7 @@ func TestOnPublishedSeesReadyStateAndBeforeCloseSeesCatalog(t *testing.T) {
 	}
 	closed := false
 	s.BeforeClose = func() {
-		if _, err := s.Catalog.Counts(t.Context()); err != nil {
+		if _, err := s.Catalog.Counts(t.Context(), catalog.AllBays()); err != nil {
 			t.Error("catalog closed before BeforeClose:", err)
 		}
 		closed = true

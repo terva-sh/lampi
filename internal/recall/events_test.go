@@ -75,7 +75,7 @@ func TestEventsPageThroughCursorAndPositions(t *testing.T) {
 	var seen int64
 	req := EventRequest{Limit: 100}
 	for pages := 0; ; pages++ {
-		p, err := r.Events(t.Context(), uid, req)
+		p, err := r.Events(t.Context(), catalog.AllBays(), uid, req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,19 +102,19 @@ func TestEventsPageThroughCursorAndPositions(t *testing.T) {
 	if seen != 250 {
 		t.Fatal("seen", seen)
 	}
-	p, err := r.Events(t.Context(), uid, EventRequest{From: 240, Limit: 5})
+	p, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{From: 240, Limit: 5})
 	if err != nil || p.From != 240 || p.Items[0].Position != 240 || len(p.Items) != 5 || p.End || *p.PrevFrom != 235 {
 		t.Fatal("from", err, p.From)
 	}
-	p, err = r.Events(t.Context(), uid, EventRequest{From: 245, Limit: 5})
+	p, err = r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{From: 245, Limit: 5})
 	if err != nil || !p.End || p.NextCursor != "" {
 		t.Fatal("exact end", err, p.End)
 	}
-	p, err = r.Events(t.Context(), uid, EventRequest{From: 900})
+	p, err = r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{From: 900})
 	if err != nil || len(p.Items) != 0 || !p.End || p.From != 250 {
 		t.Fatal("past end", err, p.From)
 	}
-	if _, err := r.Events(t.Context(), uid, EventRequest{Gen: gen + 1, Pinned: true}); !errors.Is(err, ErrGenerationChanged) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Gen: gen + 1, Pinned: true}); !errors.Is(err, ErrGenerationChanged) {
 		t.Fatal("pinned generation", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestEventsBoundContentAndHideOpaque(t *testing.T) {
 	evs[1].Extra = map[string]any{"blob": strings.Repeat("x", ExtraBytes)}
 	publish(t, s, uid, evs)
 	r := NewReader(s.Catalog, s.Normalized)
-	p, err := r.Events(t.Context(), uid, EventRequest{Limit: 200})
+	p, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Limit: 200})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,39 +166,39 @@ func TestEventsUnavailableStatesAndBadInput(t *testing.T) {
 	uid := ingest(t, s, "states")
 	r := NewReader(s.Catalog, s.Normalized)
 	var unavailable UnavailableError
-	if _, err := r.Events(t.Context(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "unknown" {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "unknown" {
 		t.Fatal("never published", err)
 	}
 	publish(t, s, uid, events(3, func(int) string { return "a" }))
 	if _, err := s.Catalog.EnqueueNormalize(t.Context(), uid, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Events(t.Context(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "pending" {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "pending" {
 		t.Fatal("pending", err)
 	}
 	publish(t, s, uid, events(3, func(int) string { return "b" }))
 	if err := os.Remove(filepath.Join(s.Normalized, uid+normalize.EventsExt)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Events(t.Context(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "missing" {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "missing" {
 		t.Fatal("missing", err)
 	}
 	if err := s.StoreEvents(t.Context(), uid, nil, errors.New("synthetic failure")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Events(t.Context(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "failed" {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "failed" {
 		t.Fatal("failed", err)
 	}
-	if _, err := r.Events(t.Context(), "nope", EventRequest{}); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), "nope", EventRequest{}); !errors.Is(err, ErrNotFound) {
 		t.Fatal("unknown uid", err)
 	}
 	for _, bad := range []string{"", "../x", "a/b", strings.Repeat("u", 129)} {
-		if _, err := r.Events(t.Context(), bad, EventRequest{}); !errors.Is(err, ErrInvalid) {
+		if _, err := r.Events(t.Context(), catalog.AllBays(), bad, EventRequest{}); !errors.Is(err, ErrInvalid) {
 			t.Fatal("uid accepted", bad, err)
 		}
 	}
 	for _, req := range []EventRequest{{Limit: 201}, {Limit: -1}, {From: -1}, {Cursor: "x"}, {Cursor: "e30.AAAA"}} {
-		if _, err := r.Events(t.Context(), uid, req); !errors.Is(err, ErrInvalid) {
+		if _, err := r.Events(t.Context(), catalog.AllBays(), uid, req); !errors.Is(err, ErrInvalid) {
 			t.Fatal("request accepted", req, err)
 		}
 	}
@@ -211,25 +211,25 @@ func TestCursorRejectsTamperingAndNewGenerations(t *testing.T) {
 	publish(t, s, uid, events(10, func(int) string { return "one" }))
 	publish(t, s, other, events(10, func(int) string { return "two" }))
 	r := NewReader(s.Catalog, s.Normalized)
-	p, err := r.Events(t.Context(), uid, EventRequest{Limit: 2})
+	p, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Events(t.Context(), other, EventRequest{Cursor: p.NextCursor}); !errors.Is(err, ErrInvalid) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), other, EventRequest{Cursor: p.NextCursor}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("cursor moved between sessions", err)
 	}
-	if _, err := NewReader(s.Catalog, s.Normalized).Events(t.Context(), uid, EventRequest{Cursor: p.NextCursor}); !errors.Is(err, ErrInvalid) {
+	if _, err := NewReader(s.Catalog, s.Normalized).Events(t.Context(), catalog.AllBays(), uid, EventRequest{Cursor: p.NextCursor}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("cursor survived a new key", err)
 	}
 	c, _ := r.verify(p.NextCursor)
 	c.Off = 1
 	body, _ := json.Marshal(c)
 	forged := strings.Replace(p.NextCursor, strings.SplitN(p.NextCursor, ".", 2)[0], encodeRaw(body), 1)
-	if _, err := r.Events(t.Context(), uid, EventRequest{Cursor: forged}); !errors.Is(err, ErrInvalid) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Cursor: forged}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("forged offset accepted", err)
 	}
 	publish(t, s, uid, events(10, func(int) string { return "new" }))
-	if _, err := r.Events(t.Context(), uid, EventRequest{Cursor: p.NextCursor}); !errors.Is(err, ErrGenerationChanged) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Cursor: p.NextCursor}); !errors.Is(err, ErrGenerationChanged) {
 		t.Fatal("stale cursor", err)
 	}
 }
@@ -266,7 +266,7 @@ func TestPagesNeverMixGenerations(t *testing.T) {
 	var served, reloads int
 	deadline := time.Now().Add(30 * time.Second)
 	for (served < minPages || reloads == 0) && time.Now().Before(deadline) {
-		p, err := r.Events(t.Context(), uid, EventRequest{Limit: 200})
+		p, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Limit: 200})
 		var unavailable UnavailableError
 		if errors.As(err, &unavailable) || errors.Is(err, ErrGenerationChanged) {
 			reloads++
@@ -282,7 +282,7 @@ func TestPagesNeverMixGenerations(t *testing.T) {
 			}
 		}
 		if p.NextCursor != "" {
-			if q, err := r.Events(t.Context(), uid, EventRequest{Cursor: p.NextCursor}); err == nil {
+			if q, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Cursor: p.NextCursor}); err == nil {
 				for _, it := range q.Items {
 					if !strings.HasPrefix(*it.Event.ContentText, want) {
 						t.Fatal("cursor page crossed generations")
@@ -330,7 +330,7 @@ func TestPurgeEndsReadsAndOpenSnapshotsFinish(t *testing.T) {
 	uid := ingest(t, s, "purge")
 	publish(t, s, uid, events(20, func(i int) string { return fmt.Sprint("kept ", i) }))
 	r := NewReader(s.Catalog, s.Normalized)
-	first, err := r.Events(t.Context(), uid, EventRequest{Limit: 5})
+	first, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Limit: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,10 +341,10 @@ func TestPurgeEndsReadsAndOpenSnapshotsFinish(t *testing.T) {
 	if err := s.Purge(t.Context(), plan); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Events(t.Context(), uid, EventRequest{}); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{}); !errors.Is(err, ErrNotFound) {
 		t.Fatal("purged session still readable", err)
 	}
-	if _, err := r.Events(t.Context(), uid, EventRequest{Cursor: first.NextCursor}); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{Cursor: first.NextCursor}); !errors.Is(err, ErrNotFound) {
 		t.Fatal("cursor outlived purge", err)
 	}
 }
@@ -356,7 +356,7 @@ func pageAll(t *testing.T, r *Reader, uid string, text func(i int) string) int64
 	var seen int64
 	req := EventRequest{Limit: 100}
 	for {
-		p, err := r.Events(t.Context(), uid, req)
+		p, err := r.Events(t.Context(), catalog.AllBays(), uid, req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,12 +391,12 @@ func TestEventsPageAcrossFramesAndPlainFiles(t *testing.T) {
 		t.Fatalf("saw %d", n)
 	}
 	for _, from := range []int64{0, 1, 999, 1500, 2998} {
-		p, err := r.Events(t.Context(), uid, EventRequest{From: from, Limit: 3})
+		p, err := r.Events(t.Context(), catalog.AllBays(), uid, EventRequest{From: from, Limit: 3})
 		if err != nil || p.Items[0].Position != from || *p.Items[0].Event.ContentText != text(int(from)) {
 			t.Fatalf("from %d: %v", from, err)
 		}
 	}
-	ex, err := r.Excerpt(t.Context(), uid, ExcerptRequest{From: 2500, Count: 2})
+	ex, err := r.Excerpt(t.Context(), catalog.AllBays(), uid, ExcerptRequest{From: 2500, Count: 2})
 	if err != nil || ex.From != 2500 || !strings.Contains(ex.Text, "line 2500 ") {
 		t.Fatalf("excerpt: %v", err)
 	}

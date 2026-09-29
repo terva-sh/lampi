@@ -118,7 +118,7 @@ func writeLocalConflicts(w io.Writer, data string, resolved bool) error {
 		return err
 	}
 	defer cat.Close()
-	rows, err := cat.DivergentCopies(context.Background(), resolved)
+	rows, err := cat.DivergentCopies(context.Background(), catalog.AllBays(), resolved)
 	if err != nil {
 		return err
 	}

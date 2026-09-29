@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"terva.sh/lampi/internal/catalog"
 )
 
 // TestIndexScale indexes one long session and many short ones and
@@ -73,7 +75,7 @@ func TestIndexScale(t *testing.T) {
 	}
 	for _, q := range []string{"zqxjv", "needle", "synthetic tool output"} {
 		start := time.Now()
-		p := search(t, x, SearchRequest{Query: q, Limit: 200})
+		p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: q, Limit: 200})
 		t.Logf("query %q: %d hits on the first page in %s", q, len(p.Items), time.Since(start).Round(time.Microsecond))
 		if len(p.Items) == 0 {
 			t.Fatal("no hits", q)

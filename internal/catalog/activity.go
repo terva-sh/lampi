@@ -157,10 +157,17 @@ func (r ActivityRequest) Resolve(now time.Time) (ActivityRequest, error) {
 // activitySQL sums head_updates per bucket over the resolved range. The
 // bucket index is counted from From, which is aligned, and the time
 // indexes carry both sizes, so this reads no table rows.
-func activitySQL(r ActivityRequest) (string, []any) {
+func activitySQL(scope Scope, r ActivityRequest) (string, []any) {
 	w, _, _ := bucketWidth(r.Bucket)
-	q := `SELECT (received_ns - ?) / ?, COUNT(*), SUM(new_size - old_size) FROM head_updates WHERE `
+	q := `SELECT (received_ns - ?) / ?, COUNT(*), SUM(new_size - old_size) FROM head_updates h WHERE `
 	args := []any{r.From.UnixNano(), int64(w)}
+	// AllBays keeps the index-only read; a limited scope checks each
+	// update's session.
+	if !scope.All() {
+		cond, bayArgs := scope.where("h.session_uid")
+		q += cond + ` AND `
+		args = append(args, bayArgs...)
+	}
 	if r.Harness != "" {
 		q += `harness = ? AND `
 		args = append(args, r.Harness)
@@ -172,7 +179,7 @@ func activitySQL(r ActivityRequest) (string, []any) {
 
 // Activity reads accepted head updates in buckets. now sets the default
 // range, the clamp, and as_of.
-func (c *Catalog) Activity(ctx context.Context, req ActivityRequest, now time.Time) (Activity, error) {
+func (c *Catalog) Activity(ctx context.Context, scope Scope, req ActivityRequest, now time.Time) (Activity, error) {
 	r, err := req.Resolve(now)
 	if err != nil {
 		return Activity{}, err
@@ -207,7 +214,7 @@ func (c *Catalog) Activity(ctx context.Context, req ActivityRequest, now time.Ti
 	}
 	type sums struct{ n, net int64 }
 	got := map[int64]sums{}
-	q, args := activitySQL(r)
+	q, args := activitySQL(scope, r)
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
 		return Activity{}, err

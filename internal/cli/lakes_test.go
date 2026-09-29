@@ -12,6 +12,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/auth"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 )
 
@@ -98,13 +99,13 @@ func TestSyncPushesToTheSelectedLakeWithItsOwnState(t *testing.T) {
 	if err == nil || !strings.Contains(f.stdout.String()+f.stderr.String(), "refused") {
 		t.Fatalf("sync to default: %v\nstdout:\n%s\nstderr:\n%s", err, f.stdout, f.stderr)
 	}
-	if n, err := f.home.Catalog.Counts(t.Context()); err != nil || n.Sessions != 0 {
+	if n, err := f.home.Catalog.Counts(t.Context(), catalog.AllBays()); err != nil || n.Sessions != 0 {
 		t.Fatalf("default lake got %d sessions (%v)", n.Sessions, err)
 	}
 	if err := f.run("sync", "--lake", "work"); err != nil {
 		t.Fatalf("sync --lake work: %v\n%s", err, f.stderr)
 	}
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 || n.Machines != 1 {
+	if n, _ := f.work.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 || n.Machines != 1 {
 		t.Fatalf("work lake counts %+v", n)
 	}
 	// A second sync to work finds its own watermarks and sends nothing.
@@ -197,7 +198,7 @@ func TestSyncPushesToEveryLakeAndKeepsGoingPastAFailure(t *testing.T) {
 	if !strings.Contains(f.stdout.String(), "lake default: checked") || !strings.Contains(f.stdout.String(), "lake work: checked 1") {
 		t.Fatalf("labels:\n%s", f.stdout)
 	}
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := f.work.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("work sessions %d", n.Sessions)
 	}
 }
@@ -216,7 +217,7 @@ func TestSyncKeepsGoingPastALakeItCannotPrepare(t *testing.T) {
 	if !strings.Contains(f.stderr.String(), "terva-lampi: lake default: ") {
 		t.Fatalf("the failure does not name its lake:\n%s", f.stderr)
 	}
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := f.work.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("work sessions %d\n%s", n.Sessions, f.stderr)
 	}
 }
@@ -266,7 +267,7 @@ func TestAgentStartsTheOtherLakesPastOneItCannotPrepare(t *testing.T) {
 	if !strings.Contains(out, "terva-lampi: lake default: ") || !strings.Contains(out, "the other lakes still start") {
 		t.Fatalf("the skipped lake is not named:\n%s", out)
 	}
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := f.work.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("work sessions %d\n%s", n.Sessions, out)
 	}
 }
@@ -307,10 +308,10 @@ func TestAgentPushesToEachLakeAndALockedOutLakeDoesNotBlockTheOther(t *testing.T
 		return strings.Contains(s, "lake work: checked 1, missing 1, uploaded 1") &&
 			strings.Contains(s, "lake default: lake answered 401")
 	})
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := f.work.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("work sessions %d\n%s", n.Sessions, buf.String())
 	}
-	if n, _ := f.home.Catalog.Counts(t.Context()); n.Sessions != 0 {
+	if n, _ := f.home.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 0 {
 		t.Fatal("default accepted a refused token")
 	}
 	cancel()
@@ -391,7 +392,7 @@ func TestSyncMigratesSingleLakeStateAndSendsNothingTwice(t *testing.T) {
 	if !strings.Contains(f.stdout.String(), "uploaded 0") || !strings.Contains(f.stdout.String(), "manifests 0") {
 		t.Fatalf("sync after the move sent again:\n%s", f.stdout)
 	}
-	if n, _ := f.home.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := f.home.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("default lake sessions %d", n.Sessions)
 	}
 }

@@ -169,12 +169,13 @@ type pageData struct {
 // snippet split around the match so the template marks it without
 // building HTML.
 type searchView struct {
-	Enabled  bool
-	Asked    bool
-	Invalid  bool
-	Form     url.Values
-	Hits     []hitView
-	Coverage recall.Coverage
+	Enabled bool
+	Asked   bool
+	Invalid bool
+	Form    url.Values
+	Hits    []hitView
+	// Coverage is lake-wide, so only an admin is shown it.
+	Coverage *recall.Coverage
 }
 
 type hitView struct {
@@ -233,12 +234,12 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	overview, err := s.catalog.DashboardOverview(ctx)
+	overview, err := s.catalog.DashboardOverview(ctx, scopeOf(r))
 	if err != nil {
 		pageError(w, r, err)
 		return
 	}
-	recent, err := s.catalog.DashboardSessions(ctx, catalog.PageRequest{Limit: 8})
+	recent, err := s.catalog.DashboardSessions(ctx, scopeOf(r), catalog.PageRequest{Limit: 8})
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -261,7 +262,7 @@ func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.DashboardSessions(ctx, p)
+	v, err := s.catalog.DashboardSessions(ctx, scopeOf(r), p)
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -287,12 +288,12 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	uid := r.PathValue("uid")
-	summary, err := s.catalog.DashboardSession(ctx, uid)
+	summary, err := s.catalog.DashboardSession(ctx, scopeOf(r), uid)
 	if err != nil {
 		pageError(w, r, err)
 		return
 	}
-	records, err := s.catalog.DashboardRecords(ctx, uid, kind, p)
+	records, err := s.catalog.DashboardRecords(ctx, scopeOf(r), uid, kind, p)
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -311,7 +312,7 @@ func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.DashboardRecords(ctx, "", "conflicts", p)
+	v, err := s.catalog.DashboardRecords(ctx, scopeOf(r), "", "conflicts", p)
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -345,7 +346,7 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	uid := r.PathValue("uid")
-	d.Session, err = s.catalog.DashboardSession(ctx, uid)
+	d.Session, err = s.catalog.DashboardSession(ctx, scopeOf(r), uid)
 	if errors.Is(err, sql.ErrNoRows) {
 		// A link to a purged session, or one this lake never had.
 		d.Unavailable = "gone"
@@ -356,7 +357,7 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	d.Transcript, err = s.events.Events(ctx, uid, req)
+	d.Transcript, err = s.events.Events(ctx, scopeOf(r), uid, req)
 	var unavailable recall.UnavailableError
 	switch {
 	case err == nil:
@@ -388,7 +389,10 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		renderStatus(w, r, d, http.StatusServiceUnavailable)
 		return
 	}
-	d.Search.Coverage = s.index.Coverage()
+	if scopeOf(r).All() {
+		c := s.index.Coverage()
+		d.Search.Coverage = &c
+	}
 	// Nothing filled in: show the form. Session filters alone are
 	// refused by Search, as a corpus listing.
 	blank := true
@@ -407,12 +411,15 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := readContext(r)
 		defer cancel()
 		var page recall.SearchPage
+		req.Scope = scopeOf(r)
 		page, err = s.index.Search(ctx, req)
 		if err == nil {
 			for _, h := range page.Items {
 				d.Search.Hits = append(d.Search.Hits, splitHit(h))
 			}
-			d.Search.Coverage = page.Coverage
+			if scopeOf(r).All() {
+				d.Search.Coverage = &page.Coverage
+			}
 			d.AsOf = page.AsOf
 			d.NextURL = nextURL(r, page.NextCursor)
 			render(w, r, d)
@@ -438,7 +445,7 @@ func (s *Server) excerptPage(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		req.Origin = s.origin
 		var ex recall.Excerpt
-		ex, err = s.events.Excerpt(ctx, r.PathValue("uid"), req)
+		ex, err = s.events.Excerpt(ctx, scopeOf(r), r.PathValue("uid"), req)
 		if err == nil {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			_, _ = w.Write([]byte(ex.Text))

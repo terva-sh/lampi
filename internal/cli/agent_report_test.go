@@ -52,7 +52,7 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		n, err := lake.Catalog.Counts(t.Context())
+		n, err := lake.Catalog.Counts(t.Context(), catalog.AllBays())
 		if err != nil {
 			t.Fatal(err)
 		}

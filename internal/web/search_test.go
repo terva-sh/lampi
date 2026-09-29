@@ -45,7 +45,8 @@ func TestSearchAPIIsGuardedValidatedAndCurrent(t *testing.T) {
 		t.Fatal("search", w.Code, w.Body.String())
 	}
 	hit := page.Items[0]
-	if hit.Position != 7 || hit.NativeID != "searchable" || hit.SessionUID != uid || !strings.Contains(hit.Link, "at=7") || page.Coverage.Indexed != 1 {
+	if hit.Position != 7 || hit.NativeID != "searchable" || hit.SessionUID != uid || !strings.Contains(hit.Link, "at=7") || page.Coverage.Indexed != 0 {
+		// Coverage counts the whole lake; a viewer is not told it.
 		t.Fatalf("hit %+v coverage %+v", hit, page.Coverage)
 	}
 	for _, bad := range []string{"", "?q=", "?q=ab", "?q=abc&since=yesterday", "?q=abc&since=2026-09-03&until=2026-09-02", "?q=abc&x=1", "?q=abc&limit=201", "?q=abc&q=def", "?q=abc&unlinked=maybe", "?q=abc&cursor=nope", "?q=abc&harness=vim"} {
@@ -81,7 +82,7 @@ func TestSearchPageMarksMatchesAndEscapes(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := get(h, "/search", cookie)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `role="search"`) || strings.Contains(w.Body.String(), `class="hits"`) || !strings.Contains(w.Body.String(), "Searching 1 of 1 ready sessions") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `role="search"`) || strings.Contains(w.Body.String(), `class="hits"`) || strings.Contains(w.Body.String(), "Searching ") {
 		t.Fatal("empty form", w.Code)
 	}
 	w = get(h, "/search?q="+url.QueryEscape(`needle "quoted"`)+"&harness=&project=&since=&until=", cookie)
