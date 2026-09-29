@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -314,5 +315,20 @@ func TestArchiveCarriesTheIdentity(t *testing.T) {
 	a, _ := os.ReadFile(filepath.Join(dir, "identity.json"))
 	if b, err := os.ReadFile(filepath.Join(restored, "identity.json")); err != nil || !bytes.Equal(a, b) {
 		t.Fatalf("identity.json after restore: %v", err)
+	}
+}
+
+// A copy stops at its next read once the backup is interrupted, not at
+// the end of the entry.
+func TestArchiveCopyStopsWhenInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	r := ctxReader{ctx, strings.NewReader(strings.Repeat("x", 1<<20))}
+	buf := make([]byte, 1024)
+	if _, err := r.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if _, err := r.Read(buf); err == nil || !strings.Contains(err.Error(), "interrupted") {
+		t.Fatalf("read after the signal: %v", err)
 	}
 }

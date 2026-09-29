@@ -85,7 +85,9 @@ func NewWriter(w io.Writer, recipients []age.Recipient, m Manifest) (*Writer, er
 }
 
 // Add writes a file of size bytes read from r under name, a relative
-// slash path. A reader that ends early or runs long is an error.
+// slash path. A reader that ends early is an error. Bytes past size are
+// not read, so a file appended to while it is added, as the audit log
+// is beside a running serve, is archived as the prefix it had.
 func (w *Writer) Add(name string, size int64, r io.Reader) error {
 	if !validName(name) {
 		return fmt.Errorf("archive: entry name %q", name)

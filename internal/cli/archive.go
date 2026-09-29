@@ -83,7 +83,7 @@ func backupArchive(env Env, data, dest, tokenFile string, recipients []age.Recip
 	}
 	defer os.RemoveAll(snapDir)
 	snapName := filepath.Join(snapDir, "catalog.db")
-	sessions, err := snapshotCatalog(filepath.Join(data, "catalog.db"), snapName)
+	sessions, err := snapshotCatalog(ctx, filepath.Join(data, "catalog.db"), snapName)
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func backupArchive(env Env, data, dest, tokenFile string, recipients []age.Recip
 			}
 		}
 		entries++
-		return w.Add(name, size, r)
+		return w.Add(name, size, ctxReader{ctx, r})
 	}
 	addFile := func(name, path string) error {
 		f, err := os.Open(path)
@@ -229,13 +229,16 @@ func addTokens(src string, addFile func(name, path string) error) error {
 
 // snapshotCatalog writes a VACUUM INTO copy of src at dest, owner-only,
 // and returns its session count.
-func snapshotCatalog(src, dest string) (int, error) {
+func snapshotCatalog(ctx context.Context, src, dest string) (int, error) {
 	cat, err := catalog.OpenReadOnly(src)
 	if err != nil {
 		return 0, err
 	}
 	defer cat.Close()
-	if err := cat.VacuumInto(context.Background(), dest); err != nil {
+	if err := cat.VacuumInto(ctx, dest); err != nil {
+		if ctx.Err() != nil {
+			return 0, fmt.Errorf("backup interrupted: %w", ctx.Err())
+		}
 		return 0, err
 	}
 	if err := os.Chmod(dest, 0o600); err != nil {
@@ -251,6 +254,20 @@ func snapshotCatalog(src, dest string) (int, error) {
 		return 0, err
 	}
 	return n.Sessions, nil
+}
+
+// ctxReader stops a copy once ctx is done, so a signal interrupts a
+// large entry between reads rather than after it.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, fmt.Errorf("backup interrupted: %w", err)
+	}
+	return c.r.Read(p)
 }
 
 func syncDirPath(dir string) error {
