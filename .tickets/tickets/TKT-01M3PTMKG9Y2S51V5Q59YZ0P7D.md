@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T14:55:56Z
-updated_at: 2026-09-29T15:25:30Z
+updated_at: 2026-09-29T15:36:04Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -119,3 +119,7 @@ Not run against the live dev lake's catalog: /var/lib/terva-lampi/catalog.db is 
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:25:30Z
 
 terva-review 1387 (run a9b15e2a) on 9260d95: two findings, both accepted and fixed. high: ResolveConflict accepted made_head/superseded, which would record a head change that did not happen; now it takes kept_head and not_a_conflict only, and only MakeConflictHead (TKT-01M3PTMWM) records the other two in the transaction that moves the head. low: GET /v1/conflicts?resolved=true&resolved=false read the first value; a repeated resolved is now 400. Tests cover both.
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T15:36:04Z
+
+terva-review 1389 (run 9981626d) on 9adc1a0: prior two findings verified resolved. New high finding: the migration treats an earlier divergent_copy row as nothing to diverge from, even if it is current. Premise was wrong: migration 12 relabels the copy it makes current as relation='head' (headrepair.go:92,134), so the test's setup is the real state; the PR text 'left every row labelled divergent_copy' misled the reviewer and was corrected. Accepted as hardening anyway, since MakeConflictHead (TKT-01M3PTMWM) leaves a current divergent_copy row: an earlier row now counts when it is current, whatever its relation. Test adds that shape; mutation-checked.

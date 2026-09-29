@@ -61,10 +61,12 @@ const unresolvedSQL = `NOT EXISTS (SELECT 1 FROM conflict_resolutions r WHERE r.
 //
 // A copy qualifies when its path is a companion of the session head's,
 // under the directory named for the head's file, and no earlier
-// artifact at its session and path is anything but a divergent copy: it
-// had nothing at its own path to diverge from, so it was compared with
-// another file. A companion that diverged from an earlier head or
-// grown_from row at its own path is a real conflict and stays open.
+// artifact at its session and path is current or anything but a
+// divergent copy: it had nothing at its own path to diverge from, so it
+// was compared with another file. migrateSubagentHeads relabelled the
+// copy it made current as head, and an earlier current row counts
+// whatever its relation. A companion that diverged from an earlier row
+// at its own path is a real conflict and stays open.
 func migrateConflictResolutions(tx *sql.Tx) error {
 	if _, err := tx.Exec(`CREATE TABLE conflict_resolutions (
 		artifact_id TEXT PRIMARY KEY,
@@ -110,7 +112,7 @@ func migrateConflictResolutions(tx *sql.Tx) error {
 		WHERE a.relation = 'divergent_copy'
 		  AND NOT EXISTS (SELECT 1 FROM artifacts b
 		                  WHERE b.session_uid = a.session_uid AND b.relpath = a.relpath
-		                    AND b.artifact_id < a.artifact_id AND b.relation <> 'divergent_copy')
+		                    AND b.artifact_id < a.artifact_id AND (b.relation <> 'divergent_copy' OR b.current = 1))
 		ORDER BY a.artifact_id`)
 	if err != nil {
 		return err

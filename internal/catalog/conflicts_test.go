@@ -85,6 +85,15 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 	// The session's transcript posted from another cwd: a move that
 	// diverged, not a companion.
 	moved := l.post("projects/q/S.jsonl", divergentDecision)
+	// agent-3's first post stayed a current divergent copy, and a later
+	// post diverged from it: a real fork, whatever the earlier row's
+	// relation says.
+	sub3 := "projects/p/S/subagents/agent-3.jsonl"
+	cur3 := l.post(sub3, divergentDecision)
+	if _, err := c.db.Exec(`UPDATE artifacts SET current = 1 WHERE sha256 = ?`, cur3); err != nil {
+		t.Fatal(err)
+	}
+	real3 := l.post(sub3, divergentDecision)
 
 	if _, err := c.db.Exec(`DROP TABLE conflict_resolutions; DELETE FROM audit_outbox`); err != nil {
 		t.Fatal(err)
@@ -101,13 +110,14 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 	}
 
 	open := openConflicts(t, c, false)
-	for name, sha := range map[string]string{"real1": real1, "real2": real2, "moved": moved} {
+	for name, sha := range map[string]string{"real1": real1, "real2": real2, "moved": moved, "real3": real3} {
 		if _, ok := open[sha]; !ok {
 			t.Errorf("%s was resolved; open %v", name, open)
 		}
 	}
-	if len(open) != 3 {
-		t.Errorf("open conflicts %d, want 3", len(open))
+	// cur3 is a leftover like bug1: it had nothing at its path.
+	if len(open) != 4 {
+		t.Errorf("open conflicts %d, want 4", len(open))
 	}
 	all := openConflicts(t, c, true)
 	for name, sha := range map[string]string{"bug1": bug1, "bug2": bug2} {
@@ -117,15 +127,15 @@ func TestMigrateConflictResolutionsResolvesOnlySubagentLeftovers(t *testing.T) {
 		}
 	}
 	events := queuedEvents(t, c, "conflict.resolved")
-	if len(events) != 2 || !strings.Contains(events[0], l.artifact(bug1)) || !strings.Contains(events[1], "resolution=not_a_conflict") {
+	if len(events) != 3 || !strings.Contains(events[0], l.artifact(bug1)) || !strings.Contains(events[1], "resolution=not_a_conflict") {
 		t.Errorf("audit events %v", events)
 	}
 	ov, err := c.DashboardOverview(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov.Conflicts != 3 {
-		t.Errorf("overview conflicts %d, want 3", ov.Conflicts)
+	if ov.Conflicts != 4 {
+		t.Errorf("overview conflicts %d, want 4", ov.Conflicts)
 	}
 }
 
