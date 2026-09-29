@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF24AXMQ130VWR71QHQZ3
 title: "Bays: bay scope for operators, viewers and read tokens"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T14:51:58Z
+updated_at: 2026-09-29T14:58:27Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
