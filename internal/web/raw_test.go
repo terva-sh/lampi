@@ -63,18 +63,31 @@ func signInAs(t *testing.T, idp *testidp.Server, h http.Handler, group string) *
 // whose head artifact it is.
 func storeSession(t *testing.T, lake *api.Server, native string, body []byte) (uid, digest string) {
 	t.Helper()
+	digest = putBlob(t, lake, body)
+	return ingestHead(t, lake, native, digest, int64(len(body))), digest
+}
+
+func putBlob(t *testing.T, lake *api.Server, body []byte) string {
+	t.Helper()
 	sum := sha256.Sum256(body)
-	digest = hex.EncodeToString(sum[:])
+	digest := hex.EncodeToString(sum[:])
 	if _, err := lake.CAS.Put(digest, bytes.NewReader(body), int64(len(body))); err != nil {
 		t.Fatal(err)
 	}
+	return digest
+}
+
+// ingestHead records a session whose head artifact is digest, already
+// in the store in some form.
+func ingestHead(t *testing.T, lake *api.Server, native, digest string, size int64) string {
+	t.Helper()
 	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: "codex", NativeSessionID: native, Project: protocol.Project{CWD: "/synthetic"},
-		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + "/rollout.jsonl", SHA256: digest, Size: int64(len(body))}}}
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + "/rollout.jsonl", SHA256: digest, Size: size}}}
 	ack, err := lake.Catalog.Ingest(t.Context(), m, time.Now(), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ack.SessionUID, digest
+	return ack.SessionUID
 }
 
 func getWith(h http.Handler, path string, c *http.Cookie, header map[string]string) *httptest.ResponseRecorder {
@@ -255,6 +268,60 @@ func TestRawCapAndRange(t *testing.T) {
 		if w := getWith(h, file, admin, map[string]string{"Range": bad}); w.Code != 416 || w.Header().Get("Content-Range") != "bytes */"+size {
 			t.Errorf("range %q: %d %v", bad, w.Code, w.Header())
 		}
+	}
+}
+
+// review 1323: two Range fields are two ranges, and are refused.
+func TestRawRefusesRepeatedRangeFields(t *testing.T) {
+	lake, idp, h, _ := rawLake(t, nil)
+	uid, digest := storeSession(t, lake, "raw-ranges", []byte("0123456789"))
+	admin := signInAs(t, idp, h, "owners")
+	r := httptest.NewRequest("GET", "https://lake.example"+rawPath(uid)+"/"+digest, nil)
+	r.Header.Add("Range", "bytes=0-1")
+	r.Header.Add("Range", "bytes=4-5")
+	r.AddCookie(admin)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 416 || w.Header().Get("Content-Range") != "bytes */10" {
+		t.Fatalf("two Range fields: %d %v", w.Code, w.Header())
+	}
+}
+
+// review 1323: a read that fails before any byte is read records no
+// audit event, and a HEAD, which sends no bytes, records none either.
+func TestRawAuditsOnlyBytesRead(t *testing.T) {
+	lake, idp, h, dir := rawLake(t, nil)
+	first, second := []byte("synthetic first chunk\n"), []byte("synthetic second chunk\n")
+	whole := append(append([]byte{}, first...), second...)
+	sum := sha256.Sum256(whole)
+	digest := hex.EncodeToString(sum[:])
+	a, b := putBlob(t, lake, first), putBlob(t, lake, second)
+	if _, err := lake.CAS.BindLogical(digest, []string{a, b}, []int64{int64(len(first)), int64(len(second))}); err != nil {
+		t.Fatal(err)
+	}
+	uid := ingestHead(t, lake, "raw-gone", digest, int64(len(whole)))
+	admin := signInAs(t, idp, h, "owners")
+	r := httptest.NewRequest("HEAD", "https://lake.example"+rawPath(uid)+"/"+digest, nil)
+	r.AddCookie(admin)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || w.Body.Len() != 0 || w.Header().Get("Content-Length") != strconv.Itoa(len(whole)) {
+		t.Fatalf("HEAD %d %d %v", w.Code, w.Body.Len(), w.Header())
+	}
+	// Lose the second chunk: the logical file still has a size, from its
+	// chunk list, but its bytes no longer read back.
+	if err := lake.CAS.Remove(b); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := lake.CAS.Size(digest); err != nil || n != int64(len(whole)) {
+		t.Fatalf("size after losing a chunk %d %v; the test needs it", n, err)
+	}
+	w = get(h, rawPath(uid)+"/"+digest, admin)
+	if w.Code != 500 || w.Header().Get("Content-Disposition") != "" || !strings.Contains(w.Body.String(), "read_failed") || strings.Contains(w.Body.String(), "synthetic") {
+		t.Fatalf("damaged object: %d %v %q", w.Code, w.Header(), w.Body.String())
+	}
+	if log, err := os.ReadFile(audit.Path(dir)); err == nil && strings.Contains(string(log), "artifact.read") {
+		t.Fatalf("audit names a read that did not happen: %s", log)
 	}
 }
 

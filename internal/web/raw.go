@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"terva.sh/lampi/internal/audit"
+	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/webauth"
 )
@@ -110,8 +111,15 @@ func (s *Server) serveRaw(w http.ResponseWriter, r *http.Request, uid, digest, a
 		apiError(w, http.StatusInternalServerError, "read_failed")
 		return
 	}
-	start, end, ranged, ok := parseRange(r.Header.Get("Range"), size)
-	if !ok {
+	// Several Range fields are several ranges, which this route refuses
+	// like a comma-separated list.
+	ranges := r.Header.Values("Range")
+	header := ""
+	if len(ranges) == 1 {
+		header = ranges[0]
+	}
+	start, end, ranged, ok := parseRange(header, size)
+	if !ok || len(ranges) > 1 {
 		w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(size, 10))
 		apiError(w, http.StatusRequestedRangeNotSatisfiable, "invalid_range")
 		return
@@ -119,34 +127,6 @@ func (s *Server) serveRaw(w http.ResponseWriter, r *http.Request, uid, digest, a
 	truncated := end-start > RawReadCap
 	if truncated {
 		end = start + RawReadCap
-	}
-	lake := s.reg.Lake()
-	detail := fmt.Sprintf("session=%s sha256=%s bytes=%d-%d/%d", uid, digest, start, end-1, size)
-	if size == 0 {
-		detail = fmt.Sprintf("session=%s sha256=%s bytes=0/0", uid, digest)
-	}
-	// The event is durable in the outbox before a byte leaves. A read
-	// that cannot be recorded is not served.
-	if err := lake.Catalog.QueueAudit(ctx, s.now(), audit.Event{Kind: audit.ArtifactRead, Actor: actor, Detail: detail}); err != nil {
-		s.logError(r, "queueing a raw read's audit line failed", err)
-		apiError(w, http.StatusInternalServerError, "audit_failed")
-		return
-	}
-	if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
-		// Queued is recorded; the line reaches audit.jsonl on the next flush.
-		s.logError(r, "a raw read's audit line stays queued", err)
-	}
-	rc, err := blobs.Open(digest)
-	if err != nil {
-		s.logError(r, "opening a raw artifact failed", err)
-		apiError(w, http.StatusInternalServerError, "read_failed")
-		return
-	}
-	defer rc.Close()
-	if _, err := io.CopyN(io.Discard, rc, start); err != nil {
-		s.logError(r, "seeking a raw artifact failed", err)
-		apiError(w, http.StatusInternalServerError, "read_failed")
-		return
 	}
 	h := w.Header()
 	h.Set("Content-Type", "application/octet-stream")
@@ -161,12 +141,66 @@ func (s *Server) serveRaw(w http.ResponseWriter, r *http.Request, uid, digest, a
 		status = http.StatusPartialContent
 		h.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end-1, size))
 	}
-	w.WriteHeader(status)
 	if r.Method == http.MethodHead {
+		// No byte leaves, so there is no read to record.
+		w.WriteHeader(status)
 		return
 	}
-	if _, err := io.CopyN(w, rc, end-start); err != nil {
+	// Read the whole response, at most RawReadCap, before recording it,
+	// so the audit line only ever names bytes that were read.
+	body, err := readRange(blobs, digest, start, end)
+	if err != nil {
+		s.logError(r, "reading a raw artifact failed", err)
+		clearDownload(h)
+		apiError(w, http.StatusInternalServerError, "read_failed")
+		return
+	}
+	lake := s.reg.Lake()
+	detail := fmt.Sprintf("session=%s sha256=%s bytes=%d-%d/%d", uid, digest, start, end-1, size)
+	if size == 0 {
+		detail = fmt.Sprintf("session=%s sha256=%s bytes=0/0", uid, digest)
+	}
+	// The event is durable in the outbox before a byte leaves. A read
+	// that cannot be recorded is not served.
+	if err := lake.Catalog.QueueAudit(ctx, s.now(), audit.Event{Kind: audit.ArtifactRead, Actor: actor, Detail: detail}); err != nil {
+		s.logError(r, "queueing a raw read's audit line failed", err)
+		clearDownload(h)
+		apiError(w, http.StatusInternalServerError, "audit_failed")
+		return
+	}
+	if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
+		// Queued is recorded; the line reaches audit.jsonl on the next flush.
+		s.logError(r, "a raw read's audit line stays queued", err)
+	}
+	w.WriteHeader(status)
+	if _, err := w.Write(body); err != nil {
 		s.logError(r, "sending a raw artifact stopped", err)
+	}
+}
+
+// readRange reads bytes [start, end) of digest. An object shorter than
+// its recorded size is an error, not a short read.
+func readRange(blobs *cas.Store, digest string, start, end int64) ([]byte, error) {
+	rc, err := blobs.Open(digest)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	if _, err := io.CopyN(io.Discard, rc, start); err != nil {
+		return nil, err
+	}
+	body := make([]byte, end-start)
+	if _, err := io.ReadFull(rc, body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// clearDownload removes the download headers set before a read that
+// then failed, so the error is not offered as a file.
+func clearDownload(h http.Header) {
+	for _, k := range []string{"Content-Disposition", "Accept-Ranges", "Content-Length", "Content-Range", RawTruncatedHeader} {
+		h.Del(k)
 	}
 }
 

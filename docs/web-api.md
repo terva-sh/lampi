@@ -158,12 +158,16 @@ attachment`, `Accept-Ranges: bytes`, `Cache-Control: no-store` and
   `Lampi-Raw-Truncated` header holding the full size.
 - One `Range` of `bytes=a-b`, `bytes=a-` or `bytes=-n` is a `206`. A range
   longer than 8 MiB stops there and carries `Lampi-Raw-Truncated`.
-- Several ranges, another unit, or a range past the end is
-  `416 invalid_range` with `Content-Range: bytes */SIZE`.
+- Several ranges, in one `Range` field or in several, another unit, or a
+  range past the end is `416 invalid_range` with `Content-Range: bytes */SIZE`.
+- `HEAD` answers with the same headers and no body.
 
-Every read queues an `artifact.read` audit event naming the admin, the
-session, the digest and the byte range before a byte is sent. A read whose
-event cannot be queued is `500 audit_failed` and sends nothing.
+The lake reads the whole response from the blob store first, then queues
+an `artifact.read` audit event naming the admin, the session, the digest
+and the byte range, then sends it. A read that fails is
+`500 read_failed` and records nothing. A read whose event cannot be queued
+is `500 audit_failed` and sends nothing. `HEAD` sends no bytes and records
+nothing.
 
 ## Transcript events
 
