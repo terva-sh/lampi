@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:50:06Z
-updated_at: 2026-09-29T04:37:26Z
+updated_at: 2026-09-29T04:39:08Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -113,3 +113,7 @@ Prepared in the external handoff `narrow-default-A6uVhshY`, for the owner to run
 - On the workstation, agent refused gives the same result under both profiles: 23 sessions in 6 projects.
 - The Macs were not checked. A project there that only /Users/* allowed goes back to the Review queue.
 - apply.sh refuses if default moved past sha256:e057488d835e22bf.
+
+**agent:claude-code/16ebd168** at 2026-09-29T04:39:08Z
+
+The owner applied the narrowed default at 04:38Z: revision 9, sha256:5c6a11a9c51918f4, replacing revision 8 (e057488d). The workstation agent applied it within about 16 s: projects_allow=109, allow_source=lake:default. agent refused is unchanged at 23 sessions in 6 projects.
