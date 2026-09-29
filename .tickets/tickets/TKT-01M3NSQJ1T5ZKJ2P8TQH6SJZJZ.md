@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T05:20:50Z
-updated_at: 2026-09-29T05:20:58Z
+updated_at: 2026-09-29T05:22:42Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -59,6 +59,26 @@ Cut v0.4.0 from main at 1740c08, nine merges past v0.3.0. The owner asked on 202
 
 ## Acceptance criteria
 
-- [ ] A scratch lake seeded by v0.3.0 upgraded with a 1740c08 build: schema 17, counts kept, fsck clean, agents sync nothing new
+- [x] A scratch lake seeded by v0.3.0 upgraded with a 1740c08 build: schema 17, counts kept, fsck clean, agents sync nothing new
 - [ ] v0.4.0 is tagged on both forges and its archives and image name the tag
 - [ ] Release notes state the 16 to 17 migration and its rollback, lake-before-agents, and lakes adopt
+
+## Notes
+
+**agent:claude-code/16ebd168** at 2026-09-29T05:22:42Z
+
+### Rehearsal, 2026-09-29
+
+A scratch lake was seeded by the v0.3.0 release binary (a43c5ce) with a token-file device, a `default` profile and five copied lampi Claude Code transcripts: 5 sessions, 6 artifacts, schema 16. A legacy agent (top-level `server` and `token_file`, local allow rules, no pinned key) synced them. The lake was then upgraded with a build of 1740c08, following the deploy's order:
+
+- v0.3.0's `serve backup` of the stopped lake, then `serve fsck` on the copy: clean, with the same counts as the lake.
+- `migrate --check` with the new binary: `catalog schema 16, this binary writes 17: 1 migrations pending`.
+- On start, serve wrote `migration-backups/…-v16.db`, ran `migrateReadTokens` and reported `16 -> 17`. Integrity ok and counts unchanged. The anonymous `/v1/stats` returns 401.
+- The v0.3.0 agent synced against the v0.4.0 lake and uploaded nothing (unchanged 5).
+- `lakes adopt` with the v0.4.0 binary:
+  - A wrong fingerprint was refused at check 3, and nothing was written.
+  - With the fingerprint from `serve identity`, it pinned the lake and kept the same device (`token-1`), local rules and machine id. The sync that followed uploaded nothing.
+  - `--allow-from profile` removed the local allow rule, and `agent config` then showed `allow_source=lake:default`. The sync that followed uploaded nothing.
+- Rollback: v0.3.0 refuses the upgraded catalog (`schema 17 is newer than this binary's 16`) and serves a copy of the checkpoint at schema 16.
+
+It ran without `--web-config`, so the admin-groups line at start was not seen. That line is covered by the webconfig tests and is reported by the live deploy.
