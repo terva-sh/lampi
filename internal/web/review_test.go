@@ -260,7 +260,9 @@ func TestReturnPathAcceptsTheReviewQueue(t *testing.T) {
 // the copy needing review, with no Allow to offer (review 1300).
 func TestReviewLocalAllowRulesAreNotPending(t *testing.T) {
 	lake, idp, h, ds := reviewLake(t, "readers", "admins")
-	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[0].ID, protocol.AgentReport{AgentVersion: "v0.2.0", AllowSource: config.OriginLocal, DenySource: "none"}, time.Now()); err != nil {
+	// A pinned agent names the profile it applied, and keeps its own
+	// allow rules.
+	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[0].ID, protocol.AgentReport{AgentVersion: "v0.2.0", Profile: config.DefaultProfile, AllowSource: config.OriginLocal, DenySource: "none"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	cookie, _ := signIn(t, idp, h)
@@ -272,8 +274,42 @@ func TestReviewLocalAllowRulesAreNotPending(t *testing.T) {
 	if strings.Contains(needs, `action="/devices/`+ds[0].ID+`/allow"`) {
 		t.Fatal("Allow offered for a device whose profile rules do not reach it")
 	}
-	if !strings.Contains(needs, "Sets its own allow rules in config.json") {
+	if !strings.Contains(needs, "Sets its own allow rules in config.json") || strings.Contains(needs, "lakes adopt") {
 		t.Fatal("the copy does not say why")
+	}
+}
+
+// A token-file device whose agent applied no profile has not pinned the
+// lake, so no profile reaches it; the queue and the device pages say to
+// run lakes adopt on it rather than to edit config.json.
+func TestReviewTokenFileDeviceWithNoProfileSaysToAdopt(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	if ds[0].Source != catalog.DeviceFromTokenFile {
+		t.Fatalf("fixture device source %q", ds[0].Source)
+	}
+	// An agent from before allow sources reports none; it still fetches
+	// no profile, so no Allow is offered for it.
+	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[0].ID, protocol.AgentReport{AgentVersion: "v0.1.2"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	needs := section(t, get(h, "/review", cookie).Body.String(), "<h2>Needs review</h2>")
+	if !strings.Contains(needs, "Fetches no profile") || !strings.Contains(needs, "terva-lampi lakes adopt") || strings.Contains(needs, "Sets its own allow rules") {
+		t.Fatalf("queue does not say to adopt:\n%s", needs)
+	}
+	if strings.Contains(needs, `action="/devices/`+ds[0].ID+`/allow"`) {
+		t.Fatal("Allow offered for a device that fetches no profile")
+	}
+	if !strings.Contains(get(h, "/devices", cookie).Body.String(), "fetches no profile; run terva-lampi lakes adopt on it") {
+		t.Fatal("the devices page does not say to adopt")
+	}
+	device := get(h, "/devices/"+ds[0].ID+"?show=refused", cookie).Body.String()
+	if !strings.Contains(device, "has not pinned this lake, so it fetches no profile") {
+		t.Fatal("the device page does not say to adopt")
+	}
+	// Its projects can still be hidden, but not allowed in a profile.
+	if strings.Contains(device, `action="/devices/`+ds[0].ID+`/allow"`) || strings.Contains(device, "Allow selected") || !strings.Contains(device, "Hide selected") {
+		t.Fatal("the device page offers Allow, or no Hide, for a device that fetches no profile")
 	}
 }
 
@@ -318,5 +354,27 @@ func TestReviewAllowPendingOnlyUntilTheDeviceCatchesUp(t *testing.T) {
 	page := get(h, "/review", cookie).Body.String()
 	if strings.Contains(page, "Allow pending (") || !strings.Contains(section(t, page, "<h2>Needs review</h2>"), "refused it after applying that profile") {
 		t.Fatal("a device that caught up and still refuses reads allow pending")
+	}
+}
+
+// Review of #133: an agent that says it pinned the lake is not flagged
+// while its first profile fetch is pending, and one that says it did
+// not is flagged whatever its device source.
+func TestNoProfileTakesTheAgentsWordOnItsPin(t *testing.T) {
+	yes, no := true, false
+	for _, c := range []struct {
+		source string
+		rep    protocol.AgentReport
+		want   bool
+	}{
+		{catalog.DeviceFromTokenFile, protocol.AgentReport{}, true},
+		{catalog.DeviceFromTokenFile, protocol.AgentReport{Pinned: &yes}, false},
+		{catalog.DeviceFromTokenFile, protocol.AgentReport{Profile: "default", ProfileVersion: "sha256:x"}, false},
+		{catalog.DeviceFromRegistration, protocol.AgentReport{}, false},
+		{catalog.DeviceFromRegistration, protocol.AgentReport{Pinned: &no}, true},
+	} {
+		if got := noProfile(c.source, c.rep); got != c.want {
+			t.Errorf("%s %+v: %v, want %v", c.source, c.rep, got, c.want)
+		}
 	}
 }

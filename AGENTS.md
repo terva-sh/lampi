@@ -1,3 +1,43 @@
+# Working in lampi
+
+## Changing which lake a machine trusts
+
+These rules are for an agent that changes a machine's lampi setup: a
+machine's `config.json`, its tokens, or its pinned lake. The reference
+is [docs/registration-and-lakes.md](docs/registration-and-lakes.md);
+this section lists what an agent gets wrong.
+
+- **A machine that already syncs to a lake is adopted, not registered.**
+  If `terva-lampi agent config` shows `profile=none (not registered: no
+  pinned key)` for a lake, or the dashboard shows its device as a
+  `token-file` device that "fetches no profile", run `terva-lampi lakes
+  adopt`. Do not run `register` for that lake: it adds a second entry
+  and device for the same lake, and every session is posted again under
+  a new machine id. Do not hand-edit `lake_id`, `key_id` or
+  `public_key` into `config.json`.
+- **The fingerprint comes from the lake host.** Pass `--fingerprint`
+  only with the value that `terva-lampi serve identity` prints on the
+  lake host, as a person or a ticket gives it to you. Never take it from
+  the key list or the machine being adopted: it is the check that
+  catches a server that impersonates the lake. Without the value, stop
+  and ask for it.
+- **Never pass `--force` or `--yes` on your own.** `lakes adopt` lists
+  each project the change would stop uploading, and each it would start
+  uploading, and refuses. Report both lists and let a person decide.
+  - `--force` stops capturing the listed projects from then on.
+  - `--yes` sends every listed project's sessions to the lake, which
+    cannot be taken back without a purge.
+- **Adopt in two steps.** Run plain `lakes adopt` first, which pins the
+  lake and keeps the local allow rules. Then run `lakes adopt
+  --allow-from profile`, which hands the allow rules to the profile.
+  Each step can be checked on its own with `terva-lampi agent config`
+  and the next `terva-lampi sync`, which should upload nothing new.
+- **Back up before you touch a live machine.** Copy `config.json`, the
+  token and the state directory first. On a workstation that runs a live
+  lake or agent, read "Develop on a machine that runs lampi" in
+  [docs/development.md](docs/development.md), and change the live agent
+  only when you are asked to.
+
 <!-- git-ticket:begin -->
 
 ## Tickets
