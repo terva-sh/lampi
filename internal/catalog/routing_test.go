@@ -201,7 +201,7 @@ func TestAHoldHoldsANewSessionAndFlagsAStoredOne(t *testing.T) {
 		t.Fatalf("hold states %v", states)
 	}
 
-	if err := r.c.ReleaseHold(ctx, fresh, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, fresh, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.bays(fresh); !reflect.DeepEqual(got, sorted(r.work.ID, r.secret.ID)) {
@@ -215,13 +215,13 @@ func TestAHoldHoldsANewSessionAndFlagsAStoredOne(t *testing.T) {
 	if got := r.bays(fresh); !reflect.DeepEqual(got, sorted(r.work.ID, r.secret.ID)) {
 		t.Fatalf("after release bays %v", got)
 	}
-	if err := r.c.ReleaseHold(ctx, stored, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, stored, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.bays(stored); !reflect.DeepEqual(got, sorted(DefaultBayID, r.work.ID, r.secret.ID)) {
 		t.Fatalf("released flagged bays %v", got)
 	}
-	if err := r.c.ReleaseHold(ctx, stored, "admin", time.Now()); !errors.Is(err, ErrNoHold) {
+	if err := r.c.ReleaseHold(ctx, stored, "admin", ViaCLI, time.Now()); !errors.Is(err, ErrNoHold) {
 		t.Fatalf("second release: %v", err)
 	}
 	if got := queuedEvents(t, r.c, audit.BayHoldReleased); len(got) != 2 {
@@ -237,7 +237,7 @@ func TestAReleasedHoldWithNothingElseGoesToDefault(t *testing.T) {
 	if err := r.c.SetDefaultEnabled(ctx, false, "admin", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, uid, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.bays(uid); !reflect.DeepEqual(got, []string{DefaultBayID}) {
@@ -347,7 +347,7 @@ func TestReleaseDropsADeniedHoldBay(t *testing.T) {
 	r.rule(RuleHold, config.ProjectMatch{CWDPrefix: "/src/client"}, "hold")
 	uid := r.mustPost("sess-1", "/src/client", "hold").SessionUID
 	r.rule(RuleDeny, config.ProjectMatch{CWDPrefix: "/src/client"}, "hold")
-	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, uid, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.bays(uid); !reflect.DeepEqual(got, []string{DefaultBayID}) {
@@ -371,7 +371,7 @@ func TestABayWithHoldsIsNotDeleted(t *testing.T) {
 	if got := r.bays(uid); !reflect.DeepEqual(got, []string{r.holdB.ID}) {
 		t.Fatalf("bays after refused delete %v", got)
 	}
-	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, uid, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.c.DeleteBay(ctx, "hold", "admin", time.Now()); err != nil {
@@ -395,7 +395,7 @@ func TestReleaseRoutesByTheLastPostedProject(t *testing.T) {
 	if holds, err := r.c.Holds(ctx); err != nil || len(holds) != 1 || holds[0].State != HoldFlagged {
 		t.Fatalf("holds %+v %v", holds, err)
 	}
-	if err := r.c.ReleaseHold(ctx, uid, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, uid, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.bays(uid); !reflect.DeepEqual(got, sorted(DefaultBayID, r.secret.ID)) {
@@ -419,7 +419,7 @@ func TestAHeldRequestWaitsForAGrant(t *testing.T) {
 	if _, err := r.c.AddGrant(ctx, PrincipalDevice, r.dev.DeviceID, "secret", PermWrite, "admin", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.c.ReleaseHold(ctx, ack.SessionUID, "admin", time.Now()); err != nil {
+	if err := r.c.ReleaseHold(ctx, ack.SessionUID, "admin", ViaCLI, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.bays(ack.SessionUID); !reflect.DeepEqual(got, []string{r.secret.ID}) {

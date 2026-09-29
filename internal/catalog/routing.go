@@ -557,7 +557,9 @@ func (c *Catalog) Holds(ctx context.Context) ([]Hold, error) {
 // unless it asked for it or a rule adds it. One left in no other bay
 // goes to the default, whether the default is on or off: a stored
 // session is never in no bay.
-func (c *Catalog) ReleaseHold(ctx context.Context, uid, actor string, now time.Time) error {
+// via says where the release came from, ViaCLI or ViaWeb, for the
+// audit lines.
+func (c *Catalog) ReleaseHold(ctx context.Context, uid, actor, via string, now time.Time) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)
@@ -595,7 +597,7 @@ func (c *Catalog) ReleaseHold(ctx context.Context, uid, actor string, now time.T
 		return err
 	}
 	if state == HoldHeld && !slices.Contains(accepted, bay) && !ruleAdds(rules, m, bay) {
-		if err := leaveHoldBay(ctx, tx, uid, bay, actor, now); err != nil {
+		if err := leaveHoldBay(ctx, tx, uid, bay, actor, via, now); err != nil {
 			return err
 		}
 	}
@@ -668,13 +670,13 @@ func ruleAdds(rules []BayRule, m protocol.Manifest, bay string) bool {
 
 // leaveHoldBay takes a released session out of the hold bay. One in
 // no other bay goes to the default.
-func leaveHoldBay(ctx context.Context, tx *sql.Tx, uid, bay, actor string, now time.Time) error {
+func leaveHoldBay(ctx context.Context, tx *sql.Tx, uid, bay, actor, via string, now time.Time) error {
 	res, err := tx.ExecContext(ctx, `DELETE FROM session_bays WHERE session_uid=? AND bay_id=?`, uid, bay)
 	if err != nil {
 		return fmt.Errorf("catalog: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		m := Membership{SessionUID: uid, Bay: bay, Actor: actor, Via: ViaCLI, Reason: "hold released"}
+		m := Membership{SessionUID: uid, Bay: bay, Actor: actor, Via: via, Reason: "hold released"}
 		if err := queueAudit(ctx, tx, now, membershipEvent(audit.BayMemberRemoved, m, bay)); err != nil {
 			return err
 		}
@@ -684,7 +686,7 @@ func leaveHoldBay(ctx context.Context, tx *sql.Tx, uid, bay, actor string, now t
 		return fmt.Errorf("catalog: %w", err)
 	}
 	if left == 0 {
-		_, err := addToBay(ctx, tx, Membership{SessionUID: uid, Bay: DefaultBayID, Actor: actor, Via: ViaCLI, Reason: "left in no bay"}, now)
+		_, err := addToBay(ctx, tx, Membership{SessionUID: uid, Bay: DefaultBayID, Actor: actor, Via: via, Reason: "left in no bay"}, now)
 		return err
 	}
 	return nil

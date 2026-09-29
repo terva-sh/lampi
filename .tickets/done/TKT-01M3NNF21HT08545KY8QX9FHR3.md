@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T16:05:43Z
+updated_at: 2026-09-29T19:51:55Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -60,6 +60,10 @@ One schema step, migrateBays (schema 18): bays, bay_aliases, session_bays (many-
 **agent:claude-code/7859b064** at 2026-09-29T16:05:43Z
 
 AC2 left unticked. serve backup (VACUUM INTO) and restore copy the whole catalog, so the bay tables go with them, and purge deletes session_bays and session_bay_requests (session_holds from TKT-01M3NNF29W). But serve fsck only re-hashes CAS objects and checks no catalog invariant, so nothing reports a session in no bay or a membership naming a deleted bay. That check is carried to TKT-01M3NNF2FE (Bays: inbox tooling), which is where membership health is reported.
+
+**agent:claude-code/7859b064** at 2026-09-29T19:51:55Z
+
+The fsck acceptance criterion noted as outstanding here is fulfilled by TKT-01M3NNF2FE (#162): serve fsck reports sessions in no bay, and memberships, grants, rules, aliases and holds naming a bay that is gone.
 
 ## Summary
 

@@ -106,3 +106,25 @@ func (c *Catalog) SessionInScope(ctx context.Context, scope Scope, uid string) (
 	}
 	return true, nil
 }
+
+// SessionBayNames names the bays uid is in that scope reads, sorted. A
+// reader is not told the name of a bay it does not read, since a bay
+// name can name a client.
+func (c *Catalog) SessionBayNames(ctx context.Context, scope Scope, uid string) ([]string, error) {
+	rows, err := c.db.QueryContext(ctx, `SELECT b.id, b.name FROM session_bays m JOIN bays b ON b.id = m.bay_id WHERE m.session_uid = ? ORDER BY b.name`, uid)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if scope.all || slices.Contains(scope.bays, id) {
+			out = append(out, name)
+		}
+	}
+	return out, rows.Err()
+}

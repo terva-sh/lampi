@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF2CEFEX3R0RHYYC559AJ
 title: "Bays: agent bay requests and terva-lampi bays"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3NNF29WCV5F1D8QSBWPM6M0
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/7859b064
-  branch: bays/agent-nobay
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
-  commit: 3bfb2c6b705f90327dbe7774924ed7ff6e591ad8
-  session: null
-  claimed_at: 2026-09-29T16:18:26Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T16:18:26Z
+updated_at: 2026-09-29T19:16:17Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -53,9 +46,9 @@ Agent side of bays. Design in the parent epic TKT-01M3N8KHW5 (Bays: segment one 
 
 ## Acceptance criteria
 
-- [ ] Bay request rules and default_bays route one session to two bays
-- [ ] terva-lampi bays which PATH names the lake, bays and deciding rule
-- [ ] A no-bay refusal keeps the session pending and shows in status
+- [x] Bay request rules and default_bays route one session to two bays
+- [x] terva-lampi bays which PATH names the lake, bays and deciding rule
+- [x] A no-bay refusal keeps the session pending and shows in status
 
 ## Implementation plan
 
@@ -77,3 +70,17 @@ Decisions, with the alternatives that lost:
 - **`bay_aware` lands in 6b, not 6a.** 6a alone would make a lake with the default off answer this agent with 403, which reads as a token refusal. Keep 6a and 6b close together.
 - **No-bay sessions stay in the outbox and are re-posted every pass.** A separate parking state lost: the blobs are already stored, so a repost is one manifest, and it uploads the moment an admin fixes grants, rules or the default, with nobody touching the machine.
 - **The ACK's `refused_bays` is not surfaced per session.** `status` compares config against hello's writable list instead, which is where a user can act on it.
+
+**agent:claude-code/7859b064** at 2026-09-29T19:16:17Z
+
+Review rounds, PRs #160 and #161:
+
+- Review 1440 (#160): bays which printed only the refusal for a project the lake refuses. It now also names the bays the session would ask for, and the rules that named them, so a rule can be checked before the project is allowed.
+- Review 1442 (#161): no-bay notices were deduplicated only on a pass that finished, so every failing pass repeated them. A failing pass now uses changeLog.add: it prints only new lines and forgets none. Using fresh there was rejected, because a pass that failed partway would forget sessions it never reached.
+- Review 1449: a failed pass wrote no_bay 0 to last_attempt.json. It now keeps the previous attempt's waiting sessions until a pass finishes. Deriving the list from the outbox was rejected, because the outbox does not record why an entry waits.
+- Review 1451: rejected. The claim was that manifests queued by an older agent go out without bay_aware. They are never posted as stored: outbox.Pending has no production caller, and a pending session is prepared again every pass, with BayAware set.
+- Review 1454: with five named, a sixth waiting session was not counted. The count is now the union when the previous attempt named every session it counted, and otherwise a lower bound.
+
+## Summary
+
+Landed in #160 (51ad973) and #161 (5583dc0). In config.json, a lakes entry takes bays.rules and bays.default, and a session asks for the union of every matching rule's bays, or the default. Every manifest carries bays and bay_aware. terva-lampi bays which PATH names, per lake, whether the session uploads, the bays it asks for or would ask for, and the deciding rule. A 409 no_bay keeps the session in the outbox, and the rest of the run goes on. It is listed under no_bay in status and last_attempt.json and printed once per session, and last_sync.no_bay is in the agent report. terva-lampi bays and status list the bays hello says the device may write, plus bays_refused. Tests: internal/cli/bayscmd_test.go, internal/upload/attempt_test.go, internal/cli/agent_test.go.

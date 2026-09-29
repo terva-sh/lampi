@@ -254,3 +254,24 @@ func cwdHashOf(cwd string) string {
 	sum := sha256.Sum256([]byte(cwd))
 	return hex.EncodeToString(sum[:8])
 }
+
+// The dashboard's single move places a session in no bay from the
+// default, as the bulk move does, and still refuses from another bay
+// (review 1469).
+func TestMoveSessionPlacesASessionInNoBay(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	uid := r.mustPost("sess-a", "/src/a").SessionUID
+	if _, err := r.c.db.Exec(`DELETE FROM session_bays WHERE session_uid=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.c.MoveSession(ctx, uid, "secret", "work", "admin", ViaWeb, time.Now()); !errors.Is(err, ErrNotAMember) {
+		t.Fatalf("from a bay it is not in: %v", err)
+	}
+	if err := r.c.MoveSession(ctx, uid, DefaultBayName, "work", "admin", ViaWeb, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.bays(uid); !reflect.DeepEqual(got, []string{r.work.ID}) {
+		t.Fatalf("bays %v", got)
+	}
+}

@@ -144,10 +144,17 @@ type pageData struct {
 	Conflicts conflictsView
 	// Conflict is one conflict's page.
 	Conflict conflictView
+	// BaysOn says the admin's bays page is served: it writes audit lines,
+	// so it needs the lake the registration routes have.
+	BaysOn bool
 	// ReadTokens is the admin's read token page.
 	ReadTokens readTokensView
-	Codes      codesView
-	Devices    devicesView
+	// Bays is the admin's bays page, and SessionBays the bays a session
+	// is in that the reader may read.
+	Bays        baysView
+	SessionBays []string
+	Codes       codesView
+	Devices     devicesView
 	// Device is one device's page.
 	Device   deviceView
 	Profiles profilesView
@@ -213,6 +220,7 @@ func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int
 	if s, ok := r.Context().Value(serverKey{}).(*Server); ok && (id.Viewer || id.Operator) {
 		d.ReviewCount = s.reviewCount(r)
 		d.RawOn = s.rawEnabled()
+		d.BaysOn = s.reg != nil
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -298,7 +306,12 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	d := pageData{Title: "Session details", View: "detail", Session: summary, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)}
+	bays, err := s.catalog.SessionBayNames(ctx, scopeOf(r), uid)
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	d := pageData{Title: "Session details", View: "detail", Session: summary, SessionBays: bays, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)}
 	if kind == "conflicts" {
 		d.Conflicts = s.newConflictsView(ctx, records, p, *r.URL, uid)
 	}

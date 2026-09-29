@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T16:51:03Z
+updated_at: 2026-09-29T17:41:21Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -66,6 +66,14 @@ Decisions and gaps:
 - /v1/stats blanks LastFailure.SessionUID when that session is outside the device's scope.
 - Main's conflict resolutions (#149) landed during the work. DivergentCopies takes both the scope and main's resolved filter, and the conflict count on the overview is both unresolved and in scope.
 - Gaps: the operations page's storage bytes are lake-wide, and the device inventory shows project names to every viewer (it is agent-reported, not stored sessions). MCP is not built, so it has nothing to scope yet. The registry catches anything MCP adds to the catalog.
+
+**agent:claude-code/7859b064** at 2026-09-29T17:18:03Z
+
+Rebased onto main after #153 (conflict actions). Main's new Conflict(id) now takes a Scope, and the keep-head/reopen routes go through guardRead, so an operator who is not an admin gets 404 for a conflict in a bay they do not read, the same answer the page gives. Alternative considered: leaving the action routes on Guard and checking admin only; rejected because operator and admin are separate roles, and an operator could then change a conflict they cannot see. The check runs before the write in its own read, which is a race only against an admin moving the session between bays at that moment. Test: TestOperatorActsOnlyOnConflictsInTheirBays.
+
+**agent:claude-code/7859b064** at 2026-09-29T17:41:21Z
+
+Review 1422 finding-1 (PR #156): deviceScope gave any request without a device the whole lake. That path is real only for a lake served without a token file, which answers every request for the whole lake already, so it keeps AllBays there; any other device-less request now reads nothing (34cbc0c, TestDeviceScopeWithoutADevice). Considered failing every device-less request closed; rejected because a tokenless single-user lake would then report zero sessions to its own agent. The routing child reuses the rule as requestDevice for hello and manifests (TKT-01M3NNF29W). Merged as #156.
 
 ## Summary
 
