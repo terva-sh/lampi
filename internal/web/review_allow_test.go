@@ -249,3 +249,22 @@ func TestAllowSelectedRefusesAPartialPlan(t *testing.T) {
 		t.Fatalf("api partial plan: %d %s", w.Code, w.Body)
 	}
 }
+
+// Review 1313: a project that needs review on one device and is denied on
+// another gets a rule only in the profile of the device that needs it.
+func TestAllowSelectedSkipsDeniedCopies(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	desk := protocol.InventoryProject{GitRemote: "git@git.example:team/app.git", CWD: "/src/app", CWDs: 1, Harnesses: []string{"claude"}, Sessions: 3, Reason: config.RefusedByDeny}
+	if _, err := lake.Catalog.PutDeviceInventory(t.Context(), ds[1].ID, protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: time.Now().Add(time.Hour), Projects: []protocol.InventoryProject{desk}}, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	page := get(h, "/review", cookie).Body.String()
+	if !strings.Contains(section(t, page, "Denied ("), ">desk<") || strings.Contains(section(t, page, "<h2>Needs review</h2>"), ">desk<") {
+		t.Fatal("desk's denied copy is not filed under Denied alone")
+	}
+	plan := postForm(h, "/review/allow", url.Values{"csrf": {csrfOf(t, h, cookie)}, "return": {"/review"}, "key": {"git_remote git.example/team/app"}}, cookie).Body.String()
+	if strings.Contains(plan, `Profile <a href="/profiles/ci">ci</a>`) || !strings.Contains(plan, `Profile <a href="/profiles/default">default</a>`) {
+		t.Fatal("desk's denied copy got a rule in ci, or laptop's none in default")
+	}
+}

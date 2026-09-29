@@ -111,7 +111,9 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 			// A device with its own allow rules takes none from its
 			// profile; a rule there would change nothing for it.
 			// A still-refused copy's profile allows it already.
-			if !ok || sg.LocalAllow || sg.StillRefused {
+			// readReview files each copy under its own state, so a Needs
+			// row holds only copies that need review; check anyway.
+			if !ok || sg.State != stateNeeds || sg.LocalAllow || sg.StillRefused {
 				continue
 			}
 			added = true
