@@ -332,7 +332,11 @@ func TestCommitAdoptRefusesATokenThatChanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = commitAdopt(env, lakes[0], strings.Repeat("d4", 32), lakeprofile.Doc{}, func(lc *config.LakeConfig) { lc.LakeID = "lake_x" })
+	snap, err := policySnapshot(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = commitAdopt(env, lakes[0], strings.Repeat("d4", 32), snap, lakeprofile.Doc{}, func(lc *config.LakeConfig) { lc.LakeID = "lake_x" })
 	if err == nil || !strings.Contains(err.Error(), "changed in config.json or its token file") {
 		t.Fatalf("stale token: %v", err)
 	}
@@ -459,5 +463,31 @@ func TestLakesAdoptCountsEveryCheckoutAHarnessTakes(t *testing.T) {
 	}
 	if !strings.Contains(f.stderr.String(), "uploaded now from terva: 3 sessions in 1 projects") || !strings.Contains(f.stderr.String(), "(+1 more)") {
 		t.Fatalf("listing:\n%s", f.stderr.String())
+	}
+}
+
+// Review of #133: what adopt listed was computed from config.json and the
+// cached profiles as they were; a change to any of them before the write
+// refuses it, even one outside the lake's own entry.
+func TestCommitAdoptRefusesAPolicyThatChanged(t *testing.T) {
+	f := newAdoptFixture(t)
+	env := Env{Stdout: &f.stdout, Stderr: &f.stderr, Getenv: agentGetenv(f.home, f.cfg, f.state)}
+	lakes, err := config.ResolveLakes(f.file(), env.getenv, config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := policySnapshot(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A top-level deny rule appears while a person is deciding.
+	writeAgentConfig(t, f.cfg, `{"server":`+jsonString(f.url)+`,"projects":{"allow":[{"cwd_prefix":"/work"}],"deny":[{"cwd_prefix":"/work/new"}]},"future_key":{"x":1},"agent":{"debounce":"100ms"}}`)
+	before, _ := os.ReadFile(filepath.Join(f.cfg, "terva-lampi", "config.json"))
+	err = commitAdopt(env, lakes[0], laptopToken, snap, lakeprofile.Doc{}, func(lc *config.LakeConfig) { lc.LakeID = "lake_x" })
+	if err == nil || !strings.Contains(err.Error(), "changed while adopt was deciding") {
+		t.Fatalf("stale listing: %v", err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(f.cfg, "terva-lampi", "config.json")); !bytes.Equal(before, after) {
+		t.Fatalf("config.json changed:\n%s", after)
 	}
 }

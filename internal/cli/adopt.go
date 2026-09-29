@@ -3,9 +3,13 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -42,6 +46,12 @@ type adoptOptions struct {
 func adoptLake(env Env, name string, o adoptOptions) error {
 	if o.allowFrom != allowKeep && o.allowFrom != allowProfile {
 		return fmt.Errorf("--allow-from is %s or %s, not %q", allowKeep, allowProfile, o.allowFrom)
+	}
+	// Everything the listing below is computed from, taken before it is
+	// read, so a change while a person decides refuses the write.
+	snap, err := policySnapshot(env)
+	if err != nil {
+		return err
 	}
 	file, err := config.LoadFile(env.getenv)
 	if err != nil {
@@ -87,7 +97,7 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 		}
 		// The profile checked is the one cached, so the agent that reloads
 		// applies what the check approved.
-		err = commitAdopt(env, l, token, d, func(lc *config.LakeConfig) {
+		err = commitAdopt(env, l, token, snap, d, func(lc *config.LakeConfig) {
 			lc.Projects.Allow = nil
 		})
 		if err != nil {
@@ -158,7 +168,7 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 			return err
 		}
 	}
-	err = commitAdopt(env, l, token, d, func(lc *config.LakeConfig) {
+	err = commitAdopt(env, l, token, snap, d, func(lc *config.LakeConfig) {
 		lc.LakeID, lc.KeyID, lc.PublicKey, lc.DeviceID = pinned.LakeID, pinned.KeyID, pinned.PublicKey, pinned.DeviceID
 		if drop {
 			lc.Projects.Allow = nil
@@ -226,7 +236,7 @@ func adoptableKey(ctx context.Context, server string) (protocol.LakeKey, string,
 // narrowing for those allow rules. The profile goes in first, as
 // register does it, so the agent that reloads the entry finds it; a
 // failed write puts the old cached copy back.
-func commitAdopt(env Env, l config.Lake, token string, d lakeprofile.Doc, edit func(*config.LakeConfig)) error {
+func commitAdopt(env Env, l config.Lake, token, snap string, d lakeprofile.Doc, edit func(*config.LakeConfig)) error {
 	state, err := config.StateDir(env.getenv)
 	if err != nil {
 		return err
@@ -239,6 +249,14 @@ func commitAdopt(env Env, l config.Lake, token string, d lakeprofile.Doc, edit f
 		}
 		if now != token {
 			return changed
+		}
+		// What was listed was computed from snap: config.json and every
+		// lake's cached profile. Any of them moving since makes the
+		// listing stale.
+		if again, err := policySnapshot(env); err != nil {
+			return err
+		} else if again != snap {
+			return fmt.Errorf("config.json or a lake's cached profile changed while adopt was deciding, so what it listed may not be what would change; nothing was written, run this again")
 		}
 		restore, err := keepProfile(env, l)
 		if err != nil {
@@ -259,6 +277,42 @@ func commitAdopt(env Env, l config.Lake, token string, d lakeprofile.Doc, edit f
 		}
 		return nil
 	})
+}
+
+// policySnapshot is a digest of every input to what this machine uploads
+// that adopt reads: config.json as it is on disk, and each lake's cached
+// profile file. The profile files are read raw, so a pin that does not
+// verify one still counts it.
+func policySnapshot(env Env) (string, error) {
+	h := sha256.New()
+	path, err := config.ConfigPath(env.getenv)
+	if err != nil {
+		return "", err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	fmt.Fprintf(h, "config %d\n", len(raw))
+	h.Write(raw)
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return "", err
+	}
+	profiles, err := filepath.Glob(filepath.Join(state, "lakes", "*", lakeprofile.FileName))
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(profiles)
+	for _, p := range profiles {
+		b, err := os.ReadFile(p)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		fmt.Fprintf(h, "%s %d\n", p, len(b))
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // adoptChanged reports whether config.json's entry lc is no longer the
