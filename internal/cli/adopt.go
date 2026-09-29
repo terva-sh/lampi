@@ -63,6 +63,10 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 			fmt.Fprintf(env.stdout(), "lake %s has no local allow rules; its profile's allow rules already apply\n", l.Name)
 			return nil
 		}
+		token, err := lakeToken(l)
+		if err != nil {
+			return err
+		}
 		d, err := fetchProfile(ctx, env, l)
 		if err != nil {
 			return fmt.Errorf("fetching lake %s's profile: %w", l.Name, err)
@@ -76,14 +80,10 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 		if err := checkNarrowing(env, file, l, applied.Profile, ok, d.Profile, true, o.force); err != nil {
 			return err
 		}
-		err = config.Locked(env.getenv, func(tx config.Tx) error {
-			return tx.AdoptLake(l.Name, l.Server.Value, func(lc *config.LakeConfig) error {
-				if adoptChanged(l, *lc) {
-					return fmt.Errorf("lake %s changed in config.json while its profile was checked; nothing was written, run this again", l.Name)
-				}
-				lc.Projects.Allow = nil
-				return nil
-			})
+		// The profile checked is the one cached, so the agent that reloads
+		// applies what the check approved.
+		err = commitAdopt(env, l, token, d, func(lc *config.LakeConfig) {
+			lc.Projects.Allow = nil
 		})
 		if err != nil {
 			return err
@@ -151,24 +151,11 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 			return err
 		}
 	}
-	err = config.Locked(env.getenv, func(tx config.Tx) error {
-		// The profile goes in first, as register does it, so the agent
-		// that reloads the pinned entry finds it.
-		if err := lakeprofile.Save(lakestate.Dir(state, l.Name), d); err != nil {
-			return err
+	err = commitAdopt(env, l, token, d, func(lc *config.LakeConfig) {
+		lc.LakeID, lc.KeyID, lc.PublicKey, lc.DeviceID = pinned.LakeID, pinned.KeyID, pinned.PublicKey, pinned.DeviceID
+		if drop {
+			lc.Projects.Allow = nil
 		}
-		return tx.AdoptLake(l.Name, server, func(lc *config.LakeConfig) error {
-			// The pin was checked for the server and token read at the
-			// start, and the narrowing for these allow rules.
-			if adoptChanged(l, *lc) {
-				return fmt.Errorf("lake %s changed in config.json while it was checked; nothing was written, run this again", l.Name)
-			}
-			lc.LakeID, lc.KeyID, lc.PublicKey, lc.DeviceID = pinned.LakeID, pinned.KeyID, pinned.PublicKey, pinned.DeviceID
-			if drop {
-				lc.Projects.Allow = nil
-			}
-			return nil
-		})
 	})
 	if err != nil {
 		return err
@@ -223,6 +210,48 @@ func adoptableKey(ctx context.Context, server string) (protocol.LakeKey, string,
 		}
 	}
 	return protocol.LakeKey{}, "", errors.New("no active key in the list signed it")
+}
+
+// commitAdopt caches the verified profile d and rewrites l's entry with
+// edit, under config.json's lock. It refuses, and writes nothing, when
+// the entry or the token file's contents are no longer what the checks
+// used: the pin and device id were checked for that token, and the
+// narrowing for those allow rules. The profile goes in first, as
+// register does it, so the agent that reloads the entry finds it; a
+// failed write puts the old cached copy back.
+func commitAdopt(env Env, l config.Lake, token string, d lakeprofile.Doc, edit func(*config.LakeConfig)) error {
+	state, err := config.StateDir(env.getenv)
+	if err != nil {
+		return err
+	}
+	changed := fmt.Errorf("lake %s changed in config.json or its token file while it was checked; nothing was written, run this again", l.Name)
+	return config.Locked(env.getenv, func(tx config.Tx) error {
+		now, err := lakeToken(l)
+		if err != nil {
+			return err
+		}
+		if now != token {
+			return changed
+		}
+		restore, err := keepProfile(env, l)
+		if err != nil {
+			return err
+		}
+		if err := lakeprofile.Save(lakestate.Dir(state, l.Name), d); err != nil {
+			return restore(err)
+		}
+		err = tx.AdoptLake(l.Name, l.Server.Value, func(lc *config.LakeConfig) error {
+			if adoptChanged(l, *lc) {
+				return changed
+			}
+			edit(lc)
+			return nil
+		})
+		if err != nil {
+			return restore(err)
+		}
+		return nil
+	})
 }
 
 // adoptChanged reports whether config.json's entry lc is no longer the

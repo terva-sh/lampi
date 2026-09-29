@@ -11,6 +11,8 @@ import (
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
+	"terva.sh/lampi/internal/lakeprofile"
+	"terva.sh/lampi/internal/lakestate"
 )
 
 // adoptFixture is a lake with a token-file device, laptop, and a machine
@@ -290,5 +292,51 @@ func TestAdoptChangedSeesEveryCheckedField(t *testing.T) {
 		if !adoptChanged(l, lc) {
 			t.Errorf("%s: a changed entry reads as the same", name)
 		}
+	}
+}
+
+// Review of #133: the switch on a pinned lake caches the profile it
+// checked, so the agent that reloads applies what was approved, not an
+// older cached copy.
+func TestLakesAdoptSwitchCachesTheProfileItChecked(t *testing.T) {
+	f := newAdoptFixture(t)
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatalf("adopt: %v\n%s", err, f.stderr.String())
+	}
+	putDefaultProfile(t, f.lake, config.Profile{Projects: config.Projects{
+		Allow: []config.ProjectMatch{{CWDPrefix: "/work"}},
+	}})
+	if err := f.run("lakes", "adopt", "--allow-from", "profile"); err != nil {
+		t.Fatalf("switch: %v\n%s", err, f.stderr.String())
+	}
+	lakes, err := config.ResolveLakes(f.file(), agentGetenv(f.home, f.cfg, f.state), config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, ok, err := lakeprofile.Load(lakestate.Dir(filepath.Join(f.state, "terva-lampi"), config.DefaultLake), lakes[0])
+	if err != nil || !ok {
+		t.Fatalf("cached profile: %v %v", ok, err)
+	}
+	if a := d.Profile.Projects.Allow; len(a) != 1 || a[0].CWDPrefix != "/work" {
+		t.Fatalf("cached profile is not the one checked: %+v", d.Profile.Projects)
+	}
+}
+
+// Review of #133: the pin and device id were checked for one token; a
+// token file that changed before the write refuses it.
+func TestCommitAdoptRefusesATokenThatChanged(t *testing.T) {
+	f := newAdoptFixture(t)
+	before, _ := os.ReadFile(filepath.Join(f.cfg, "terva-lampi", "config.json"))
+	env := Env{Stdout: &f.stdout, Stderr: &f.stderr, Getenv: agentGetenv(f.home, f.cfg, f.state)}
+	lakes, err := config.ResolveLakes(f.file(), env.getenv, config.LakeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = commitAdopt(env, lakes[0], strings.Repeat("d4", 32), lakeprofile.Doc{}, func(lc *config.LakeConfig) { lc.LakeID = "lake_x" })
+	if err == nil || !strings.Contains(err.Error(), "changed in config.json or its token file") {
+		t.Fatalf("stale token: %v", err)
+	}
+	if after, _ := os.ReadFile(filepath.Join(f.cfg, "terva-lampi", "config.json")); !bytes.Equal(before, after) {
+		t.Fatalf("config.json changed:\n%s", after)
 	}
 }
