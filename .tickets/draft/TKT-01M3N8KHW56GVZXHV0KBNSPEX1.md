@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T02:11:10Z
+updated_at: 2026-09-29T02:40:02Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -79,3 +79,12 @@ Grilling round 3 with human:sothr, 2026-09-29. Decisions:
 - Default bay turned off and nothing places the session: the lake refuses the manifest with a distinct error code. The agent keeps the session pending and reports it as "no bay" in status and in the dashboard's device view. Accepted cost: a refused session exists only on its machine until a rule or grant is added.
 - Roles: admin and operator are different roles. Admin can read everything in the lake. Operator is the lesser power: minting registration codes to allow ingest, and an operator can be limited to uploading into specific bays. A viewer sees only the bays it is granted. Grants are (principal, bay, permission), where a principal is an OIDC group, a device, or later an MCP identity. This replaces the round 2 recommendation of operator as the all-bays role.
 - The list of bays the lake publishes to a device contains only the bays that device may write to, because bay names can carry client names.
+
+**agent:claude-code/7859b064** at 2026-09-29T02:40:02Z
+
+Grilling round 4 with human:sothr, 2026-09-29. Decisions:
+
+- Reading the default bay: only admins and principals granted it explicitly. An operator can read it only with an explicit grant, like anyone else. This supersedes the round 2 wording "operators, admins, and tokens". An operator without a grant sees devices, codes, and per-device counts and statuses, not transcripts.
+- Registration grants the new device its write bays, capped at the minting operator's own scope. Fact checked at 600438c: the code itself (internal/regcode Code) carries only url, lake id, key, secret and expiry, and the profile lives on the lake's pending registrations row (internal/catalog/registrations.go) and is applied when the code is redeemed. Bay grants follow the same path. Nothing in the code has to be updated, and changing a device's bays later is an edit to its grants on the lake.
+- Bay lifecycle: only an admin creates, renames or deletes a bay and changes rules and grants. A bay has a stable id; a rename keeps the old name as an alias. Deleting a bay removes it from every membership, a session left in no bay moves to the default bay, and no data is deleted. Per-bay retention and purge is a follow-up, not part of this epic.
+- Upgrade: behavior does not change. Existing viewer groups get an explicit read grant on the default bay. Existing operator groups become operators scoped to all bays and also admins. Existing devices get a write grant on the default bay. The web config gains an admin role mapping, and startup logs which groups were granted what.
