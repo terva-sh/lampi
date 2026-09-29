@@ -32,7 +32,9 @@ const IndexFile = "search.db"
 // auto-vacuum, which a file takes only before it has any pages. Version
 // 3 keys rows by position and a signature of their fields, not by
 // generation, so a new generation rewrites only the rows that changed.
-const indexVersion = 3
+// Version 4 stores no recorded time for an event whose source had none,
+// and rebuilds a file that rewriting those rows grew (TKT-01M3NENNN8).
+const indexVersion = 4
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -646,7 +648,11 @@ func (d *docRow) fill(line []byte) {
 	}
 	d.eventType, d.actor, d.raw = ev.EventType, ev.Actor, ev.RawType
 	d.tool, d.toolError = ev.Tool.Name, ev.Tool.IsError
-	if ev.RecordedAt != "" {
+	// Projection writes the projection time as recorded_at when the
+	// source line had none, the same instant as ingested_at. It is
+	// not the event's time, and it changes at every generation, so
+	// such a row would be rewritten at every sync (TKT-01M3NENNN8).
+	if ev.RecordedAt != "" && ev.RecordedAt != ev.IngestedAt {
 		if t, err := time.Parse(time.RFC3339Nano, ev.RecordedAt); err == nil {
 			ns := t.UnixNano()
 			d.recorded = &ns
