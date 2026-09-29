@@ -146,7 +146,10 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 	}
 
 	// A single-lake state layout moves under lakes/default first, where
-	// the profile is cached.
+	// the profile is cached. The move needs no undo if the commit below
+	// fails: sync and the agent make the same move for the default lake
+	// at their next start, legacy config or not, and read its state
+	// from lakes/default either way.
 	if l.Name == config.DefaultLake {
 		if err := migrateDefault(env, state, false); err != nil {
 			return err
