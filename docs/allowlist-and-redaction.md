@@ -106,6 +106,12 @@ A deny rule reads a doubt as a match:
   does not match it. Add a `cwd_prefix` to a `git_remote` deny to limit
   it to one tree.
 
+The allow reading also decides which bays a session asks a lake for, in a
+lake's `bays.rules`
+([Asking for bays](registration-and-lakes.md#asking-for-bays)). Those
+rules choose where a session goes on the lake. They do not admit a
+session: only `projects.allow` does.
+
 ### Folder layouts: cwd_glob
 
 A `cwd_prefix` names a path on one machine. A `cwd_glob` names a layout,

@@ -100,6 +100,8 @@ func Run(args []string, env Env) error {
 		err = runRegister(env, args[1:])
 	case "lakes":
 		err = runLakes(env, args[1:])
+	case "bays":
+		err = runBays(env, args[1:])
 	case "export":
 		err = runExport(env, args[1:])
 	case "conflicts":
@@ -248,6 +250,7 @@ usage:
   terva-lampi status    agent state and lake health
   terva-lampi register  join a lake with a registration code
   terva-lampi lakes     list or remove the lakes this machine reports to
+  terva-lampi bays      which bays a session here asks each lake for
   terva-lampi login     write a device token file
   terva-lampi export    write normalized events, or an allowlisted ShareGPT trajectory
   terva-lampi conflicts list divergent_copy artifacts from the catalog

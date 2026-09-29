@@ -249,6 +249,44 @@ also writes the lake's pinned `lake_id`, `key_id`, and `public_key`.
 - `terva-lampi agent config` prints one `lake` line per lake, with the
   source of its server and token file.
 
+### Asking for bays
+
+A lake can be split into bays, and a session can ask to be in some of
+them ([Bays](policy.md#bays)). A lake entry's `bays` says which:
+
+```json
+"work": {
+  "server": "https://work.example",
+  "projects": {"allow": [{"cwd_prefix": "/home/you/work"}]},
+  "bays": {
+    "rules": [
+      {"cwd_prefix": "/home/you/work/client-x", "bays": ["client-x", "billing"]},
+      {"harness": "codex", "bays": ["agents"]}
+    ],
+    "default": ["team"]
+  }
+}
+```
+
+- A rule has the fields of a `projects` rule, read the way an allow rule
+  is, and an optional `harness`. Every field set must match. A rule
+  needs at least one field, and names one or more bays.
+- A session asks for every bay any matching rule names. One no rule
+  matches asks for `default`. With neither, it asks for nothing.
+- A bay is named by the name the lake gave it or its id.
+- The lake decides. It places a session only in the bays this device may
+  write, records the rest as refused, and applies its own rules. A
+  session nothing places lands in the lake's default bay, or, when the
+  lake has turned its default off, stays on this machine.
+- A changed rule applies to a session the next time the session changes.
+  The lake only ever adds a session to a bay, so a rule taken away does
+  not take a session out of one.
+- `bays` is set on an entry of `lakes`. The legacy top-level lake has
+  none; move it into the map as `default` to ask for bays.
+- `terva-lampi bays which [PATH]` prints, for each lake, whether a
+  session started at PATH uploads there, the bays it asks for, and the
+  rule or default that named each.
+
 ### A machine with no lake
 
 `"lakes": {}` with no top-level `server`, `token_file`, or
