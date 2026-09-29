@@ -159,7 +159,17 @@ func TestArchiveBackupFailuresPublishNothing(t *testing.T) {
 		}
 	}
 
+	// The catalog snapshot sits in an owner-only directory, which it
+	// was written into, so it was never readable by others.
+	snapPrivate := false
 	archiveEntryHook = func(name string) error {
+		if name == "catalog.db" {
+			d, _ := filepath.Glob(filepath.Join(dir, ".backup-catalog-*"))
+			if len(d) == 1 {
+				st, err := os.Stat(d[0])
+				snapPrivate = err == nil && st.IsDir() && st.Mode().Perm() == 0o700
+			}
+		}
 		if strings.HasPrefix(name, "cas/") {
 			return errors.New("disk went away")
 		}
@@ -170,6 +180,9 @@ func TestArchiveBackupFailuresPublishNothing(t *testing.T) {
 		t.Fatalf("failing backup: %v", err)
 	}
 	check("a failure part-way")
+	if !snapPrivate {
+		t.Fatal("the catalog snapshot was not in an owner-only directory")
+	}
 
 	archiveEntryHook = func(name string) error {
 		if strings.HasPrefix(name, "cas/") {

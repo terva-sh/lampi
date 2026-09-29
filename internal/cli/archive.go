@@ -66,23 +66,23 @@ func loadRecipients(flags []string, file string) ([]age.Recipient, error) {
 // archive is built in a temp file beside dest and renamed over it only
 // once the age payload is closed and the file synced; a failure or a
 // signal removes the temp file and leaves dest as it was. The catalog
-// snapshot is the one plaintext temp file, kept in the lake directory,
-// which holds that plaintext already, and removed at the end.
+// snapshot is the one plaintext temp file, kept in an owner-only
+// directory inside the lake, which holds that plaintext already, and
+// removed at the end. A failure after the rename says the archive is
+// written.
 func backupArchive(env Env, data, dest, tokenFile string, recipients []age.Recipient) (err error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	snap, err := os.CreateTemp(data, ".backup-catalog-*.db")
+	// VACUUM INTO creates its file with the umask's mode, so the
+	// snapshot goes in an owner-only directory, private while SQLite
+	// writes it.
+	snapDir, err := os.MkdirTemp(data, ".backup-catalog-*")
 	if err != nil {
 		return err
 	}
-	snapName := snap.Name()
-	snap.Close()
-	defer os.Remove(snapName)
-	// VACUUM INTO refuses a path that exists.
-	if err := os.Remove(snapName); err != nil {
-		return err
-	}
+	defer os.RemoveAll(snapDir)
+	snapName := filepath.Join(snapDir, "catalog.db")
 	sessions, err := snapshotCatalog(filepath.Join(data, "catalog.db"), snapName)
 	if err != nil {
 		return err
@@ -195,7 +195,7 @@ func backupArchive(env Env, data, dest, tokenFile string, recipients []age.Recip
 	}
 	tmpName = ""
 	if err := syncDirPath(dir); err != nil {
-		return err
+		return fmt.Errorf("archive %s is written, but syncing %s failed, so the rename may not survive a crash: %w", dest, dir, err)
 	}
 	fmt.Fprintf(env.stdout(), "archive: %s, %d entries, %.1f MiB, %d recipients\n", dest, entries, float64(st.Size())/(1<<20), len(recipients))
 	return nil

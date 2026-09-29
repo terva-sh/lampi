@@ -157,6 +157,12 @@ func Extract(r io.Reader, identities []age.Identity, dest string) (m Manifest, f
 			if files == 0 {
 				return m, 0, ErrFormat
 			}
+			// The tar end marker is not the end of the age payload:
+			// read the rest, so a tail cut short or altered after it
+			// fails authentication here rather than going unread.
+			if _, err := io.Copy(io.Discard, zr); err != nil {
+				return m, files, fmt.Errorf("archive: %w", err)
+			}
 			return m, files, nil
 		}
 		if err != nil {

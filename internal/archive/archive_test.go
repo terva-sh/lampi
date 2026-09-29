@@ -3,6 +3,7 @@ package archive
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"os"
@@ -108,6 +109,32 @@ func TestDamagedArchivesAndWrongKeysAreRefused(t *testing.T) {
 		if _, _, err := Extract(bytes.NewReader(b[:cut]), []age.Identity{ids[0]}, t.TempDir()); err == nil {
 			t.Fatalf("an archive cut to %d of %d bytes was accepted", cut, len(b))
 		}
+	}
+}
+
+// An archive whose tar stream ends well before its age payload does is
+// still read to the end, so a cut in the tail is refused.
+func TestTheTailPastTheTarEndIsAuthenticated(t *testing.T) {
+	id := identities(t, 1)[0]
+	var buf bytes.Buffer
+	enc, _ := age.Encrypt(&buf, id.Recipient())
+	zw, _ := zstd.NewWriter(enc)
+	tw := tar.NewWriter(zw)
+	body := mustJSON(t, Manifest{Format: Format})
+	tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: ManifestName, Size: int64(len(body)), Mode: 0o600})
+	tw.Write(body)
+	tw.Close()
+	tail := make([]byte, 256<<10)
+	rand.Read(tail)
+	zw.Write(tail)
+	zw.Close()
+	enc.Close()
+	b := buf.Bytes()
+	if _, _, err := Extract(bytes.NewReader(b), []age.Identity{id}, t.TempDir()); err != nil {
+		t.Fatalf("whole: %v", err)
+	}
+	if _, _, err := Extract(bytes.NewReader(b[:len(b)-100]), []age.Identity{id}, t.TempDir()); err == nil {
+		t.Fatal("a cut past the tar end was accepted")
 	}
 }
 
