@@ -40,6 +40,7 @@ func (s *Server) rawRoutes(m *http.ServeMux) {
 	admin := func(h http.HandlerFunc) http.Handler { return s.auth.Guard(webauth.AdminOnly(h)) }
 	m.Handle("GET /sessions/{uid}/raw", admin(s.rawPage))
 	m.Handle("GET /sessions/{uid}/raw/{digest}", admin(s.rawArtifact))
+	s.readTokenRoutes(m)
 }
 
 // rawView is the raw page: the session and its current artifacts.

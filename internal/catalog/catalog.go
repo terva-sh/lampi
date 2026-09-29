@@ -210,6 +210,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateProfiles,
 	migrateDeviceInventories,
 	migrateProjectReview,
+	migrateReadTokens,
 }
 
 // upgrade runs each step above the file's user_version, one

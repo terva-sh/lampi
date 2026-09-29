@@ -52,9 +52,14 @@ func rawLake(t *testing.T, auditCat func(dir string) *catalog.Catalog) (*api.Ser
 	return lake, idp, lake.Handler(), dir
 }
 
+// signInAs signs in as a member of group. The sign-in is fresh unless
+// the test set an older idp.AuthTime.
 func signInAs(t *testing.T, idp *testidp.Server, h http.Handler, group string) *http.Cookie {
 	t.Helper()
 	idp.Groups = []string{group}
+	if idp.AuthTime.IsZero() {
+		idp.AuthTime = time.Now()
+	}
 	c, _ := signIn(t, idp, h)
 	return c
 }

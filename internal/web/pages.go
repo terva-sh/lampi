@@ -122,11 +122,13 @@ type pageData struct {
 	Operator bool
 	// Admin shows the admin's links, such as raw artifacts. RawOn says
 	// this lake serves them.
-	Admin   bool
-	RawOn   bool
-	Raw     rawView
-	Codes   codesView
-	Devices devicesView
+	Admin bool
+	RawOn bool
+	Raw   rawView
+	// ReadTokens is the admin's read token page.
+	ReadTokens readTokensView
+	Codes      codesView
+	Devices    devicesView
 	// Device is one device's page.
 	Device   deviceView
 	Profiles profilesView

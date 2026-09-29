@@ -225,6 +225,29 @@ A download stops at 8 MiB. A cut-short response is a `206` with a
 HTTP `Range` requests; the routes are in
 [web-api.md](web-api.md#raw-artifacts).
 
+### Read tokens
+
+An admin gets a **Read tokens** link, `/admin/read-tokens`, for tools that
+fetch raw artifacts without a browser session. The API is in
+[web-api.md](web-api.md#read-tokens).
+
+- **Minting** takes a label, an optional list of session UIDs, and an
+  expiry of up to 90 days. An empty list reads every session. Minting
+  needs a sign-in in the last 10 minutes, as minting a registration code
+  does.
+- **The token is shown once.** The lake keeps only its SHA-256. A token
+  starts with `lrt_`, so a leaked one is easy to find in a log or with a
+  secret scanner.
+- **Revoke** stops a token on its next request. The list shows each
+  token's scope, expiry, who minted it, and when it was last used.
+
+Minting and revoking are written to `audit.jsonl` as `read_token.created`
+and `read_token.revoked`, naming the token by id and label and never by
+its value. Each read is an `artifact.read` event with the token as actor.
+A mint whose line cannot be written to `audit.jsonl` is revoked at once and
+its token is never shown. A revoke whose line cannot be written still
+stands: the page says so, and the line is written at the next flush.
+
 ## Registration codes
 
 An operator sees a Registrations link. `/admin/registrations` lists every
