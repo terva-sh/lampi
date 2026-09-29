@@ -70,7 +70,8 @@ func ValidBayName(s string) bool {
 }
 
 // migrateBays adds bays, their aliases, session membership, the bays
-// each session asked for, and grants. Every stored session goes into
+// each session asked for, and grants. Triggers keep a bay's name and
+// an alias apart, so a reference resolves to one bay. Every stored session goes into
 // the default bay, and every device is granted write on it, so nothing
 // changes until an admin makes a second bay.
 func migrateBays(tx *sql.Tx) error {
@@ -112,7 +113,16 @@ func migrateBays(tx *sql.Tx) error {
 		granted_by TEXT NOT NULL,
 		PRIMARY KEY (principal_kind, principal, bay_id, permission)
 	);
-	CREATE INDEX bay_grants_bay ON bay_grants(bay_id);`); err != nil {
+	CREATE INDEX bay_grants_bay ON bay_grants(bay_id);
+	CREATE TRIGGER bay_alias_not_a_name BEFORE INSERT ON bay_aliases
+		WHEN EXISTS (SELECT 1 FROM bays WHERE name = NEW.alias)
+		BEGIN SELECT RAISE(ABORT, 'bay name taken'); END;
+	CREATE TRIGGER bay_name_not_an_alias BEFORE INSERT ON bays
+		WHEN EXISTS (SELECT 1 FROM bay_aliases WHERE alias = NEW.name)
+		BEGIN SELECT RAISE(ABORT, 'bay name taken'); END;
+	CREATE TRIGGER bay_rename_not_an_alias BEFORE UPDATE OF name ON bays
+		WHEN EXISTS (SELECT 1 FROM bay_aliases WHERE alias = NEW.name)
+		BEGIN SELECT RAISE(ABORT, 'bay name taken'); END;`); err != nil {
 		return err
 	}
 	now := stamp(time.Now())
@@ -226,11 +236,14 @@ func resolveBayID(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, ref string) (string, error) {
 	var id string
+	// The triggers migrateBays makes keep a name and an alias from
+	// meeting, so at most one row matches; the order is a second guard.
 	err := q.QueryRowContext(ctx, `
-		SELECT id FROM bays WHERE id = ?1 OR name = ?1
-		UNION ALL
-		SELECT bay_id FROM bay_aliases WHERE alias = ?1
-		LIMIT 1`, ref).Scan(&id)
+		SELECT id FROM (
+			SELECT id, 0 AS rank FROM bays WHERE id = ?1 OR name = ?1
+			UNION ALL
+			SELECT bay_id, 1 FROM bay_aliases WHERE alias = ?1)
+		ORDER BY rank LIMIT 1`, ref).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("%w: %s", ErrNoBay, ref)
 	}
