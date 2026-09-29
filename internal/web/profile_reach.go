@@ -39,18 +39,19 @@ import (
 // projectChange is one project a change admits or drops, across the
 // devices whose newest inventory holds it.
 type projectChange struct {
-	Key      catalog.ProjectKey
-	Devices  []string
-	Sessions int
+	Key      catalog.ProjectKey `json:"key"`
+	Devices  []string           `json:"devices"`
+	Sessions int                `json:"sessions"`
 }
 
 // profileReach is the projects a change to a profile's rules admits and
 // drops, and the devices whose refused projects the lake cannot see.
 type profileReach struct {
-	Admits, Drops []projectChange
+	Admits []projectChange `json:"admits"`
+	Drops  []projectChange `json:"drops"`
 	// Unlisted names the devices that send no list of refused projects:
 	// strict ones, and ones that sent no inventory.
-	Unlisted []string
+	Unlisted []string `json:"unlisted"`
 }
 
 // reach evaluates before and after, the stored and edited rules of a
@@ -58,7 +59,7 @@ type profileReach struct {
 // stored is the stored profile: its version, and when it was saved,
 // zero for one never saved.
 func (s *Server) reach(ctx context.Context, before, after config.Projects, stored storedProfile, devices []profileDevice) (profileReach, error) {
-	var out profileReach
+	out := profileReach{Unlisted: []string{}}
 	admits := map[catalog.ProjectKey]*projectChange{}
 	drops := map[catalog.ProjectKey]*projectChange{}
 	for _, d := range devices {

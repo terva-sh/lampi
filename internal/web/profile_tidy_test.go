@@ -131,3 +131,27 @@ func TestOwnerFolds(t *testing.T) {
 		}
 	}
 }
+
+func TestWithRules(t *testing.T) {
+	remote := func(s string) config.ProjectMatch { return config.ProjectMatch{GitRemote: s} }
+	prefix := func(s string) config.ProjectMatch { return config.ProjectMatch{GitRemotePrefix: s} }
+	for _, c := range []struct {
+		name              string
+		allow, add        []config.ProjectMatch
+		wantOut, wantGone []config.ProjectMatch
+	}{
+		{"a prefix drops what it covers", []config.ProjectMatch{remote("h/o/a"), remote("h/x/b")}, []config.ProjectMatch{prefix("h/o")},
+			[]config.ProjectMatch{remote("h/x/b"), prefix("h/o")}, []config.ProjectMatch{remote("h/o/a")}},
+		{"a rule already there stays where it is", []config.ProjectMatch{prefix("h/o"), remote("h/x/b")}, []config.ProjectMatch{prefix("h/o")},
+			[]config.ProjectMatch{prefix("h/o"), remote("h/x/b")}, nil},
+		{"a rule a kept rule covers is not added", []config.ProjectMatch{prefix("h")}, []config.ProjectMatch{remote("h/o/a")},
+			[]config.ProjectMatch{prefix("h")}, nil},
+		{"nested new prefixes keep the wider", nil, []config.ProjectMatch{prefix("h/o/g"), prefix("h/o")},
+			[]config.ProjectMatch{prefix("h/o")}, nil},
+	} {
+		out, gone := withRules(c.allow, c.add)
+		if !slices.Equal(out, c.wantOut) || !slices.Equal(gone, c.wantGone) {
+			t.Errorf("%s: %+v less %+v, want %+v less %+v", c.name, out, gone, c.wantOut, c.wantGone)
+		}
+	}
+}

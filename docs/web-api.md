@@ -664,16 +664,27 @@ whose audit line fails still stands, and answers `500 audit_failed` with
 Allow selected, as the browser API. The same operator and CSRF rules hold.
 
 `POST /api/web/v1/review/allow` plans. It takes
-`{"keys": [KEY, ...], "device": "dev_..."}`, where `device` is optional and
-narrows the plan to that device's copies. It saves nothing and answers `200`:
+`{"keys": [KEY, ...], "device": "dev_...", "width": "repository"}`:
+
+- `device` is optional and narrows the plan to that device's copies.
+- `width` is optional. `repository`, the default, adds a `git_remote` rule per
+  repository. `owner` adds one `git_remote_prefix` per owner instead, except
+  where the owner would be the bare host. A folder always gets `cwd_prefix`.
+  Any other value is `400 invalid_request`.
+
+It saves nothing and answers `200`:
 
 ```json
 {
   "profiles": [
     {"name": "default", "base_revision": 7, "stored": true,
-     "rules": [{"rule": {"git_remote": "github.com/acme/app"},
+     "rules": [{"rule": {"git_remote_prefix": "github.com/acme"},
                 "key": {"kind": "git_remote", "key": "github.com/acme/app"},
                 "for_devices": ["laptop"]}],
+     "removed": [{"git_remote": "github.com/acme/lib"}],
+     "reach": {"admits": [{"key": {"kind": "git_remote", "key": "github.com/acme/app"},
+                           "devices": ["laptop"], "sessions": 12}],
+               "drops": [], "unlisted": []},
      "document": {"projects": {"allow": ["..."]}},
      "devices": [{"id": "dev_...", "name": "laptop"}], "local_allow": 0}
   ],
@@ -681,7 +692,13 @@ narrows the plan to that device's copies. It saves nothing and answers `200`:
 }
 ```
 
-`skipped` lists keys that no longer need review. `POST
+`skipped` lists keys that no longer need review. `key` on a rule is the first
+selected project it is for. At owner width, one rule can be for several.
+`removed` lists the allow rules the profile had that the new rules cover,
+which the document leaves out. `reach` lists the projects in the devices'
+newest inventories that the change admits and drops. `unlisted` names the
+devices that send no list of refused projects. See
+[Editing a profile](web-dashboard.md#editing-a-profile). `POST
 /api/web/v1/review/allow/save` saves the plan with
 `{"profiles": [{"name", "base_revision", "document"}], "note": "..."}`. It
 saves every profile or none, and answers `200` with
