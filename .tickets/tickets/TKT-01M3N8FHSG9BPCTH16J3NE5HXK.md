@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N8FHSG9BPCTH16J3NE5HXK
 title: "Catalog: project first-seen sightings and lake-wide hidden projects"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:19:22Z
-updated_at: 2026-09-29T00:19:22Z
+updated_at: 2026-09-29T01:14:42Z
 created_by:
   id: agent:claude-code/10adf304
   name: ""

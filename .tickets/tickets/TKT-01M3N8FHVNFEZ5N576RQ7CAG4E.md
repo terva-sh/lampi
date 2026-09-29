@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N8FHVNFEZ5N576RQ7CAG4E
 title: "Dashboard: /review lists projects needing a decision across devices"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:19:22Z
-updated_at: 2026-09-29T00:19:22Z
+updated_at: 2026-09-29T01:14:42Z
 created_by:
   id: agent:claude-code/10adf304
   name: ""
