@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -131,10 +132,19 @@ func (s *Server) refusedRow(r *http.Request, id, remote, cwd string) (protocol.I
 	return protocol.InventoryProject{}, false, nil
 }
 
-// ruleText names a rule the way a note or a notice says it.
+// ruleText names a rule the way a note or a notice says it: each field
+// set, joined with "and", since every one must match.
 func ruleText(m config.ProjectMatch) string {
-	if m.GitRemote != "" {
-		return "git_remote " + m.GitRemote
+	var parts []string
+	for _, f := range []struct{ name, value string }{
+		{"git_remote", m.GitRemote},
+		{"git_remote_prefix", m.GitRemotePrefix},
+		{"cwd_prefix", m.CWDPrefix},
+		{"cwd_hash", m.CWDHash},
+	} {
+		if f.value != "" {
+			parts = append(parts, f.name+" "+f.value)
+		}
 	}
-	return "cwd_prefix " + m.CWDPrefix
+	return strings.Join(parts, " and ")
 }

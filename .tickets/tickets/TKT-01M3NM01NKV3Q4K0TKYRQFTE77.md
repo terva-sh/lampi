@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01NKV3Q4K0TKYRQFTE77
 title: "Profile editor: find covered rules and fold owner groups"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M3NM01KV7WF9SE218PWHR2GN
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/58fb7d84
+  branch: profile-rules/covered
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-58fb7d84
+  commit: e5ac2a26d3910f5f4f15f43c1ca3a68a0acaa7c9
+  session: null
+  claimed_at: 2026-09-29T03:47:45Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T03:41:08Z
+updated_at: 2026-09-29T04:44:43Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -61,7 +68,54 @@ Both actions change the form only. Nothing is saved without the operator.
 
 ## Acceptance criteria
 
-- [ ] config.Covers decides allow-rule coverage field by field, with table tests including the false-in-doubt cases
-- [ ] The preview marks each covered allow rule, names its covering rule, and offers one action to remove them
-- [ ] Three or more exact git_remote rules under one owner produce a suggestion that rewrites the form to one git_remote_prefix
-- [ ] Neither action saves; docs describe both
+- [x] config.Covers decides allow-rule coverage field by field, with table tests including the false-in-doubt cases
+- [x] The preview marks each covered allow rule, names its covering rule, and offers one action to remove them
+- [x] Three or more exact git_remote rules under one owner produce a suggestion that rewrites the form to one git_remote_prefix
+- [x] Neither action saves; docs describe both
+
+## Implementation plan
+
+- `config.Covers` in `internal/config/policy.go`: allow-rule coverage, decided field by field.
+- `internal/web/profile_tidy.go`:
+  - `coveredBy`, `coveredRules` and `withoutCovered` handle the covered rules.
+  - `ownerFolds` and `foldOwner` handle the owner folds.
+  - `tidyForm` applies the button the operator pressed to the form before the preview.
+- The editor view carries `Covered` and `Folds`, rendered as a "Fewer rules" panel inside the editor form.
+- `ruleText` names every field a rule sets.
+
+## Notes
+
+**agent:claude-code/58fb7d84** at 2026-09-29T03:53:19Z
+
+### Decisions
+
+- **Covers is conservative.** A field of the wider rule must follow from a field of the narrower one:
+  - a `cwd_prefix` from a `cwd_prefix` at or under it;
+  - a `git_remote` from the same folded remote;
+  - a `git_remote_prefix` from a remote or a prefix under it;
+  - a `cwd_hash` from the same hash.
+
+  Nothing is inferred across kinds, for example a hash from a prefix. `TestCoversIsSound` checks on a grid of rules and IDs that `Covers(a,b)` and "b matches" imply "a matches".
+- **Deny rules are not offered.** A deny rule reads a doubt as a match, so coverage between deny rules needs its own definition. A redundant deny rule is also harmless.
+- **Duplicates.** When two rules cover each other, the first one stays. Covers is transitive, so removing every covered rule keeps some rule that nothing covers, and loses nothing.
+- **Fold scope.**
+  - Only rules that set nothing but `git_remote` count. A rule with an extra field is narrower on purpose, and folding it would widen more than it shows.
+  - The owner is the folded remote less its last segment. Nested groups therefore fold to the group, not the top owner.
+  - The threshold is 3.
+  - A bare host is never offered, because a host-wide rule should be typed on purpose.
+  - An owner whose prefix an existing rule already covers is not offered, since the covered-rule offer handles it.
+- **Button placement.** The offers sit in the editor form after "Preview changes". Pressing Enter in a field submits the form's first submit button, which must stay the plain preview. The test checks the order.
+- **Notes.** An offer fills an empty note with what it did, so the revision says why the rules went. A note the operator typed is kept.
+- **Form input.** `fold=OWNER` comes from the form, but it only acts on remotes the form already holds. An owner the form holds no remote under changes nothing.
+
+### Verification
+
+`GOFLAGS=-mod=mod just ci` passes. The tests are `TestCovers`, `TestCoversIsSound`, `TestEditorOffersFewerRules` and `TestOwnerFolds`.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:42:48Z
+
+Review 1333 on PR 140, finding 1 (medium): the Fewer rules hint promised that the preview lists every project a change admits. It lists only what the devices' newest inventories show. Accepted, and the hint was reworded in 80fe1c39be472cd95771054b143abfb06a7fd278.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:44:43Z
+
+Review 1335 on PR 140, finding 1 (medium): tidyForm folded any owner a form named, which let a crafted form fold fewer remotes than an offer needs. Accepted, and fixed in c4b8dd715ea10c72f0b12dde1bfb407b71bd4c68: it now folds only an owner that ownerFolds offers for the submitted rules. TestEditorOffersFewerRules covers an owner with two remotes.

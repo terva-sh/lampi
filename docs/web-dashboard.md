@@ -563,6 +563,21 @@ nobody has reviewed. The list has these limits:
   Otherwise the refusal may come from an older profile, so the project is
   listed, even though the device may still deny it.
 
+Under **Fewer rules**, the editor offers two ways to shorten the allow list:
+
+- **Remove covered rules.** A rule adds nothing when another rule matches every
+  project it matches. For example, `git_remote_prefix github.com/acme` covers
+  `git_remote github.com/acme/app`, and `cwd_prefix /work` covers
+  `cwd_prefix /work/app`. When two rules are the same, the first one stays.
+- **Replace with a git_remote_prefix.** When three or more rules that set only
+  `git_remote` name repositories under one owner, one `git_remote_prefix` for
+  the owner can replace them. It also admits every other repository under that
+  owner. The offer is never made for a bare host.
+
+Both change the form, fill an empty note with what they did, and preview.
+Nothing is saved until you save. Deny rules are not offered, since a
+redundant deny rule is harmless.
+
 `git_remote` and `git_remote_prefix` are stored in the form the agent compares,
 so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.
 

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01KV7WF9SE218PWHR2GN
 title: "Profile preview: list the projects a change admits and drops"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/58fb7d84
-  branch: t3code/improve-profile-rule-matching
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-58fb7d84
-  commit: 4826f0b8cbb8d0242786c802219afff34d3b240d
-  session: null
-  claimed_at: 2026-09-29T03:42:05Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T04:00:08Z
+updated_at: 2026-09-29T04:40:29Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -116,3 +109,7 @@ This supersedes the rule stated in the note on review 1318.
 - **Carried fields.** `profileDevice` carries the report's receive time. `reach` takes the stored profile's version and save time.
 - **Tests.** `TestPreviewListsTheProjectsAChangeAdmitsAndDrops` orders the save, then the report, then the inventory, and adds the case of a report after the inventory. Dropping the report-time condition makes that case fail.
 - **CI** passed on 7d19689 before this change.
+
+## Summary
+
+Landed in #131 (merge 18585a0). When the allow or deny rules change, the profile editor's preview lists the projects the change admits and stops, from the newest inventory of each device on the profile. Devices with their own allow rules are left out, and strict or silent devices are named. A deny-refused row counts as a local deny only when the device reports local deny rules and its inventory arrived after both its report of the stored version and the save. Three terva-review rounds (1318, 1320, then clean) shaped that rule.
