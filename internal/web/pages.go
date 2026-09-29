@@ -39,7 +39,14 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return s
 	},
-	"profileURL":    profileURL,
+	"profileURL": profileURL,
+	"reviewTab": func(f reviewFilter, hidden bool) string {
+		f.Hidden = hidden
+		return f.URL()
+	},
+	"reviewTable": func(v reviewView, rows []reviewRow, caption string, allow bool) reviewTableView {
+		return reviewTableView{View: v, Rows: rows, Caption: caption, Allow: allow}
+	},
 	"deviceURL":     deviceURL,
 	"allowable":     allowable,
 	"denied":        func(reason string) bool { return reason == config.RefusedByDeny },
@@ -112,6 +119,11 @@ type pageData struct {
 	Profile  profileView
 	// ProfileEdit is the operator's profile editor.
 	ProfileEdit profileEditView
+	// Review is the review queue's page.
+	Review reviewView
+	// ReviewCount is how many projects need review, for the header;
+	// -1 when unknown.
+	ReviewCount int
 	// Urgent names active devices whose agent matches an urgent
 	// advisory. The overview and devices pages fill it.
 	Urgent []string
@@ -145,7 +157,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
@@ -159,6 +171,10 @@ func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int
 	d.Display = id.Display
 	d.CSRF = csrf
 	d.Operator = id.Operator
+	d.ReviewCount = -1
+	if s, ok := r.Context().Value(serverKey{}).(*Server); ok && (id.Viewer || id.Operator) {
+		d.ReviewCount = s.reviewCount(r)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_ = pages.ExecuteTemplate(w, "layout", d)

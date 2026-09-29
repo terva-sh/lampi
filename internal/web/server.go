@@ -74,9 +74,20 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/devices/{id}", s.device)
 	get("/api/web/v1/profiles", s.profiles)
 	get("/api/web/v1/profiles/{name}", s.profile)
+	get("/api/web/v1/review", s.review)
 	s.pageRoutes(m)
 	s.registrationRoutes(m)
-	return webauth.Headers(m), nil
+	return webauth.Headers(withServer(s, m)), nil
+}
+
+// serverKey carries the Server in a request's context, so the page
+// layout can read what every page's header shows.
+type serverKey struct{}
+
+func withServer(s *Server, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverKey{}, s)))
+	})
 }
 func readContext(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), 5*time.Second)
