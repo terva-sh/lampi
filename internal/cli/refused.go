@@ -57,20 +57,9 @@ func runAgentRefused(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	src, err := sources(env.getenv, cc.file.Harnesses)
+	opt, err := readOnlyOptions(env, cc.file.Harnesses)
 	if err != nil {
 		return err
-	}
-	opt := upload.Options{
-		TervaHome:     homeOf(src, protocol.HarnessTerva),
-		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
-		CodexHome:     homeOf(src, protocol.HarnessCodex),
-		OpenCodeHome:  homeOf(src, protocol.HarnessOpenCode),
-		CursorHome:    homeOf(src, protocol.HarnessCursor),
-		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
-		// Manifests carry a machine id, and nothing here leaves the
-		// machine, so a fixed one avoids creating the real one.
-		MachineID: "refused-report",
 	}
 	type ruleset struct {
 		label    string
@@ -101,6 +90,26 @@ func runAgentRefused(env Env, args []string) error {
 		fmt.Fprintf(env.stderr(), "terva-lampi: skipped %s\n", s)
 	}
 	return nil
+}
+
+// readOnlyOptions reads every session the agent would read, for a report
+// that uploads nothing and reads no sync state.
+func readOnlyOptions(env Env, harnesses config.Harnesses) (upload.Options, error) {
+	src, err := sources(env.getenv, harnesses)
+	if err != nil {
+		return upload.Options{}, err
+	}
+	return upload.Options{
+		TervaHome:     homeOf(src, protocol.HarnessTerva),
+		ClaudeHome:    homeOf(src, protocol.HarnessClaude),
+		CodexHome:     homeOf(src, protocol.HarnessCodex),
+		OpenCodeHome:  homeOf(src, protocol.HarnessOpenCode),
+		CursorHome:    homeOf(src, protocol.HarnessCursor),
+		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
+		// Manifests carry a machine id, and nothing here leaves the
+		// machine, so a fixed one avoids creating the real one.
+		MachineID: "refused-report",
+	}, nil
 }
 
 func writeRefused(w io.Writer, label string, projects []upload.RefusedProject) {

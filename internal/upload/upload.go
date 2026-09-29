@@ -918,6 +918,20 @@ func postHello(ctx context.Context, client *http.Client, opt Options) (protocol.
 	return out, nil
 }
 
+// HelloPinned is hello with opt.Pin checked: the lake must prove the
+// pinned key over a fresh nonce. lakes adopt uses it to tie a key to the
+// lake that accepts this machine's token.
+func HelloPinned(ctx context.Context, opt Options) (protocol.HelloResponse, error) {
+	if opt.Pin == nil {
+		return protocol.HelloResponse{}, errors.New("upload: HelloPinned needs a pin")
+	}
+	client := opt.Client
+	if client == nil {
+		client = NewClient()
+	}
+	return postHello(ctx, client, opt)
+}
+
 // Pin is the lake identity a registered client checks on every hello:
 // the lake id and the key it pinned. Nothing is pushed to a lake that
 // does not prove that key over a fresh nonce.

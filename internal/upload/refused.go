@@ -64,6 +64,72 @@ func Refusals(opt Options) (projects []RefusedProject, skipped []string) {
 	return projects, skipped
 }
 
+// Narrowed lists the projects on this machine that from allows and to
+// refuses, grouped as Refusals groups them, with to's reason. It reads
+// what Refusals reads, once, and uploads nothing. A switch from one
+// allowlist to another stops uploading exactly these.
+func Narrowed(opt Options, from, to config.Projects) (projects []RefusedProject, skipped []string) {
+	opt.Projects = from
+	bundles, skipped := bundlesFor(opt)
+	defer cleanupBundles(bundles)
+	kept := make([]adapter.Bundle, 0, len(bundles))
+	for _, b := range bundles {
+		var ms []protocol.Manifest
+		for _, m := range b.Manifests {
+			if from.Permitted(projectID(m)) {
+				ms = append(ms, m)
+			}
+		}
+		b.Manifests, b.Cleanup = ms, nil
+		kept = append(kept, b)
+	}
+	opt.Projects = to
+	for _, r := range inventoryRows(opt, kept) {
+		if r.Reason == "" {
+			continue
+		}
+		projects = append(projects, RefusedProject{
+			CWD: r.CWD, CWDs: r.CWDs, GitRemote: r.GitRemote,
+			Harnesses: r.Harnesses, Sessions: r.Sessions, Reason: r.Reason,
+		})
+	}
+	return projects, skipped
+}
+
+// PermittedByAny lists the projects on this machine with a session that
+// any of rules allows, grouped as Refusals groups them, reading once. A
+// project two rule sets allow in different checkouts is one row with
+// every session and checkout. It uploads nothing.
+func PermittedByAny(opt Options, rules []config.Projects) []RefusedProject {
+	opt.Projects = config.Projects{}
+	bundles, _ := bundlesFor(opt)
+	defer cleanupBundles(bundles)
+	kept := make([]adapter.Bundle, 0, len(bundles))
+	for _, b := range bundles {
+		var ms []protocol.Manifest
+		for _, m := range b.Manifests {
+			for _, r := range rules {
+				if r.Permitted(projectID(m)) {
+					ms = append(ms, m)
+					break
+				}
+			}
+		}
+		b.Manifests, b.Cleanup = ms, nil
+		kept = append(kept, b)
+	}
+	// With no rule every kept session has the same verdict, so each
+	// project is one row.
+	var projects []RefusedProject
+	for _, r := range inventoryRows(opt, kept) {
+		projects = append(projects, RefusedProject{
+			CWD: r.CWD, CWDs: r.CWDs, GitRemote: r.GitRemote,
+			Harnesses: r.Harnesses, Sessions: r.Sessions,
+		})
+	}
+	return projects
+}
+
 // inventoryRows groups every session in bundles by project and verdict,
 // as Refusals describes, with the allowed ones grouped the same way. It
 // is never nil, so a caller can tell an empty machine from one not read.

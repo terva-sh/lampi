@@ -74,6 +74,98 @@ func (tx Tx) UpdateLake(name string, edit func(*LakeConfig) error) error {
 	})
 }
 
+// AdoptLake rewrites lakes.<name> with what edit makes of it, as
+// UpdateLake does. The default lake may instead be the legacy one the
+// top-level server and token_file describe. Its entry is then made from
+// them, with the top-level projects.allow that belongs to it, and those
+// keys leave the top level. server is the lake's resolved server, used
+// when the top level names none. The lake keeps its name, so its machine
+// id, token and sync state stay where they are. Top-level projects.deny
+// stays, since it applies to every lake. An error from edit writes
+// nothing.
+func (tx Tx) AdoptLake(name, server string, edit func(*LakeConfig) error) error {
+	return editConfig(tx.getenv, func(top map[string]json.RawMessage, lakes map[string]json.RawMessage) error {
+		var lc LakeConfig
+		if raw, ok := lakes[name]; ok {
+			if err := json.Unmarshal(raw, &lc); err != nil {
+				return fmt.Errorf("config: lakes.%s: %w", name, err)
+			}
+		} else {
+			if name != DefaultLake {
+				return fmt.Errorf("config: no lake named %s in the lakes map", name)
+			}
+			var err error
+			if lc, err = liftLegacyDefault(top, server); err != nil {
+				return err
+			}
+		}
+		if err := edit(&lc); err != nil {
+			return err
+		}
+		if err := checkLakeEntry(name, lc); err != nil {
+			return err
+		}
+		out, err := json.Marshal(lc)
+		if err != nil {
+			return err
+		}
+		lakes[name] = out
+		return nil
+	})
+}
+
+// liftLegacyDefault takes the legacy default lake's server, token_file
+// and projects.allow out of top and returns them as a lakes entry.
+// Every other key under projects is kept.
+func liftLegacyDefault(top map[string]json.RawMessage, server string) (LakeConfig, error) {
+	var lc LakeConfig
+	str := func(key string) (string, error) {
+		raw, ok := top[key]
+		if !ok {
+			return "", nil
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", fmt.Errorf("config: %s: %w", key, err)
+		}
+		return s, nil
+	}
+	var err error
+	if lc.Server, err = str("server"); err != nil {
+		return lc, err
+	}
+	if lc.Server == "" {
+		lc.Server = server
+	}
+	if lc.TokenFile, err = str("token_file"); err != nil {
+		return lc, err
+	}
+	delete(top, "server")
+	delete(top, "token_file")
+	if raw, ok := top["projects"]; ok && string(bytes.TrimSpace(raw)) != "null" {
+		var projects map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &projects); err != nil {
+			return lc, fmt.Errorf("config: projects: %w", err)
+		}
+		if allow, ok := projects["allow"]; ok {
+			if err := json.Unmarshal(allow, &lc.Projects.Allow); err != nil {
+				return lc, fmt.Errorf("config: projects.allow: %w", err)
+			}
+			delete(projects, "allow")
+		}
+		if len(projects) == 0 {
+			delete(top, "projects")
+		} else {
+			out, err := json.Marshal(projects)
+			if err != nil {
+				return lc, err
+			}
+			top["projects"] = out
+		}
+	}
+	return lc, nil
+}
+
 // RemoveLake deletes lakes.<name> from config.json. Removing the last
 // lake leaves an empty lakes map, which is the standalone state, not
 // the loopback default a missing map means.

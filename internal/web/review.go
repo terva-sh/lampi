@@ -111,6 +111,9 @@ type reviewSighting struct {
 	// LocalAllow is a device whose config.json sets its allow rules, so
 	// a rule in its profile does not reach it.
 	LocalAllow bool `json:"local_allow,omitempty"`
+	// NoProfile is a device that fetches no profile at all; see
+	// deviceRow.NoProfile. It is always LocalAllow too.
+	NoProfile bool `json:"no_profile,omitempty"`
 	// StillRefused is a copy whose profile allows it, from a device
 	// that applied that profile and refused the project in an inventory
 	// it sent since: waiting will not change it.
@@ -258,7 +261,10 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 			if p.Hidden != nil {
 				continue
 			}
-			rs := reviewSighting{ReviewSighting: sg, ProfileName: name, LocalAllow: rows[sg.DeviceID].AllowSource == config.OriginLocal}
+			rs := reviewSighting{ReviewSighting: sg, ProfileName: name, NoProfile: rows[sg.DeviceID].NoProfile}
+			// No profile reaches a device that fetches none, whatever its
+			// report says about its allow rules.
+			rs.LocalAllow = rows[sg.DeviceID].AllowSource == config.OriginLocal || rs.NoProfile
 			projects, err := projectsOf(sg)
 			if err != nil {
 				return v, err

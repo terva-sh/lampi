@@ -236,6 +236,11 @@ type AgentReport struct {
 	// applied, from its verified cache; empty when it has none.
 	Profile        string `json:"profile,omitempty"`
 	ProfileVersion string `json:"profile_version,omitempty"`
+	// Pinned says whether the agent pinned this lake's key, which it needs
+	// to accept a profile. A pinned agent whose first fetch is still
+	// pending reports true and no profile. Agents from before the field
+	// leave it out.
+	Pinned *bool `json:"pinned,omitempty"`
 	// AllowSource and DenySource say where the agent's project rules
 	// for this lake came from: "local", "lake NAME", both joined by
 	// "+", or "none". A lake's allow rules do not apply while

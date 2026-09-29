@@ -83,7 +83,7 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 	if r.Inventory != "sociable" {
 		t.Fatalf("report inventory mode %q", r.Inventory)
 	}
-	if r.AgentVersion != agentVersion() || r.MachineID == "" || r.Profile != "default" || !strings.HasPrefix(r.ProfileVersion, "sha256:") {
+	if r.AgentVersion != agentVersion() || r.MachineID == "" || r.Profile != "default" || !strings.HasPrefix(r.ProfileVersion, "sha256:") || r.Pinned == nil || !*r.Pinned {
 		t.Fatalf("report %+v", r)
 	}
 	// work has no allow rule of its own, so the lake's rules are in force.
@@ -105,7 +105,7 @@ func TestReportKeepsTheLastFinishedSyncThroughAnError(t *testing.T) {
 		t.Fatalf("error %q at %v", rep.LastError, rep.LastErrorAt)
 	}
 	r.noteSync(upload.Result{Checked: 3, Unchanged: 3}, nil, t0.Add(2*time.Minute))
-	if rep := r.report(); rep.LastError != "" || rep.LastSync.Unchanged != 3 || rep.AllowSource != "local" {
+	if rep := r.report(); rep.LastError != "" || rep.LastSync.Unchanged != 3 || rep.AllowSource != "local" || rep.Pinned == nil || *rep.Pinned {
 		t.Fatalf("after success %+v", rep)
 	}
 }
