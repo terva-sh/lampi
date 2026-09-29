@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"time"
 
@@ -66,13 +67,19 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 		if err != nil {
 			return fmt.Errorf("fetching lake %s's profile: %w", l.Name, err)
 		}
-		if err := checkNarrowing(env, file, l, true, d.Profile, true, o.force); err != nil {
+		// Before the switch the agent applies the profile it cached, which
+		// may be older than the one just fetched.
+		applied, ok, err := lakeprofile.Load(lakestate.Dir(state, l.Name), l)
+		if err != nil {
+			return err
+		}
+		if err := checkNarrowing(env, file, l, applied.Profile, ok, d.Profile, true, o.force); err != nil {
 			return err
 		}
 		err = config.Locked(env.getenv, func(tx config.Tx) error {
 			return tx.AdoptLake(l.Name, l.Server.Value, func(lc *config.LakeConfig) error {
-				if entryChanged(l, *lc) {
-					return fmt.Errorf("lake %s changed in config.json while its profile was checked; run this again", l.Name)
+				if adoptChanged(l, *lc) {
+					return fmt.Errorf("lake %s changed in config.json while its profile was checked; nothing was written, run this again", l.Name)
 				}
 				lc.Projects.Allow = nil
 				return nil
@@ -133,7 +140,7 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 	}
 	pinned.DeviceID = d.Payload.DeviceID
 	drop := o.allowFrom == allowProfile && len(l.Projects.Allow) > 0
-	if err := checkNarrowing(env, file, l, false, d.Profile, drop, o.force); err != nil {
+	if err := checkNarrowing(env, file, l, config.Profile{}, false, d.Profile, drop, o.force); err != nil {
 		return err
 	}
 
@@ -151,8 +158,10 @@ func adoptLake(env Env, name string, o adoptOptions) error {
 			return err
 		}
 		return tx.AdoptLake(l.Name, server, func(lc *config.LakeConfig) error {
-			if lc.LakeID != "" {
-				return fmt.Errorf("lake %s was pinned in config.json while this ran; nothing more to do", l.Name)
+			// The pin was checked for the server and token read at the
+			// start, and the narrowing for these allow rules.
+			if adoptChanged(l, *lc) {
+				return fmt.Errorf("lake %s changed in config.json while it was checked; nothing was written, run this again", l.Name)
 			}
 			lc.LakeID, lc.KeyID, lc.PublicKey, lc.DeviceID = pinned.LakeID, pinned.KeyID, pinned.PublicKey, pinned.DeviceID
 			if drop {
@@ -216,23 +225,37 @@ func adoptableKey(ctx context.Context, server string) (protocol.LakeKey, string,
 	return protocol.LakeKey{}, "", errors.New("no active key in the list signed it")
 }
 
+// adoptChanged reports whether config.json's entry lc is no longer the
+// lake l that adopt checked: another pin, device, server or token, as
+// entryChanged sees them, or other local allow rules.
+func adoptChanged(l config.Lake, lc config.LakeConfig) bool {
+	if entryChanged(l, lc) || len(lc.Projects.Allow) != len(l.Projects.Allow) {
+		return true
+	}
+	for i := range lc.Projects.Allow {
+		if lc.Projects.Allow[i] != l.Projects.Allow[i] {
+			return true
+		}
+	}
+	return false
+}
+
 // checkNarrowing refuses, unless force, an adoption that would stop
-// uploading a project l's rules allow now. After it, the profile's deny
-// rules apply, and with drop its allow rules replace the local ones.
-// pinned says whether the profile applies already. Each such project is
-// listed either way.
-func checkNarrowing(env Env, file config.File, l config.Lake, pinned bool, p config.Profile, drop, force bool) error {
+// uploading a project l's rules allow now. Now is l with the profile it
+// applies, applied, when it has one (hasApplied). After, the profile p
+// applies, and with drop its allow rules replace the local ones. Each
+// such project is listed either way.
+func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Profile, hasApplied bool, p config.Profile, drop, force bool) error {
 	if drop && len(p.Projects.Allow) == 0 && !force {
 		return fmt.Errorf("the lake's profile allows no project, so dropping the %d local allow rules would stop every upload to lake %s; add rules to the profile first, or pass --force", len(l.Projects.Allow), l.Name)
 	}
-	before := config.ApplyLakeProfile(l, p, pinned)
+	before := config.ApplyLakeProfile(l, applied, hasApplied)
 	after := l
 	if drop {
 		after.Projects.Allow = nil
 	}
 	after = config.ApplyLakeProfile(after, p, true)
-	if !drop && len(after.Projects.Deny) == len(before.Projects.Deny) {
-		// The same allow rules and no deny rule added: nothing narrows.
+	if reflect.DeepEqual(before.Projects, after.Projects) {
 		return nil
 	}
 	opt, err := readOnlyOptions(env, file.Harnesses)

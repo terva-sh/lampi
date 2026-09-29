@@ -287,7 +287,9 @@ func TestReviewTokenFileDeviceWithNoProfileSaysToAdopt(t *testing.T) {
 	if ds[0].Source != catalog.DeviceFromTokenFile {
 		t.Fatalf("fixture device source %q", ds[0].Source)
 	}
-	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[0].ID, protocol.AgentReport{AgentVersion: "v0.2.0", AllowSource: config.OriginLocal, DenySource: "none"}, time.Now()); err != nil {
+	// An agent from before allow sources reports none; it still fetches
+	// no profile, so no Allow is offered for it.
+	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[0].ID, protocol.AgentReport{AgentVersion: "v0.1.2"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	cookie, _ := signIn(t, idp, h)

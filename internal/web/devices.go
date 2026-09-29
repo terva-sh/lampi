@@ -231,7 +231,7 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 			if row.VersionState == "behind" {
 				v.Behind++
 			}
-			if row.AllowSource == config.OriginLocal {
+			if row.AllowSource == config.OriginLocal || row.NoProfile {
 				v.LocalRules++
 			}
 			if row.Advisory != nil && row.Advisory.Severity == advisory.Urgent {

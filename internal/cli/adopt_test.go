@@ -239,3 +239,56 @@ func TestLakesAdoptRefusesAProfileThatAllowsNothing(t *testing.T) {
 		t.Fatalf("empty profile: %v", err)
 	}
 }
+
+// Review of #133: switching a pinned lake compares with the profile the
+// agent applied, so a deny rule the lake added since is caught.
+func TestLakesAdoptSwitchCatchesADenyAddedSinceTheAgentApplied(t *testing.T) {
+	f := newAdoptFixture(t)
+	putDefaultProfile(t, f.lake, config.Profile{Projects: config.Projects{
+		Allow: []config.ProjectMatch{{CWDPrefix: "/work"}},
+	}})
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err != nil {
+		t.Fatalf("adopt: %v\n%s", err, f.stderr.String())
+	}
+	putDefaultProfile(t, f.lake, config.Profile{Projects: config.Projects{
+		Allow: []config.ProjectMatch{{CWDPrefix: "/work"}},
+		Deny:  []config.ProjectMatch{{CWDPrefix: "/work/app"}},
+	}})
+	if err := f.run("lakes", "adopt", "--allow-from", "profile"); err == nil || !strings.Contains(err.Error(), "would refuse 1 projects") {
+		t.Fatalf("switch with a new deny: %v\n%s", err, f.stderr.String())
+	}
+	if !strings.Contains(f.stderr.String(), "/work/app") {
+		t.Fatalf("listed:\n%s", f.stderr.String())
+	}
+}
+
+// Review of #133: the write refuses an entry that changed after it was
+// checked: another server, token, pin or allow rule.
+func TestAdoptChangedSeesEveryCheckedField(t *testing.T) {
+	l := config.Lake{
+		Name:      config.DefaultLake,
+		Server:    config.Setting{Value: "http://127.0.0.1:8787", Source: config.SourceConfig},
+		TokenFile: config.Setting{Value: "/t", Source: config.SourceDefault},
+		Projects:  config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work"}}},
+	}
+	same := config.LakeConfig{Server: "http://127.0.0.1:8787", Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/work"}}}}
+	if adoptChanged(l, same) {
+		t.Fatal("the checked entry reads as changed")
+	}
+	for name, edit := range map[string]func(*config.LakeConfig){
+		"server":   func(lc *config.LakeConfig) { lc.Server = "http://127.0.0.1:9999" },
+		"lake id":  func(lc *config.LakeConfig) { lc.LakeID = "lake_x" },
+		"allow":    func(lc *config.LakeConfig) { lc.Projects.Allow = []config.ProjectMatch{{CWDPrefix: "/other"}} },
+		"no allow": func(lc *config.LakeConfig) { lc.Projects.Allow = nil },
+		"more allow": func(lc *config.LakeConfig) {
+			lc.Projects.Allow = append(lc.Projects.Allow, config.ProjectMatch{CWDPrefix: "/more"})
+		},
+	} {
+		lc := same
+		lc.Projects.Allow = append([]config.ProjectMatch(nil), same.Projects.Allow...)
+		edit(&lc)
+		if !adoptChanged(l, lc) {
+			t.Errorf("%s: a changed entry reads as the same", name)
+		}
+	}
+}
