@@ -73,7 +73,7 @@ contents when it starts. Those directories are mode 0700.
                                       file they grew into
 /var/lib/terva-lampi/cas/partial/…    resumable uploads in flight
 /var/lib/terva-lampi/catalog.db       SQLite catalog, plus WAL sidecars
-/var/lib/terva-lampi/normalized/      one JSONL file per session
+/var/lib/terva-lampi/normalized/      one zstd-compressed JSONL file per session
 /var/lib/terva-lampi/parquet/         date=…/harness=… partitions
 /var/lib/terva-lampi/identity.json    lake id and private signing keys
 /var/lib/terva-lampi/tokens           host copy of device tokens

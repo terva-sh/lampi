@@ -606,7 +606,7 @@ func TestBackupRestoresWithoutDerivedFiles(t *testing.T) {
 	if queryContent(t, out, "%"+proofPrompt+"%") != proofPrompt {
 		t.Fatal("restored export missed the fixture prompt")
 	}
-	if _, err := os.Stat(filepath.Join(restore, "normalized", ack.SessionUID+".jsonl")); err != nil {
+	if _, err := os.Stat(filepath.Join(restore, "normalized", ack.SessionUID+normalize.EventsExt)); err != nil {
 		t.Fatalf("export did not rebuild the JSONL: %v", err)
 	}
 	files, err := normalize.SessionParquet(filepath.Join(restore, "parquet"), ack.SessionUID)

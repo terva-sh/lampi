@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"terva.sh/lampi/internal/cas"
@@ -256,22 +254,21 @@ func (s *Server) StoreEvents(ctx context.Context, sessionUID string, events []no
 }
 
 func (s *Server) storeGeneration(ctx context.Context, sessionUID string, gen int64, head string, events []normalize.Event, nerr error) error {
-	path := filepath.Join(s.Normalized, sessionUID+".jsonl")
 	if nerr != nil {
-		if err := removeDerived(path, s.Parquet, sessionUID); err != nil {
+		if err := removeDerived(s.Normalized, s.Parquet, sessionUID); err != nil {
 			return err
 		}
 		return s.Catalog.SetNormalizeError(ctx, sessionUID, nerr.Error())
 	}
-	if err := normalize.WriteFile(path, events); err != nil {
-		_ = removeDerived(path, s.Parquet, sessionUID)
+	if err := normalize.WriteFile(s.Normalized, sessionUID, events); err != nil {
+		_ = removeDerived(s.Normalized, s.Parquet, sessionUID)
 		if rec := s.Catalog.SetNormalizeError(ctx, sessionUID, err.Error()); rec != nil {
 			return rec
 		}
 		return nil
 	}
 	if err := normalize.WriteParquet(s.Parquet, sessionUID, events); err != nil {
-		_ = removeDerived(path, s.Parquet, sessionUID)
+		_ = removeDerived(s.Normalized, s.Parquet, sessionUID)
 		if rec := s.Catalog.SetNormalizeError(ctx, sessionUID, err.Error()); rec != nil {
 			return rec
 		}
@@ -280,9 +277,9 @@ func (s *Server) storeGeneration(ctx context.Context, sessionUID string, gen int
 	return s.Catalog.MarkPublished(ctx, sessionUID, gen, head)
 }
 
-func removeDerived(jsonl, parquetRoot, sessionUID string) error {
-	if err := os.Remove(jsonl); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("normalize: %w", err)
+func removeDerived(normalized, parquetRoot, sessionUID string) error {
+	if err := normalize.RemoveEvents(normalized, sessionUID); err != nil {
+		return err
 	}
 	if err := normalize.RemoveParquet(parquetRoot, sessionUID); err != nil {
 		return err

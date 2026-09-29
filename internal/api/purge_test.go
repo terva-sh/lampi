@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -115,7 +116,7 @@ func TestPurgeRemovesSessionAndUnsharedBlobs(t *testing.T) {
 	if _, ok, _ := s.Catalog.Alias(t.Context(), protocol.HarnessTerva, "sid-a", "machine-a"); ok {
 		t.Fatal("alias kept")
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ackA.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ackA.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file kept: %v", err)
 	}
 	if _, ok, _ := s.Catalog.Session(t.Context(), ackB.SessionUID); !ok {

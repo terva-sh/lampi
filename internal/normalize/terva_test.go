@@ -240,8 +240,8 @@ func TestExportJSONLQueriesContentText(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	path := filepath.Join(dir, "events.jsonl")
-	if err := WriteFile(path, events); err != nil {
+	path := EventsPath(dir, "events")
+	if err := WriteFile(dir, "events", events); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -252,7 +252,7 @@ func TestExportJSONLQueriesContentText(t *testing.T) {
 		t.Fatalf("mode %o", info.Mode().Perm())
 	}
 
-	body, err := os.ReadFile(path)
+	body, err := ReadEventsFile(dir, "events")
 	if err != nil {
 		t.Fatal(err)
 	}

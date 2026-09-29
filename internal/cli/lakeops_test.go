@@ -13,6 +13,7 @@ import (
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/normalize"
 )
 
 // liveLocks lets a test stop the stand-in serve: releaseLive drops
@@ -79,7 +80,7 @@ func TestExportBesideServeStartsNoWorker(t *testing.T) {
 	if err := lake.Close(); err != nil {
 		t.Fatal(err)
 	}
-	jsonl := filepath.Join(dir, "normalized", uid+".jsonl")
+	jsonl := filepath.Join(dir, "normalized", uid+normalize.EventsExt)
 	if err := os.Remove(jsonl); err != nil {
 		t.Fatal(err)
 	}

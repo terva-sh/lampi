@@ -1,7 +1,6 @@
 package recall
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -421,7 +420,10 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 	}
 	defer tx.Rollback()
 	w := docWriter{tx: tx}
-	br := bufio.NewReaderSize(snap.f, 64<<10)
+	br, _, _, err := snap.lines(ctx, 0, 0)
+	if err != nil {
+		return 0, err
+	}
 	var pos int64
 	for {
 		if err := ctx.Err(); err != nil {
