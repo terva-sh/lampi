@@ -548,7 +548,8 @@ narrow the queue; an empty value means all. Anything else is
   - `needs_review`: refused, not hidden, and the device's profile has no rule
     that allows it.
   - `allow_pending`: the device's profile allows it now, and the device has not
-    sent an inventory since.
+    sent an inventory since. A device with `local_allow` is never allow
+    pending, since its profile's allow rules do not reach it.
   - `denied`: a deny rule refuses it, or it has no cwd, so no allow rule can let
     it through.
 - `profile` is the profile the device fetches. `local_allow` marks a device

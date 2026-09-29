@@ -399,6 +399,8 @@ and checkouts.
   there when the lake began recording reads "or before".
 - **Allow pending** holds projects a rule now allows whose device has not sent
   a new inventory yet. They leave once it does.
+  A device whose `config.json` sets its own allow rules takes none from its
+  profile, so its copies stay in Needs review, marked, with no Allow.
 - **Denied** holds projects a deny rule refuses, or sessions with no working
   directory. An allow rule cannot let those through.
 - **Hidden** is a tab of the projects hidden from review.

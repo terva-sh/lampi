@@ -228,7 +228,10 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 			switch {
 			case !allowable(sg.Project.Reason), projects.Refusal(id) == config.RefusedByDeny:
 				rs.State = stateDenied
-			case projects.Permitted(id):
+			case !rs.LocalAllow && projects.Permitted(id):
+				// A device whose config.json sets its allow rules takes
+				// none from its profile, so a profile rule is no
+				// decision for it: its copy still needs one.
 				rs.State = statePending
 			default:
 				rs.State = stateNeeds

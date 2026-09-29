@@ -246,3 +246,25 @@ func TestReturnPathAcceptsTheReviewQueue(t *testing.T) {
 		}
 	}
 }
+
+// TKT-01M3N8FHVN: a device whose config.json sets its allow rules takes
+// none from its profile, so a profile rule that matches its copy leaves
+// the copy needing review, with no Allow to offer (review 1300).
+func TestReviewLocalAllowRulesAreNotPending(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	if err := lake.Catalog.PutDeviceReport(t.Context(), ds[0].ID, protocol.AgentReport{AgentVersion: "v0.2.0", AllowSource: config.OriginLocal, DenySource: "none"}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	page := get(h, "/review", cookie).Body.String()
+	needs := section(t, page, "<h2>Needs review</h2>")
+	if !strings.Contains(needs, "/work/pending") || strings.Contains(page, "Allow pending (") {
+		t.Fatal("laptop's copy of /work/pending reads allow pending though its profile's allow rules do not reach it")
+	}
+	if strings.Contains(needs, `action="/devices/`+ds[0].ID+`/allow"`) {
+		t.Fatal("Allow offered for a device whose profile rules do not reach it")
+	}
+	if !strings.Contains(needs, "Sets its own allow rules in config.json") {
+		t.Fatal("the copy does not say why")
+	}
+}
