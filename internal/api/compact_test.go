@@ -310,3 +310,126 @@ func TestCompactLoopCheckFollowsFoldsMadeSoFar(t *testing.T) {
 		}
 	}
 }
+
+// storeRaw replaces digest's object with its raw bytes, as a release
+// from before compression stored it.
+func storeRaw(t *testing.T, s *Server, digest string) {
+	t.Helper()
+	b, err := s.CAS.Read(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CAS.RemoveEntry(cas.Entry{Digest: digest}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.CAS.Path(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Compact rewrites every raw object still referenced as a frame, after
+// its folds and sweep, so neither a folded version nor an unreferenced
+// tail is compressed only to be removed. The dry run counts the same
+// objects and writes nothing (TKT-01M3K45MV).
+func TestCompactCompressesRawObjects(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	var versions [][]byte
+	var digests []string
+	var file []byte
+	for i := 0; i < 3; i++ {
+		file = append(file, line(i)...)
+		v := append([]byte(nil), file...)
+		d := putRaw(t, h, v)
+		postManifest(t, h, manifest("m", "sid", v, d, 0, d))
+		versions = append(versions, v)
+		digests = append(digests, d)
+	}
+	other := []byte(line(99))
+	od := putRaw(t, h, other)
+	postManifest(t, h, manifest("m", "other", other, od, 0, od))
+	// Another file whose bytes are the first version's: the fold still
+	// removes that object, and the copy reads through the record, so
+	// neither run compresses it (review 1294).
+	postManifest(t, h, manifest("m", "copy", versions[0], digests[0], 0, digests[0]))
+	tail := putRaw(t, h, []byte("an old tail nothing names\n"))
+	for _, d := range append(digests, od, tail) {
+		storeRaw(t, s, d)
+	}
+	ageObject(t, s, tail, 2*time.Hour)
+	newest, _, err := s.CAS.StoredSize(digests[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	olderSize, _, _ := s.CAS.StoredSize(od)
+
+	before := storeEntries(t, s)
+	dry, err := s.Compact(t.Context(), CompactOptions{DryRun: true, MinAge: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := storeEntries(t, s); strings.Join(got, "\n") != strings.Join(before, "\n") {
+		t.Fatalf("the dry run wrote:\nbefore %v\nafter  %v", before, got)
+	}
+	// The two older versions fold and the tail is swept, so only the
+	// newest version and the other session's file are compressed.
+	if dry.Folded != 2 || dry.Unreferenced != 1 || dry.Reencoded != 2 || dry.RawBytes != newest+olderSize || dry.CompressedBytes != 0 {
+		t.Fatalf("dry run %+v", dry)
+	}
+
+	rep, err := s.Compact(t.Context(), CompactOptions{MinAge: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Reencoded != dry.Reencoded || rep.RawBytes != dry.RawBytes || rep.CompressedBytes <= 0 || rep.CompressedBytes >= rep.RawBytes || len(rep.Damaged) != 0 {
+		t.Fatalf("compact %+v", rep)
+	}
+	readsBack(t, s, append(versions, other))
+	err = s.CAS.Entries(func(e cas.Entry) error {
+		if !e.Logical && !e.Compressed {
+			t.Errorf("%s is still raw", e.Digest)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyClean(t, s)
+
+	again, err := s.Compact(t.Context(), CompactOptions{MinAge: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Reencoded != 0 || again.Folded+again.Unreferenced != 0 {
+		t.Fatalf("second run changed something: %+v", again)
+	}
+}
+
+// A raw object whose bytes are not its digest is reported and left,
+// not sealed into a frame that would carry the damage.
+func TestCompactLeavesADamagedRawObject(t *testing.T) {
+	s := openServer(t)
+	h := s.Handler()
+	v := []byte(line(1))
+	d := putRaw(t, h, v)
+	postManifest(t, h, manifest("m", "sid", v, d, 0, d))
+	storeRaw(t, s, d)
+	p, _ := s.CAS.Path(d)
+	if err := os.WriteFile(p, bytes.ToUpper(v), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.Compact(t.Context(), CompactOptions{MinAge: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Reencoded != 0 || len(rep.Damaged) != 1 || rep.Damaged[0] != d {
+		t.Fatalf("compact %+v", rep)
+	}
+	if got, err := os.ReadFile(p); err != nil || !bytes.Equal(got, bytes.ToUpper(v)) {
+		t.Fatalf("damaged object changed: %v", err)
+	}
+}

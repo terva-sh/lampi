@@ -590,7 +590,9 @@ before prefix records holds each version whole. `serve compact` folds
 every older version that is a prefix of its file's newest into a
 record, points existing records at the newest, and removes the
 objects nothing reads from. Each fold is hash-checked against the
-newest's bytes first.
+newest's bytes first. Last, it compresses every object that a release
+from before compression stored raw. It hashes each object on the way and
+leaves any object that doesn't match its digest for `serve fsck`.
 
 See what it would do first. The dry run writes nothing and can run
 beside `serve`.

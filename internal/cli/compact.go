@@ -27,13 +27,19 @@ yet posted.
 
 Before any fold, the newest version of each file is read once and each
 older version's digest is checked against the hash of that many
-leading bytes. compact can be run again, and a second run over a compacted lake changes
+leading bytes.
+
+Last, every object stored raw by a release from before objects were
+compressed is rewritten as a zstd frame. Its bytes are hashed on the
+way, and one that is not its digest is left for serve fsck.
+
+compact can be run again, and a second run over a compacted lake changes
 nothing.
 
 --dry-run reports what would change and writes nothing. It can run
 while serve runs. Without it, compact takes lake.lock, so stop serve
 first. Take a backup before the first compact of a lake: an older
-terva-lampi cannot read the records.
+terva-lampi cannot read the records or the frames.
 `
 
 func runServeCompact(env Env, args []string) error {
@@ -94,6 +100,17 @@ func runServeCompact(env Env, args []string) error {
 	}
 	fmt.Fprintf(out, "unreferenced entries: %d\n", rep.Unreferenced)
 	fmt.Fprintf(out, "object bytes reclaimed: %d (%.1f MiB)\n", rep.Reclaimed, float64(rep.Reclaimed)/(1<<20))
+	if dryRun {
+		fmt.Fprintf(out, "raw objects to compress: %d, %.1f MiB\n", rep.Reencoded, float64(rep.RawBytes)/(1<<20))
+	} else {
+		fmt.Fprintf(out, "raw objects compressed: %d, %.1f MiB to %.1f MiB\n", rep.Reencoded, float64(rep.RawBytes)/(1<<20), float64(rep.CompressedBytes)/(1<<20))
+	}
+	if len(rep.Damaged) > 0 {
+		fmt.Fprintf(out, "raw objects that are not their digest, left for fsck: %d\n", len(rep.Damaged))
+		for _, d := range rep.Damaged {
+			fmt.Fprintf(out, "  %s\n", d)
+		}
+	}
 	if err != nil {
 		return err
 	}
