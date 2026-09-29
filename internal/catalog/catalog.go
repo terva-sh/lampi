@@ -212,6 +212,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateProjectReview,
 	migrateReadTokens,
 	migrateConflictResolutions,
+	migrateBays,
 }
 
 // upgrade runs each step above the file's user_version, one
@@ -538,6 +539,9 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID, now.UnixNano()); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
+		}
+		if err := landInDefault(ctx, tx, uid, now); err != nil {
+			return protocol.ManifestAck{}, false, err
 		}
 	} else if newHead != head {
 		if _, err := tx.ExecContext(ctx, `

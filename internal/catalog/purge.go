@@ -29,9 +29,9 @@ func (c *Catalog) OtherDigests(ctx context.Context, sessionUID string) (map[stri
 }
 
 // DeleteSession removes the session and every row that names it:
-// artifacts, provenance, aliases, its normalize job, and its head
-// update history, so past activity buckets lose its updates, and its
-// conflict resolutions. It does not
+// artifacts, provenance, aliases, its normalize job, its head
+// update history, so past activity buckets lose its updates, its
+// conflict resolutions, and its bay membership and requests. It does not
 // touch the CAS or the derived files. ok is false when the session was
 // not stored.
 func (c *Catalog) DeleteSession(ctx context.Context, sessionUID string) (bool, error) {
@@ -40,7 +40,7 @@ func (c *Catalog) DeleteSession(ctx context.Context, sessionUID string) (bool, e
 		return false, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"artifacts", "provenance", "aliases", "normalize_jobs", "head_updates", "conflict_resolutions"} {
+	for _, table := range []string{"artifacts", "provenance", "aliases", "normalize_jobs", "head_updates", "conflict_resolutions", "session_bays", "session_bay_requests"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE session_uid = ?`, sessionUID); err != nil {
 			return false, fmt.Errorf("catalog: %s: %w", table, err)
 		}
