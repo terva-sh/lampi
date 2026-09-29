@@ -153,6 +153,7 @@ func (s *Server) registrationRoutes(m *http.ServeMux) {
 	m.Handle("POST /api/web/v1/registrations/{id}/revoke", op(s.revokeCode))
 	s.deviceRoutes(m)
 	s.profileRoutes(m)
+	s.reviewRoutes(m)
 	s.registrationPages(m)
 }
 
