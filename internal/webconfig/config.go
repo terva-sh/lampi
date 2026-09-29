@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -85,11 +86,27 @@ func (c *Config) CallbackURL() string { return c.BaseURL + CallbackPath }
 func (c *Config) Secure() bool        { return strings.HasPrefix(c.BaseURL, "https://") }
 
 // The roles role_map grants. An operator is also a viewer, and can
-// manage registration codes (TKT-01M3J5HX9); a viewer only reads.
+// manage registration codes (TKT-01M3J5HX9); a viewer only reads. An
+// admin is also an operator, and is the role admin-only routes check
+// (TKT-01M3NKZT6N). No group is promoted to admin on upgrade.
 const (
 	RoleViewer   = "viewer"
 	RoleOperator = "operator"
+	RoleAdmin    = "admin"
 )
+
+// AdminGroups lists the groups role_map maps to admin, sorted, so that
+// startup can say who holds it.
+func (c *Config) AdminGroups() []string {
+	var out []string
+	for group, role := range c.OIDC.RoleMap {
+		if role == RoleAdmin {
+			out = append(out, group)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 func (c *Config) Validate() error {
 	u, err := url.Parse(c.BaseURL)
@@ -103,11 +120,11 @@ func (c *Config) Validate() error {
 		return errors.New("web config: client_id is required")
 	}
 	if len(c.OIDC.RoleMap) == 0 {
-		return errors.New("web config: role_map must grant viewer or operator to at least one group")
+		return errors.New("web config: role_map must grant viewer, operator or admin to at least one group")
 	}
 	for group, role := range c.OIDC.RoleMap {
-		if strings.TrimSpace(group) == "" || (role != RoleViewer && role != RoleOperator) {
-			return errors.New("web config: role_map accepts nonempty groups mapped to viewer or operator")
+		if strings.TrimSpace(group) == "" || (role != RoleViewer && role != RoleOperator && role != RoleAdmin) {
+			return errors.New("web config: role_map accepts nonempty groups mapped to viewer, operator or admin")
 		}
 	}
 	if c.OIDC.GroupsClaim == "" {
