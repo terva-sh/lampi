@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-29T00:07:39Z
+updated_at: 2026-09-29T00:16:23Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -143,3 +143,42 @@ Two PRs.
 - **Split into a read-only PR and a writing PR,** so a rollback across
   that boundary is safe. Not done: the two ship in the same release
   unless the owner releases between them. The PR says so.
+
+**agent:claude-code/d8436f9f** at 2026-09-29T00:16:23Z
+
+### Compact re-encodes: built (second PR, stacked on #118)
+
+- **`cas.Reencode(digest)`** hashes a raw object while it compresses it.
+  A raw object that does not hash to its digest is `ErrNotItsDigest` and
+  is left alone, so the damage is not sealed into a frame that would
+  pass as intact. It has its own commit step. `commitFileLocked`'s
+  intact check found the raw file itself intact and kept it, which the
+  first test run caught. A frame already beside the raw file, left by a
+  re-encode that stopped, is kept if intact, and the raw copy is removed.
+- **`Compact`** re-encodes after its folds and its sweep, so an object
+  about to be removed is never compressed. The dry run removes nothing,
+  so it skips those objects by name: the planned folds and the swept
+  set that `sweepUnreferenced` now returns.
+- **Report.** New fields `Reencoded`, `RawBytes`, `CompressedBytes` and
+  `Damaged`. The dry run does not compress, so it gives the count and
+  the raw bytes only.
+
+### Alternatives
+
+- **Re-encode at serve start-up.** Rejected. It would compress the whole
+  legacy lake on the request path's process with no dry run, and
+  compact already runs with serve stopped and has a report.
+- **Estimate the saving in the dry run by compressing to a discard
+  writer.** Rejected. It costs the same CPU as the real run, and the
+  hosted lake's ratio is already measured on the epic.
+
+### Review of #118 (terva-review 1291, head c48e9ef)
+
+- **finding-1 (high), accepted and fixed in ff8faf8.** Repair removed both
+  files when the frame was damaged and the raw copy intact. It now judges
+  each file on its own.
+- **finding-2 (medium), accepted and fixed in ff8faf8.** StoredSize
+  counted one file where removing the object frees both. It now sums
+  them.
+
+Re-review requested as `fix-1291`.

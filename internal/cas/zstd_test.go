@@ -2,6 +2,7 @@ package cas
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,5 +211,60 @@ func TestRepairKeepsAnIntactRawCopy(t *testing.T) {
 	}
 	if fixed, err := s.Repair(bad[0]); err != nil || fixed {
 		t.Fatalf("second repair %v %v", fixed, err)
+	}
+}
+
+// Reencode rewrites a raw object as a frame and removes the raw file.
+// A raw object that is not its digest is left, and a raw copy beside a
+// frame is removed with nothing written.
+func TestReencodeCompressesRawObjects(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.Repeat([]byte(`{"type":"user","text":"compress me"}`+"\n"), 500)
+	d := digestOf(body)
+	raw, _ := s.Path(d)
+	damage(t, raw, body)
+
+	before, after, err := s.Reencode(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != int64(len(body)) || after <= 0 || after >= before/10 {
+		t.Fatalf("reencode %d -> %d", before, after)
+	}
+	installedAs(t, s, d, body)
+	if before, after, err := s.Reencode(d); err != nil || before != 0 || after != 0 {
+		t.Fatalf("second reencode %d -> %d %v", before, after, err)
+	}
+
+	// A raw copy beside the frame, as a re-encode that stopped leaves.
+	damage(t, raw, body)
+	if before, after, err := s.Reencode(d); err != nil || before != int64(len(body)) || after != 0 {
+		t.Fatalf("reencode beside a frame %d -> %d %v", before, after, err)
+	}
+	installedAs(t, s, d, body)
+
+	rotten := []byte("rotten bytes\n")
+	dr := digestOf(rotten)
+	rawRotten, _ := s.Path(dr)
+	damage(t, rawRotten, []byte("rotted bytes\n"))
+	if _, _, err := s.Reencode(dr); !errors.Is(err, ErrNotItsDigest) {
+		t.Fatalf("reencode of a damaged object: %v", err)
+	}
+	if got, err := os.ReadFile(rawRotten); err != nil || string(got) != "rotted bytes\n" {
+		t.Fatalf("damaged object changed: %q %v", got, err)
+	}
+	if _, ok, _ := s.object(dr); !ok {
+		t.Fatal("damaged object removed")
+	}
+	zr, _ := s.zstPath(dr)
+	if _, err := os.Lstat(zr); !os.IsNotExist(err) {
+		t.Fatalf("frame written for a damaged object: %v", err)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(zr), ".put-*"))
+	if len(leftovers) != 0 {
+		t.Fatalf("temp files left: %v", leftovers)
 	}
 }

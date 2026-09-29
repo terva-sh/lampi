@@ -253,6 +253,16 @@ func damaged(path string, err error) error {
 // path. src is left for the caller to remove. The encode runs without
 // s.mu, except where the caller already holds it.
 func (s *Store) seal(src, digest string, size int64) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", fmt.Errorf("cas: %w", err)
+	}
+	defer in.Close()
+	return s.sealFrom(in, digest, size)
+}
+
+// sealFrom is seal reading the size bytes from r.
+func (s *Store) sealFrom(r io.Reader, digest string, size int64) (string, error) {
 	final, err := s.Path(digest)
 	if err != nil {
 		return "", err
@@ -261,11 +271,6 @@ func (s *Store) seal(src, digest string, size int64) (string, error) {
 	if err := mkdirSynced(dir); err != nil {
 		return "", err
 	}
-	in, err := os.Open(src)
-	if err != nil {
-		return "", fmt.Errorf("cas: %w", err)
-	}
-	defer in.Close()
 	out, err := os.CreateTemp(dir, ".put-*")
 	if err != nil {
 		return "", fmt.Errorf("cas: %w", err)
@@ -278,7 +283,7 @@ func (s *Store) seal(src, digest string, size int64) (string, error) {
 			os.Remove(name)
 		}
 	}()
-	if err := encode(out, in, size); err != nil {
+	if err := encode(out, r, size); err != nil {
 		return "", err
 	}
 	if err := out.Chmod(0o600); err != nil {
@@ -292,6 +297,88 @@ func (s *Store) seal(src, digest string, size int64) (string, error) {
 	}
 	ok = true
 	return name, nil
+}
+
+// ErrNotItsDigest is a raw object Reencode found whose bytes do not
+// hash to its name. It is left as it is, for fsck to report.
+var ErrNotItsDigest = errors.New("cas: object bytes do not hash to its digest")
+
+// Reencode replaces digest's raw object, one installed before objects
+// were compressed, with a frame of the same bytes. The bytes are hashed
+// as they are compressed, and a raw object that is not its digest is
+// ErrNotItsDigest and left alone. before and after are the disk sizes,
+// both zero when digest has no raw object. It is for compact, with
+// serve stopped. A reader that opened the raw file keeps reading it.
+func (s *Store) Reencode(digest string) (before, after int64, err error) {
+	raw, err := s.Path(digest)
+	if err != nil {
+		return 0, 0, err
+	}
+	in, err := os.Open(raw)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("cas: %w", err)
+	}
+	defer in.Close()
+	st, err := in.Stat()
+	if err != nil {
+		return 0, 0, fmt.Errorf("cas: %w", err)
+	}
+	if !st.Mode().IsRegular() {
+		return 0, 0, fmt.Errorf("cas: %s is not a regular file", raw)
+	}
+	h := sha256.New()
+	z, err := s.sealFrom(io.TeeReader(in, h), digest, st.Size())
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() {
+		if z != "" {
+			os.Remove(z)
+		}
+	}()
+	if sum := hex.EncodeToString(h.Sum(nil)); sum != digest {
+		return 0, 0, fmt.Errorf("cas: %s hashes to %s: %w", digest, sum, ErrNotItsDigest)
+	}
+	zs, err := os.Stat(z)
+	if err != nil {
+		return 0, 0, fmt.Errorf("cas: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	final := raw + zstSuffix
+	// A frame already beside the raw file is what a re-encode that
+	// stopped before the remove leaves. Kept if intact, and the raw
+	// file is the extra copy. commitFileLocked would find the raw file
+	// intact and keep it instead.
+	if o, ok, err := s.object(digest); err != nil {
+		return 0, 0, err
+	} else if ok && o.compressed {
+		sum, err := o.sum()
+		if err != nil && !errors.Is(err, errDamaged) {
+			return 0, 0, err
+		}
+		if err == nil && sum == digest {
+			if _, err := s.removeRawCopyLocked(digest); err != nil {
+				return 0, 0, err
+			}
+			return st.Size(), 0, nil
+		}
+	}
+	if err := os.Rename(z, final); err != nil {
+		return 0, 0, fmt.Errorf("cas: %w", err)
+	}
+	z = ""
+	if err := os.Remove(raw); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, 0, fmt.Errorf("cas: %w", err)
+	}
+	if err := syncDir(filepath.Dir(final)); err != nil {
+		return 0, 0, err
+	}
+	return st.Size(), zs.Size(), nil
 }
 
 // emptyFrame is a zstd frame of no bytes: one segment, a content size

@@ -278,6 +278,26 @@ func (s *Store) repairObjectLocked(digest string) (fixed bool, err error) {
 	return true, syncDir(filepath.Dir(raw))
 }
 
+// removeRawCopyLocked removes digest's raw object when a compressed one
+// is beside it. removed is false when there was no such pair. The caller
+// holds s.mu.
+func (s *Store) removeRawCopyLocked(digest string) (removed bool, err error) {
+	raw, err := s.Path(digest)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Lstat(raw + zstSuffix); err != nil {
+		return false, nil
+	}
+	if err := os.Remove(raw); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("cas: %w", err)
+	}
+	return true, syncDir(filepath.Dir(raw))
+}
+
 func (s *Store) rel(path string) string {
 	if r, err := filepath.Rel(s.Root, path); err == nil {
 		return filepath.ToSlash(r)
