@@ -365,6 +365,11 @@ func (s *Store) Reencode(digest string) (before, after int64, err error) {
 		return 0, 0, fmt.Errorf("cas: %w", err)
 	}
 	z = ""
+	// The frame's entry is durable before the raw file goes, so a crash
+	// between the two cannot leave neither.
+	if err := syncDir(filepath.Dir(final)); err != nil {
+		return 0, 0, err
+	}
 	if err := os.Remove(raw); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return 0, 0, fmt.Errorf("cas: %w", err)
 	}

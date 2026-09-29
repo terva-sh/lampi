@@ -347,3 +347,33 @@ func TestReencodeCompressesRawObjects(t *testing.T) {
 		t.Fatalf("temp files left: %v", leftovers)
 	}
 }
+
+// Reencode syncs the frame's directory entry before it removes the raw
+// file, as commitFileLocked does (review 1295).
+func TestReencodeSyncsTheFrameFirst(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("an object from an older lake\n")
+	d := digestOf(body)
+	raw, _ := s.Path(d)
+	damage(t, raw, body)
+	frame, _ := s.zstPath(d)
+	var seen [][2]bool
+	prev := syncDir
+	syncDir = func(dir string) error {
+		_, rerr := os.Lstat(raw)
+		_, ferr := os.Lstat(frame)
+		seen = append(seen, [2]bool{rerr == nil, ferr == nil})
+		return prev(dir)
+	}
+	t.Cleanup(func() { syncDir = prev })
+	if _, _, err := s.Reencode(d); err != nil {
+		t.Fatal(err)
+	}
+	n := len(seen)
+	if n < 2 || seen[n-2] != [2]bool{true, true} || seen[n-1] != [2]bool{false, true} {
+		t.Fatalf("(raw, frame) present at each sync: %v", seen)
+	}
+}
