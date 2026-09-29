@@ -536,6 +536,84 @@ the actual deployment backup.
 The backup holds the lake in plaintext. Keep it on encrypted
 storage, the same as the data disk.
 
+### Encrypted archive
+
+`serve backup --archive FILE` writes the same set as a directory
+backup into one file that is encrypted with [age](https://age-encryption.org).
+The file is a tar stream, compressed with zstd, then encrypted. It is
+safe on storage you do not trust, such as an object store or another
+host.
+
+**Keys.** The lake needs only public keys, which are called recipients. The
+identity that decrypts an archive never goes on the lake's host.
+
+- Make the identity on a machine you control, and keep it there and
+  in escrow, such as a password manager or offline media:
+
+  ```bash
+  age-keygen -o lampi-backup.key    # prints the public key, age1…
+  ```
+
+- Give the lake the public key. Several recipients are allowed. Each
+  one can restore on its own, so add an escrow key beside your own:
+
+  ```bash
+  sudo install -o terva-lampi -g terva-lampi -m 0644 /dev/stdin /etc/terva-lampi/backup-recipients <<'EOF'
+  # owner
+  age1…
+  # escrow
+  age1…
+  EOF
+  ```
+
+**Take an archive.** It runs while `serve` runs. Each archive is a
+whole backup, not an increment, so keep several and delete old ones on
+your own schedule.
+
+```bash
+sudo -u terva-lampi terva-lampi serve backup --data /var/lib/terva-lampi \
+  --token-file /var/lib/terva-lampi/tokens \
+  --recipients-file /etc/terva-lampi/backup-recipients \
+  --archive /var/backups/terva-lampi/lake-$(date -u +%Y%m%dT%H%M%SZ).age
+```
+
+- The archive is written to a temp file beside it, and renamed into
+  place only when it is complete and synced. A failure or `Ctrl-C`
+  leaves no partial archive.
+- The catalog snapshot it packs is a temp file in the lake directory,
+  and it is removed afterwards.
+
+**Restore** on a machine that has the identity, into a directory
+that does not exist yet:
+
+```bash
+terva-lampi serve restore --archive lake-….age \
+  --identity-file lampi-backup.key --data /var/lib/terva-lampi
+```
+
+- Restore reads the identity from a file, never a flag.
+- A wrong key, a damaged or cut-short archive, or an entry that would
+  leave the directory stops the restore, and restore removes what it
+  wrote.
+- It then checks the result as `serve fsck` does.
+- Point `--token-file` at the restored token file and start `serve`.
+  `normalized/`, `parquet/` and `search.db` are rebuilt.
+
+**Rotate a key.** Add the new recipient, take a new archive, and
+remove the old recipient. Archives taken before the rotation still need
+the old identity, so keep it until you delete them. Nothing on the lake
+changes when an identity is lost, but the archives made for it can no
+longer be read.
+
+The archive leaves out what the directory backup leaves out:
+- the web configuration
+- the OIDC client secret
+- the derived files
+
+Back up the web configuration and the OIDC client secret with your
+protected configuration, as
+[web-dashboard.md](web-dashboard.md) says.
+
 ### Restore drill
 
 Run this once before the lake matters, and again after the layout

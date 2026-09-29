@@ -3,6 +3,7 @@ package cas
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -376,4 +377,79 @@ func TestReencodeSyncsTheFrameFirst(t *testing.T) {
 	if n < 2 || seen[n-2] != [2]bool{true, true} || seen[n-1] != [2]bool{false, true} {
 		t.Fatalf("(raw, frame) present at each sync: %v", seen)
 	}
+}
+
+// Export emits each stored file once, as stored, leaves out a raw copy
+// beside a frame, and closes a chain whose link it did not list: a
+// record written after the walk passed the objects.
+func TestExportClosesChains(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1 := []byte("first line\n")
+	mustPut(t, s, v1)
+	v2, d2 := grow(t, s, v1, "second line\n")
+	raw, _ := s.Path(d2)
+	damage(t, raw, v2)
+
+	got := map[string][]byte{}
+	n, err := s.Export(func(rel string, size int64, r io.Reader) error {
+		if _, dup := got[rel]; dup {
+			t.Fatalf("%s emitted twice", rel)
+		}
+		b, err := io.ReadAll(r)
+		if int64(len(b)) != size {
+			t.Fatalf("%s: %d bytes, said %d", rel, len(b), size)
+		}
+		got[rel] = b
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d1, tail := digestOf(v1), digestOf([]byte("second line\n"))
+	want := []string{"sha256/" + d2[:2] + "/" + d2[2:] + ".zst", "sha256/" + tail[:2] + "/" + tail[2:] + ".zst", "logical/" + d1[:2] + "/" + d1[2:]}
+	if n != len(want) || len(got) != len(want) {
+		t.Fatalf("emitted %d: %v", n, keys(got))
+	}
+	for _, rel := range want {
+		if _, ok := got[rel]; !ok {
+			t.Fatalf("missing %s in %v", rel, keys(got))
+		}
+	}
+
+	// A record whose base the walk never listed, as a grow between the
+	// two walks leaves it, is closed from the store.
+	s2, _ := Open(t.TempDir())
+	mustPut(t, s2, v1)
+	_, d3 := grow(t, s2, v1, "second line\n")
+	hidden, _ := s2.zstPath(d3)
+	moved := hidden + ".elsewhere"
+	os.Rename(hidden, moved)
+	var order []string
+	_, err = s2.Export(func(rel string, size int64, r io.Reader) error {
+		order = append(order, rel)
+		if strings.HasPrefix(rel, "logical/") {
+			// The walk of objects is over: put the base back.
+			os.Rename(moved, hidden)
+		}
+		_, err := io.Copy(io.Discard, r)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The tail, the record, then the base the closing pass found.
+	if len(order) != 3 || !strings.HasPrefix(order[1], "logical/") || order[2] != strings.TrimPrefix(filepath.ToSlash(hidden), filepath.ToSlash(s2.Root)+"/") {
+		t.Fatalf("emitted %v", order)
+	}
+}
+
+func keys(m map[string][]byte) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

@@ -22,6 +22,8 @@ const backupUsage = `terva-lampi serve backup — copy the lake to a directory
 
 usage:
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH] [--prune]
+  terva-lampi serve backup --archive FILE --recipient age1… [--recipient …]
+                           [--recipients-file PATH] [--data DIR] [--token-file PATH]
 
 Writes DIR/catalog.db, then DIR/cas/sha256 and DIR/cas/logical, then
 DIR/identity.json, then DIR/audit.jsonl, then the token file. It runs while serve runs. The catalog is a VACUUM
@@ -50,6 +52,17 @@ changes nothing outside DIR/cas. Backups that tools such as restic
 took earlier still hold what it removed; forget those snapshots too.
 
 The backup is the lake in plaintext. Keep DIR on encrypted storage.
+
+--archive writes the same set to one file instead: a tar stream,
+compressed with zstd, then encrypted with age to every recipient given,
+by --recipient (an age public key, repeatable) or --recipients-file
+(one per line). Only public keys are needed here; the identity that
+decrypts the archive stays off the lake's host, and serve restore reads
+it. Each archive is whole, not incremental, so --prune does not apply.
+The archive is built in a temp file beside FILE and renamed into place
+once it is complete and synced; a failure or a signal removes the temp
+file and leaves FILE as it was. The catalog snapshot it packs is written
+to a temp file in the lake directory and removed afterwards.
 `
 
 const fsckUsage = `terva-lampi serve fsck — re-hash every stored object
@@ -83,13 +96,17 @@ func runServeBackup(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), backupUsage)
 		return nil
 	}
-	var data, out, tokenFile string
+	var data, out, tokenFile, archivePath, recipientsFile string
+	var recipients recipientList
 	var prune bool
 	rest, err := parseFlags(env, args, backupUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&out, "out", "", "backup directory")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file or directory to copy")
 		fs.BoolVar(&prune, "prune", false, "afterwards, remove what the backup's catalog no longer reaches")
+		fs.StringVar(&archivePath, "archive", "", "write one age-encrypted archive instead of a directory")
+		fs.Var(&recipients, "recipient", "age public key to encrypt the archive to (repeatable)")
+		fs.StringVar(&recipientsFile, "recipients-file", "", "file of age public keys, one per line")
 	})
 	if err != nil {
 		return err
@@ -98,9 +115,28 @@ func runServeBackup(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), backupUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
 	}
+	if archivePath != "" {
+		if out != "" || prune {
+			return errors.New("serve backup: --archive writes one file; it does not take --out or --prune")
+		}
+		rs, err := loadRecipients(recipients, recipientsFile)
+		if err != nil {
+			return err
+		}
+		if data, err = lakeDir(env, data); err != nil {
+			return err
+		}
+		if err := refuseInsideLake(data, archivePath); err != nil {
+			return err
+		}
+		return backupArchive(env, data, archivePath, tokenFile, rs)
+	}
+	if len(recipients) > 0 || recipientsFile != "" {
+		return errors.New("serve backup: --recipient and --recipients-file go with --archive")
+	}
 	if out == "" {
 		fmt.Fprint(env.stdout(), backupUsage)
-		return errors.New("serve backup needs --out")
+		return errors.New("serve backup needs --out or --archive")
 	}
 	if data, err = lakeDir(env, data); err != nil {
 		return err
@@ -171,7 +207,7 @@ func refuseInsideLake(data, out string) error {
 		return err
 	}
 	if rel, err := filepath.Rel(d, o); err == nil && (rel == "." || !strings.HasPrefix(rel, "..")) {
-		return fmt.Errorf("--out %s is inside the lake %s; back up to another directory", out, data)
+		return fmt.Errorf("%s is inside the lake %s; back up to another directory", out, data)
 	}
 	return nil
 }
@@ -361,26 +397,39 @@ func recordedLakeID(ctx context.Context, path string) (string, error) {
 // names another lake, the backup fails: a restore of it would refuse to
 // start.
 func backupIdentity(env Env, data, out string) error {
-	recorded, err := recordedLakeID(context.Background(), filepath.Join(out, "catalog.db"))
-	if err != nil {
+	present, _, err := checkBackupIdentity(filepath.Join(out, "catalog.db"), data)
+	if err != nil || !present {
 		return err
-	}
-	id, err := identity.Load(data)
-	switch {
-	case errors.Is(err, os.ErrNotExist) && recorded == "":
-		return nil
-	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("backup: the catalog is lake %s but %s is missing; the backup would not start. Restore identity.json from an earlier backup first", recorded, identity.Path(data))
-	case err != nil:
-		return fmt.Errorf("backup: %w", err)
-	case recorded != "" && recorded != id.LakeID:
-		return fmt.Errorf("backup: the catalog is lake %s but %s holds lake %s", recorded, identity.Path(data), id.LakeID)
 	}
 	if err := copyFile(identity.Path(data), identity.Path(out)); err != nil {
 		return err
 	}
 	fmt.Fprintf(env.stdout(), "identity: %s\n", identity.Path(out))
 	return nil
+}
+
+// checkBackupIdentity checks data's identity.json against the lake id
+// the catalog snapshot at catalogPath recorded, for a backup to copy.
+// present is false when there is no file and the catalog recorded no
+// lake id, which is a backup with nothing to copy. lakeID is the id
+// the file holds.
+func checkBackupIdentity(catalogPath, data string) (present bool, lakeID string, err error) {
+	recorded, err := recordedLakeID(context.Background(), catalogPath)
+	if err != nil {
+		return false, "", err
+	}
+	id, err := identity.Load(data)
+	switch {
+	case errors.Is(err, os.ErrNotExist) && recorded == "":
+		return false, "", nil
+	case errors.Is(err, os.ErrNotExist):
+		return false, "", fmt.Errorf("backup: the catalog is lake %s but %s is missing; the backup would not start. Restore identity.json from an earlier backup first", recorded, identity.Path(data))
+	case err != nil:
+		return false, "", fmt.Errorf("backup: %w", err)
+	case recorded != "" && recorded != id.LakeID:
+		return false, "", fmt.Errorf("backup: the catalog is lake %s but %s holds lake %s", recorded, identity.Path(data), id.LakeID)
+	}
+	return true, id.LakeID, nil
 }
 
 // fsckIdentity loads identity.json and checks it against the lake id the
