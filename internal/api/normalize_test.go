@@ -62,7 +62,7 @@ func TestNormalizeFailureLeavesRaw(t *testing.T) {
 	if got := readBlobBytes(t, s, sum); !bytes.Equal(got, body) {
 		t.Fatal("raw blob changed after a normalize failure")
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file after failure: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
@@ -365,7 +365,7 @@ func TestClaudeWorkerProjectsTranscript(t *testing.T) {
 	if strings.Contains(msg, "sk-live-secret") || strings.Contains(msg, "not-json") {
 		t.Fatalf("normalize_error includes the raw line: %s", msg)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file after failure: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
@@ -401,7 +401,7 @@ func readDerived(t *testing.T, s *Server, uid string) []byte {
 	if err := s.WaitNormalized(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(s.Normalized, uid+".jsonl"))
+	b, err := normalize.ReadEventsFile(s.Normalized, uid)
 	if err != nil {
 		t.Fatal(err)
 	}

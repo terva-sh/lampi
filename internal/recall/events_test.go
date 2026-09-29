@@ -177,7 +177,7 @@ func TestEventsUnavailableStatesAndBadInput(t *testing.T) {
 		t.Fatal("pending", err)
 	}
 	publish(t, s, uid, events(3, func(int) string { return "b" }))
-	if err := os.Remove(filepath.Join(s.Normalized, uid+".jsonl")); err != nil {
+	if err := os.Remove(filepath.Join(s.Normalized, uid+normalize.EventsExt)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Events(t.Context(), uid, EventRequest{}); !errors.As(err, &unavailable) || unavailable.State != "missing" {
@@ -346,5 +346,73 @@ func TestPurgeEndsReadsAndOpenSnapshotsFinish(t *testing.T) {
 	}
 	if _, err := r.Events(t.Context(), uid, EventRequest{Cursor: first.NextCursor}); !errors.Is(err, ErrNotFound) {
 		t.Fatal("cursor outlived purge", err)
+	}
+}
+
+// pageAll reads every event of uid through cursors and checks each
+// position's text, returning how many it saw.
+func pageAll(t *testing.T, r *Reader, uid string, text func(i int) string) int64 {
+	t.Helper()
+	var seen int64
+	req := EventRequest{Limit: 100}
+	for {
+		p, err := r.Events(t.Context(), uid, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range p.Items {
+			if it.Position != seen || *it.Event.ContentText != text(int(seen)) {
+				t.Fatalf("position %d: got %d %.30q", seen, it.Position, *it.Event.ContentText)
+			}
+			seen++
+		}
+		if p.End {
+			return seen
+		}
+		req = EventRequest{Limit: 100, Cursor: p.NextCursor}
+	}
+}
+
+// A session of several compressed frames pages through by cursor and
+// by position across every frame boundary, and so does a plain file an
+// older release wrote, whose cursors still carry byte offsets
+// (TKT-01M3K45MX).
+func TestEventsPageAcrossFramesAndPlainFiles(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "frames")
+	text := func(i int) string { return fmt.Sprintf("line %d %s", i, strings.Repeat("padding ", 120)) }
+	evs := events(3000, text)
+	publish(t, s, uid, evs)
+	if _, err := os.Stat(normalize.EventsPath(s.Normalized, uid)); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader(s.Catalog, s.Normalized)
+	if n := pageAll(t, r, uid, text); n != 3000 {
+		t.Fatalf("saw %d", n)
+	}
+	for _, from := range []int64{0, 1, 999, 1500, 2998} {
+		p, err := r.Events(t.Context(), uid, EventRequest{From: from, Limit: 3})
+		if err != nil || p.Items[0].Position != from || *p.Items[0].Event.ContentText != text(int(from)) {
+			t.Fatalf("from %d: %v", from, err)
+		}
+	}
+	ex, err := r.Excerpt(t.Context(), uid, ExcerptRequest{From: 2500, Count: 2})
+	if err != nil || ex.From != 2500 || !strings.Contains(ex.Text, "line 2500 ") {
+		t.Fatalf("excerpt: %v", err)
+	}
+
+	// The same events as an older release stored them.
+	var plain strings.Builder
+	if err := normalize.WriteJSONL(&plain, evs); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalize.RemoveEvents(s.Normalized, uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Normalized, uid+normalize.LegacyEventsExt), []byte(plain.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := pageAll(t, r, uid, text); n != 3000 {
+		t.Fatalf("plain file: saw %d", n)
 	}
 }

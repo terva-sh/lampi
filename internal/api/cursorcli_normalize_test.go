@@ -160,7 +160,7 @@ func TestCursorCLIKindSkipIsNormalizeError(t *testing.T) {
 			if strings.Contains(msg, secret) || strings.Contains(msg, string(tc.body)) {
 				t.Fatalf("error includes the body: %s", msg)
 			}
-			if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 				t.Fatalf("derived file: %v", err)
 			}
 			parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
@@ -264,7 +264,7 @@ func TestCursorCLIWrongShapeSetsError(t *testing.T) {
 	if strings.Contains(msg, secret) || strings.Contains(msg, "item_table") {
 		t.Fatalf("error includes the body: %s", msg)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
@@ -323,7 +323,7 @@ func TestCursorCLIWorkerCorruptHeadDropsDerived(t *testing.T) {
 	if strings.Contains(msg, secret) || strings.Contains(msg, "meta") {
 		t.Fatalf("error includes the body: %s", msg)
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+".jsonl")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
 		t.Fatalf("derived file after failure: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
