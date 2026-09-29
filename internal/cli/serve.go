@@ -742,14 +742,15 @@ func logAdmins(log *slog.Logger, cfg webconfig.Config) {
 func seedBayGrants(log *slog.Logger, cat *catalog.Catalog, data string, cfg webconfig.Config) error {
 	ctx := context.Background()
 	viewers, operators := cfg.GroupsWithRole(webconfig.RoleViewer), cfg.GroupsWithRole(webconfig.RoleOperator)
-	made, ran, err := cat.SeedRoleGrants(ctx, viewers, operators, time.Now())
+	made, _, err := cat.SeedRoleGrants(ctx, viewers, operators, time.Now())
 	if err != nil {
 		return err
 	}
-	if ran {
-		if err := cat.FlushAudit(ctx, data); err != nil && log != nil {
-			log.Warn("bay grants: audit lines stay queued", "err", err)
-		}
+	// Every start flushes, not only the one that seeded: a flush that
+	// failed then leaves the grant lines queued, and a later start
+	// writes them once audit.jsonl can be written (review 1403).
+	if err := cat.FlushAudit(ctx, data); err != nil && log != nil {
+		log.Warn("bay grants: audit lines stay queued", "err", err)
 	}
 	if log == nil {
 		return nil

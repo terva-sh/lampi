@@ -130,3 +130,33 @@ func TestSeedBayGrantsOnUpgrade(t *testing.T) {
 		t.Fatalf("audit:\n%s", raw)
 	}
 }
+
+// TestSeedGrantLinesReachTheAuditOnALaterStart is review 1403: a start
+// that cannot write audit.jsonl leaves the grant lines queued, and the
+// next start writes them.
+func TestSeedGrantLinesReachTheAuditOnALaterStart(t *testing.T) {
+	dir := t.TempDir()
+	cat, err := catalog.Open(filepath.Join(dir, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cat.Close()
+	cfg := webconfig.Config{OIDC: webconfig.OIDC{RoleMap: map[string]string{"readers": "viewer"}}}
+	// A directory where the log goes makes the write fail.
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedBayGrants(nil, cat, dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := seedBayGrants(nil, cat, dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(audit.Path(dir))
+	if strings.Count(string(raw), `"kind":"bay.grant.added"`) != 1 {
+		t.Fatalf("audit after the second start:\n%s", raw)
+	}
+}
