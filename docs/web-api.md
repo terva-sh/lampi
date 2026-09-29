@@ -623,6 +623,7 @@ Each answers `200` with `{conflict}` as above.
 | Reopening an open conflict | `409 not_resolved`, with the conflict |
 | Reopening a copy that is its session's head now | `409 is_head`, with the conflict |
 | `make-head` when the session's head is not `head` | `409 head_moved`, with the conflict |
+| `make-head` on a server that has no blob store to read | `503 make_head_unavailable` |
 | `make-head` on a companion of the head, such as a subagent transcript, or another kind of file | `409 not_head_candidate`, with the conflict |
 
 `make-head` makes the copy the current artifact at its path and the session's

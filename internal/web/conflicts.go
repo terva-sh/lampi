@@ -318,8 +318,13 @@ func (s *Server) changeConflict(r *http.Request, id, action, note, head string) 
 	case "make-head":
 		// head is the session head the operator saw, so a head that moved
 		// since is never replaced unseen.
-		if len(head) != 64 || s.reg.Blobs == nil {
+		if len(head) != 64 {
 			return http.StatusBadRequest, "invalid_request"
+		}
+		// Superseding reads the copies, so a server without the blob
+		// store cannot move a head; the page does not offer it there.
+		if s.reg.Blobs == nil {
+			return http.StatusServiceUnavailable, "make_head_unavailable"
 		}
 		_, err = lake.Catalog.MakeConflictHead(ctx, s.reg.Blobs, id, head, who, note, now)
 		if err == nil && s.reg.Normalize != nil {
@@ -359,15 +364,16 @@ func (s *Server) changeConflict(r *http.Request, id, action, note, head string) 
 
 // conflictProblems says what to do about each refusal the page can meet.
 var conflictProblems = map[string]string{
-	"invalid_note":       "A note is one line of at most 500 characters.",
-	"already_resolved":   "Someone resolved this conflict already. Its resolution is shown below.",
-	"not_resolved":       "This conflict is open already.",
-	"is_head":            "This copy is the session's head now, so it cannot be reopened as a conflict with it.",
-	"head_moved":         "The session's head changed since this page was loaded, so nothing was changed. Check the copies below again.",
-	"not_head_candidate": "This copy cannot be the session's head: it is a companion file of the head, such as a subagent transcript, or another kind of file.",
-	"invalid_request":    "The request was not complete. Reload the page and try again.",
-	"audit_failed":       "The change stands, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.",
-	"action_failed":      "The change failed. Operator logs hold the details.",
+	"invalid_note":          "A note is one line of at most 500 characters.",
+	"already_resolved":      "Someone resolved this conflict already. Its resolution is shown below.",
+	"not_resolved":          "This conflict is open already.",
+	"is_head":               "This copy is the session's head now, so it cannot be reopened as a conflict with it.",
+	"head_moved":            "The session's head changed since this page was loaded, so nothing was changed. Check the copies below again.",
+	"not_head_candidate":    "This copy cannot be the session's head: it is a companion file of the head, such as a subagent transcript, or another kind of file.",
+	"invalid_request":       "The request was not complete. Reload the page and try again.",
+	"make_head_unavailable": "This server does not read stored bytes, so it cannot make a copy the head. Use the dashboard of the lake itself.",
+	"audit_failed":          "The change stands, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.",
+	"action_failed":         "The change failed. Operator logs hold the details.",
 }
 
 func (s *Server) conflictActionPage(w http.ResponseWriter, r *http.Request) {
@@ -436,7 +442,7 @@ func (s *Server) conflictActionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status, code := s.changeConflict(r, id, action, note, head)
-	if code == "not_found" || code == "invalid_note" || code == "invalid_request" {
+	if code == "not_found" || code == "invalid_note" || code == "invalid_request" || code == "make_head_unavailable" {
 		apiError(w, status, code)
 		return
 	}

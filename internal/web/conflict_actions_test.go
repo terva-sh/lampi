@@ -330,3 +330,19 @@ func TestOperatorMakesACopyTheHead(t *testing.T) {
 		t.Errorf("make-head over the API: %d %s", w.Code, w.Body)
 	}
 }
+
+// An operator on a server with no blob store is not offered make-head,
+// and the API names why it cannot.
+func TestMakeHeadNeedsTheBlobStore(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "admins")
+	_, id := seedConflict(t, lake.Catalog, "forked")
+	op, _ := signIn(t, idp, h)
+	page := get(h, conflictURL(id), op).Body.String()
+	if !strings.Contains(page, "Keep the head") || strings.Contains(page, "Make this the head") {
+		t.Error("make-head offered without a blob store")
+	}
+	w := post(h, "/api/web/v1/conflicts/"+id+"/make-head", `{"head":"`+strings.Repeat("b", 64)+`"}`, op, map[string]string{CSRFHeader: csrfOf(t, h, op)})
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "make_head_unavailable") {
+		t.Errorf("make-head without blobs: %d %s", w.Code, w.Body)
+	}
+}
