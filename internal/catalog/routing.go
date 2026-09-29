@@ -266,13 +266,15 @@ func routeSession(ctx context.Context, tx *sql.Tx, uid string, isNew bool, m pro
 			q.reason = RefusedDenied
 			reqs[i] = q
 		}
+		// While held, every request waits, a refused one too: release
+		// resolves it again against the grants as they are then.
 		outcome := RequestAccepted
 		switch {
+		case holding:
+			outcome, q.reason = RequestHeld, ""
 		case q.reason != "":
 			outcome = RequestRefused
 			refused = append(refused, q.ref)
-		case holding:
-			outcome = RequestHeld
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO session_bay_requests(session_uid, bay_ref, device_id, outcome, reason, first_at, last_at)

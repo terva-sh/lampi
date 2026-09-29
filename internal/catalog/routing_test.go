@@ -402,3 +402,30 @@ func TestReleaseRoutesByTheLastPostedProject(t *testing.T) {
 		t.Fatalf("bays %v, want the /new rule applied", got)
 	}
 }
+
+// A held session's request for a bay the device may not write waits
+// with the rest, so a grant made before release places it (review 1439).
+func TestAHeldRequestWaitsForAGrant(t *testing.T) {
+	ctx := context.Background()
+	r := newRouted(t)
+	r.rule(RuleHold, config.ProjectMatch{CWDPrefix: "/src/client"}, "hold")
+	ack := r.mustPost("sess-1", "/src/client", "secret", "nope")
+	if ack.RefusedBays != nil {
+		t.Fatalf("refused while held %v", ack.RefusedBays)
+	}
+	if got := r.requests(ack.SessionUID); got["secret"] != RequestHeld || got["nope"] != RequestHeld {
+		t.Fatalf("requests %v", got)
+	}
+	if _, err := r.c.AddGrant(ctx, PrincipalDevice, r.dev.DeviceID, "secret", PermWrite, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.c.ReleaseHold(ctx, ack.SessionUID, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.bays(ack.SessionUID); !reflect.DeepEqual(got, []string{r.secret.ID}) {
+		t.Fatalf("bays %v", got)
+	}
+	if got := r.requests(ack.SessionUID); got["secret"] != RequestAccepted || got["nope"] != RequestRefused+": "+RefusedNoBay {
+		t.Fatalf("requests after release %v", got)
+	}
+}
