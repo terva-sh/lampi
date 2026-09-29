@@ -12,7 +12,8 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | Command | What it does |
 |---------|--------------|
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check and put, manifests, and the dashboard when `--web-config` is set. `--metrics-addr` adds a loopback Prometheus listener. `--behind-proxy` says TLS terminates in a proxy in front, as in a container on a private network: a non-loopback `--addr` then logs one line instead of the plaintext warning. It needs `--token-file` with at least one token. |
-| `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. |
+| `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. With `--archive FILE --recipient age1…` (or `--recipients-file`), write the same set to one age-encrypted archive instead. |
+| `terva-lampi serve restore` | Decrypt an archive from `serve backup --archive` with `--identity-file` into a new or empty `--data` directory, then check it as `serve fsck` does. Removes what it wrote on failure. |
 | `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
 | `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind`, or `set-profile` one by name. Runs while `serve` runs. A revoke takes effect on the next request. |
 | `terva-lampi serve identity` | Print the lake id, public URL, and each signing key's fingerprint. `set-url URL` records the URL agents reach the lake at. `rotate` adds a key and `retire KEY-ID` ends one; see [Rotating and retiring keys](policy.md#rotating-and-retiring-keys). Runs while `serve` runs. |

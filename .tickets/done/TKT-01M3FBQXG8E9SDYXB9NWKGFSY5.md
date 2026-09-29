@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FBQXG8E9SDYXB9NWKGFSY5
 title: Add optional compressed age-encrypted backups and restore
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,22 +17,15 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d8436f9f
-  branch: tickets/fbqx-design
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-d8436f9f
-  commit: ec1e8486effb8d667b778defc9c0c75351d7bd88
-  session: null
-  claimed_at: 2026-09-29T01:39:06Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T17:20:55Z
-updated_at: 2026-09-29T01:39:06Z
+updated_at: 2026-09-29T02:38:26Z
 created_by:
   id: agent:codex/deploy
   name: ""
 updated_by:
-  id: agent:claude-code/d8436f9f
+  id: agent:claude-code/fbqx
   name: ""
 extensions: {}
 ---
@@ -50,8 +43,8 @@ Demonstrate an encrypted backup restored into a fresh directory with matching ca
 ## Acceptance criteria
 
 - [x] Document the archive, compression, age recipient/identity and compatibility design before implementation.
-- [ ] Optional encrypted backups restore successfully with bounded resources, private permissions and no credential leakage.
-- [ ] Failure and interruption tests cover archive publication, integrity, wrong keys and temporary plaintext cleanup.
+- [x] Optional encrypted backups restore successfully with bounded resources, private permissions and no credential leakage.
+- [x] Failure and interruption tests cover archive publication, integrity, wrong keys and temporary plaintext cleanup.
 
 ## Implementation plan
 
@@ -175,3 +168,46 @@ Design written as the plan and waiting for the owner's decision on the age depen
 **agent:claude-code/d8436f9f** at 2026-09-29T01:39:06Z
 
 On 2026-09-29 the owner approved the proposed design in this ticket's plan: in-process filippo.io/age, serve backup --archive with --recipient, serve restore with --identity-file, and tar, then zstd, then age. The web config and the OIDC secret are left out. Implementation starts after the open PRs land.
+
+**agent:claude-code/fbqx** at 2026-09-29T01:47:46Z
+
+Implemented as designed. Where each part lives:
+
+- internal/archive holds the format: tar, then zstd, then age, with `lampi-backup.json` as the first entry.
+  - Only regular files at local paths are accepted, written O_EXCL through os.Root.
+  - Files are 0600 and directories 0700.
+  - A format this version does not know is refused with ErrFormat.
+- `cas.Store.Export` streams objects as stored.
+  - When a raw object has a `.zst` beside it, the frame is used.
+  - Logical entries follow the objects, and a closing pass repeats until every chain is whole, as Backup does for a directory.
+- `serve backup --archive` writes the archive:
+  - The catalog snapshot is a temp file inside the lake and is removed on exit.
+  - The archive is a temp file beside its destination. It is renamed and the directory synced only after the age payload closes.
+  - SIGINT and SIGTERM stop it and publish nothing.
+- `serve restore` restores into a new or empty `--data`:
+  - It reads the identity from a file only.
+  - On failure it removes what it wrote.
+  - After extracting it opens the catalog and runs fsck.
+
+Resources: memory is bounded by the streaming stages. The zstd encoder runs single-threaded, and the decoder window is capped at 64 MiB.
+
+Credential leakage: no identity ever reaches the lake. Token files travel inside the encryption only.
+
+Tests:
+- internal/archive/archive_test.go covers the round trip with two recipients and modes, a wrong key, a flipped bit, three truncations, and unsafe entries (dot-dot, absolute, inner dots, symlink, duplicate, missing manifest, newer format).
+- internal/cli/archive_test.go covers backup and restore into a fresh directory, where the export matches the original. It also covers failure part-way, SIGTERM, a read-only destination, no recipient, and an archive inside the lake. In each case nothing is published and no plaintext temp file is left. Restore refusals are tested with cleanup, and so is carrying the identity.
+- internal/cas: TestExportClosesChains.
+
+The docs are vps-bringup.md#encrypted-archive (keys, escrow, rotation, restore drill), container.md and cli.md.
+
+## Summary
+
+Landed in #126.
+- serve backup --archive writes one age-encrypted archive to public recipients only: tar, then zstd, then age.
+- serve restore decrypts it with an identity from a file into a new or empty 0700 directory, and checks it as fsck does.
+- A failure or signal publishes nothing and leaves no plaintext temp file.
+- The whole payload, including the tail past the tar end, is authenticated.
+- The in-lake check resolves symlinks.
+- The operator guides cover keys, escrow, rotation and the restore drill (vps-bringup.md#encrypted-archive).
+
+Review: every finding was fixed with a test except one, rejected on the PR. A file that grows while it is archived (the append-only audit log) is archived as the prefix it had when opened, as the directory backup does.

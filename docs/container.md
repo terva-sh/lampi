@@ -264,6 +264,21 @@ storage, and copy it off the host. Back up Caddy's `caddy-data` volume
 too, or Caddy requests new certificates after a restore. [VPS
 bring-up](vps-bringup.md#backup) has the restore drill.
 
+To copy backups off the host without an encrypted target, write an
+[encrypted archive](vps-bringup.md#encrypted-archive) instead. Mount a
+recipients file, which holds public keys only, read-only into the
+container:
+
+```bash
+docker compose exec lampi terva-lampi serve backup \
+  --token-file /var/lib/terva-lampi/tokens \
+  --recipients-file /config/backup-recipients \
+  --archive /backups/lake-$(date -u +%Y%m%dT%H%M%SZ).age
+```
+
+Restore with the identity on another machine, with `terva-lampi serve
+restore`, into a fresh volume.
+
 ## Upgrade and roll back
 
 To upgrade, read the release notes for a catalog migration, then change
