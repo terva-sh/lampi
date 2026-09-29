@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:37Z
-updated_at: 2026-09-29T04:05:12Z
+updated_at: 2026-09-29T06:01:11Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -104,3 +104,7 @@ Profiles decode strictly. An older lake refuses to load a `profiles.json` that u
 - `GOFLAGS=-mod=mod just ci` passes.
 - New tests: `TestGlobHasPrefix`, `TestCheckGlob`, `TestCWDGlobAllowAndDeny` (including a symlinked cwd), `TestCWDGlobIsValidatedWhereRulesLoad`, and `TestEditorSavesACWDGlob`.
 - The `Covers` soundness grid now includes glob rules.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T06:01:11Z
+
+Review 1355 on PR 145, finding 1 (medium): checkGlob refuses ** inside a longer folder name (proj-**), which the docs did not say. Accepted, and documented rather than changed, in bfe60a6296ff89543f00103267658035d408ba83. The refusal is deliberate: proj-** looks as if it reaches into subfolders, and it would not. The same CI run failed on TKT-01M3NW0VQW (Flaky under load: hangup reload outlives its test and panics), a serve test this PR does not touch.
