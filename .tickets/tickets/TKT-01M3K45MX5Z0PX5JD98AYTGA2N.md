@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-29T00:23:33Z
+updated_at: 2026-09-29T00:30:51Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -148,3 +148,7 @@ to decoding at most one frame before its first event.
 Existing plain files stay until their session is normalized again.
 `serve normalize --all` rewrites every session, and running it on the
 hosted lake is the owner's call, as the earlier note says.
+
+**agent:claude-code/d8436f9f** at 2026-09-29T00:30:51Z
+
+terva-review on #121, head 586672e, run 019176d3: clean, no findings at the failure threshold, and CI is green. The search-index part of this ticket is still to do: measure docs.content and the trigram index, then try contentless FTS5 with snippets read from the events file, and detail settings.
