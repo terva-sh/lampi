@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3PTMWF6TGWRVKB5NBA2TBGM
 title: "Conflicts page: explain a row and what to check"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3PTMKG9Y2S51V5Q59YZ0P7D
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: feat/conflicts-page
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: 9260d9516c131635e785b2d3ed17b1ae53588083
-  session: null
-  claimed_at: 2026-09-29T15:03:57Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T14:56:05Z
-updated_at: 2026-09-29T15:11:36Z
+updated_at: 2026-09-29T16:23:18Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -68,3 +61,7 @@ means, whether it needs anything, or what to look at.
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:11:36Z
 
 Verified in headless Chromium against the smoketest (open and resolved views) and in the browser e2e, whose conflicts step now checks 5 open rows, the shorter badge, the copies-at-path count, device naming, and 6 rows with resolved. The e2e then fails at 'mobile transcript overflows', which fails identically on origin/main: filed TKT-01M3PVGY. Smoketest: dropped the i%17 seeding, which made copies whose digest equalled their own head (impossible on a real lake), and seeded four real shapes on existing Claude sessions so the session count stays 123.
+
+## Summary
+
+Merged as #151 (main 3585ee7). The Conflicts page opens with what a conflict is and three signs worth checking; each row shows both sides' size, the machines behind each by device name, both digests, a shorter badge and the open copies at its path; Open / Open and resolved switch lists, and an empty list says there is nothing to do. The session tab uses the same table. The smoketest seeds real conflict shapes and the browser smoke checks them. terva-review: one medium finding (head_machines across paths) rejected with reasons in disposition 18580, since it matches the documented /v1/conflicts contract; the following reviews were clean. The browser smoke's later mobile-transcript failure predates this change: TKT-01M3PVGY.

@@ -580,6 +580,56 @@ Each change goes to `audit.jsonl` with the operator as actor. A change whose
 audit line fails still stands, and answers `500 audit_failed` with the device;
 the line stays queued and is written at the next flush.
 
+## Conflicts
+
+`GET /api/web/v1/conflicts/{artifact_id}` is one divergent copy, open or
+resolved, for any viewer. `404 not_found` when the id is not a divergent copy.
+
+```json
+{"conflict": {
+  "session_uid": "01M…", "artifact_id": "01M…", "harness": "claude",
+  "kind": "transcript_jsonl", "relpath": "projects/p/s.jsonl",
+  "sha256": "…", "size": 1200, "head_sha256": "…", "head_size": 5400,
+  "machines": ["m-b"], "head_machines": ["m-a"],
+  "resolution": {"resolution": "kept_head", "resolved_at": "2026-09-29T15:00:00Z",
+                 "resolved_by": "web:…", "note": "same session, other laptop"},
+  "part": {"offset": 1180, "line": 12}
+}}
+```
+
+`part` says where the copy and the head part: the first byte that differs, and
+the line it is on, counted from 1. `ends` is `copy` or `head` when that file
+ends first with every byte before equal. `same` is set when the copy is now the
+head. `beyond` is set when no difference turned up in the first 64 MiB of each,
+which is as far as the lake reads for this. `part` is absent when the lake could
+not read both files, or when the server has no blob store to read. It names
+offsets, never content.
+
+### Conflict actions
+
+The rules of [registration codes](#registration-codes) hold: the `operator`
+role, `404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
+`403 csrf_failed` without it.
+
+| Route under `/api/web/v1` | Result |
+|---|---|
+| `POST /conflicts/{id}/keep-head` | Resolves the conflict as `kept_head`. Takes no body or `{"note": TEXT}`: one line, at most 500 characters, with no control characters, checked as sent; surrounding spaces are then dropped. |
+| `POST /conflicts/{id}/reopen` | Removes the resolution. Takes no body, or an empty object. It does not move the head. |
+
+Each answers `200` with `{conflict}` as above.
+
+| Refusal | Status and `error` |
+|---|---|
+| No divergent copy has the id, or the action is not one of these | `404 not_found` |
+| A body that is not one JSON object of these fields | `400 invalid_request` |
+| A note over 500 characters or on more than one line, or a `note` field on reopen, even empty or null | `400 invalid_note` |
+| Keeping the head of a resolved conflict | `409 already_resolved`, with the conflict |
+| Reopening an open conflict | `409 not_resolved`, with the conflict |
+
+Each change goes to `audit.jsonl` as `conflict.resolved` or
+`conflict.reopened`, with the operator as actor. A change whose audit line fails
+still stands, and answers `500 audit_failed`; the line stays queued.
+
 ## Review queue
 
 `GET /api/web/v1/review` is the review queue: every refused project in the
