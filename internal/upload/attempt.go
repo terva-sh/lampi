@@ -81,12 +81,25 @@ func recordAttempt(stateDir string, now time.Time, skipped, noBay []string, err 
 		// for a bay, and they are still in the outbox. The ones the
 		// last pass knew of stay listed until a pass finishes
 		// (review 1449).
+		known := slices.Clone(prev.NoBayLines)
+		for _, line := range noBay {
+			if l := oneLine(line, maxSkippedLine); !slices.Contains(known, l) {
+				known = append(known, l)
+			}
+		}
 		for _, line := range prev.NoBayLines {
 			if len(a.NoBayLines) < maxSkippedLines && !slices.Contains(a.NoBayLines, line) {
 				a.NoBayLines = append(a.NoBayLines, line)
 			}
 		}
+		// When the last attempt named every session it counted, the
+		// count is every distinct one known (review 1454). When it named
+		// only the first few, a line new here may be one it left unnamed,
+		// so the count is a lower bound.
 		a.NoBay = max(a.NoBay, prev.NoBay, len(a.NoBayLines))
+		if prev.NoBay <= len(prev.NoBayLines) {
+			a.NoBay = max(a.NoBay, len(known))
+		}
 		a.Error = err.Error()
 		a.LastError = a.Error
 		a.LastErrorAt = a.At

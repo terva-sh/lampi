@@ -54,3 +54,18 @@ func TestAFailedPassKeepsTheWaitingSessions(t *testing.T) {
 		t.Fatalf("finished pass: %+v", a)
 	}
 }
+
+// With the named lines full, a failed pass that meets a new waiting
+// session still counts it (review 1454).
+func TestAFailedPassCountsANewWaitingSession(t *testing.T) {
+	state := t.TempDir()
+	var five []string
+	for i := range maxSkippedLines {
+		five = append(five, "codex s"+string(rune('a'+i)))
+	}
+	recordAttempt(state, time.Now(), nil, five, nil)
+	recordAttempt(state, time.Now(), nil, []string{"codex new"}, errors.New("upload: POST /v1/manifests: 500"))
+	if a, _, _ := ReadAttempt(state); a.NoBay != maxSkippedLines+1 || len(a.NoBayLines) != maxSkippedLines {
+		t.Fatalf("attempt %+v", a)
+	}
+}
