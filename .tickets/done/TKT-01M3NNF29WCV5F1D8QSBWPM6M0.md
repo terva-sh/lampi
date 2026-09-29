@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF29WCV5F1D8QSBWPM6M0
 title: "Bays: manifest bays field and lake routing rules"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3NNF27AS0NCTG7N8XFDMWMK
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/7859b064
-  branch: bays/routing-cli
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
-  commit: 6a7edb895bcd6b8ce3ea59d3ec3692b7099107fb
-  session: null
-  claimed_at: 2026-09-29T15:58:53Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T18:25:54Z
+updated_at: 2026-09-29T18:32:43Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -54,10 +47,10 @@ Protocol and lake-side routing. Design in the parent epic TKT-01M3N8KHW5 (Bays: 
 
 ## Acceptance criteria
 
-- [ ] capture_protocol stays 1 and an old agent syncs unchanged into default
-- [ ] hold, add and deny rules apply at ingest and on every later manifest, add-only
-- [ ] A refused request lands the session in default with the refusal recorded
-- [ ] With default off, an unplaced session is refused with the new code for bay-aware agents and a plain 4xx for old ones
+- [x] capture_protocol stays 1 and an old agent syncs unchanged into default
+- [x] hold, add and deny rules apply at ingest and on every later manifest, add-only
+- [x] A refused request lands the session in default with the refusal recorded
+- [x] With default off, an unplaced session is refused with the new code for bay-aware agents and a plain 4xx for old ones
 
 ## Implementation plan
 
@@ -105,3 +98,7 @@ PR #157 (routing engine) review rounds, merged as 5619e9d:
 - Review 1437 ("no admin path to release"): rejected. #157 had no production caller of AddBayRule either, so no hold could exist. serve bays rule/release ship in #159.
 - Review 1439: while held, a request refused for grant or missing bay was recorded refused and never reconsidered. Every request now waits while a session is held, and release resolves each against the grants and bays of that moment.
 - From read-scope review 1422: requestDevice treats a device-less request as the tokenless lake only when the lake has no tokens, for manifests and hello alike.
+
+## Summary
+
+Landed in two PRs. #157 (5619e9d): manifest bays/bay_aware, ack refused_bays, lake rules (hold/add/deny) applied at ingest and on every later manifest, add-only; holds keep routed fields and release in one step; default off refuses an unplaced session with 409 no_bay (bay-aware) or 403 (older agents); requestDevice refuses a device-less request on a lake with tokens. #159 (e815a89): hello lists the feature and the device's writable bays; serve bays rules|rule|unrule|holds|release. capture_protocol stays 1. Tests: internal/catalog/routing_test.go and internal/api scope tests. Review decisions are in the notes.
