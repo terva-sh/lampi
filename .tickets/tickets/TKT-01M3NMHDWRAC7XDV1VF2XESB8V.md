@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:50:06Z
-updated_at: 2026-09-29T03:51:18Z
+updated_at: 2026-09-29T04:07:45Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -78,3 +78,24 @@ A machine that syncs to a lake with a device token but never registered has no p
 **agent:claude-code/16ebd168** at 2026-09-29T03:51:18Z
 
 Rehearsed 2026-09-29 against a scratch v0.3.0 lake with a token-file device (ws), with a v0.2.0 agent running on the legacy config, which is the workstation's situation. First, lakes adopt --fingerprint (branch build) pinned it: the running agent logged 'reload: restarted default', then synced with unchanged 5 and uploaded 0. The config moved into lakes.default with the local allow rule and device_id dev_vdveh…. Second, --allow-from profile against a default profile that allowed one checkout refused and listed the lampi remote (4 sessions, +3 checkouts). Third, with a git_remote rule added to the profile, the switch succeeded: agent config showed allow_source=lake:default, the agent reloaded and applied the profile, the next sync uploaded 0, and serve devices list shows the same ws device, now bound to the machine. just ci (GOFLAGS=-mod=mod, XDG isolated) passed.
+
+**agent:claude-code/16ebd168** at 2026-09-29T04:07:45Z
+
+### Live run on the workstation's importer, 2026-09-29
+
+Branch build a97b591; the running agent is still v0.2.0. Before anything changed, the config, token, machine.json, state and binary were copied to `~/.local/state/agent-handoffs/lampi/agent-pre-adopt-TSws47aF/`.
+
+1. **Pin.** `lakes adopt --fingerprint SHA256:X3+sVB7…` pinned lake_u3cpc5lo4dwujlk5il3mpjepai (key 5f7fac541ec9bf33), device dev_3pturjpy67cdkl4dxblfr2tp7u, profile default sha256:e057488d835e22bf. The owner took the fingerprint from `serve identity` on the lake host. The agent logged `reload: restarted default`, and its sync showed unchanged 100 with 3 uploaded; those 3 were live, growing sessions, not a re-send. machine.json is unchanged.
+2. **Switch.** `lakes adopt --allow-from profile` found nothing that would stop uploading, so it switched: 28 local rules removed, and the profile allows 97. agent config shows allow_source=lake:default.
+
+### Problem found: the switch widened what uploads
+
+Refused sessions went from 83 in 20 projects to 23 in 6. Measured with `agent refused` under the backed-up config against the current one, **60 sessions in 14 projects started uploading**, and none stopped. They include `/home/sothr`, `/home/sothr/workspace`, `/home/sothr/agent_home`, Sothr-Ledgers/brokkr.git (30 sessions), agent-session, tuohi, Sothr-Infrastructure repos, and `/home/sothr/fleet/hub`. The cause is that the default profile holds `cwd_prefix /home/sothr`, plus `/Users/sothr` and `/Users/drewshort`. Folder Allows made for other devices' home-directory sessions cover every path below them. Adopt guards narrowing only; it has no guard against widening.
+
+### Also open
+
+The sixth terva-review, on a97b591, has two medium findings:
+- the harness-off list filters by this lake's rules only, not every lake's;
+- `no_profile` cannot tell an unpinned device from a pinned one whose first fetch is pending.
+
+Neither is fixed yet.
