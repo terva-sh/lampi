@@ -41,7 +41,8 @@ type Identity struct {
 	Admin    bool
 	AuthTime time.Time
 	// Groups are the IdP groups the ID token named, sorted, at most
-	// maxGroups. role_map decides the role; bay grants are held by
+	// maxGroups: those role_map names first, then the rest in claim
+	// order. role_map decides the role, from these groups only; bay grants are held by
 	// group, so these decide which bays a viewer or operator reads
 	// (TKT-01M3N8KHW5), including groups that map to no role. They are
 	// a snapshot taken at sign-in.
@@ -244,9 +245,10 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 		}
 	}
 	claimed := groups(claims[p.cfg.OIDC.GroupsClaim])
-	// A group that gives the role is kept before the cap applies, so a
-	// role and the bay grants of the group that gave it never part
-	// (review 1401). Other groups fill the rest in claim order.
+	// A group that gives a role is kept before the cap applies, and the
+	// role comes only from a group that was kept, so a role and the bay
+	// grants of the group that gave it never part (reviews 1401, 1402).
+	// Other groups fill the rest in claim order.
 	for _, roles := range []bool{true, false} {
 		for _, g := range claimed {
 			_, role := p.cfg.OIDC.RoleMap[g]
@@ -255,7 +257,7 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 			}
 		}
 	}
-	for _, g := range claimed {
+	for _, g := range out.Groups {
 		switch p.cfg.OIDC.RoleMap[g] {
 		case webconfig.RoleViewer:
 			out.Viewer = true

@@ -155,3 +155,27 @@ func TestTheGroupCapKeepsRoleGroups(t *testing.T) {
 		t.Fatalf("%d groups, readers kept=%v", len(id.Groups), slices.Contains(id.Groups, "readers"))
 	}
 }
+
+// TestARoleComesOnlyFromAKeptGroup is review 1402: past the cap, a role
+// group that is not kept gives no role, so no role outlives its group.
+func TestARoleComesOnlyFromAKeptGroup(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	cfg := providerConfig(s)
+	cfg.OIDC.RoleMap = map[string]string{"boss": "admin"}
+	var claimed []string
+	for i := range maxGroups {
+		g := fmt.Sprintf("v%03d", i)
+		cfg.OIDC.RoleMap[g] = "viewer"
+		claimed = append(claimed, g)
+	}
+	s.Groups = append(claimed, "boss")
+	p, _ := NewProvider(cfg, s.Client())
+	id, err := p.Exchange(t.Context(), s.Issue("n", "v", "lake"), "n", "v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !id.Viewer || id.Admin || slices.Contains(id.Groups, "boss") || len(id.Groups) != maxGroups {
+		t.Fatalf("viewer=%v admin=%v groups=%d", id.Viewer, id.Admin, len(id.Groups))
+	}
+}
