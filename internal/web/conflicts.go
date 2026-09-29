@@ -327,12 +327,6 @@ func (s *Server) changeConflict(r *http.Request, id, action, note, head string) 
 			return http.StatusServiceUnavailable, "make_head_unavailable"
 		}
 		_, err = lake.Catalog.MakeConflictHead(ctx, s.reg.Blobs, id, head, who, note, now)
-		if err == nil && s.reg.Normalize != nil {
-			if _, nerr := s.reg.Normalize(ctx); nerr != nil {
-				// The job row is committed; the next start or SIGHUP runs it.
-				s.logError(r, "queueing normalization after a head change failed", nerr)
-			}
-		}
 	default:
 		return http.StatusNotFound, "not_found"
 	}
@@ -359,6 +353,15 @@ func (s *Server) changeConflict(r *http.Request, id, action, note, head string) 
 		s.logError(r, "changed a conflict but the audit line failed", err)
 		return http.StatusInternalServerError, "audit_failed"
 	}
+	// A new head is normalized now. The job row committed with the
+	// change, so a kick that fails leaves it for the next start or
+	// SIGHUP, and the operator is told so.
+	if action == "make-head" && s.reg.Normalize != nil {
+		if _, err := s.reg.Normalize(ctx); err != nil {
+			s.logError(r, "queueing normalization after a head change failed", err)
+			return http.StatusInternalServerError, "normalize_failed"
+		}
+	}
 	return http.StatusOK, ""
 }
 
@@ -371,6 +374,7 @@ var conflictProblems = map[string]string{
 	"head_moved":            "The session's head changed since this page was loaded, so nothing was changed. Check the copies below again.",
 	"not_head_candidate":    "This copy cannot be the session's head: it is a companion file of the head, such as a subagent transcript, or another kind of file.",
 	"invalid_request":       "The request was not complete. Reload the page and try again.",
+	"normalize_failed":      "The copy is the session's head now, but normalizing it again could not be started. Its transcript updates at the lake's next start, or after serve is sent SIGHUP. Operator logs hold the details.",
 	"make_head_unavailable": "This server does not read stored bytes, so it cannot make a copy the head. Use the dashboard of the lake itself.",
 	"audit_failed":          "The change stands, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.",
 	"action_failed":         "The change failed. Operator logs hold the details.",

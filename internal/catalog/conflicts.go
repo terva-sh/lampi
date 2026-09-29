@@ -292,7 +292,7 @@ type MadeHead struct {
 // made_head. Every other open copy at the same path whose bytes the new
 // head extends, read through blobs, is resolved as superseded. A
 // head_updates row records the change, attributed to a machine that
-// posted the copy, and the session is queued for normalization. The
+// posted the copy at its path, and the session is queued for normalization. The
 // head's bytes stay stored. Everything, with one audit event per
 // resolution, commits in one transaction (TKT-01M3PTMWM9).
 func (c *Catalog) MakeConflictHead(ctx context.Context, blobs BlobReader, artifactID, expectHead, by, note string, now time.Time) (MadeHead, error) {
@@ -397,7 +397,8 @@ func (c *Catalog) MakeConflictHead(ctx context.Context, blobs BlobReader, artifa
 	}
 
 	var machine string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(machine_id), '') FROM provenance WHERE session_uid = ? AND sha256 = ?`, uid, cp.SHA256).Scan(&machine); err != nil {
+	// A machine that posted these bytes at this path.
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(machine_id), '') FROM provenance WHERE session_uid = ? AND sha256 = ? AND relpath = ?`, uid, cp.SHA256, cp.RelPath).Scan(&machine); err != nil {
 		return MadeHead{}, fmt.Errorf("catalog: %w", err)
 	}
 	if err := recordHeadUpdate(ctx, tx, headUpdate{uid: uid, machine: machine, harness: harness, received: now,

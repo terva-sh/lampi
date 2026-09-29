@@ -11,10 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"errors"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/recall"
+	"terva.sh/lampi/internal/registrar"
+	"terva.sh/lampi/internal/webconfig"
 )
 
 // A divergence is located by byte and line, a file that ends first is
@@ -344,5 +348,36 @@ func TestMakeHeadNeedsTheBlobStore(t *testing.T) {
 	w := post(h, "/api/web/v1/conflicts/"+id+"/make-head", `{"head":"`+strings.Repeat("b", 64)+`"}`, op, map[string]string{CSRFHeader: csrfOf(t, h, op)})
 	if w.Code != 503 || !strings.Contains(w.Body.String(), "make_head_unavailable") {
 		t.Errorf("make-head without blobs: %d %s", w.Code, w.Body)
+	}
+}
+
+// A head change whose normalize kick fails still stands, and the
+// operator is told the transcript waits for the next start.
+func TestMakeHeadReportsAFailedNormalizeKick(t *testing.T) {
+	lake, idp, _, dir := rawLake(t, nil)
+	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"ops": "operator"}}}
+	reg := &Registrations{
+		Lake:      func() registrar.Lake { return registrar.Lake{Catalog: lake.Catalog, Dir: dir} },
+		Blobs:     lake.CAS,
+		Normalize: func(context.Context) (int, error) { return 0, errors.New("queue closed") },
+	}
+	web, err := New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, nil, idp.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lake.Web = web
+	h := lake.Handler()
+	uid, id := forkSession(t, lake, "forked", "one\n", "two\n")
+	op := signInAs(t, idp, h, "ops")
+	head := putBlob(t, lake, []byte("one\n"))
+	w := postForm(h, conflictURL(id)+"/make-head", url.Values{"csrf": {csrfOf(t, h, op)}, "head": {head}}, op)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "could not be started") || !strings.Contains(w.Body.String(), "Made the head") {
+		t.Errorf("failed kick: %d", w.Code)
+	}
+	if sum, err := lake.Catalog.DashboardSession(t.Context(), uid); err != nil || sum.HeadSHA256 != putBlob(t, lake, []byte("two\n")) {
+		t.Errorf("the head change did not stand: %s %v", sum.HeadSHA256, err)
+	}
+	if jobs, err := lake.Catalog.ListNormalizeJobs(t.Context()); err != nil || len(jobs) != 1 {
+		t.Errorf("the job row is not left for the next start: %+v %v", jobs, err)
 	}
 }

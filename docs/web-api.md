@@ -624,6 +624,7 @@ Each answers `200` with `{conflict}` as above.
 | Reopening a copy that is its session's head now | `409 is_head`, with the conflict |
 | `make-head` when the session's head is not `head` | `409 head_moved`, with the conflict |
 | `make-head` on a server that has no blob store to read | `503 make_head_unavailable` |
+| `make-head` committed but normalizing again could not be started; it runs at the next start or SIGHUP | `500 normalize_failed`, with the conflict |
 | `make-head` on a companion of the head, such as a subagent transcript, or another kind of file | `409 not_head_candidate`, with the conflict |
 
 `make-head` makes the copy the current artifact at its path and the session's
@@ -631,8 +632,8 @@ head. The row that held the head, at that path or another, stops being current.
 The copy is resolved as `made_head` and keeps its `divergent_copy` relation.
 Every other open copy at its path whose bytes it continues is resolved as
 `superseded`. A `head_updates` row with relation `made_head` records the change,
-attributed to a machine that posted the copy, and the session is normalized
-again. The replaced head's bytes stay stored. The next upload that continues the
+attributed to a machine that posted the copy at its path, and the session is
+normalized again. The replaced head's bytes stay stored. The next upload that continues the
 copy moves the head as any append does.
 
 Each change goes to `audit.jsonl` as `conflict.resolved` or

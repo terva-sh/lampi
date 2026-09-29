@@ -374,12 +374,18 @@ func TestMakeConflictHeadAcrossPathsAndRefusals(t *testing.T) {
 	uid := p.mustPost("machine-a", relA, base).SessionUID
 	p.mustPost("machine-b", relB, moved)
 	id := artifactOf(t, c, digestHex(moved))
+	// The same bytes from machine-a under a third path. MIN(machine_id)
+	// over the digest alone would pick machine-a.
+	relC := "sessions/aaaa/copy/sess-1.jsonl"
+	p.mustPost("machine-a", relC, moved)
 	if _, err := c.MakeConflictHead(ctx, p.blobs, id, digestHex(base), "op", "", p.now); err != nil {
 		t.Fatal(err)
 	}
 	if cur := currentAt(t, c, uid); len(cur) != 1 || cur[relB] != digestHex(moved) {
 		t.Errorf("current rows %v", cur)
 	}
+	// machine-a also posted the moved bytes, but under another path; the
+	// update names the machine that posted them at the copy's path.
 	if ups := headUpdateRows(t, c); ups[len(ups)-1].Machine != "machine-b" {
 		t.Errorf("attributed to %q", ups[len(ups)-1].Machine)
 	}
