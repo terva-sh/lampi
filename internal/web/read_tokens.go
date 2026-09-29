@@ -278,7 +278,13 @@ func (s *Server) rawByToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	t, ok := s.readTokenOf(r, now)
+	t, ok, err := s.readTokenOf(r, now)
+	if err != nil {
+		// The token may be fine; a 401 would tell the tool to drop it.
+		s.logError(r, "looking up a read token failed", err)
+		apiError(w, http.StatusInternalServerError, "read_failed")
+		return
+	}
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="lampi-raw"`)
 		apiError(w, http.StatusUnauthorized, "not_authenticated")
@@ -297,18 +303,18 @@ func (s *Server) rawByToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // readTokenOf finds the active read token in the request's
-// Authorization header.
-func (s *Server) readTokenOf(r *http.Request, now time.Time) (catalog.ReadToken, bool) {
+// Authorization header. ok is false for a missing, malformed, unknown,
+// expired or revoked token; err is set only when the lookup failed.
+func (s *Server) readTokenOf(r *http.Request, now time.Time) (catalog.ReadToken, bool, error) {
 	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || !strings.HasPrefix(secret, ReadTokenPrefix) || len(secret) > 128 {
-		return catalog.ReadToken{}, false
+		return catalog.ReadToken{}, false, nil
 	}
 	t, found, err := s.reg.Lake().Catalog.ReadTokenBySecret(r.Context(), hashReadToken(secret))
 	if err != nil {
-		s.logError(r, "looking up a read token failed", err)
-		return catalog.ReadToken{}, false
+		return catalog.ReadToken{}, false, err
 	}
-	return t, found && t.State(now) == "active"
+	return t, found && t.State(now) == "active", nil
 }
 
 func newReadTokenSecret() (string, error) {

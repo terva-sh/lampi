@@ -286,3 +286,28 @@ func TestMintSessionCheckFailureIsAServerError(t *testing.T) {
 		t.Fatalf("session check on a closed catalog: %d", w.Code)
 	}
 }
+
+// review 1332: a failed token lookup is a server error, so a tool does
+// not throw away a token that is still good.
+func TestTokenLookupFailureIsAServerError(t *testing.T) {
+	var tokens *catalog.Catalog
+	lake, idp, h, _ := rawLake(t, func(dir string) *catalog.Catalog {
+		c, err := catalog.Open(filepath.Join(dir, "catalog.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close() })
+		tokens = c
+		return c
+	})
+	uid, digest := storeSession(t, lake, "tok-lookup", []byte("lookup\n"))
+	admin := signInAs(t, idp, h, "owners")
+	tok := mintReadToken(t, h, admin, "lookup", "")
+	if err := tokens.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := bearer(h, "GET", rawTokenPath(uid, digest), tok)
+	if w.Code != 500 || w.Header().Get("WWW-Authenticate") != "" {
+		t.Fatalf("lookup on a closed catalog: %d %v", w.Code, w.Header())
+	}
+}

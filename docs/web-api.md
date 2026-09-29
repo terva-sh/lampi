@@ -186,7 +186,8 @@ curl -fsS -H "Authorization: Bearer $(cat token-file)" -o artifact \
 The token goes in `Authorization: Bearer`. A missing, unknown, expired or
 revoked token is `401 not_authenticated` with a `WWW-Authenticate: Bearer`
 header. A session outside the token's scope is `404 not_found`, the same as
-a session that is not there. The audit event's actor is `token:ID (LABEL)`.
+a session that is not there. A lake that cannot look the token up answers
+`500 read_failed`, so a tool does not drop a token that is still good. The audit event's actor is `token:ID (LABEL)`.
 
 A read token authenticates this route and nothing else. A browser
 session cookie does not reach it, a read token does not reach any other
