@@ -319,8 +319,13 @@ queued to the audit log before a byte is sent, and a read that cannot be
 recorded is refused. A response stops at 8 MiB, and HTTP `Range`
 requests fetch the rest.
 
-Tokens that let tools read raw artifacts without a browser session are
-a separate ticket in the same epic. See the
+An admin can also mint a read token for a tool with no browser session.
+It is a bearer token that reads the raw artifact route and nothing else,
+scoped to the lake or to listed sessions, with an expiry of at most 90
+days. Only its hash is stored, and minting, revoking and every read are
+audited. Its permissions are a set, holding `raw:read` today, so that the
+broader read scope planned in TKT-01M3KAMD1Z can add permissions to the
+same tokens rather than build a second kind. See the
 [ticket map](#admin-role-and-raw-access).
 
 ## Verification and delivery

@@ -135,8 +135,8 @@ code.
 
 ## Raw artifacts
 
-Admins can download the bytes an agent uploaded for a session. These
-routes need the `admin` role (see [web-dashboard.md](web-dashboard.md)).
+Admins can download the bytes an agent uploaded for a session. The
+browser routes need the `admin` role (see [web-dashboard.md](web-dashboard.md)).
 Operators and viewers get `404`. They are browser routes, not under
 `/api/web/v1`, and they exist only when serve wires in the blob store.
 
@@ -168,6 +168,30 @@ and the byte range, then sends it. A read that fails is
 `500 read_failed` and records nothing. A read whose event cannot be queued
 is `500 audit_failed` and sends nothing. `HEAD` sends no bytes and records
 nothing.
+
+### Read tokens
+
+A tool with no browser session reads the same artifacts with a read token
+an admin minted (see [web-dashboard.md](web-dashboard.md#read-tokens)):
+
+```sh
+curl -fsS -H "Authorization: Bearer $(cat token-file)" -o artifact \
+  https://lake.example/api/raw/v1/sessions/SESSION_UID/artifacts/SHA256
+```
+
+| Route | Result |
+|---|---|
+| `GET /api/raw/v1/sessions/{uid}/artifacts/{sha256}` | One artifact's bytes, exactly as the browser route above answers, cap, `Range` and `HEAD` included. |
+
+The token goes in `Authorization: Bearer`. A missing, unknown, expired or
+revoked token is `401 not_authenticated` with a `WWW-Authenticate: Bearer`
+header. A session outside the token's scope is `404 not_found`, the same as
+a session that is not there. The audit event's actor is `token:ID (LABEL)`.
+
+A read token authenticates this route and nothing else. A browser
+session cookie does not reach it, a read token does not reach any other
+route, including `/api/web/v1` and `/v1`, and a device token does not
+reach this one.
 
 ## Transcript events
 

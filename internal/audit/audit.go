@@ -50,6 +50,11 @@ const (
 	// ArtifactRead is an admin reading a session's raw bytes. Detail
 	// names the session, the digest and the byte range, never content.
 	ArtifactRead = "artifact.read"
+
+	// ReadTokenCreated and ReadTokenRevoked record an admin minting and
+	// revoking a read token. Detail names the token, never its secret.
+	ReadTokenCreated = "read_token.created"
+	ReadTokenRevoked = "read_token.revoked"
 )
 
 // Event is one line. Device is the device name. Actor is where the
