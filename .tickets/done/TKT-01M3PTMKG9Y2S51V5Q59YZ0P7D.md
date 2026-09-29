@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3PTMKG9Y2S51V5Q59YZ0P7D
 title: "Conflicts: record resolutions, resolve TKT-01M3M5VEQ leftovers"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: feat/conflict-cleanup
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: 8d23734430a0475df162a9898f0abdec8657e0a1
-  session: null
-  claimed_at: 2026-09-29T14:56:17Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T14:55:56Z
-updated_at: 2026-09-29T15:42:23Z
+updated_at: 2026-09-29T15:50:21Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -127,3 +120,7 @@ terva-review 1389 (run 9981626d) on 9adc1a0: prior two findings verified resolve
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:42:23Z
 
 terva-review 1391 (run 3e595b59) on 24ee0fc: prior finding verified resolved. New high: the migration matched any companion path of any harness, so a real move into the head's directory could be resolved. Accepted: the rule is now Claude sessions, transcript_jsonl, <head stem>/subagents/NAME (one level), the only shape TKT-01M3M5VEQ left. Tests add a nested non-subagents companion (stays open) and a terva session with the subagent shape (stays open); mutation-checked (companion() instead of subagentOf, and dropping the harness/kind filter, each fail).
+
+## Summary
+
+Merged as #149 (main 3a226cd). conflict_resolutions (migration 18) records kept_head / made_head / superseded / not_a_conflict per divergent copy without changing relation or deleting bytes; ResolveConflict takes kept_head and not_a_conflict only, ReopenConflict removes one, each audited in its transaction. The migration resolves as not_a_conflict each Claude transcript_jsonl at <head>/subagents/NAME with no earlier current or non-divergent row at its path. The overview count, Conflicts page and tab, /api/web/v1/conflicts, GET /v1/conflicts and terva-lampi conflicts list open conflicts, and resolved=true / --resolved adds the rest. Four terva-review rounds; findings on made_head via ResolveConflict, repeated query params, current divergent rows, and migration scope were all fixed. Not run against the live catalog (not readable by the agent user): the expected result after upgrading the dev lake is the 184 subagent rows resolved and an empty Conflicts page.
