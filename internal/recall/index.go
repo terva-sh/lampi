@@ -652,6 +652,9 @@ func (d *docRow) fill(line []byte) {
 	// source line had none, the same instant as ingested_at. It is
 	// not the event's time, and it changes at every generation, so
 	// such a row would be rewritten at every sync (TKT-01M3NENNN8).
+	// A time the harness wrote cannot equal it: ingested_at is the
+	// projection's clock to the nanosecond, read after the line was
+	// written and uploaded.
 	if ev.RecordedAt != "" && ev.RecordedAt != ev.IngestedAt {
 		if t, err := time.Parse(time.RFC3339Nano, ev.RecordedAt); err == nil {
 			ns := t.UnixNano()
