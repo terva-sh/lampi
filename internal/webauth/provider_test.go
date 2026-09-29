@@ -3,7 +3,9 @@ package webauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
+	"slices"
 	"terva.sh/lampi/internal/testidp"
 	"terva.sh/lampi/internal/webconfig"
 	"testing"
@@ -116,5 +118,64 @@ func TestProviderGroupsAndAvailability(t *testing.T) {
 	s.PlainEndpoint = false
 	if _, err := p.AuthURL(t.Context(), "s", "n", "v"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIdentityKeepsItsGroups(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	// readers maps to viewer; client-x maps to no role but can hold bays.
+	s.Groups = []string{"readers", "client-x", "readers"}
+	p, _ := NewProvider(providerConfig(s), s.Client())
+	id, err := p.Exchange(t.Context(), s.Issue("n", "v", "lake"), "n", "v")
+	if err != nil || !id.Viewer {
+		t.Fatalf("id %+v err=%v", id, err)
+	}
+	if want := []string{"client-x", "readers"}; !slices.Equal(id.Groups, want) {
+		t.Fatalf("groups %v want %v", id.Groups, want)
+	}
+}
+
+// TestTheGroupCapKeepsRoleGroups is review 1401: a role group past the
+// cap in claim order is still kept, so its bay grants apply.
+func TestTheGroupCapKeepsRoleGroups(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	var claimed []string
+	for i := range maxGroups + 10 {
+		claimed = append(claimed, fmt.Sprintf("g%03d", i))
+	}
+	s.Groups = append(claimed, "readers")
+	p, _ := NewProvider(providerConfig(s), s.Client())
+	id, err := p.Exchange(t.Context(), s.Issue("n", "v", "lake"), "n", "v")
+	if err != nil || !id.Viewer {
+		t.Fatalf("id %+v err=%v", id, err)
+	}
+	if len(id.Groups) != maxGroups || !slices.Contains(id.Groups, "readers") {
+		t.Fatalf("%d groups, readers kept=%v", len(id.Groups), slices.Contains(id.Groups, "readers"))
+	}
+}
+
+// TestARoleComesOnlyFromAKeptGroup is review 1402: past the cap, a role
+// group that is not kept gives no role, so no role outlives its group.
+func TestARoleComesOnlyFromAKeptGroup(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	cfg := providerConfig(s)
+	cfg.OIDC.RoleMap = map[string]string{"boss": "admin"}
+	var claimed []string
+	for i := range maxGroups {
+		g := fmt.Sprintf("v%03d", i)
+		cfg.OIDC.RoleMap[g] = "viewer"
+		claimed = append(claimed, g)
+	}
+	s.Groups = append(claimed, "boss")
+	p, _ := NewProvider(cfg, s.Client())
+	id, err := p.Exchange(t.Context(), s.Issue("n", "v", "lake"), "n", "v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !id.Viewer || id.Admin || slices.Contains(id.Groups, "boss") || len(id.Groups) != maxGroups {
+		t.Fatalf("viewer=%v admin=%v groups=%d", id.Viewer, id.Admin, len(id.Groups))
 	}
 }

@@ -69,6 +69,11 @@ const (
 	BayMemberRemoved = "bay.member.removed"
 	BayGrantAdded    = "bay.grant.added"
 	BayGrantRemoved  = "bay.grant.removed"
+	BayRenamed       = "bay.renamed"
+	BayAliasAdded    = "bay.alias.added"
+	BayAliasRemoved  = "bay.alias.removed"
+	BayDeleted       = "bay.deleted"
+	BayDefault       = "bay.default"
 )
 
 // Event is one line. Device is the device name. Actor is where the

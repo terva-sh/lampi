@@ -37,8 +37,8 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 	ctx := context.Background()
 	c, path := openTemp(t)
 	p := &transcriptPoster{t: t, c: c, blobs: memBlobs{}, now: time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)}
-	a := p.mustPost("machine-a", "sessions/aaaa/sess-1.jsonl", []byte("{\"n\":1}\n"))
-	b := p.mustPost("machine-a", "sessions/bbbb/sess-2.jsonl", []byte("{\"n\":2}\n"))
+	a := newSession(t, c, "sess-a")
+	b := newSession(t, c, "sess-b")
 	devs, err := c.SyncTokenFile(ctx, []TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}}, p.now)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 	if m := c.Migrated(); m.From != 18 || len(m.Steps) != 1 || m.Steps[0] != "migrateBays" {
 		t.Fatalf("migration: %+v", m)
 	}
-	for _, uid := range []string{a.SessionUID, b.SessionUID} {
+	for _, uid := range []string{a, b} {
 		if got, err := c.SessionBays(ctx, uid); err != nil || !reflect.DeepEqual(got, []string{DefaultBayID}) {
 			t.Fatalf("session %s bays %v err=%v", uid, got, err)
 		}
@@ -324,5 +324,103 @@ func TestLastBayRemovedWithTheDefaultOffGoesToTheInbox(t *testing.T) {
 	}
 	if got, _ := c.SessionBays(ctx, uid); !reflect.DeepEqual(got, []string{DefaultBayID}) {
 		t.Fatalf("bays %v", got)
+	}
+}
+
+func TestDeleteBayMovesOnlyOrphansToDefault(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	only := newSession(t, c, "sess-only")
+	both := newSession(t, c, "sess-both")
+	a, _ := c.CreateBay(ctx, "a", "admin", time.Now())
+	b, _ := c.CreateBay(ctx, "b", "admin", time.Now())
+	for _, m := range []Membership{{SessionUID: only, Bay: "a"}, {SessionUID: both, Bay: "a"}, {SessionUID: both, Bay: "b"}} {
+		m.Actor, m.Via = "admin", ViaCLI
+		if _, err := c.AddToBay(ctx, m, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, uid := range []string{only, both} {
+		if err := c.RemoveFromBay(ctx, Membership{SessionUID: uid, Bay: DefaultBayName, Actor: "admin", Via: ViaCLI}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.AddGrant(ctx, PrincipalGroup, "eng", "a", PermRead, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// Turned off, the default still takes a stored orphan.
+	if err := c.SetDefaultEnabled(ctx, false, "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := c.DeleteBay(ctx, "a", "admin", time.Now())
+	if err != nil || moved != 1 {
+		t.Fatalf("moved=%d err=%v", moved, err)
+	}
+	if got, _ := c.SessionBays(ctx, only); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("orphan bays %v", got)
+	}
+	if got, _ := c.SessionBays(ctx, both); !reflect.DeepEqual(got, []string{b.ID}) {
+		t.Fatalf("session still in b: %v", got)
+	}
+	if g, _ := c.Grants(ctx, PrincipalGroup, "eng"); len(g) != 0 {
+		t.Fatalf("grants on a deleted bay: %+v", g)
+	}
+	if _, err := c.ResolveBay(ctx, a.ID); !errors.Is(err, ErrNoBay) {
+		t.Fatalf("deleted bay resolves: %v", err)
+	}
+	if _, err := c.DeleteBay(ctx, DefaultBayName, "admin", time.Now()); !errors.Is(err, ErrDefaultOnly) {
+		t.Fatalf("deleting default: %v", err)
+	}
+}
+
+func TestSeedRoleGrantsRunsOnce(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	made, ran, err := c.SeedRoleGrants(ctx, []string{"viewers"}, []string{"ops"}, time.Now())
+	if err != nil || !ran || len(made) != 3 {
+		t.Fatalf("first seed made=%+v ran=%v err=%v", made, ran, err)
+	}
+	if got, _ := c.GroupBays(ctx, []string{"viewers", "ops"}, PermRead); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("read bays %v", got)
+	}
+	if got, _ := c.GroupBays(ctx, []string{"viewers"}, PermWrite); len(got) != 0 {
+		t.Fatalf("viewer write bays %v", got)
+	}
+	if got, _ := c.GroupBays(ctx, []string{"ops"}, PermWrite); !reflect.DeepEqual(got, []string{DefaultBayID}) {
+		t.Fatalf("operator write bays %v", got)
+	}
+	// A group added to the web config later is not granted the inbox.
+	made, ran, err = c.SeedRoleGrants(ctx, []string{"viewers", "late"}, nil, time.Now())
+	if err != nil || ran || len(made) != 0 {
+		t.Fatalf("second seed made=%+v ran=%v err=%v", made, ran, err)
+	}
+	if got, _ := c.GroupBays(ctx, []string{"late"}, PermRead); len(got) != 0 {
+		t.Fatalf("late group bays %v", got)
+	}
+}
+
+func TestRenameKeepsTheOldNameAsAnAlias(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	b, _ := c.CreateBay(ctx, "client-x", "admin", time.Now())
+	if err := c.RenameBay(ctx, "client-x", "acme", "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"acme", "client-x", b.ID} {
+		if got, err := c.ResolveBay(ctx, ref); err != nil || got.ID != b.ID || got.Name != "acme" {
+			t.Fatalf("resolve %s: %+v %v", ref, got, err)
+		}
+	}
+	if _, err := c.CreateBay(ctx, "client-x", "admin", time.Now()); !errors.Is(err, ErrBayTaken) {
+		t.Fatalf("new bay took an alias: %v", err)
+	}
+	if err := c.UnaliasBay(ctx, "client-x", "admin", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ResolveBay(ctx, "client-x"); !errors.Is(err, ErrNoBay) {
+		t.Fatalf("removed alias resolves: %v", err)
+	}
+	if err := c.RenameBay(ctx, DefaultBayName, "inbox", "admin", time.Now()); err == nil {
+		t.Fatal("renamed the default bay")
 	}
 }

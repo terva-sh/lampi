@@ -98,9 +98,14 @@ const (
 // AdminGroups lists the groups role_map maps to admin, sorted, so that
 // startup can say who holds it.
 func (c *Config) AdminGroups() []string {
+	return c.GroupsWithRole(RoleAdmin)
+}
+
+// GroupsWithRole lists the groups role_map maps to role, sorted.
+func (c *Config) GroupsWithRole(role string) []string {
 	var out []string
-	for group, role := range c.OIDC.RoleMap {
-		if role == RoleAdmin {
+	for group, r := range c.OIDC.RoleMap {
+		if r == role {
 			out = append(out, group)
 		}
 	}
