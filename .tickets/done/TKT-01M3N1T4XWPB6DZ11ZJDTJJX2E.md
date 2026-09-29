@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3N1T4XWPB6DZ11ZJDTJJX2E
 title: "Release v0.2.0: notes, rc1, and the first GHCR image"
 type: task
-status: blocked
-status_reason: Waiting on the owner to set the GHCR lampi package public; then check an anonymous pull of ghcr.io/terva-sh/lampi:0.2.0.
+status: done
+status_reason: null
 priority: high
 due_on: null
 labels:
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/aa1afd80
-  branch: tickets/release-grooming
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
-  commit: a5a6b474290a6d8c0ee308f2eb8c702f6aab1bdc
-  session: null
-  claimed_at: 2026-09-28T22:38:34Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T22:22:49Z
-updated_at: 2026-09-28T23:29:35Z
+updated_at: 2026-09-29T00:22:47Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -65,7 +58,7 @@ The release workflow runs `go test ./...` before it publishes. Three tests are k
 ## Acceptance criteria
 
 - [x] v0.2.0-rc1 published archives and a two-platform image that passed the checks
-- [ ] The GHCR package is public and pulls without a login
+- [x] The GHCR package is public and pulls without a login
 - [x] v0.2.0 is tagged on both forges with the notes attached
 - [x] A v0.1.2 lake upgraded to the rc image and its agents still sync
 - [x] Release notes state the schema 11 to 15 migration, its rollback, and lake-before-agents
@@ -230,3 +223,7 @@ Remaining: the owner sets the `lampi` package public in GHCR, and then the image
 **agent:claude-code/aa1afd80** at 2026-09-28T23:29:35Z
 
 in-progress to blocked: Waiting on the owner to set the GHCR lampi package public; then check an anonymous pull of ghcr.io/terva-sh/lampi:0.2.0.
+
+## Summary
+
+Released. v0.2.0 (tag at 3f71211) is published on GitHub and Forgejo, with archives named 0.2.0 and the canonical notes above the generated body. The image ghcr.io/terva-sh/lampi is tagged 0.2.0, 0.2, 0, latest and sha-3f71211, with an SBOM and provenance, and pulls without a login. Before the final tag, v0.2.0-rc1 and -rc2 proved the pipeline. rc1's image was good but its per-platform check was broken, fixed in #113. The first v0.2.0 tag shared rc2's commit and goreleaser built it as 0.2.0-rc2. #114 fixed that, and the owner authorized moving the tag. The internal lake and workstation agent run v0.2.0 (TKT-01M3N5R5). The v0.1.2 → v0.2.0 upgrade (schema 11 → 15) was rehearsed on a scratch lake with the rc image, and the internal lake went from 14 to 15 with counts preserved.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0RET5Y2PKD4REW649Q8M
 title: "GHCR: set up the terva-sh container package for the lake image"
 type: chore
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T23:29:36Z
+updated_at: 2026-09-29T00:22:51Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -52,7 +52,7 @@ This changes the settings of a remote organization and package, so AGENTS.md req
 ## Acceptance criteria
 
 - [x] The image name, tag scheme, visibility, retention and Forgejo decision are recorded
-- [ ] The GHCR package is public and linked to terva-sh/lampi
+- [x] The GHCR package is public and linked to terva-sh/lampi
 - [x] The repository's Actions can push to the package with GITHUB_TOKEN
 
 ## Notes
@@ -81,3 +81,11 @@ The first push from `.github/workflows/release.yml`, with `GITHUB_TOKEN` and `pa
 **agent:claude-code/aa1afd80** at 2026-09-28T23:29:36Z
 
 Actions push with GITHUB_TOKEN works: v0.2.0-rc1, v0.2.0-rc2 and v0.2.0 all pushed to ghcr.io/terva-sh/lampi. The package still needs setting public by an owner.
+
+**agent:claude-code/aa1afd80** at 2026-09-29T00:22:47Z
+
+On 2026-09-28 the owner set the package public. An anonymous registry token read the 0.2.0 index (HTTP 200). With an empty auth file, podman pulled ghcr.io/terva-sh/lampi:0.2.0 and :latest, and both report terva-lampi v0.2.0 (3f71211). The image's org.opencontainers.image.source label is https://github.com/terva-sh/lampi, and the package page under the repository (github.com/terva-sh/lampi/pkgs/container/lampi) answers 200 without a login.
+
+## Summary
+
+Done. ghcr.io/terva-sh/lampi is public and linked to terva-sh/lampi. It takes the full semver tag set plus sha-<short>, publishes to GitHub only (Forgejo builds and pushes nowhere), and keeps every image. Actions push with GITHUB_TOKEN; v0.2.0-rc1, v0.2.0-rc2 and v0.2.0 were all published that way. On 2026-09-28 the owner set the package public. An anonymous registry token read the 0.2.0 index (HTTP 200). With an empty auth file, podman pulled ghcr.io/terva-sh/lampi:0.2.0 and :latest, and both report terva-lampi v0.2.0 (3f71211). The image's org.opencontainers.image.source label is https://github.com/terva-sh/lampi, and the package page under the repository (github.com/terva-sh/lampi/pkgs/container/lampi) answers 200 without a login.
