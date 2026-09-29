@@ -60,3 +60,42 @@ func TestResolvedConflictsLeaveTheLists(t *testing.T) {
 		}
 	}
 }
+
+// The Conflicts page explains itself, names the machine behind each
+// side, flags a shorter copy, and says when there is nothing to do
+// (TKT-01M3PTMWF6).
+func TestConflictsPageExplainsEachRow(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	cookie, _ := signIn(t, idp, h)
+	body := get(h, "/conflicts", cookie).Body.String()
+	for _, want := range []string{"What a conflict is, and what to check", "No open conflicts", "Nothing to do.", `href="/conflicts?resolved=true"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("empty page lacks %q", want)
+		}
+	}
+
+	uid, id := seedConflict(t, lake.Catalog, "forked")
+	devs, err := lake.Catalog.SyncTokenFile(t.Context(), []catalog.TokenEntry{{Hash: strings.Repeat("1", 64), Name: "laptop"}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lake.Catalog.BindMachine(t.Context(), devs[0].ID, "machine-a", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	body = get(h, "/conflicts", cookie).Body.String()
+	for _, want := range []string{`title="machine-a">laptop<`, `title="machine-b">machine-b<`, ">shorter<", ">Open<", "12 B", "9 B"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	if err := lake.Catalog.ResolveConflict(t.Context(), id, catalog.ResolutionNotAConflict, "op", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if body = get(h, "/conflicts", cookie).Body.String(); strings.Contains(body, strings.Repeat("c", 64)) || !strings.Contains(body, "No open conflicts") {
+		t.Error("a resolved conflict is still on the open list")
+	}
+	tab := get(h, "/sessions/"+uid+"?collection=conflicts&resolved=true", cookie).Body.String()
+	if !strings.Contains(tab, "Not a conflict") || !strings.Contains(tab, strings.Repeat("c", 64)) || strings.Contains(tab, "What a conflict is") {
+		t.Error("session tab with resolved conflicts")
+	}
+}
