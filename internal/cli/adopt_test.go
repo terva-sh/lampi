@@ -352,6 +352,11 @@ func TestLakesAdoptRefusesAProfileThatTurnsOffAHarness(t *testing.T) {
 	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err == nil || !strings.Contains(err.Error(), "terva would stop being read") {
 		t.Fatalf("adopt: %v\n%s", err, f.stderr.String())
 	}
+	// The projects that go with it are listed, though the project rules
+	// do not change.
+	if !strings.Contains(f.stderr.String(), "uploaded now from terva: 2 sessions in 2 projects") || !strings.Contains(f.stderr.String(), "/work/other") {
+		t.Fatalf("listed:\n%s", f.stderr.String())
+	}
 	if _, ok := f.file().Lakes[config.DefaultLake]; ok {
 		t.Fatal("a refused adopt wrote the entry")
 	}

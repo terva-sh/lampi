@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"terva.sh/lampi/internal/config"
@@ -288,39 +289,70 @@ func checkNarrowing(env Env, file config.File, l config.Lake, applied config.Pro
 	if err != nil {
 		return err
 	}
-	if len(off) > 0 {
-		fmt.Fprintf(env.stderr(), "lake %s's profile turns off %s, which this machine reads now, so every session of %s stops uploading to every lake\n", l.Name, strings.Join(off, ", "), pluralIt(len(off)))
-		if !force {
-			return fmt.Errorf("after adopting, %s would stop being read, listed above; set %s in config.json's harnesses to keep %s, or pass --force", strings.Join(off, ", "), pluralIt(len(off)), pluralIt(len(off)))
-		}
-		fmt.Fprintln(env.stderr(), "--force: going ahead; these harnesses stop being read")
-	}
 	before := config.ApplyLakeProfile(l, applied, hasApplied)
 	after := l
 	if drop {
 		after.Projects.Allow = nil
 	}
 	after = config.ApplyLakeProfile(after, p, true)
-	if reflect.DeepEqual(before.Projects, after.Projects) {
+
+	// What a harness turned off takes with it: every project it uploads
+	// now. The rest is read with those harnesses off, so a project is
+	// listed once, under the first reason it stops.
+	var stopped []upload.RefusedProject
+	kept := config.Harnesses{}
+	for id, h := range harnesses {
+		kept[id] = h
+	}
+	if len(off) > 0 {
+		only := config.Harnesses{}
+		for _, s := range knownSources() {
+			only[s.harness.Name()] = config.HarnessConfig{Enabled: false}
+		}
+		for _, id := range off {
+			h := harnesses[id]
+			h.Enabled = true
+			only[id] = h
+			kept[id] = config.HarnessConfig{Enabled: false}
+		}
+		opt, err := readOnlyOptions(env, only)
+		if err != nil {
+			return err
+		}
+		stopped, _ = upload.Narrowed(opt, before.Projects, config.Projects{})
+		fmt.Fprintf(env.stderr(), "lake %s's profile turns off %s, which this machine reads now, so every session of %s stops uploading to every lake\n", l.Name, strings.Join(off, ", "), pluralIt(len(off)))
+		writeStopped(env.stderr(), "lake "+l.Name+", uploaded now from "+strings.Join(off, ", "), stopped)
+	}
+	var lost []upload.RefusedProject
+	if !reflect.DeepEqual(before.Projects, after.Projects) {
+		opt, err := readOnlyOptions(env, kept)
+		if err != nil {
+			return err
+		}
+		var skipped []string
+		lost, skipped = upload.Narrowed(opt, before.Projects, after.Projects)
+		for _, s := range skipped {
+			fmt.Fprintf(env.stderr(), "terva-lampi: skipped %s\n", s)
+		}
+		if len(lost) > 0 {
+			writeNarrowed(env.stderr(), l.Name, lost)
+		}
+	}
+	if len(off) == 0 && len(lost) == 0 {
 		return nil
 	}
-	opt, err := readOnlyOptions(env, harnesses)
-	if err != nil {
-		return err
-	}
-	lost, skipped := upload.Narrowed(opt, before.Projects, after.Projects)
-	for _, s := range skipped {
-		fmt.Fprintf(env.stderr(), "terva-lampi: skipped %s\n", s)
-	}
-	if len(lost) == 0 {
-		return nil
-	}
-	writeNarrowed(env.stderr(), l.Name, lost)
 	if force {
-		fmt.Fprintln(env.stderr(), "--force: going ahead; these stop uploading")
+		fmt.Fprintln(env.stderr(), "--force: going ahead; what is listed above stops uploading")
 		return nil
 	}
-	return fmt.Errorf("after adopting, lake %s would refuse %d projects it uploads now, listed above; add rules for them to the profile, or pass --force to stop uploading them", l.Name, len(lost))
+	var why []string
+	if len(off) > 0 {
+		why = append(why, fmt.Sprintf("%s would stop being read (set %s in config.json's harnesses to keep %s)", strings.Join(off, ", "), pluralIt(len(off)), pluralIt(len(off))))
+	}
+	if len(lost) > 0 {
+		why = append(why, fmt.Sprintf("lake %s would refuse %d projects it uploads now (add rules for them to the profile)", l.Name, len(lost)))
+	}
+	return fmt.Errorf("after adopting, %s; all listed above. Pass --force to stop uploading them", strings.Join(why, ", and "))
 }
 
 // harnessesAfterAdopt returns the harness settings in force now, and the
@@ -369,6 +401,35 @@ func pluralIt(n int) string {
 		return "it"
 	}
 	return "them"
+}
+
+// writeStopped lists projects that stop uploading with their harness.
+func writeStopped(w io.Writer, label string, projects []upload.RefusedProject) {
+	if len(projects) == 0 {
+		fmt.Fprintf(w, "%s: no project\n", label)
+		return
+	}
+	n := 0
+	for _, p := range projects {
+		n += p.Sessions
+	}
+	fmt.Fprintf(w, "%s: %d sessions in %d projects\n", label, n, len(projects))
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "SESSIONS\tHARNESS\tCWD\tGIT REMOTE")
+	for _, p := range projects {
+		cwd, remote := p.CWD, p.GitRemote
+		if cwd == "" {
+			cwd = "-"
+		}
+		if p.CWDs > 1 {
+			cwd = fmt.Sprintf("%s (+%d more)", cwd, p.CWDs-1)
+		}
+		if remote == "" {
+			remote = "-"
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\n", p.Sessions, strings.Join(p.Harnesses, ","), cwd, remote)
+	}
+	tw.Flush()
 }
 
 func writeNarrowed(w io.Writer, lake string, lost []upload.RefusedProject) {
