@@ -333,6 +333,12 @@ func TestReadTokenBayScope(t *testing.T) {
 		t.Fatalf("mint %d: %s", w.Code, w.Body.String())
 	}
 	tok := m[1]
+	// The shown-once panel and the list say the token is limited
+	// (review 1415).
+	if body := w.Body.String(); !strings.Contains(body, "It reads raw artifacts of the sessions in bays work until") || !strings.Contains(get(h, adminReadTokensPath, admin).Body.String(), "Sessions in bays work") {
+		i := strings.Index(body, "It reads raw artifacts")
+		t.Fatalf("the minted panel or the token list does not name the bay limit: %q", body[i:min(len(body), i+200)])
+	}
 	if w := bearer(h, "GET", rawTokenPath(work, workDigest), tok); w.Code != 200 {
 		t.Fatalf("in bay: %d", w.Code)
 	}

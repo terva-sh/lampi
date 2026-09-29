@@ -183,7 +183,8 @@ func runServeRegister(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	m, err := registrar.Mint(ctx, lake, name, profile, bays, expires, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register"}, now)
+	// The lake host is admin access: any bay.
+	m, err := registrar.Mint(ctx, lake, name, profile, bays, expires, registrar.Actor{Catalog: catalog.ActorCLI, Audit: "serve register", Minter: catalog.Minter{Admin: true}}, now)
 	if err != nil {
 		return err
 	}

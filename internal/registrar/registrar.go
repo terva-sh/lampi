@@ -35,6 +35,9 @@ type Lake struct {
 type Actor struct {
 	Catalog string
 	Audit   string
+	// Minter is what bays the actor may add a device to. It is checked
+	// when the code is stored; the zero value may add to none.
+	Minter catalog.Minter
 }
 
 // Minted is a code as it is shown once.
@@ -107,7 +110,7 @@ func Mint(ctx context.Context, l Lake, name, profile string, bays []string, life
 		return Minted{}, err
 	}
 	cur, _ := l.Identity.Current(now)
-	reg, err := l.Catalog.CreateRegistrationInBays(ctx, name, regcode.HashSecret(secret), profile, cur.ID, by.Catalog, bays, now, now.Add(lifetime))
+	reg, err := l.Catalog.CreateRegistrationInBays(ctx, name, regcode.HashSecret(secret), profile, cur.ID, by.Catalog, bays, by.Minter, now, now.Add(lifetime))
 	if err != nil {
 		return Minted{}, err
 	}

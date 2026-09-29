@@ -116,18 +116,60 @@ func scanRegistration(row interface{ Scan(...any) error }) (Registration, error)
 	return r, nil
 }
 
+// Minter is who mints a code, for the bay check made in the same
+// transaction that stores it (review 1415): an admin, or a command on
+// the lake host, may add a device to any bay; anyone else only to the
+// bays Groups hold write on, and to the default bay when no bay is
+// named. The zero Minter may add a device to no bay.
+type Minter struct {
+	Admin  bool
+	Groups []string
+}
+
+// ErrBayScope is a mint into a bay the minter may not add a device to.
+var ErrBayScope = errors.New("catalog: the minter may not add a device to that bay")
+
 // CreateRegistration records a pending code for a device called name.
 // A name held by a device, or by another pending code, is ErrNameTaken.
 // by names who minted it. The device it makes writes the default bay.
 func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, profile, keyID, by string, now, expires time.Time) (Registration, error) {
-	return c.CreateRegistrationInBays(ctx, name, secretSHA256, profile, keyID, by, nil, now, expires)
+	return c.CreateRegistrationInBays(ctx, name, secretSHA256, profile, keyID, by, nil, Minter{Admin: true}, now, expires)
+}
+
+// mayAdd refuses a bay m may not add a device to. No bays is the
+// default bay.
+func (m Minter) mayAdd(ctx context.Context, tx *sql.Tx, bays []string) error {
+	if m.Admin {
+		return nil
+	}
+	if len(bays) == 0 {
+		bays = []string{DefaultBayID}
+	}
+	for _, bay := range bays {
+		ok := false
+		for _, g := range m.Groups {
+			var n int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM bay_grants WHERE principal_kind=? AND principal=? AND bay_id=? AND permission=?`,
+				PrincipalGroup, g, bay, PermWrite).Scan(&n); err != nil {
+				return fmt.Errorf("catalog: %w", err)
+			}
+			if n > 0 {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrBayScope, bay)
+		}
+	}
+	return nil
 }
 
 // CreateRegistrationInBays is CreateRegistration for a device that may
 // write bays, each named by id, name or alias and stored by id. No bays
-// is the default bay. Checking that the minter may grant them is the
-// caller's.
-func (c *Catalog) CreateRegistrationInBays(ctx context.Context, name, secretSHA256, profile, keyID, by string, bays []string, now, expires time.Time) (Registration, error) {
+// is the default bay. minter must be allowed to add a device to each,
+// which is checked against the grants as they are in this transaction.
+func (c *Catalog) CreateRegistrationInBays(ctx context.Context, name, secretSHA256, profile, keyID, by string, bays []string, minter Minter, now, expires time.Time) (Registration, error) {
 	if DeviceName(name) != name || name == "" {
 		return Registration{}, fmt.Errorf("catalog: %q is not a device name: lowercase letters, digits, '.', '-' and '_'", name)
 	}
@@ -180,6 +222,9 @@ func (c *Catalog) CreateRegistrationInBays(ctx context.Context, name, secretSHA2
 		}
 	}
 	slices.Sort(r.Bays)
+	if err := minter.mayAdd(ctx, tx, r.Bays); err != nil {
+		return Registration{}, err
+	}
 	stored := ""
 	if len(r.Bays) > 0 {
 		b, err := json.Marshal(r.Bays)

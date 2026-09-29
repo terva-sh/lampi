@@ -196,7 +196,24 @@ func (c *Catalog) ReadTokens(ctx context.Context) ([]ReadToken, error) {
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	rows.Close()
+	// Bays are the token's read grants as they are now, so a bay
+	// revoked with serve bays revoke --read-token leaves the list.
+	grants, err := c.Grants(ctx, "", "")
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		for _, g := range grants {
+			if g.PrincipalKind == PrincipalReadToken && g.Principal == out[i].ID && g.Permission == PermRead {
+				out[i].Bays = append(out[i].Bays, g.BayID)
+			}
+		}
+	}
+	return out, nil
 }
 
 // ReadTokenBySecret finds the token whose secret hashes to

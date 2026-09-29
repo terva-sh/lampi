@@ -276,7 +276,12 @@ func (s *Server) mint(r *http.Request, req mintRequest) (mintedView, error) {
 	if err := s.checkMintBays(r, id, req.Bays); err != nil {
 		return mintedView{}, err
 	}
-	m, err := registrar.Mint(r.Context(), lake, req.Name, req.Profile, req.Bays, lifetime, actor(id), now)
+	// checkMintBays answers early with a clear refusal; the minter's
+	// grants are checked again where the code is stored, in the same
+	// transaction, so a grant revoked in between is honoured.
+	by := actor(id)
+	by.Minter = catalog.Minter{Admin: id.Admin, Groups: id.Groups}
+	m, err := registrar.Mint(r.Context(), lake, req.Name, req.Profile, req.Bays, lifetime, by, now)
 	if err != nil {
 		return mintedView{}, err
 	}
@@ -356,7 +361,7 @@ func mintStatus(err error) (int, string) {
 		return http.StatusBadRequest, "unknown_profile"
 	case errors.Is(err, catalog.ErrNameTaken):
 		return http.StatusConflict, "name_taken"
-	case errors.Is(err, errBayScope):
+	case errors.Is(err, errBayScope), errors.Is(err, catalog.ErrBayScope):
 		return http.StatusForbidden, "bay_not_allowed"
 	case errors.Is(err, catalog.ErrNoBay):
 		return http.StatusBadRequest, "unknown_bay"

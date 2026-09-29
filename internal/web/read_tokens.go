@@ -54,20 +54,64 @@ func (s *Server) readTokenRoutes(m *http.ServeMux) {
 // readTokenView is one token as the page shows it. It never holds the
 // secret.
 type readTokenView struct {
+	// Scope is the table's column; Reach finishes "It reads raw
+	// artifacts of" on the shown-once panel. Both name a bay limit.
 	ID, Label, State, Scope      string
+	Reach                        string
 	Created, CreatedBy, Expires  string
 	Revoked, RevokedBy, LastUsed string
 	Permissions                  string
 }
 
-func viewReadToken(t catalog.ReadToken, now time.Time) readTokenView {
-	scope := "Every session"
+// viewReadToken shows t. names maps a bay id to its name; a bay not in
+// it is shown by id.
+func viewReadToken(t catalog.ReadToken, names map[string]string, now time.Time) readTokenView {
+	scope, reach := "Every session", "every session"
 	if len(t.Sessions) > 0 {
-		scope = strings.Join(t.Sessions, " ")
+		scope, reach = strings.Join(t.Sessions, " "), "the listed sessions"
 	}
-	return readTokenView{ID: t.ID, Label: t.Label, State: t.State(now), Scope: scope, Permissions: strings.Join(t.Permissions, " "),
+	if t.BayScoped {
+		// A bay limit is shown, or the token reads as wider than it is
+		// (review 1415).
+		var bays []string
+		for _, id := range t.Bays {
+			bays = append(bays, nameOr(names, id))
+		}
+		in := "no bay, so nothing"
+		if len(bays) > 0 {
+			in = "bays " + strings.Join(bays, ", ")
+		}
+		if len(t.Sessions) > 0 {
+			scope, reach = scope+" · in "+in, "the listed sessions that are in "+in
+		} else {
+			scope, reach = "Sessions in "+in, "the sessions in "+in
+		}
+	}
+	return readTokenView{ID: t.ID, Label: t.Label, State: t.State(now), Scope: scope, Reach: reach, Permissions: strings.Join(t.Permissions, " "),
 		Created: stampOf(t.Created), CreatedBy: t.CreatedBy, Expires: stampOf(t.Expires),
 		Revoked: stampOf(t.Revoked), RevokedBy: t.RevokedBy, LastUsed: stampOf(t.LastUsed)}
+}
+
+// bayNames maps each bay id to its name, or is empty when the bays
+// cannot be read; a token then shows its bays by id.
+func (s *Server) bayNames(r *http.Request) map[string]string {
+	names := map[string]string{}
+	bays, err := s.catalog.Bays(r.Context())
+	if err != nil {
+		s.logError(r, "reading bays for the read token page failed", err)
+		return names
+	}
+	for _, b := range bays {
+		names[b.ID] = b.Name
+	}
+	return names
+}
+
+func nameOr(names map[string]string, id string) string {
+	if n := names[id]; n != "" {
+		return n
+	}
+	return id
 }
 
 // readTokensView is the admin page: tokens, the mint form, and right
@@ -103,8 +147,9 @@ func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v read
 		}
 		v.Problem = "The token was minted, but the list of tokens could not be read. Operator logs hold the details."
 	}
+	names := s.bayNames(r)
 	for _, t := range tokens {
-		v.Tokens = append(v.Tokens, viewReadToken(t, now))
+		v.Tokens = append(v.Tokens, viewReadToken(t, names, now))
 	}
 	v.Fresh = webauth.Fresh(r, now)
 	v.FreshURL = webauth.FreshLoginURL(adminReadTokensPath)
@@ -200,7 +245,7 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.attempts.done(attempt, t.ID)
-	v := viewReadToken(t, now)
+	v := viewReadToken(t, s.bayNames(r), now)
 	out := readTokensView{Minted: &v, Secret: secret, Example: "curl -fsS -H 'Authorization: Bearer " + secret + "' -o artifact " + s.origin + rawTokenPath("SESSION_UID", "SHA256")}
 	s.renderReadTokens(w, r, out, http.StatusOK)
 }

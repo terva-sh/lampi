@@ -431,10 +431,10 @@ func TestCodeBaysBecomeDeviceGrants(t *testing.T) {
 	now := time.Now()
 	work, _ := c.CreateBay(ctx, "work", "admin", now)
 	gone, _ := c.CreateBay(ctx, "gone", "admin", now)
-	if _, err := c.CreateRegistrationInBays(ctx, "box", strings.Repeat("1", 64), "", "k1", "cli", []string{"nope"}, now, now.Add(time.Hour)); !errors.Is(err, ErrNoBay) {
+	if _, err := c.CreateRegistrationInBays(ctx, "box", strings.Repeat("1", 64), "", "k1", "cli", []string{"nope"}, Minter{Admin: true}, now, now.Add(time.Hour)); !errors.Is(err, ErrNoBay) {
 		t.Fatalf("unknown bay: %v", err)
 	}
-	r, err := c.CreateRegistrationInBays(ctx, "box", strings.Repeat("1", 64), "", "k1", "cli", []string{"work", work.ID}, now, now.Add(time.Hour))
+	r, err := c.CreateRegistrationInBays(ctx, "box", strings.Repeat("1", 64), "", "k1", "cli", []string{"work", work.ID}, Minter{Admin: true}, now, now.Add(time.Hour))
 	if err != nil || !reflect.DeepEqual(r.Bays, []string{work.ID}) {
 		t.Fatalf("registration %+v err=%v", r, err)
 	}
@@ -447,7 +447,7 @@ func TestCodeBaysBecomeDeviceGrants(t *testing.T) {
 	}
 	// A code whose only bay was deleted before it was used writes the
 	// inbox rather than nothing.
-	if _, err := c.CreateRegistrationInBays(ctx, "box2", strings.Repeat("2", 64), "", "k1", "cli", []string{"gone"}, now, now.Add(time.Hour)); err != nil {
+	if _, err := c.CreateRegistrationInBays(ctx, "box2", strings.Repeat("2", 64), "", "k1", "cli", []string{"gone"}, Minter{Admin: true}, now, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.DeleteBay(ctx, gone.ID, "admin", now); err != nil {
@@ -507,5 +507,43 @@ func TestBayScopedReadTokens(t *testing.T) {
 	}
 	if reach(stored, inWork) || reach(stored, inbox) {
 		t.Fatal("token with no bay left still reads")
+	}
+}
+
+// TestAMintIsCheckedWhereTheCodeIsStored is review 1415: the minter's
+// grants are read in the transaction that stores the code, so a grant
+// revoked after the web's own check still refuses.
+func TestAMintIsCheckedWhereTheCodeIsStored(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	now := time.Now()
+	if _, err := c.CreateBay(ctx, "work", "admin", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddGrant(ctx, PrincipalGroup, "ops", "work", PermWrite, "admin", now); err != nil {
+		t.Fatal(err)
+	}
+	ops := Minter{Groups: []string{"ops"}}
+	mint := func(name string, bays []string, m Minter) error {
+		_, err := c.CreateRegistrationInBays(ctx, name, digestHex([]byte(name)), "", "k1", "web", bays, m, now, now.Add(time.Hour))
+		return err
+	}
+	if err := mint("a", []string{"work"}, ops); err != nil {
+		t.Fatal(err)
+	}
+	if err := mint("b", nil, ops); !errors.Is(err, ErrBayScope) {
+		t.Fatalf("no bays without the default: %v", err)
+	}
+	if err := mint("c", []string{"work"}, Minter{}); !errors.Is(err, ErrBayScope) {
+		t.Fatalf("zero minter: %v", err)
+	}
+	if _, err := c.RemoveGrant(ctx, PrincipalGroup, "ops", "work", PermWrite, "admin", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := mint("d", []string{"work"}, ops); !errors.Is(err, ErrBayScope) {
+		t.Fatalf("after the revoke: %v", err)
+	}
+	if err := mint("e", []string{"work"}, Minter{Admin: true}); err != nil {
+		t.Fatalf("admin: %v", err)
 	}
 }
