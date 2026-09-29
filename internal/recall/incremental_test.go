@@ -3,6 +3,8 @@ package recall
 import (
 	"fmt"
 	"testing"
+
+	"terva.sh/lampi/internal/normalize"
 )
 
 // rowIDs is uid's row id by position.
@@ -72,5 +74,44 @@ func TestNewGenerationWritesOnlyChangedRows(t *testing.T) {
 	// Event 7's old text and events 70 to 79 are gone.
 	if p := search(t, x, SearchRequest{Query: "incremental event 7"}); len(p.Items) != 0 {
 		t.Fatal("stale text still searchable", len(p.Items))
+	}
+}
+
+// An event whose source had no time carries the projection time as
+// recorded_at, the same as ingested_at, and a new one at every
+// generation. Its row is kept across generations and reports no time
+// (TKT-01M3NENNN8).
+func TestUntimedEventsAreNotRewrittenEachGeneration(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "untimed")
+	x := openIndex(t, s)
+	gen := func(n int, stamp string) []normalize.Event {
+		ev := events(n, func(i int) string { return fmt.Sprint("untimed event ", i) })
+		for i := range ev {
+			ev[i].IngestedAt = stamp
+			if i%2 == 0 {
+				ev[i].RecordedAt = stamp
+			}
+		}
+		return ev
+	}
+	publish(t, s, uid, gen(20, "2026-09-29T01:00:00.123456789Z"))
+	pass(t, x)
+	before := rowIDs(t, x, uid)
+	publish(t, s, uid, gen(22, "2026-09-29T02:00:00.987654321Z"))
+	pass(t, x)
+	after := rowIDs(t, x, uid)
+	for pos, id := range before {
+		if after[pos] != id {
+			t.Fatalf("row %d was rewritten although only its projection time changed", pos)
+		}
+	}
+	p := search(t, x, SearchRequest{Query: "untimed event 4"})
+	if len(p.Items) != 1 || p.Items[0].RecordedAt != nil {
+		t.Fatalf("an untimed event: %+v", p.Items)
+	}
+	p = search(t, x, SearchRequest{Query: "untimed event 5"})
+	if len(p.Items) != 1 || p.Items[0].RecordedAt == nil {
+		t.Fatalf("a timed event lost its time: %+v", p.Items)
 	}
 }
