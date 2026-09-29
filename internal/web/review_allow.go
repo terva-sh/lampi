@@ -109,7 +109,8 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 			rule, ok := allowRule(sg.Project.GitRemote, sg.Project.CWD)
 			// A device with its own allow rules takes none from its
 			// profile; a rule there would change nothing for it.
-			if !ok || sg.LocalAllow {
+			// A still-refused copy's profile allows it already.
+			if !ok || sg.LocalAllow || sg.StillRefused {
 				continue
 			}
 			added = true
