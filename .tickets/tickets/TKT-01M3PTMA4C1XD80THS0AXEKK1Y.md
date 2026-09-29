@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T14:55:46Z
-updated_at: 2026-09-29T14:56:12Z
+updated_at: 2026-09-29T18:04:49Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -74,3 +74,7 @@ session looks frozen in the lake.
 3. An operator keeps the head or reopens a conflict, from a conflict
    page that shows where the copies part.
 4. An operator makes a divergent copy the session's head.
+
+## Summary
+
+All four children merged: #149 resolutions and the migration for TKT-01M3M5VEQ leftovers (TKT-01M3PTMK), #151 the explained Conflicts page (TKT-01M3PTMWF), #153 the conflict page with keep-head and reopen (TKT-01M3PTMWH), #155 make-head (TKT-01M3PTMWM). Operators now settle conflicts from the dashboard; nothing is deleted, and every resolution is audited and reversible except that a head that was moved stays until the next change. Follow-ups filed during the work: TKT-01M3PVGY (browser smoke mobile transcript overflow, pre-existing) and TKT-01M3Q454 (Build Image runtime file-name collision). Not yet observed on the live lake: it needs a release and a serve restart, after which migration 18 should resolve the 184 subagent leftovers.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3PTMWM9243H1PQT6J3JM8BY
 title: "Conflicts: operator makes a divergent copy the session head"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3PTMWHRS56CX6QZEV8EER13
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: feat/conflict-make-head
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: 2618b715ce966303232331e8f173fa1eb3a3e108
-  session: null
-  claimed_at: 2026-09-29T15:24:04Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T14:56:05Z
-updated_at: 2026-09-29T17:29:40Z
+updated_at: 2026-09-29T18:04:49Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -77,3 +70,7 @@ catalog.MakeConflictHead(blobs, id, expectHead, by, note, now), one transaction:
 **agent:claude-code/cd41c9ac** at 2026-09-29T17:29:40Z
 
 terva-review on #155: 1420 (make-head offered without a blob store), 1421 (failed normalize kick reported as success; head update attributed by digest across paths), 1426 (open copy with the head's bytes at another path lost its actions; kick skipped after a failed audit flush). All accepted and fixed with mutation-checked tests; dispositions posted on #155.
+
+## Summary
+
+Merged as #155 (main 17e0edb). catalog.MakeConflictHead makes an open divergent copy the session head in one transaction: current at its path, the old head row no longer current, resolved made_head, other open copies at its path that it extends resolved superseded, a head_updates row attributed to a machine that posted it at its path, normalize generation bumped with a job row, and conflict.resolved plus conflict.head_changed audited. It refuses a head that moved since the page was read, a companion file, another kind, and a resolved conflict; a copy that is its session's head cannot be reopened. The web action, offered only where the blob store is, kicks normalization after the audit flush and reports audit_failed or normalize_failed with the change standing. It is scoped by the caller's bays (after #156). Five terva-review rounds; every finding was accepted and fixed, with dispositions posted on #155.
