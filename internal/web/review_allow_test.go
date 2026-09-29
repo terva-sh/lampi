@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/protocol"
 )
@@ -266,5 +267,19 @@ func TestAllowSelectedSkipsDeniedCopies(t *testing.T) {
 	plan := postForm(h, "/review/allow", url.Values{"csrf": {csrfOf(t, h, cookie)}, "return": {"/review"}, "key": {"git_remote git.example/team/app"}}, cookie).Body.String()
 	if strings.Contains(plan, `Profile <a href="/profiles/ci">ci</a>`) || !strings.Contains(plan, `Profile <a href="/profiles/default">default</a>`) {
 		t.Fatal("desk's denied copy got a rule in ci, or laptop's none in default")
+	}
+}
+
+// Review 1315: a save of more profiles than a notice names still gets a
+// notice, for the first maxSavedRefs of them.
+func TestSavedURLKeepsANoticeForLargeBatches(t *testing.T) {
+	var ps []catalog.Profile
+	for i := range maxSavedRefs + 8 {
+		ps = append(ps, catalog.Profile{Name: "p" + strconv.Itoa(i), Revision: int64(i + 1)})
+	}
+	u, _ := url.Parse(savedURL("/review", ps...))
+	refs, present := savedQuery(u.Query())
+	if !present || len(refs) != maxSavedRefs || refs[0] != (savedRef{"p0", 1}) {
+		t.Fatalf("refs %d present %v", len(refs), present)
 	}
 }

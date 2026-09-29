@@ -90,8 +90,10 @@ type savedRef struct {
 const maxSavedRefs = 32
 
 // savedURL is path with the profile revisions a save made, for the page
-// to say what was saved.
+// to say what was saved: the first maxSavedRefs of them, which is as
+// many as savedQuery reads.
 func savedURL(path string, ps ...catalog.Profile) string {
+	ps = ps[:min(len(ps), maxSavedRefs)]
 	sep := "?"
 	if strings.Contains(path, "?") {
 		sep = "&"
