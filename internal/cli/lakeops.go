@@ -74,8 +74,11 @@ Reads every object under cas/sha256 and checks that its bytes hash to
 its name. Reads identity.json and checks each key against its id and
 the file against the lake id the catalog recorded. A missing file is a
 failure only when the catalog recorded one. Reads every cas/logical index and checks that each chunk it
-names is stored. Each bad entry is named on stdout, and the command
-exits non-zero when there is one. It runs while serve runs.
+names is stored. Checks the catalog's bays: every session is in a bay,
+and every membership, grant, rule and alias names a bay that exists.
+Each bad entry is named on stdout, and the command exits non-zero when
+there is one. It runs while serve runs. --repair does not change bays;
+serve bays inbox and serve bays move sort a session in no bay.
 
 --repair removes each bad object, and each index that does not parse.
 The lake then reports that digest missing, and the next upload of that
@@ -398,13 +401,39 @@ func runServeFsck(env Env, args []string) error {
 	}
 	fmt.Fprintf(env.stdout(), "checked %d entries, %d bad\n", checked, len(bad))
 	idErr := fsckIdentity(env, data)
+	bayErr := fsckBays(env, data)
 	if len(bad) == 0 {
-		return idErr
+		return errors.Join(idErr, bayErr)
 	}
 	if repair {
 		return fmt.Errorf("fsck: %d bad entries, %d removed", len(bad), removed)
 	}
 	return fmt.Errorf("fsck: %d bad entries; --repair removes them", len(bad))
+}
+
+// fsckBays reports the bay facts no write should leave. A lake with no
+// catalog yet has none.
+func fsckBays(env Env, data string) error {
+	path := filepath.Join(data, "catalog.db")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	cat, err := catalog.OpenReadOnly(path)
+	if err != nil {
+		return err
+	}
+	defer cat.Close()
+	problems, err := cat.BayProblems(context.Background())
+	if err != nil {
+		return err
+	}
+	for _, p := range problems {
+		fmt.Fprintf(env.stdout(), "bad bays: %d %s\n", p.Count, p.What)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("fsck: %d bay checks failed; serve bays inbox lists sessions in no bay", len(problems))
+	}
+	return nil
 }
 
 // recordedLakeID reads the lake id a catalog file has recorded, without
