@@ -413,3 +413,51 @@ func TestLakesAdoptListsOtherLakesProjectsForAHarnessTurnedOff(t *testing.T) {
 		t.Fatalf("the other lake's project is not listed:\n%s", f.stderr.String())
 	}
 }
+
+// Review of #133: two lakes that allow different checkouts of one
+// repository both lose them when the harness goes off; the listing
+// counts every session and checkout, not the first lake's alone.
+func TestLakesAdoptCountsEveryCheckoutAHarnessTakes(t *testing.T) {
+	f := newAdoptFixture(t)
+	checkout := func(sessions ...string) string {
+		dir := t.TempDir()
+		git := filepath.Join(dir, ".git")
+		if err := os.MkdirAll(filepath.Join(git, "refs", "heads"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, body := range map[string]string{
+			"config":          "[remote \"origin\"]\n\turl = git@example.com:org/one.git\n",
+			"HEAD":            "ref: refs/heads/main\n",
+			"refs/heads/main": "0123456789abcdef0123456789abcdef01234567\n",
+		} {
+			if err := os.WriteFile(filepath.Join(git, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, id := range sessions {
+			sd := filepath.Join(f.home, "sessions", id)
+			if err := os.MkdirAll(sd, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			line := `{"type":"meta","meta":{"id":` + jsonString(id) + `,"cwd":` + jsonString(dir) + "}}\n"
+			if err := os.WriteFile(filepath.Join(sd, id+".jsonl"), []byte(line), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	a := checkout("one-a1", "one-a2")
+	b := checkout("one-b1")
+	writeAgentConfig(t, f.cfg, `{"server":`+jsonString(f.url)+`,"projects":{"allow":[{"cwd_prefix":`+jsonString(a)+`}]},`+
+		`"lakes":{"other":{"server":"http://127.0.0.1:9","projects":{"allow":[{"cwd_prefix":`+jsonString(b)+`}]}}}}`)
+	putDefaultProfile(t, f.lake, config.Profile{
+		Harnesses: config.Harnesses{"terva": {Enabled: false}},
+		Projects:  config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: a}}},
+	})
+	if err := f.run("lakes", "adopt", "--fingerprint", f.fingerprint()); err == nil || !strings.Contains(err.Error(), "terva would stop being read") {
+		t.Fatalf("adopt: %v\n%s", err, f.stderr.String())
+	}
+	if !strings.Contains(f.stderr.String(), "uploaded now from terva: 3 sessions in 1 projects") || !strings.Contains(f.stderr.String(), "(+1 more)") {
+		t.Fatalf("listing:\n%s", f.stderr.String())
+	}
+}

@@ -441,7 +441,8 @@ func viewAdopt(env Env, file config.File, l config.Lake, applied config.Profile,
 }
 
 // harnessProjects reads only the harnesses ids, with their settings in
-// hs, and returns each project that one of rules allows, once.
+// hs, and returns each project with a session one of rules allows, once,
+// counting every such session and checkout across the rules.
 func harnessProjects(env Env, hs config.Harnesses, ids []string, rules []config.Projects) ([]upload.RefusedProject, error) {
 	only := config.Harnesses{}
 	for _, s := range knownSources() {
@@ -456,22 +457,7 @@ func harnessProjects(env Env, hs config.Harnesses, ids []string, rules []config.
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	var out []upload.RefusedProject
-	for _, r := range rules {
-		ps, _ := upload.Narrowed(opt, r, config.Projects{})
-		for _, p := range ps {
-			key := "cwd\x00" + p.CWD
-			if remote := config.NormalizeRemote(p.GitRemote); remote != "" {
-				key = "remote\x00" + remote
-			}
-			if !seen[key] {
-				seen[key] = true
-				out = append(out, p)
-			}
-		}
-	}
-	return out, nil
+	return upload.PermittedByAny(opt, rules), nil
 }
 
 func pluralIt(n int) string {
