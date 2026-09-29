@@ -267,8 +267,13 @@ An admin gets a **Read tokens** link, `/admin/read-tokens`, for tools that
 fetch raw artifacts without a browser session. The API is in
 [web-api.md](web-api.md#read-tokens).
 
-- **Minting** takes a label, an optional list of session UIDs, and an
-  expiry of up to 90 days. An empty list reads every session. Minting
+- **Minting** takes a label, an optional list of session UIDs, an
+  optional list of [bays](policy.md#bays), and an expiry of up to 90
+  days. An empty session list reads every session. A bay list limits the
+  token to sessions in those bays at the time of each read, so a session
+  sorted out of them is out of reach; `serve bays grant --read-token`
+  and `revoke` change the list later. A token whose last bay is revoked
+  reads nothing. A token minted without bays is not limited by bay. Minting
   needs a sign-in in the last 10 minutes, as minting a registration code
   does.
 - **The token is shown once.** The lake keeps only its SHA-256. A token
@@ -292,8 +297,10 @@ it and, for a used code, the device it made. A viewer gets 404 there, as on
 every operator route. Listing writes the expiries since the last look to
 `audit.jsonl`, as `serve register --list` does.
 
-To add a machine, give it a device name, a profile and an expiry, and press
-Mint code. Minting needs a sign-in at the IdP in the last 10 minutes; without
+To add a machine, give it a device name, a profile, the bays it uploads
+to and an expiry, and press Mint code. The form lists the bays you may add
+a machine to: every bay for an admin, and for an operator the bays its
+groups hold write on. None chosen is the default bay. Minting needs a sign-in at the IdP in the last 10 minutes; without
 one the form is replaced by Sign in again to mint, which goes through the IdP
 and comes back. The mint is the same one `serve register` does on the lake
 host: the lake checks its public URL reaches it, stores only the code's hash,

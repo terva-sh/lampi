@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,6 +42,7 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		return s
 	},
 	"profileURL": profileURL,
+	"has":        slices.Contains[[]string],
 	"projectKey": func(p protocol.InventoryProject) string {
 		if k, ok := catalog.ProjectKeyOf(p); ok {
 			return k.String()

@@ -3,8 +3,10 @@ package catalog
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,6 +66,9 @@ type Registration struct {
 	// CreatedBy is empty for a code from before they were recorded.
 	CreatedBy string
 	RevokedBy string
+	// Bays are the ids of the bays the device the code makes may write.
+	// Empty is the default bay, as for every device before bays.
+	Bays []string
 }
 
 // State is pending, used, expired, or revoked at now.
@@ -94,22 +99,77 @@ var (
 	ErrNameTaken           = errors.New("catalog: name is taken")
 )
 
-const registrationCols = `id, name, profile, key_id, created_at, expires_at, COALESCE(used_at, ''), COALESCE(device_id, ''), COALESCE(revoked_at, ''), created_by, COALESCE(revoked_by, '')`
+const registrationCols = `id, name, profile, key_id, created_at, expires_at, COALESCE(used_at, ''), COALESCE(device_id, ''), COALESCE(revoked_at, ''), created_by, COALESCE(revoked_by, ''), bays`
 
 func scanRegistration(row interface{ Scan(...any) error }) (Registration, error) {
 	var r Registration
-	var created, expires, used, revoked string
-	if err := row.Scan(&r.ID, &r.Name, &r.Profile, &r.KeyID, &created, &expires, &used, &r.DeviceID, &revoked, &r.CreatedBy, &r.RevokedBy); err != nil {
+	var created, expires, used, revoked, bays string
+	if err := row.Scan(&r.ID, &r.Name, &r.Profile, &r.KeyID, &created, &expires, &used, &r.DeviceID, &revoked, &r.CreatedBy, &r.RevokedBy, &bays); err != nil {
 		return Registration{}, err
+	}
+	if bays != "" {
+		if err := json.Unmarshal([]byte(bays), &r.Bays); err != nil {
+			return Registration{}, fmt.Errorf("registration %s bays: %w", r.ID, err)
+		}
 	}
 	r.Created, r.Expires, r.Used, r.Revoked = parseStamp(created), parseStamp(expires), parseStamp(used), parseStamp(revoked)
 	return r, nil
 }
 
+// Minter is who mints a code, for the bay check made in the same
+// transaction that stores it (review 1415): an admin, or a command on
+// the lake host, may add a device to any bay; anyone else only to the
+// bays Groups hold write on, and to the default bay when no bay is
+// named. The zero Minter may add a device to no bay.
+type Minter struct {
+	Admin  bool
+	Groups []string
+}
+
+// ErrBayScope is a mint into a bay the minter may not add a device to.
+var ErrBayScope = errors.New("catalog: the minter may not add a device to that bay")
+
 // CreateRegistration records a pending code for a device called name.
 // A name held by a device, or by another pending code, is ErrNameTaken.
-// by names who minted it.
+// by names who minted it. The device it makes writes the default bay.
 func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, profile, keyID, by string, now, expires time.Time) (Registration, error) {
+	return c.CreateRegistrationInBays(ctx, name, secretSHA256, profile, keyID, by, nil, Minter{Admin: true}, now, expires)
+}
+
+// mayAdd refuses a bay m may not add a device to. No bays is the
+// default bay.
+func (m Minter) mayAdd(ctx context.Context, tx *sql.Tx, bays []string) error {
+	if m.Admin {
+		return nil
+	}
+	if len(bays) == 0 {
+		bays = []string{DefaultBayID}
+	}
+	for _, bay := range bays {
+		ok := false
+		for _, g := range m.Groups {
+			var n int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM bay_grants WHERE principal_kind=? AND principal=? AND bay_id=? AND permission=?`,
+				PrincipalGroup, g, bay, PermWrite).Scan(&n); err != nil {
+				return fmt.Errorf("catalog: %w", err)
+			}
+			if n > 0 {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrBayScope, bay)
+		}
+	}
+	return nil
+}
+
+// CreateRegistrationInBays is CreateRegistration for a device that may
+// write bays, each named by id, name or alias and stored by id. No bays
+// is the default bay. minter must be allowed to add a device to each,
+// which is checked against the grants as they are in this transaction.
+func (c *Catalog) CreateRegistrationInBays(ctx context.Context, name, secretSHA256, profile, keyID, by string, bays []string, minter Minter, now, expires time.Time) (Registration, error) {
 	if DeviceName(name) != name || name == "" {
 		return Registration{}, fmt.Errorf("catalog: %q is not a device name: lowercase letters, digits, '.', '-' and '_'", name)
 	}
@@ -152,8 +212,29 @@ func (c *Catalog) CreateRegistration(ctx context.Context, name, secretSHA256, pr
 		return Registration{}, err
 	}
 	r := Registration{ID: "reg_" + strings.TrimPrefix(id, "dev_"), Name: name, Profile: profile, KeyID: keyID, Created: now.UTC(), Expires: expires.UTC(), CreatedBy: by}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO registrations(id, name, secret_sha256, profile, key_id, created_at, expires_at, created_by) VALUES(?,?,?,?,?,?,?,?)`,
-		r.ID, r.Name, secretSHA256, r.Profile, r.KeyID, stamp(r.Created), stamp(r.Expires), by); err != nil {
+	for _, ref := range bays {
+		bayID, err := resolveBayID(ctx, tx, ref)
+		if err != nil {
+			return Registration{}, err
+		}
+		if !slices.Contains(r.Bays, bayID) {
+			r.Bays = append(r.Bays, bayID)
+		}
+	}
+	slices.Sort(r.Bays)
+	if err := minter.mayAdd(ctx, tx, r.Bays); err != nil {
+		return Registration{}, err
+	}
+	stored := ""
+	if len(r.Bays) > 0 {
+		b, err := json.Marshal(r.Bays)
+		if err != nil {
+			return Registration{}, err
+		}
+		stored = string(b)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registrations(id, name, secret_sha256, profile, key_id, created_at, expires_at, created_by, bays) VALUES(?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.Name, secretSHA256, r.Profile, r.KeyID, stamp(r.Created), stamp(r.Expires), by, stored); err != nil {
 		return Registration{}, fmt.Errorf("catalog: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -298,7 +379,7 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 		d.ID, d.Name, d.TokenSHA256, d.Source, d.Profile, d.MachineID, stamp(d.Created)); err != nil {
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
 	}
-	if err := grantDefaultWrite(ctx, tx, d.ID, now); err != nil {
+	if err := grantCodeBays(ctx, tx, d.ID, r.Bays, now); err != nil {
 		return Device{}, r, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE registrations SET used_at=?, device_id=? WHERE id=?`, stamp(now), d.ID, r.ID); err != nil {

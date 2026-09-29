@@ -34,6 +34,9 @@ terva-lampi serve register --name laptop > laptop.code
 terva-lampi serve identity          # note the key fingerprint
 ```
 
+The device uploads into the default [bay](policy.md#bays), the inbox. To
+let it upload into named bays instead, add `--bay NAME` once per bay.
+
 On the machine, fresh or already running an agent:
 
 ```bash
