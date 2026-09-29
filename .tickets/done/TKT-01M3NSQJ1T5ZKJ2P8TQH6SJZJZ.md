@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NSQJ1T5ZKJ2P8TQH6SJZJZ
 title: "Release v0.4.0: notes, tag, and the published archives and image"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/16ebd168
-  branch: release/v0.4.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-16ebd168
-  commit: 1740c088c9eda3de9afcf565aeb14fc586dd297f
-  session: null
-  claimed_at: 2026-09-29T05:20:58Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T05:20:50Z
-updated_at: 2026-09-29T05:25:42Z
+updated_at: 2026-09-29T05:37:48Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -60,7 +53,7 @@ Cut v0.4.0 from main at 1740c08, nine merges past v0.3.0. The owner asked on 202
 ## Acceptance criteria
 
 - [x] A scratch lake seeded by v0.3.0 upgraded with a 1740c08 build: schema 17, counts kept, fsck clean, agents sync nothing new
-- [ ] v0.4.0 is tagged on both forges and its archives and image name the tag
+- [x] v0.4.0 is tagged on both forges and its archives and image name the tag
 - [x] Release notes state the 16 to 17 migration and its rollback, lake-before-agents, and lakes adopt
 
 ## Implementation plan
@@ -109,3 +102,16 @@ A scratch lake was seeded by the v0.3.0 release binary (a43c5ce) with a token-fi
 - Rollback: v0.3.0 refuses the upgraded catalog (`schema 17 is newer than this binary's 16`) and serves a copy of the checkpoint at schema 16.
 
 It ran without `--web-config`, so the admin-groups line at start was not seen. That line is covered by the webconfig tests and is reported by the live deploy.
+
+## Summary
+
+Published 2026-09-29. v0.4.0 is tagged at 1740c08 on both forges.
+
+- **GitHub:** release run 36525899158 succeeded. The linux_amd64 archive matches `checksums.txt` and prints `terva-lampi v0.4.0 (1740c088c9ed)`.
+- **Image:** `ghcr.io/terva-sh/lampi` has 0.4.0, 0.4, 0, latest and sha-1740c08, all the same manifest. It pulls without a login, and `podman run` prints v0.4.0.
+- **Forgejo:** release run 14989 succeeded. Its linux_amd64 archive matches its own `checksums.txt` and prints the same version.
+- **Notes:** the notes in the plan are prepended to both release bodies. Forgejo was edited through the API, as for v0.3.0, because `tea releases edit` defaults to draft.
+
+The two forges build separately, so their archives and binaries are not byte-identical: same size, version and commit, different hashes. v0.3.0's differed the same way. Each release's checksums match its own archives, and install.sh reads GitHub's.
+
+The rehearsal is note 1. The deploy is TKT-01M3NSQJ3K (Deploy v0.4.0 to the internal lake and workstation agent).

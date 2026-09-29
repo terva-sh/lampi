@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NSQJ3KQW6B436VHF4RF6KS
 title: Deploy v0.4.0 to the internal lake and workstation agent
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3NSQJ1T5ZKJ2P8TQH6SJZJZ
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/16ebd168
-  branch: release/v0.4.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-16ebd168
-  commit: 1740c088c9eda3de9afcf565aeb14fc586dd297f
-  session: null
-  claimed_at: 2026-09-29T05:20:58Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T05:20:50Z
-updated_at: 2026-09-29T05:35:34Z
+updated_at: 2026-09-29T05:37:48Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
