@@ -352,6 +352,10 @@ func TestCompactCompressesRawObjects(t *testing.T) {
 	other := []byte(line(99))
 	od := putRaw(t, h, other)
 	postManifest(t, h, manifest("m", "other", other, od, 0, od))
+	// Another file whose bytes are the first version's: the fold still
+	// removes that object, and the copy reads through the record, so
+	// neither run compresses it (review 1294).
+	postManifest(t, h, manifest("m", "copy", versions[0], digests[0], 0, digests[0]))
 	tail := putRaw(t, h, []byte("an old tail nothing names\n"))
 	for _, d := range append(digests, od, tail) {
 		storeRaw(t, s, d)
@@ -381,7 +385,7 @@ func TestCompactCompressesRawObjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Reencoded != 2 || rep.RawBytes != dry.RawBytes || rep.CompressedBytes <= 0 || rep.CompressedBytes >= rep.RawBytes || len(rep.Damaged) != 0 {
+	if rep.Reencoded != dry.Reencoded || rep.RawBytes != dry.RawBytes || rep.CompressedBytes <= 0 || rep.CompressedBytes >= rep.RawBytes || len(rep.Damaged) != 0 {
 		t.Fatalf("compact %+v", rep)
 	}
 	readsBack(t, s, append(versions, other))
