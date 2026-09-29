@@ -417,7 +417,21 @@ type Manifest struct {
 	Project         Project    `json:"project"`
 	Artifacts       []Artifact `json:"artifacts"`
 	Lineage         Lineage    `json:"lineage"`
+	// Bays names the bays the agent asks for the session to be in, by
+	// id, name or alias. A lake that does not list FeatureBays ignores
+	// it. The lake places the session only in those the device may
+	// write, and every request is recorded. Omitted, the lake's rules
+	// alone place the session.
+	Bays []string `json:"bays,omitempty"`
+	// BayAware says the agent understands CodeNoBay. A lake refuses a
+	// session nothing places with 409 and that code to an agent that
+	// sets it, and with a plain 403 to one that does not, which an old
+	// agent already backs off on.
+	BayAware bool `json:"bay_aware,omitempty"`
 }
+
+// MaxManifestBays is how many bays one manifest may ask for.
+const MaxManifestBays = 16
 
 // Project is where the session was recorded. CWDHash is a property of the
 // absolute path string on that machine. It is not a project id across hosts.
@@ -482,6 +496,11 @@ type ManifestAck struct {
 	HeadSHA256  string   `json:"head_sha256"`
 	HeadSize    int64    `json:"head_size"`
 	Relation    string   `json:"relation"`
+	// RefusedBays is each bay in the manifest's bays the lake did not
+	// place the session in: one the device may not write, or one that
+	// does not exist. The lake does not say which, so a device learns
+	// no bay it was not given.
+	RefusedBays []string `json:"refused_bays,omitempty"`
 }
 
 // StatsResponse is the body of GET /v1/stats.
@@ -571,7 +590,16 @@ type ConflictsResponse struct {
 type ErrorBody struct {
 	Error   string   `json:"error"`
 	Missing []string `json:"missing,omitempty"`
+	// Code names a refusal a client acts on, where the status alone is
+	// not enough. Empty for most errors.
+	Code string `json:"code,omitempty"`
 }
+
+// CodeNoBay is a manifest refused because nothing places its session:
+// no bay it asked for accepted it, no rule added it, and the lake's
+// default bay is off. Retrying the same manifest is refused again
+// until an admin changes a grant, a rule, or the default.
+const CodeNoBay = "no_bay"
 
 // ValidDigest reports whether s is a lowercase sha256 hex digest.
 func ValidDigest(s string) bool {

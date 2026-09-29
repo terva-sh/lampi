@@ -214,6 +214,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateConflictResolutions,
 	migrateBays,
 	migrateBayScopes,
+	migrateBayRules,
 }
 
 // upgrade runs each step above the file's user_version, one
@@ -459,7 +460,11 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 // artifact, a head that moved, a project id the session did not have,
 // or a session whose last projection failed. A post whose every
 // artifact is unchanged or stale changes none of those.
-func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (ack protocol.ManifestAck, changed bool, err error) {
+func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (protocol.ManifestAck, bool, error) {
+	return c.ingest(ctx, m, Route{}, now, decisions, blobs)
+}
+
+func (c *Catalog) ingest(ctx context.Context, m protocol.Manifest, route Route, now time.Time, decisions []Decision, blobs BlobReader) (ack protocol.ManifestAck, changed bool, err error) {
 	if m.CaptureProtocol != protocol.Version {
 		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: capture_protocol %d", m.CaptureProtocol)
 	}
@@ -545,9 +550,6 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID, now.UnixNano()); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
-		if err := landInDefault(ctx, tx, uid, now); err != nil {
-			return protocol.ManifestAck{}, false, err
-		}
 	} else if newHead != head {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE sessions SET head_sha256 = ?, manifest_json = ?, ingested_at = ?, web_updated_ns = ?
@@ -572,6 +574,10 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 	if err := insertAlias(ctx, tx, m, uid); err != nil {
 		return protocol.ManifestAck{}, false, err
 	}
+	refused, err := routeSession(ctx, tx, uid, !exists, m, route, now)
+	if err != nil {
+		return protocol.ManifestAck{}, false, err
+	}
 	for _, a := range m.Artifacts {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO provenance (session_uid, machine_id, sha256, relpath, ingested_at)
@@ -587,6 +593,7 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 		HeadSHA256:  newHead,
 		Relation:    ackRelation(m.Artifacts, decisions),
 		ArtifactIDs: make([]string, 0, len(m.Artifacts)),
+		RefusedBays: refused,
 	}
 	for i, a := range m.Artifacts {
 		got, err := applyArtifact(ctx, tx, now, uid, a, decisions[i])

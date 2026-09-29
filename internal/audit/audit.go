@@ -74,6 +74,10 @@ const (
 	BayAliasRemoved  = "bay.alias.removed"
 	BayDeleted       = "bay.deleted"
 	BayDefault       = "bay.default"
+	BayRuleAdded     = "bay.rule.added"
+	BayRuleRemoved   = "bay.rule.removed"
+	BayHold          = "bay.hold"
+	BayHoldReleased  = "bay.hold.released"
 )
 
 // Event is one line. Device is the device name. Actor is where the

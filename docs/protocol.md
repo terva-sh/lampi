@@ -599,9 +599,18 @@ own deadline passes first; send it again.
       "redaction": {"status": "scanned", "ruleset": "v2", "hits": 0}
     }
   ],
-  "lineage": {"parent_native_id": null, "fork_point": null}
+  "lineage": {"parent_native_id": null, "fork_point": null},
+  "bays": ["client-x"],
+  "bay_aware": true
 }
 ```
+
+`bays` and `bay_aware` are optional. `bays` asks for the session to be
+in those bays, by id, name or alias: at most 16, each at most 128
+bytes. The lake places it only in those the device may write, then
+applies its own rules ([Bays](policy.md#routing)). `bay_aware` says the
+agent reads `code` `no_bay` on a refusal. A lake from before bays
+ignores both.
 
 `harness` is `terva`, `claude`, `codex`, `opencode`, `cursor`, or
 `cursor-cli`. Any other harness is `400`. For terva, `harness_version` is the producer version
@@ -779,9 +788,14 @@ send the missing suffix back.
   "artifact_ids": ["01ARZ3NDEKTSV4RRFFQ69G5FAW"],
   "head_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "head_size": 120400,
-  "relation": "grown_from"
+  "relation": "grown_from",
+  "refused_bays": ["team-y"]
 }
 ```
+
+`refused_bays` lists each bay in the manifest's `bays` that did not
+place the session: one the device may not write, or one that does not
+exist. It does not say which. It is left out when nothing was refused.
 
 `relation` is `head`, `grown_from`, `divergent_copy`, `unchanged`, or
 `stale`. It is the transcript artifact's relation when one is present.
@@ -815,17 +829,18 @@ in a manifest. `unscanned` is what a client sends when it did not scan.
 ## Errors
 
 Failures are JSON: `{"error":"..."}`. A missing-blob conflict adds
-`"missing": ["<sha256>", ...]`. A 5xx body is a fixed message. The
+`"missing": ["<sha256>", ...]`. A refusal a client acts on adds `code`;
+`no_bay` is the only one. A 5xx body is a fixed message. The
 detail, which can name a lake path, is in the server log.
 
 | Status | When |
 |--------|------|
 | 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, size mismatch, unsupported protocol, harness, or kind, tail combined with chunks, missing manifest fields, a request body that stopped short |
 | 401 | Bearer token missing or wrong, or its device revoked |
-| 403 | A manifest's `machine_id` is not the one its device is bound to, or belongs to another device |
+| 403 | A manifest's `machine_id` is not the one its device is bound to, or belongs to another device; a manifest nothing places while the default bay is off, when it does not set `bay_aware` |
 | 404 | The key list, on a lake with no identity |
 | 408 | The request body did not arrive before its deadline |
-| 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
+| 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension; `no_bay`: a manifest that sets `bay_aware` and that nothing places while the default bay is off |
 | 413 | A JSON body over its cap: 8 MiB or 100000 digests for `blobs/check`, 4 KiB for `hello`, 1 MiB for the others |
 | 429 | Too many requests to a route that needs no token |
 | 500 | Storage or catalog failure on the lake |

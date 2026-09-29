@@ -264,6 +264,44 @@ IdP groups are granted, an admin reads all of them, and a device's
   the events in [Audit](#audit). A dashboard action that adds access
   needs a fresh IdP sign-in, as minting a code does.
 
+### Routing
+
+The lake routes every manifest (TKT-01M3NNF29W). It reads the bays the
+manifest asks for, then its own rules, and only ever adds: nothing in
+routing takes a session out of a bay.
+
+- **Requests.** Each bay the manifest names, by id, name or alias, is
+  recorded against the session with its outcome. One the device may not
+  write, or one that does not exist, is refused and places nothing. The
+  ACK lists the refused names without saying which reason applied, so a
+  device learns no bay it was not given.
+- **Rules.** A rule matches the fields a `projects` rule has, read the
+  way an allow rule is, exactly, and can also name a harness. A rule on
+  a harness alone is allowed. `cwd_prefix` covers the folder and
+  everything under it, the problem TKT-01M3NQ83 records for allow, so a
+  rule meant for one folder is a `cwd_hash`. A remote the agent could
+  not read matches no `git_remote` rule. The actions are:
+  - `add`: also put the session in the bay.
+  - `deny`: keep the session out of the bay, whether it was asked for
+    or another rule adds it. A deny does not remove a session already
+    there, and it does not keep a session out of the default bay when
+    nothing else places it.
+  - `hold`: put a new session in the rule's bay and nowhere else, and
+    record every bay it asks for as held. A stored session that a hold
+    rule starts matching keeps its bays and is flagged for review; its
+    later requests are held too. Hold wins over add and over requests.
+- **Release.** An admin releases a held or flagged session in one step.
+  Its held requests are resolved again against the device's grants as
+  they are then, placed with the rules as they are then, and a held
+  session leaves the hold bay unless it asked for it or a rule adds it.
+  One left in no bay goes to the default. A hold released once does not
+  return for the same bay.
+- **Nothing places it.** A new session with no accepted request and no
+  rule lands in the default bay. With the default off it is refused and
+  nothing is stored. A manifest that sets `bay_aware` gets `409` with
+  code `no_bay`. Any other gets `403`, which an agent from before bays
+  already waits the full backoff on.
+
 ### Known limits
 
 - `blobs/check` tells a device whether the lake holds a digest. A device

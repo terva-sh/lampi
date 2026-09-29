@@ -696,7 +696,18 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 	// validateManifest has checked what the client controls. An ingest
 	// error here is the catalog's: a busy or full disk, not a bad post.
-	ack, changed, err := s.Catalog.IngestChanged(r.Context(), m, s.now(), decisions, s.CAS)
+	// The device's write grants decide which requested bays it gets.
+	// A lake with no tokens has no device and every bay is accepted,
+	// as every bay is read there.
+	var route catalog.Route
+	if d, ok := deviceOf(r); ok {
+		route.DeviceID = d.ID
+	}
+	ack, changed, err := s.Catalog.IngestRouted(r.Context(), m, route, s.now(), decisions, s.CAS)
+	if errors.Is(err, catalog.ErrNoBayForSession) {
+		s.refuseUnplaced(w, r, m.BayAware)
+		return
+	}
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
@@ -714,6 +725,20 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, ack)
+}
+
+// refuseUnplaced answers a manifest whose session nothing places while
+// the default bay is off: 409 with CodeNoBay to an agent that knows the
+// code, and 403 to one that does not, which it backs off on for the
+// full wait rather than retrying at once.
+func (s *Server) refuseUnplaced(w http.ResponseWriter, r *http.Request, bayAware bool) {
+	msg := "no bay accepts this session and the lake's default bay is off"
+	note(r, errors.New(msg))
+	if bayAware {
+		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: msg, Code: protocol.CodeNoBay})
+		return
+	}
+	writeJSON(w, http.StatusForbidden, protocol.ErrorBody{Error: msg})
 }
 
 // decodeJSON reads one JSON value of at most limit bytes into dest. On

@@ -736,6 +736,8 @@ func (c *Catalog) DeleteBay(ctx context.Context, ref, actor string, now time.Tim
 			`DELETE FROM session_bays WHERE bay_id=?`,
 			`DELETE FROM bay_grants WHERE bay_id=?`,
 			`DELETE FROM bay_aliases WHERE bay_id=?`,
+			`DELETE FROM bay_rules WHERE bay_id=?`,
+			`DELETE FROM session_holds WHERE bay_id=?`,
 			`DELETE FROM bays WHERE id=?`,
 		} {
 			if _, err := tx.ExecContext(ctx, q, id); err != nil {
