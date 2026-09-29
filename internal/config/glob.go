@@ -11,8 +11,10 @@ import (
 // covers it on every machine: /home/*/notes, or /home/*/.t3/worktrees/**.
 // It is an absolute path split on "/". A "*" inside a segment matches
 // any run of characters but "/", and a segment that is exactly "**"
-// matches any number of whole segments, none included. Every other
-// character is literal, so a path holding "[" or "?" means what it says,
+// matches any number of whole segments, none included. "**" inside a
+// longer segment, as in "proj-**", is refused rather than read as "*":
+// it looks as if it reaches into subfolders, and it would not. Every
+// other character is literal, so a path holding "[" or "?" means what it says,
 // as in cwd_prefix. Like cwd_prefix it matches the directory it names and
 // everything under it. TKT-01M3NM01S.
 

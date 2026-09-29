@@ -114,7 +114,10 @@ so one rule covers it on every machine and under every home directory:
 - `*` matches any part of one folder name. `/home/*/notes` matches
   `/home/me/notes`, but not `/home/notes` or `/home/a/b/notes`.
 - A folder that is exactly `**` matches any number of folders, none
-  included. `/home/**/notes` matches all three.
+  included. `/home/**/notes` matches all three. `**` inside a longer
+  folder name, as in `proj-**`, is refused rather than read as `*`: it
+  looks as if it reaches into subfolders, and it would not. Write
+  `proj-*`, which already covers that folder and everything under it.
 - Every other character is itself. There is no `?`, `[` or escape, so a
   path that holds one means what it says.
 - Like `cwd_prefix`, it matches the folder it names and everything
