@@ -761,10 +761,14 @@ func runAgentSync(ctx context.Context, env Env, opt upload.Options, prefix strin
 			fmt.Fprintf(env.stderr(), "terva-lampi: %s%v\n", prefix, &upload.Rejected{Reasons: fresh})
 		}
 	}
-	// A waiting session prints once, but the report counts them all.
+	// A waiting session prints once, but the report counts them all. A
+	// pass that failed may have stopped before some of them, so it only
+	// adds to what was printed (review 1442).
 	printed := res
 	if err == nil || isRejected {
 		printed.NoBay = seen.fresh("no_bay", res.NoBay)
+	} else {
+		printed.NoBay = seen.add("no_bay", res.NoBay)
 	}
 	printSync(env.stdout(), env.stderr(), prefix, printed)
 	return res, err
@@ -794,6 +798,26 @@ func (c *changeLog) fresh(kind string, lines []string) []string {
 		next[l] = true
 	}
 	c.last[kind] = next
+	return out
+}
+
+// add returns the lines not printed last time and adds them to kind's
+// set, forgetting none: a pass that did not finish cannot say a line
+// is gone.
+func (c *changeLog) add(kind string, lines []string) []string {
+	if c.last == nil {
+		c.last = map[string]map[string]bool{}
+	}
+	if c.last[kind] == nil {
+		c.last[kind] = map[string]bool{}
+	}
+	var out []string
+	for _, l := range lines {
+		if !c.last[kind][l] {
+			out = append(out, l)
+			c.last[kind][l] = true
+		}
+	}
 	return out
 }
 

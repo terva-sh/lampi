@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -550,4 +551,26 @@ func (c *captureManifest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c.next.ServeHTTP(w, r)
+}
+
+// A pass that fails prints only the waiting sessions not printed yet and
+// forgets none, so the next failing pass does not repeat them and a
+// finished pass still decides what is gone (review 1442).
+func TestChangeLogAddOnAFailedPass(t *testing.T) {
+	seen := &changeLog{}
+	if got := seen.fresh("no_bay", []string{"a"}); !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("first pass %v", got)
+	}
+	if got := seen.add("no_bay", []string{"b"}); !reflect.DeepEqual(got, []string{"b"}) {
+		t.Fatalf("failed pass %v", got)
+	}
+	if got := seen.add("no_bay", []string{"a", "b"}); got != nil {
+		t.Fatalf("second failed pass repeated %v", got)
+	}
+	if got := seen.fresh("no_bay", []string{"b"}); got != nil {
+		t.Fatalf("finished pass %v", got)
+	}
+	if got := seen.fresh("no_bay", []string{"a"}); !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("a came back %v", got)
+	}
 }
