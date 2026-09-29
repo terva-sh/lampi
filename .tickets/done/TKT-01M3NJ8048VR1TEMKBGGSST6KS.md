@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NJ8048VR1TEMKBGGSST6KS
 title: "Release v0.3.0: notes, tag, and the published archives and image"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/16ebd168
-  branch: release/v0.3.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-16ebd168
-  commit: a43c5ce9142557e3a943e0aa4a8455954cb3d256
-  session: null
-  claimed_at: 2026-09-29T03:10:04Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:10:00Z
-updated_at: 2026-09-29T03:18:51Z
+updated_at: 2026-09-29T04:15:54Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -58,7 +51,7 @@ Cut v0.3.0 from main at a43c5ce, 82 commits past v0.2.0. The owner asked on 2026
 
 ## Acceptance criteria
 
-- [ ] A scratch lake seeded by v0.2.0 upgraded with an a43c5ce build: schema 16, normalize --all, search rebuilt, fsck clean
+- [x] A scratch lake seeded by v0.2.0 upgraded with an a43c5ce build: schema 16, normalize --all, search rebuilt, fsck clean
 - [x] v0.3.0 is tagged on both forges and its archives and image name the tag
 - [x] Release notes state the 15 to 16 migration, the .zst format and its rollback, and lake-before-agents
 
@@ -113,3 +106,11 @@ Not observed: the search.db rebuild. serve builds search.db only with `--web-con
 **agent:claude-code/16ebd168** at 2026-09-29T03:18:51Z
 
 Published 2026-09-29. v0.3.0 tagged at a43c5ce on both forges. GitHub release run 36516127940 succeeded (archives and image), and the Forgejo release run succeeded. The linux_amd64 archive matches checksums.txt and prints 'terva-lampi v0.3.0 (a43c5ce91425)'. ghcr.io/terva-sh/lampi has 0.3.0, 0.3, 0, latest and sha-a43c5ce, and pulls without a login (podman run prints v0.3.0). The notes in the plan are prepended to both release bodies. Forgejo was edited through the API, because tea releases edit defaults --draft and --prerelease to true. Criterion 1 waits on the live search.db rebuild in TKT-01M3NJ805R.
+
+**agent:claude-code/16ebd168** at 2026-09-29T04:15:52Z
+
+Criterion 1 is ticked on the combined evidence. The scratch rehearsal (note 1) covered schema 16, normalize --all and fsck. The search.db rebuild could not run there without --web-config, and was observed in the live deploy instead (TKT-01M3NJ805R): search.db at index version 4, 349 MiB.
+
+## Summary
+
+Released and deployed. v0.3.0 (tag at a43c5ce) is published on GitHub and Forgejo with the upgrade notes above the generated body. The image ghcr.io/terva-sh/lampi is tagged 0.3.0, 0.3, 0, latest and sha-a43c5ce, and pulls without a login. The upgrade was rehearsed on a scratch lake seeded by v0.2.0. The live deploy (TKT-01M3NJ805R) confirmed the one step the rehearsal could not cover: search.db rebuilt at index version 4, 349 MiB, down from 4.9 GB. normalize --all rewrote all 270 sessions compressed.
