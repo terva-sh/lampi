@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NENNN8QW5H0B08JTQ323WX
 title: Search index rewrites untimed events at every sync
 type: bug
-status: draft
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T02:07:34Z
-updated_at: 2026-09-29T02:15:16Z
+updated_at: 2026-09-29T02:54:48Z
 created_by:
   id: agent:claude-code/fbqx
   name: ""
@@ -41,8 +41,8 @@ Fix: the index treats `recorded_at` equal to `ingested_at` as no time, as projec
 
 ## Acceptance criteria
 
-- [ ] Rows whose source had no timestamp keep their signature across generations.
-- [ ] The index is rebuilt once on upgrade, reclaiming the existing bloat.
+- [x] Rows whose source had no timestamp keep their signature across generations.
+- [x] The index is rebuilt once on upgrade, reclaiming the existing bloat.
 
 ## Notes
 
@@ -59,3 +59,11 @@ Verification:
 Alternatives considered:
 - Stop projection from falling back to the projection time. That would change the normalized schema (`recorded_at` is a required string) and every derived file, as well as parquet partitioning by date. That is a larger decision for the owner.
 - Merge harder after every pass. That treats the symptom, and costs a rewrite of up to 8 MiB per pass (TKT-01M3KC2DD).
+
+## Summary
+
+Fixed in #128.
+- The search index takes recorded_at equal to ingested_at as no time. Projection writes that only when the source line had none, so such rows keep their signature across generations, and search reports recorded_at as null for them.
+- Index version 4 rebuilds search.db once on the first start of the release, which reclaims the existing bloat. The hosted lake measured 4.9 GB, where about 0.9 GB is expected.
+- A simulation of 40 real sessions over 12 generations wrote 254,696 row ids for 254,696 rows, against 506k before the fix. The file ended at 393 MiB against 390 MiB compact.
+- TestUntimedEventsAreNotRewrittenEachGeneration covers it.
