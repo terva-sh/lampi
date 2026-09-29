@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:10:00Z
-updated_at: 2026-09-29T03:10:04Z
+updated_at: 2026-09-29T03:14:05Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -65,3 +65,7 @@ The workstation agent is then upgraded in place. `serve compact`, which compress
 - [ ] Every session is normalized again and the search index is rebuilt
 - [ ] Health, auth refusals and the public URL answer after the upgrade
 - [ ] The workstation agent runs v0.3.0 and its next sync re-uploads nothing
+
+## Implementation plan
+
+1. The owner runs deploy-v0.3.0-oQlfxAk8/operator-deploy.sh (in the external handoff) as root. It checks every precondition first, then stops the lake and takes a checkpoint with v0.2.0's serve backup, re-hashed by fsck. It installs v0.3.0, and serve migrates 15 -> 16 and rebuilds search.db. The script checks health, 401s, schema, integrity, counts, lake id and the public URL, queues serve normalize --all with a SIGHUP, and resumes the agent and waits for a sync. It then waits up to an hour for the normalize jobs, and reports the plain events files left and search.db's version. 2. The agent upgrades the workstation agent binary, keeps a copy of the old one, and checks that the next sync uploads nothing. The script is the v0.2.0 bundle's, which ran on this lake on 2026-09-28, with the version and schema lines changed and the normalize and search steps added. The unit and web drop-in are byte-identical to v0.2.0's. serve compact is left out; the owner schedules it.
