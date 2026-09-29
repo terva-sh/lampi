@@ -43,7 +43,11 @@ func run() error {
 	deny := flag.Bool("deny", false, "synthetic identity has no mapped group")
 	empty := flag.Bool("empty", false, "empty synthetic catalog")
 	operator := flag.Bool("operator", false, "synthetic identity is also an operator, and registration codes are on")
+	admin := flag.Bool("admin", false, "synthetic identity is also an admin, and raw artifact reads are on; implies -operator")
 	flag.Parse()
+	if *admin {
+		*operator = true
+	}
 	dir, err := os.MkdirTemp("", "lampi-web-smoke-")
 	if err != nil {
 		return err
@@ -104,13 +108,16 @@ func run() error {
 	if *operator {
 		idp.Groups = []string{"readers", "admins"}
 	}
+	if *admin {
+		idp.Groups = []string{"readers", "admins", "owners"}
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
 	origin := "http://" + ln.Addr().String()
-	cfg := webconfig.Config{BaseURL: origin, OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lampi-smoke", RoleMap: map[string]string{"readers": "viewer", "admins": "operator"}}}
+	cfg := webconfig.Config{BaseURL: origin, OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lampi-smoke", RoleMap: map[string]string{"readers": "viewer", "admins": "operator", "owners": "admin"}}}
 	reader := recall.NewReader(lake.Catalog, lake.Normalized)
 	index, err := recall.OpenIndex(filepath.Join(dir, recall.IndexFile), reader)
 	if err != nil {
@@ -132,7 +139,7 @@ func run() error {
 		}
 		reg = &web.Registrations{Lake: func() registrar.Lake {
 			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: dir}
-		}, Release: "v0.1.1"}
+		}, Release: "v0.1.1", Blobs: lake.CAS}
 	}
 	if !*empty {
 		if err := seedStorage(ctx, lake, time.Now()); err != nil {
