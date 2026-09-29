@@ -145,10 +145,14 @@ func TestAllowSelectedFromTheDevicePage(t *testing.T) {
 	csrf := csrfOf(t, h, cookie)
 	dev := deviceURL(ds[0].ID) + "?show=refused"
 	body := get(h, dev, cookie).Body.String()
-	if !strings.Contains(body, `form="device-select" name="key" value="git_remote git.example/team/app"`) || strings.Contains(body, `value="cwd /home/me/secret" aria-label="Select`) {
+	if !strings.Contains(body, `form="device-select" name="key" value="git_remote git.example/team/app"`) || !strings.Contains(body, `value="cwd /home/me/secret" aria-label="Select`) || !strings.Contains(body, `data-select-all="device-select"`) {
 		t.Fatal("device page selection is wrong")
 	}
-	page := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "return": {dev}, "key": {"git_remote git.example/team/app"}}, cookie).Body.String()
+	page := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "return": {dev}, "key": {"git_remote git.example/team/app", "cwd /home/me/secret"}}, cookie).Body.String()
+	// A denied project can be selected, to hide it, and Allow leaves it out.
+	if !strings.Contains(page, "1 selected project is left out") || !strings.Contains(page, "/home/me/secret") {
+		t.Fatal("the denied project is not named as left out")
+	}
 	if strings.Contains(page, "Profile <a href=\"/profiles/ci\">ci</a>") || !strings.Contains(page, "← Back to laptop") {
 		t.Fatal("allowing from laptop's page reached desk's profile, or has no Back to laptop")
 	}

@@ -430,7 +430,9 @@ review, or is only on devices whose `config.json` sets their own allow
 rules, is left out, and the page says so. **Edit PROFILE in the full editor…**
 opens that profile in the editor with its rules added. A device's page has
 the same checkboxes, with **Allow selected…** and **Hide selected**, for that
-device's copies alone.
+device's copies alone. A checkbox in each table's header selects every row
+where scripts run. A denied project can be selected, to hide it; Allow
+selected leaves it out.
 
 Operators can also **Hide** a project they will not import, from its row, or
 tick several and press **Hide selected** with an optional note. A hide covers
