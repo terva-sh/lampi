@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/webauth"
@@ -49,6 +50,11 @@ type inboxRow struct {
 	Bays                          []bayRow // the bays it is in, id and name
 	Reasons                       []string
 	Held                          bool
+	// From is what a move may take it out of: its bays, or for a
+	// session in no bay the default, which is how one is placed.
+	// Movable is false while a hold keeps it for review.
+	From    []bayRow
+	Movable bool
 }
 
 func (s *Server) renderBays(w http.ResponseWriter, r *http.Request, v baysView, status int) {
@@ -89,6 +95,11 @@ func (s *Server) renderBays(w http.ResponseWriter, r *http.Request, v baysView, 
 			row.Bays = append(row.Bays, byID[id])
 		}
 		row.Held = slices.ContainsFunc(holds, func(h catalog.Hold) bool { return h.SessionUID == e.SessionUID })
+		row.Movable = !slices.ContainsFunc(holds, func(h catalog.Hold) bool { return h.SessionUID == e.SessionUID && h.State == catalog.HoldHeld })
+		row.From = row.Bays
+		if len(row.From) == 0 {
+			row.From = []bayRow{{ID: catalog.DefaultBayID, Name: "no bay"}}
+		}
 		v.Inbox = append(v.Inbox, row)
 	}
 	now := s.now()
@@ -174,6 +185,15 @@ func (s *Server) moveSessionPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) releaseHoldPage(w http.ResponseWriter, r *http.Request) {
 	s.bayChange(w, r, func(who string) (string, error) {
 		uid := r.PostForm.Get("uid")
-		return "Released " + uid + "; it is in the bays it asked for.", s.catalog.ReleaseHold(r.Context(), uid, who, catalog.ViaWeb, s.now())
+		if err := s.catalog.ReleaseHold(r.Context(), uid, who, catalog.ViaWeb, s.now()); err != nil {
+			return "", err
+		}
+		// A release places what the grants and rules allow now, which
+		// need not be what the session asked for (review 1469).
+		names, err := s.catalog.SessionBayNames(r.Context(), catalog.AllBays(), uid)
+		if err != nil {
+			return "Released " + uid + ".", nil
+		}
+		return "Released " + uid + "; it is now in " + strings.Join(names, ", ") + ".", nil
 	})
 }

@@ -109,8 +109,8 @@ func TestAdminMovesASessionAndReleasesAHold(t *testing.T) {
 	if w := postForm(h, adminBaysPath+"/move", url.Values{"csrf": {csrf}, "uid": {held}, "from": {"review"}, "to": {work.ID}}, admin); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "held for review") {
 		t.Fatalf("move of a held session: %d", w.Code)
 	}
-	if w := postForm(h, adminBaysPath+"/release", url.Values{"csrf": {csrf}, "uid": {held}}, admin); w.Code != http.StatusOK {
-		t.Fatalf("release %d", w.Code)
+	if w := postForm(h, adminBaysPath+"/release", url.Values{"csrf": {csrf}, "uid": {held}}, admin); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "it is now in default") {
+		t.Fatalf("release %d: %s", w.Code, between(w.Body.String(), "<main", "</section>"))
 	}
 	if got, _ := lake.Catalog.SessionBays(ctx, held); len(got) != 1 || got[0] != catalog.DefaultBayID {
 		t.Fatalf("after the release: %v", got)

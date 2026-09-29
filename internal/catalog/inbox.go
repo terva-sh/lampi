@@ -347,12 +347,18 @@ func (c *Catalog) MoveSession(ctx context.Context, uid, from, to, actor, via str
 	if err := refuseHeld(ctx, tx, []string{uid}); err != nil {
 		return err
 	}
+	// From the default, a session in no bay is placed, as a bulk move
+	// places one (review 1469).
+	var in int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM session_bays WHERE session_uid=?`, uid).Scan(&in); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
 	ms := Membership{SessionUID: uid, Bay: toID, Actor: actor, Via: via, Reason: "moved from " + fromID}
 	if _, err := addToBay(ctx, tx, ms, now); err != nil {
 		return err
 	}
 	ms.Bay, ms.Reason = fromID, "moved to "+toID
-	if err := removeFromBay(ctx, tx, ms, now); err != nil {
+	if err := removeFromBay(ctx, tx, ms, now); err != nil && !(in == 0 && fromID == DefaultBayID && errors.Is(err, ErrNotAMember)) {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
