@@ -8,7 +8,8 @@ The dashboard shows lake totals, a harness breakdown, normalization status,
 recent and filtered sessions, artifact metadata, provenance, and divergent
 copies. It reads normalized transcripts, searches them, and copies a span of
 events as text, and charts how often session heads changed. It is read-only.
-Downloads remain a future release in [web-ui-plan.md](web-ui-plan.md).
+An admin can also download a session's [raw artifacts](#raw-artifacts). Other
+downloads remain a future release in [web-ui-plan.md](web-ui-plan.md).
 
 ![The lampi dashboard overview with synthetic data](images/dashboard-overview.png)
 
@@ -34,11 +35,16 @@ The repository does not name or provision a live deployment.
    in the **ID token**. The default extra scopes are profile/email/groups; customize
    `scopes` when your provider uses different scopes. `openid` is always included.
 4. Map the actual group claim and exact group names. A successful IdP login grants
-   no access unless a configured group maps to `viewer` or `operator`. A viewer
-   reads metadata for the whole lake; this release has no per-project viewer
-   isolation. An `operator` is also a viewer and can manage registration codes,
-   which adds machines to the lake. Map it to a small group. Operator routes
-   answer 404 to a viewer.
+   no access unless a configured group maps to `viewer`, `operator` or `admin`.
+   A viewer reads metadata for the whole lake; this release has no per-project
+   viewer isolation. An `operator` is also a viewer and can manage registration
+   codes, which adds machines to the lake. Map it to a small group. An `admin`
+   is also an operator and can download a session's
+   [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded. Map
+   it to the smallest group you have, or to none. No group becomes admin on
+   upgrade, and a lake with no admin group starts, logs a warning, and offers
+   no raw reads. Operator routes answer 404 to a viewer, and admin routes
+   answer 404 to an operator.
 5. For operator actions that add access, the dashboard asks the provider to sign
    the user in again with OIDC `max_age` and requires an `auth_time` from the
    last 10 minutes. The provider must return `auth_time` in the ID token when
@@ -195,6 +201,52 @@ the browser's local storage, not on the lake, and is applied before the
 page paints. Without scripts the button is hidden and the system setting
 applies. Both themes keep body text at WCAG AA contrast, and a test checks
 this against the colour tokens in `lake.css`.
+
+## Raw artifacts
+
+An admin sees a **Raw** tab on a session's page. It lists the session's
+current artifacts, each with a **Download** link. This is how to see what
+an agent uploaded when normalization failed, without a shell on the lake
+host. Operators and viewers get no tab, and the raw routes answer them
+404. The tab also stays hidden when serve runs without registrations, as
+in tests.
+
+The files are not redacted. Ruleset v2 quarantines a file with a hit but
+never rewrites one, so a file that was let through can still hold a
+secret. Treat a download as you would the lake's disk.
+
+Each download is written to `audit.jsonl` as `artifact.read` with the
+admin as actor and the session, digest and byte range in `detail`, never
+the content. The line is queued before a byte is sent. If it cannot be
+queued, the download is refused.
+
+A download stops at 8 MiB. A cut-short response is a `206` with a
+`Lampi-Raw-Truncated` header holding the full size. Fetch the rest with
+HTTP `Range` requests; the routes are in
+[web-api.md](web-api.md#raw-artifacts).
+
+### Read tokens
+
+An admin gets a **Read tokens** link, `/admin/read-tokens`, for tools that
+fetch raw artifacts without a browser session. The API is in
+[web-api.md](web-api.md#read-tokens).
+
+- **Minting** takes a label, an optional list of session UIDs, and an
+  expiry of up to 90 days. An empty list reads every session. Minting
+  needs a sign-in in the last 10 minutes, as minting a registration code
+  does.
+- **The token is shown once.** The lake keeps only its SHA-256. A token
+  starts with `lrt_`, so a leaked one is easy to find in a log or with a
+  secret scanner.
+- **Revoke** stops a token on its next request. The list shows each
+  token's scope, expiry, who minted it, and when it was last used.
+
+Minting and revoking are written to `audit.jsonl` as `read_token.created`
+and `read_token.revoked`, naming the token by id and label and never by
+its value. Each read is an `artifact.read` event with the token as actor.
+A mint whose line cannot be written to `audit.jsonl` is revoked at once and
+its token is never shown. A revoke whose line cannot be written still
+stands: the page says so, and the line is written at the next flush.
 
 ## Registration codes
 
@@ -488,7 +540,28 @@ preview to get more. Clearing every field of a rule removes it.
 - which parts change;
 - the devices it reaches;
 - how many of those devices set their own allow rules, which the new allow
-  rules will not reach.
+  rules will not reach;
+- when the allow or deny rules change, the projects the change admits and the
+  projects it stops, each with its devices and session count.
+
+The project list reads the newest inventory of each device on the profile
+under the saved rules and the edited ones. Check it before you save a wider
+rule, such as a `git_remote_prefix`, because a wider rule can admit projects
+nobody has reviewed. The list has these limits:
+
+- A device that sets its own allow rules is left out.
+- A strict device lists only what it uploads, and a device that has sent no
+  inventory lists nothing. The preview names both, since it cannot say what
+  the change admits on them.
+- The lake cannot see a device's own deny rules. A project refused under a
+  deny rule is left out only when all of these hold:
+  - the device reports deny rules of its own;
+  - it reported applying the saved profile;
+  - its inventory arrived after both that report and the save;
+  - the saved profile's deny rules do not match the project.
+
+  Otherwise the refusal may come from an older profile, so the project is
+  listed, even though the device may still deny it.
 
 `git_remote` and `git_remote_prefix` are stored in the form the agent compares,
 so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.

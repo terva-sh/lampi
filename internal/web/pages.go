@@ -59,6 +59,8 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"denied":        func(reason string) bool { return reason == config.RefusedByDeny },
 	"sessionURL":    func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
 	"transcriptURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) + "/transcript" },
+	"rawURL":        func(uid string) string { return rawPath(url.PathEscape(uid)) },
+	"rawFileURL":    func(uid, digest string) string { return rawPath(url.PathEscape(uid)) + "/" + url.PathEscape(digest) },
 	"fromURL": func(uid string, from int64) string {
 		return "/sessions/" + url.PathEscape(uid) + "/transcript?from=" + strconv.FormatInt(from, 10)
 	},
@@ -118,8 +120,15 @@ type pageData struct {
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
 	Operator bool
-	Codes    codesView
-	Devices  devicesView
+	// Admin shows the admin's links, such as raw artifacts. RawOn says
+	// this lake serves them.
+	Admin bool
+	RawOn bool
+	Raw   rawView
+	// ReadTokens is the admin's read token page.
+	ReadTokens readTokensView
+	Codes      codesView
+	Devices    devicesView
 	// Device is one device's page.
 	Device   deviceView
 	Profiles profilesView
@@ -179,9 +188,11 @@ func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int
 	d.Display = id.Display
 	d.CSRF = csrf
 	d.Operator = id.Operator
+	d.Admin = id.Admin
 	d.ReviewCount = -1
 	if s, ok := r.Context().Value(serverKey{}).(*Server); ok && (id.Viewer || id.Operator) {
 		d.ReviewCount = s.reviewCount(r)
+		d.RawOn = s.rawEnabled()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
