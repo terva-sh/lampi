@@ -64,7 +64,7 @@ func TestOpenCodeReexportMovesHead(t *testing.T) {
 	if !bytes.Contains(derived, []byte("later pond")) || bytes.Count(derived, []byte("first pond")) != 1 {
 		t.Fatalf("re-export:\n%s", derived)
 	}
-	copies, err := s.Catalog.DivergentCopies(t.Context())
+	copies, err := s.Catalog.DivergentCopies(t.Context(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

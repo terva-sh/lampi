@@ -105,7 +105,7 @@ func TestNewRelpathRelatesToSessionHead(t *testing.T) {
 		t.Fatalf("divergent: %+v", div)
 	}
 	oneHead(relB, digestHex(grown))
-	copies, err := c.DivergentCopies(ctx)
+	copies, err := c.DivergentCopies(ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestSnapshotHeadMovesAcrossRelpaths(t *testing.T) {
 		t.Fatalf("second path: %+v", moved)
 	}
 	oneHead("export/2026-09-25/ses_1.json", digestHex(three))
-	copies, err := c.DivergentCopies(ctx)
+	copies, err := c.DivergentCopies(ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}

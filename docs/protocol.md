@@ -83,10 +83,27 @@ failure, `lake_normalize_last_failure`.
 
 ## GET /v1/conflicts
 
-Catalog artifacts whose `relation` is `divergent_copy`. Same bearer
-check as the other `/v1` routes. The list is the stored rows. It does
-not merge the copies or move `head_sha256`. `conflicts` is `[]` when
-there are none. `terva-lampi conflicts` prints this list.
+Catalog artifacts whose `relation` is `divergent_copy` and that are not
+resolved. Same bearer check as the other `/v1` routes. The list is the
+stored rows. It does not merge the copies or move `head_sha256`.
+`conflicts` is `[]` when there are none. `terva-lampi conflicts` prints
+this list.
+
+`?resolved=true` lists resolved conflicts too; `false`, or no query, is
+the default, and any other value is `400`. A lake from before
+resolutions ignores the query and lists every copy. A resolved row
+carries `resolution`, which is absent on an open one:
+
+| `resolution.resolution` | Meaning |
+|-------------------------|---------|
+| `kept_head` | An operator kept the session's head. |
+| `made_head` | An operator made this copy the session's head. |
+| `superseded` | A later copy that extends this one was made the head. |
+| `not_a_conflict` | The lake compared the copy with another file, as before TKT-01M3M5VEQ a Claude subagent transcript was compared with the session's own. |
+
+`resolved_at`, `resolved_by` and an optional `note` go with it. A
+resolution keeps the bytes and does not change `relation`, so the copy
+still says how its bytes compared.
 
 `sha256` is the divergent artifact. `head_sha256` is the session head
 that stayed. `machines` posted the divergent digest. `head_machines`

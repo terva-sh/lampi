@@ -155,7 +155,7 @@ func TestStatusAndConflictsRefuseTokenOverPlainHTTP(t *testing.T) {
 	if !strings.HasPrefix(line, "catalog: refusing to send the device token") {
 		t.Fatalf("status %q", line)
 	}
-	if _, err := fetchConflicts("http://10.1.2.3:8787", "tok"); err == nil || !strings.Contains(err.Error(), "over plain http") {
+	if _, err := fetchConflicts("http://10.1.2.3:8787", "tok", false); err == nil || !strings.Contains(err.Error(), "over plain http") {
 		t.Fatalf("conflicts %v", err)
 	}
 

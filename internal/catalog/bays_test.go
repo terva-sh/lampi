@@ -44,7 +44,7 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Back to the schema before bays: a lake with sessions and a device.
-	if _, err := c.db.Exec(`DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; PRAGMA user_version = 17`); err != nil {
+	if _, err := c.db.Exec(`DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; PRAGMA user_version = 18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Close(); err != nil {
@@ -55,7 +55,7 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if m := c.Migrated(); m.From != 17 || len(m.Steps) != 1 || m.Steps[0] != "migrateBays" {
+	if m := c.Migrated(); m.From != 18 || len(m.Steps) != 1 || m.Steps[0] != "migrateBays" {
 		t.Fatalf("migration: %+v", m)
 	}
 	for _, uid := range []string{a.SessionUID, b.SessionUID} {

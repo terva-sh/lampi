@@ -398,18 +398,35 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.Catalog.DivergentCopies(r.Context())
+	// ?resolved=true adds the resolved conflicts. Without it, or with
+	// false, the list is the open ones.
+	var resolved bool
+	if len(r.URL.Query()["resolved"]) > 1 {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "resolved is true or false"})
+		return
+	}
+	switch r.URL.Query().Get("resolved") {
+	case "", "false":
+	case "true":
+		resolved = true
+	default:
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "resolved is true or false"})
+		return
+	}
+	rows, err := s.Catalog.DivergentCopies(r.Context(), resolved)
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.ConflictsResponse{Conflicts: wireConflicts(rows)})
+	writeJSON(w, http.StatusOK, protocol.ConflictsResponse{Conflicts: WireConflicts(rows)})
 }
 
-func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
+// WireConflicts is the catalog's divergent copies as GET /v1/conflicts
+// sends them. terva-lampi conflicts prints a local catalog the same way.
+func WireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 	out := make([]protocol.DivergentCopy, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, protocol.DivergentCopy{
+		d := protocol.DivergentCopy{
 			SessionUID:      row.SessionUID,
 			ArtifactID:      row.ArtifactID,
 			Harness:         row.Harness,
@@ -422,7 +439,16 @@ func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 			HeadSize:        row.HeadSize,
 			Machines:        row.Machines,
 			HeadMachines:    row.HeadMachines,
-		})
+		}
+		if res := row.Resolution; res != nil {
+			d.Resolution = &protocol.ConflictResolution{
+				Resolution: res.Resolution,
+				ResolvedAt: res.At.UTC().Format(time.RFC3339Nano),
+				ResolvedBy: res.By,
+				Note:       res.Note,
+			}
+		}
+		out = append(out, d)
 	}
 	return out
 }

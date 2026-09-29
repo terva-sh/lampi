@@ -23,6 +23,9 @@ type PageRequest struct {
 	Limit    int
 	Cursor   string
 	Current  bool
+	// Resolved includes resolved conflicts. Only the conflicts
+	// collection takes it.
+	Resolved bool
 }
 type Page[T any] struct {
 	Items      []T    `json:"items"`
@@ -65,6 +68,9 @@ type Record struct {
 	Current    bool   `json:"current"`
 	MachineID  string `json:"machine_id,omitempty"`
 	HeadSHA256 string `json:"head_sha256,omitempty"`
+	// Resolution names what was decided about a conflict, when it was
+	// resolved.
+	Resolution string `json:"resolution,omitempty"`
 	row        int64
 }
 type pageCursor struct {
@@ -209,7 +215,7 @@ func (c *Catalog) DashboardOverview(ctx context.Context) (Overview, error) {
 		return out, err
 	}
 	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM sessions),(SELECT COUNT(*) FROM artifacts),(SELECT COUNT(DISTINCT machine_id) FROM provenance),(SELECT COUNT(*) FROM artifacts WHERE relation='divergent_copy')`).Scan(&out.Sessions, &out.Artifacts, &out.Machines, &out.Conflicts)
+	err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM sessions),(SELECT COUNT(*) FROM artifacts),(SELECT COUNT(DISTINCT machine_id) FROM provenance),(SELECT COUNT(*) FROM artifacts a WHERE a.relation='divergent_copy' AND `+unresolvedSQL+`)`).Scan(&out.Sessions, &out.Artifacts, &out.Machines, &out.Conflicts)
 	if err != nil {
 		return out, err
 	}
@@ -282,6 +288,9 @@ func (c *Catalog) DashboardSessions(ctx context.Context, r PageRequest) (Page[Se
 }
 func (c *Catalog) dashboardSessions(ctx context.Context, r PageRequest, uid string) (Page[SessionSummary], error) {
 	out := emptyPage[SessionSummary]()
+	if r.Resolved {
+		return out, ErrPage
+	}
 	cur, err := r.validate("sessions")
 	if err != nil {
 		return out, err
@@ -335,7 +344,7 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 	if kind != "artifacts" && kind != "provenance" && kind != "conflicts" {
 		return out, ErrPage
 	}
-	if uid == "" && kind != "conflicts" {
+	if uid == "" && kind != "conflicts" || r.Resolved && kind != "conflicts" {
 		return out, ErrPage
 	}
 	cur, err := r.validate(kind + ":" + uid)
@@ -359,11 +368,14 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 		}
 		if kind == "conflicts" {
 			where = append(where, "a.relation='divergent_copy'")
+			if !r.Resolved {
+				where = append(where, unresolvedSQL)
+			}
 		}
 		if r.Current {
 			where = append(where, "a.current=1")
 		}
-		query = `SELECT a.artifact_id,a.session_uid,a.kind,substr(a.relpath,1,512),a.sha256,a.size,a.relation,a.current,s.head_sha256 FROM artifacts a JOIN sessions s ON s.session_uid=a.session_uid WHERE ` + strings.Join(where, " AND ") + ` ORDER BY a.artifact_id LIMIT ?`
+		query = `SELECT a.artifact_id,a.session_uid,a.kind,substr(a.relpath,1,512),a.sha256,a.size,a.relation,a.current,s.head_sha256,COALESCE((SELECT r.resolution FROM conflict_resolutions r WHERE r.artifact_id=a.artifact_id),'') FROM artifacts a JOIN sessions s ON s.session_uid=a.session_uid WHERE ` + strings.Join(where, " AND ") + ` ORDER BY a.artifact_id LIMIT ?`
 		args = append(args, r.Limit+1)
 	}
 	rows, err := c.db.QueryContext(ctx, query, args...)
@@ -377,7 +389,7 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 			err = rows.Scan(&a.row, &a.SessionUID, &a.MachineID, &a.SHA256, &a.RelPath)
 			a.ID = fmt.Sprint(a.row)
 		} else {
-			err = rows.Scan(&a.ID, &a.SessionUID, &a.Kind, &a.RelPath, &a.SHA256, &a.Size, &a.Relation, &a.Current, &a.HeadSHA256)
+			err = rows.Scan(&a.ID, &a.SessionUID, &a.Kind, &a.RelPath, &a.SHA256, &a.Size, &a.Relation, &a.Current, &a.HeadSHA256, &a.Resolution)
 		}
 		if err != nil {
 			return out, err

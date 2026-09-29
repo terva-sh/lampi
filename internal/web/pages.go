@@ -237,7 +237,7 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent})
 }
 func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePage(r.URL.Query(), true, false)
+	p, err := parsePage(r.URL.Query(), true, "")
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -262,7 +262,7 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q.Del("collection")
-	p, err := parsePage(q, false, kind == "artifacts")
+	p, err := parsePage(q, false, kind)
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -283,7 +283,7 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	render(w, r, pageData{Title: "Session details", View: "detail", Session: summary, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)})
 }
 func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePage(r.URL.Query(), false, false)
+	p, err := parsePage(r.URL.Query(), false, "conflicts")
 	if err != nil {
 		pageError(w, r, err)
 		return

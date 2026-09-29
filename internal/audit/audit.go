@@ -56,6 +56,12 @@ const (
 	ReadTokenCreated = "read_token.created"
 	ReadTokenRevoked = "read_token.revoked"
 
+	// ConflictResolved and ConflictReopened record a divergent copy
+	// being resolved, by an operator or a catalog migration, and a
+	// resolution being removed. Detail names the artifact and session.
+	ConflictResolved = "conflict.resolved"
+	ConflictReopened = "conflict.reopened"
+
 	// Bay events (TKT-01M3N8KHW5). Detail names the session, bay and
 	// principal by id, and how and why a membership changed.
 	BayCreated       = "bay.created"

@@ -544,10 +544,23 @@ type DivergentCopy struct {
 	HeadSize        int64    `json:"head_size"`
 	Machines        []string `json:"machines"`
 	HeadMachines    []string `json:"head_machines"`
+	// Resolution is set on a resolved conflict, which is listed only
+	// when the request asks for resolved ones.
+	Resolution *ConflictResolution `json:"resolution,omitempty"`
+}
+
+// ConflictResolution is what was decided about a divergent copy:
+// kept_head, made_head, superseded or not_a_conflict, when, by whom.
+type ConflictResolution struct {
+	Resolution string `json:"resolution"`
+	ResolvedAt string `json:"resolved_at"`
+	ResolvedBy string `json:"resolved_by"`
+	Note       string `json:"note,omitempty"`
 }
 
 // ConflictsResponse is the body of GET /v1/conflicts.
-// Conflicts is empty when the catalog has no divergent_copy rows.
+// Conflicts is empty when the catalog has no unresolved divergent_copy
+// rows. ?resolved=true lists resolved ones too.
 // The route uses the same bearer check as the other /v1 routes.
 // Listing does not merge the copies or move the head.
 type ConflictsResponse struct {

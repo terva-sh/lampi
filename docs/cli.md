@@ -42,7 +42,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | Command | What it does |
 |---------|--------------|
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT dataset. See [Export](#export). |
-| `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
+| `terva-lampi conflicts` | List unresolved `divergent_copy` artifacts from the catalog: session, digests, and machines. `--resolved` adds resolved ones with their resolution. |
 
 ## Export
 

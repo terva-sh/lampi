@@ -18,13 +18,13 @@ raw manifests never appear in these responses.
 
 | Route under `/api/web/v1` | Result |
 |---|---|
-| `/overview` | Sessions, artifact rows, contributing machines, divergent artifacts, harness counts, normalization counts, `as_of` |
+| `/overview` | Sessions, artifact rows, contributing machines, unresolved divergent artifacts, harness counts, normalization counts, `as_of` |
 | `/sessions` | Session summary page |
 | `/sessions/{uid}` | One session summary |
 | `/sessions/{uid}/artifacts` | Artifact metadata page; `current=true` selects current artifacts |
 | `/sessions/{uid}/provenance` | Machine/digest/path observation page |
-| `/sessions/{uid}/conflicts` | Divergent artifact page |
-| `/conflicts` | Divergent artifacts across sessions |
+| `/sessions/{uid}/conflicts` | Unresolved divergent artifact page; `resolved=true` adds resolved ones |
+| `/conflicts` | Unresolved divergent artifacts across sessions; `resolved=true` adds resolved ones |
 | `/sessions/{uid}/events` | One page of the session's published normalized events; see below |
 | `/search` | Literal text search over indexed events; see below |
 | `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
@@ -41,8 +41,11 @@ can move rows, so restart pagination to refresh the list.
 Session filters are exact `harness`, exact `project`, `unlinked=true` (mutually
 exclusive with project), and `state=pending|failed|ready|unknown`. Unknown or
 repeated parameters, invalid limits/cursors and unsupported filter values are
-refused. Other collections accept only limit/cursor and the artifact current
-selector. Detail and overview accept no query parameters.
+refused. Other collections accept only limit/cursor, the artifact current
+selector and the conflict resolved selector. Detail and overview accept no
+query parameters. A resolved conflict carries `resolution`: `kept_head`,
+`made_head`, `superseded` or `not_a_conflict`. Resolving keeps the bytes and
+leaves `relation` as it was.
 
 A session summary contains `session_uid`, `native_session_id`, `harness`,
 `project_id`, `project_label`, `head_sha256`, `last_head_update`,
