@@ -205,3 +205,53 @@ func TestReadTokenIsNotAnyOtherCredential(t *testing.T) {
 		t.Errorf("read token on /v1: %d", w.Code)
 	}
 }
+
+// breakAuditLog puts a directory where audit.jsonl goes, so a flush
+// fails while the outbox still queues.
+func breakAuditLog(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.RemoveAll(audit.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(audit.Path(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// review 1330 finding-1: a mint whose audit line cannot be written is
+// revoked and its secret never shown.
+func TestUnauditedMintIsRevokedAndNotShown(t *testing.T) {
+	lake, idp, h, dir := rawLake(t, nil)
+	admin := signInAs(t, idp, h, "owners")
+	a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
+	breakAuditLog(t, dir)
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"unaudited"}, "expires": {"24h"}}, admin)
+	if w.Code != 500 || mintedToken.MatchString(w.Body.String()) || strings.Contains(w.Body.String(), ReadTokenPrefix) {
+		t.Fatalf("unaudited mint %d showed a token", w.Code)
+	}
+	tokens, err := lake.Catalog.ReadTokens(t.Context())
+	if err != nil || len(tokens) != 1 || tokens[0].State(time.Now()) != "revoked" {
+		t.Fatalf("token after an unaudited mint: %+v %v", tokens, err)
+	}
+}
+
+// review 1330 finding-2: a revoke that stands answers as one, even when
+// its audit line stays queued.
+func TestRevokeWithQueuedAuditSaysItIsRevoked(t *testing.T) {
+	lake, idp, h, dir := rawLake(t, nil)
+	uid, digest := storeSession(t, lake, "tok-q", []byte("q\n"))
+	admin := signInAs(t, idp, h, "owners")
+	tok := mintReadToken(t, h, admin, "queued revoke", "")
+	tokens, _ := lake.Catalog.ReadTokens(t.Context())
+	breakAuditLog(t, dir)
+	w := postForm(h, adminReadTokensPath+"/"+tokens[0].ID+"/revoke", url.Values{"csrf": {csrfOf(t, h, admin)}}, admin)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "is revoked and no longer works") {
+		t.Fatalf("revoke with a failing flush: %d", w.Code)
+	}
+	if w := bearer(h, "GET", rawTokenPath(uid, digest), tok); w.Code != 401 {
+		t.Fatalf("revoked token read: %d", w.Code)
+	}
+	if n, err := lake.Catalog.PendingAudit(t.Context()); err != nil || n < 1 {
+		t.Fatalf("revocation not queued: %d %v", n, err)
+	}
+}

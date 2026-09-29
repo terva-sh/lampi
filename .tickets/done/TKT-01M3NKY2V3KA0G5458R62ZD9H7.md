@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NKY2V3KA0G5458R62ZD9H7
 title: "Dashboard: admin-only raw artifact view"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M3NKZT6N7MW8AA0ZZ5ZJWKB9
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: web/raw-view
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: 94243ccc80f3e55c6f546a8aa67c570236a258d4
-  session: null
-  claimed_at: 2026-09-29T03:52:22Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:39:32Z
-updated_at: 2026-09-29T03:55:55Z
+updated_at: 2026-09-29T04:14:45Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -115,3 +108,7 @@ raw does neither.
 ## Implementation plan
 
 Registrations gains Blobs (*cas.Store); serve wires lake.CAS. rawRoutes mounts GET /sessions/{uid}/raw (page) and /sessions/{uid}/raw/{digest} (download) behind Guard+AdminOnly, only when Blobs is set. serveRaw (shared with the token route in TKT-01M3NM6FW7): digest must be one of the session's artifact rows, else 404; size via cas.Size; single Range; 8 MiB cap marked by Lampi-Raw-Truncated; QueueAudit(artifact.read) before any byte, refusing on error; FlushAudit best-effort; cas.Open handles zstd, logical and prefix records. Smoketest gains -admin. Docs: web-ui-plan addendum and ticket map, web-dashboard Raw artifacts section, web-api route reference.
+
+## Summary
+
+Landed in #134 (merge 93998cb). Admins get a Raw tab listing current artifacts; GET /sessions/{uid}/raw/{sha256} serves only digests the session links to, as an attachment capped at 8 MiB with single-Range support and Lampi-Raw-Truncated. terva-review 1323 found two mediums, both accepted in e7ed2db: repeated Range fields are now 416, and the response is read in full before its artifact.read event is queued, so a failed read records nothing (the old order sent a 200 with a short body). Re-review at e7ed2db was clean. Visual check was done with the smoketest -admin and curl; the preview browser could not reach this host.

@@ -131,7 +131,7 @@ var readTokenProblems = map[string]string{
 	"invalid_sessions": "List session UIDs separated by spaces or new lines, at most 100, or leave the list empty for every session.",
 	"unknown_session":  "A listed session is not in the lake. Check the UIDs.",
 	"mint_failed":      "Minting failed. Operator logs hold the details.",
-	"audit_failed":     "The token is minted, but writing it to the audit log failed. The line stays queued. Operator logs hold the details.",
+	"audit_failed":     "Writing the mint to the audit log failed, so the token was revoked and is not shown. Operator logs hold the details. Fix the audit log and mint again.",
 }
 
 func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
@@ -179,15 +179,23 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		s.renderReadTokens(w, r, readTokensView{Form: form, Problem: readTokenProblems["mint_failed"]}, http.StatusInternalServerError)
 		return
 	}
+	// The mint is in audit.jsonl before the secret is shown. A token
+	// whose line cannot be written is revoked and never shown, as
+	// registrar.Mint does with a code.
+	if err := lake.Catalog.FlushAudit(r.Context(), lake.Dir); err != nil {
+		s.attempts.forget(attempt)
+		s.logError(r, "writing a read token's mint to the audit log failed", err)
+		problem := readTokenProblems["audit_failed"]
+		if _, rerr := lake.Catalog.RevokeReadToken(r.Context(), t.ID, "system: audit write failed", now); rerr != nil {
+			s.logError(r, "revoking a read token whose mint was not audited failed", rerr)
+			problem = "Writing the mint to the audit log failed, and revoking the token failed too. Revoke " + t.ID + " below. Operator logs hold the details."
+		}
+		s.renderReadTokens(w, r, readTokensView{Form: form, Problem: problem}, http.StatusInternalServerError)
+		return
+	}
 	s.attempts.done(attempt, t.ID)
 	v := viewReadToken(t, now)
 	out := readTokensView{Minted: &v, Secret: secret, Example: "curl -fsS -H 'Authorization: Bearer " + secret + "' -o artifact " + s.origin + rawTokenPath("SESSION_UID", "SHA256")}
-	// The token and its event committed together. A line that cannot be
-	// written now stays queued for the next flush.
-	if err := lake.Catalog.FlushAudit(r.Context(), lake.Dir); err != nil {
-		s.logError(r, "minted a read token but the audit line failed", err)
-		out.Problem = readTokenProblems["audit_failed"]
-	}
 	s.renderReadTokens(w, r, out, http.StatusOK)
 }
 
@@ -243,8 +251,11 @@ func (s *Server) revokeReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		if err := lake.Catalog.FlushAudit(r.Context(), lake.Dir); err != nil {
+			// The revocation stands, and its event is queued in the same
+			// transaction, so the next flush writes it. Say so rather than
+			// answer as if nothing happened.
 			s.logError(r, "revoked a read token but the audit line failed", err)
-			s.renderReadTokens(w, r, readTokensView{Problem: "The token is revoked, but writing it to the audit log failed. The line stays queued. Operator logs hold the details."}, http.StatusInternalServerError)
+			s.renderReadTokens(w, r, readTokensView{Problem: "The token is revoked and no longer works. Writing that to the audit log failed; the line stays queued and is written at the next flush. Operator logs hold the details."}, http.StatusOK)
 			return
 		}
 	}

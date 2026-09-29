@@ -244,6 +244,9 @@ fetch raw artifacts without a browser session. The API is in
 Minting and revoking are written to `audit.jsonl` as `read_token.created`
 and `read_token.revoked`, naming the token by id and label and never by
 its value. Each read is an `artifact.read` event with the token as actor.
+A mint whose line cannot be written to `audit.jsonl` is revoked at once and
+its token is never shown. A revoke whose line cannot be written still
+stands: the page says so, and the line is written at the next flush.
 
 ## Registration codes
 
