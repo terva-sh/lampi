@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01Q9PCPWKTW0G2AP2QYT
 title: "Allow: choose repository or owner width for the new rule"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3NM01NKV3Q4K0TKYRQFTE77
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/58fb7d84
-  branch: profile-rules/allow-width
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-58fb7d84
-  commit: 057c35bbf0830d5b7bf340059e8981bf9382af4e
-  session: null
-  claimed_at: 2026-09-29T03:53:32Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T04:57:25Z
+updated_at: 2026-09-29T05:44:39Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -103,3 +96,11 @@ The review API (`POST /api/web/v1/review/allow`) takes an optional width per key
 **agent:claude-code/58fb7d84** at 2026-09-29T04:57:25Z
 
 Review 1339 on PR 141, finding 1 (medium): with nested owners, withRules kept only the wider prefix, but ap.Rules still listed both, so the confirm page and the API rules disagreed with the document. Accepted, and fixed in f876ad74200dbe674cfed24306a4a2cd520be98d: survivingRules keeps only the rules the document adds, and moves a dropped rule's devices to the rule that covers it. The width tests gained a nested-group repository. Removing the call makes them fail.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T05:44:39Z
+
+Merging #141: its last Lint and Test run failed in internal/cli (TestAgentReportsItsSyncAndProfileToTheLake, a known load flake filed as TKT-01M3MJDS, and TestReportToAnOlderLakeIsSaidOnce) on a heavily loaded runner. The PR was merged anyway, because the merge step checked that the branch held main but not the CI result. That was a mistake. main's own CI on the merge commit f70284c passed, both tests pass three times under -race on main, and the PR touches no internal/cli code. From #142 on, the merge step requires every check to read success.
+
+## Summary
+
+Landed in #141 (merge f70284c). Allow on a device page and on each review row offers Allow OWNER/..., and Allow selected offers a Rules for select, both adding one git_remote_prefix per owner. A bare-host owner and a folder keep their exact rule. New rules drop the existing allow rules they cover, and the plan lists only the rules the document adds. The confirm page shows the dropped rules and the projects admitted, and the review API takes width. The merge went in with a red flaky CI run; see the note.
