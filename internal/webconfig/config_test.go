@@ -77,3 +77,24 @@ func TestLoadDoesNotEchoInputOrMarshalSecret(t *testing.T) {
 		t.Fatal("secret serialized")
 	}
 }
+
+// TKT-01M3NKZT6N: admin is a role role_map accepts, and AdminGroups
+// lists only the groups mapped to it.
+func TestAdminRole(t *testing.T) {
+	c := valid()
+	c.OIDC.RoleMap = map[string]string{"readers": "viewer", "ops": "operator", "owners-b": "admin", "owners-a": "admin"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(c.AdminGroups(), ","); got != "owners-a,owners-b" {
+		t.Fatalf("admin groups %q", got)
+	}
+	c = valid()
+	if len(c.AdminGroups()) != 0 {
+		t.Fatal("viewer-only config reports admins")
+	}
+	c.OIDC.RoleMap = map[string]string{"owners": "Admin"}
+	if c.Validate() == nil {
+		t.Fatal("accepted a role in the wrong case")
+	}
+}

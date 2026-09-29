@@ -707,8 +707,22 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 			return ignoredProfilesFiles(data, profilesFile)
 		},
 	}
+	logAdmins(lake.Log, cfg)
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
 	return err
+}
+
+// logAdmins says at startup which groups hold admin. A lake with none
+// works as before.
+func logAdmins(log *slog.Logger, cfg webconfig.Config) {
+	if log == nil {
+		return
+	}
+	if groups := cfg.AdminGroups(); len(groups) > 0 {
+		log.Info("web admin groups", "groups", strings.Join(groups, ","))
+	} else {
+		log.Warn("web config maps no group to admin")
+	}
 }
 
 // lakeRelease is the tag this binary was built from, or "" for a build
