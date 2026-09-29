@@ -29,6 +29,7 @@ type InboxEntry struct {
 	GitRemote  string
 	Bays       []string // bay ids
 	Reasons    []string
+	manifest   protocol.Manifest
 }
 
 // The reason a session in the default bay has when nothing else
@@ -62,9 +63,8 @@ func (c *Catalog) Inbox(ctx context.Context) ([]InboxEntry, error) {
 			rows.Close()
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
-		var m protocol.Manifest
-		if json.Unmarshal([]byte(raw), &m) == nil {
-			e.CWD, e.GitRemote = m.Project.CWD, m.Project.GitRemote
+		if json.Unmarshal([]byte(raw), &e.manifest) == nil {
+			e.CWD, e.GitRemote = e.manifest.Project.CWD, e.manifest.Project.GitRemote
 		}
 		if bays.String != "" {
 			e.Bays = strings.Split(bays.String, ",")
@@ -79,8 +79,12 @@ func (c *Catalog) Inbox(ctx context.Context) ([]InboxEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	rules, err := loadRules(ctx, c.db)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
-		if out[i].Reasons, err = c.inboxReasons(ctx, out[i], names); err != nil {
+		if out[i].Reasons, err = c.inboxReasons(ctx, out[i], names, rules); err != nil {
 			return nil, err
 		}
 	}
@@ -99,7 +103,7 @@ func (c *Catalog) bayNames(ctx context.Context) (map[string]string, error) {
 	return names, nil
 }
 
-func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[string]string) ([]string, error) {
+func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[string]string, rules []BayRule) ([]string, error) {
 	var out []string
 	rows, err := c.db.QueryContext(ctx, `SELECT bay_id, rule_id, state FROM session_holds WHERE session_uid=? AND state IN (?,?) ORDER BY created_at`, e.SessionUID, HoldHeld, HoldFlagged)
 	if err != nil {
@@ -115,6 +119,9 @@ func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[stri
 		out = append(out, fmt.Sprintf("%s by hold rule %d into bay %s", state, rule, nameOr(names, bay)))
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
 	rows, err = c.db.QueryContext(ctx, `SELECT bay_ref, reason FROM session_bay_requests WHERE session_uid=? AND outcome=? ORDER BY bay_ref`, e.SessionUID, RequestRefused)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
@@ -128,16 +135,70 @@ func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[stri
 		out = append(out, fmt.Sprintf("asked for bay %s: refused, %s", ref, reason))
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
 	switch {
 	case len(e.Bays) == 0:
 		out = append(out, "in no bay, which no write leaves; serve bays move BAY with a filter places it, as from the default bay")
 	case len(out) > 0 || !slices.Contains(e.Bays, DefaultBayID):
 	case len(e.Bays) == 1:
-		out = append(out, ReasonNothingPlaced)
+		placed, err := c.placedInDefault(ctx, e, rules)
+		if err != nil {
+			return nil, err
+		}
+		if len(placed) == 0 {
+			placed = []string{ReasonNothingPlaced}
+		}
+		out = append(out, placed...)
 	default:
 		// A rule or a move put it in another bay and left the default
 		// membership, since both only add (review 1461).
 		out = append(out, ReasonAlsoInDefault)
+	}
+	return out, nil
+}
+
+// placedInDefault says what put a session in the default bay on
+// purpose: a request for it the lake accepted, or an add rule naming it
+// (review 1467). It stays in the inbox, which is the default bay, with
+// that reason rather than one saying nothing placed it.
+func (c *Catalog) placedInDefault(ctx context.Context, e InboxEntry, rules []BayRule) ([]string, error) {
+	var out []string
+	rows, err := c.db.QueryContext(ctx, `SELECT bay_ref FROM session_bay_requests WHERE session_uid=? AND outcome=? ORDER BY bay_ref`, e.SessionUID, RequestAccepted)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		refs = append(refs, ref)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	for _, ref := range refs {
+		id, err := resolveBayID(ctx, c.db, ref)
+		if errors.Is(err, ErrNoBay) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if id == DefaultBayID {
+			out = append(out, fmt.Sprintf("asked for the default bay, as %s", ref))
+		}
+	}
+	id := projectOf(e.manifest)
+	for _, r := range rules {
+		if r.Action == RuleAdd && r.BayID == DefaultBayID && r.matches(id, e.manifest.Harness) {
+			out = append(out, fmt.Sprintf("added to the default bay by rule %d", r.ID))
+		}
 	}
 	return out, nil
 }

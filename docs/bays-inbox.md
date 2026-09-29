@@ -71,6 +71,8 @@ for one folder only is a `cwd_hash`.
 | Reason | What to do |
 |--------|------------|
 | no bay asked for and no rule added one | Add a lake rule, or a request rule on the machine, for sessions like it. Move this one. |
+| asked for the default bay, as X | The machine asks for the default bay by name. Change its request rules, or move it. |
+| added to the default bay by rule N | A lake add rule names the default bay. Point the rule at the bay these sessions belong in. |
 | placed in another bay and still in the default | A rule or a move added it elsewhere; both only add. `serve bays move BAY --from default` with a filter takes it out of the default. |
 | asked for bay X: refused, not granted | The device asked for a bay it may not write. Grant it, or fix the machine's config. |
 | asked for bay X: refused, no such bay | The machine asks for a bay the lake does not have, or by a name since changed. `serve bays alias` keeps an old name working. |

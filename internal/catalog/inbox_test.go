@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -197,5 +198,21 @@ func TestInboxNamesASessionAlsoInDefault(t *testing.T) {
 	}
 	if _, listed := inboxReasons(t, r.c)[uid]; listed {
 		t.Fatal("still in the inbox after the move its reason names")
+	}
+}
+
+// A session placed in the default bay on purpose says what placed it,
+// not that nothing did (review 1467).
+func TestInboxNamesWhatPlacedASessionInDefault(t *testing.T) {
+	r := newRouted(t)
+	asked := r.mustPost("sess-asked", "/src/a", "default").SessionUID
+	rule := r.rule(RuleAdd, config.ProjectMatch{CWDPrefix: "/src/r"}, DefaultBayName)
+	added := r.mustPost("sess-rule", "/src/r").SessionUID
+	got := inboxReasons(t, r.c)
+	if !reflect.DeepEqual(got[asked], []string{"asked for the default bay, as default"}) {
+		t.Errorf("asked: %v", got[asked])
+	}
+	if want := fmt.Sprintf("added to the default bay by rule %d", rule.ID); !reflect.DeepEqual(got[added], []string{want}) {
+		t.Errorf("rule: %v want %q", got[added], want)
 	}
 }
