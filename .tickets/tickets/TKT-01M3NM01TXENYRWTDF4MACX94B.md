@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3NM01TXENYRWTDF4MACX94B
 title: Consolidate the internal lake's default profile
 type: chore
-status: ready
-status_reason: null
+status: blocked
+status_reason: "Needs an operator dashboard session on the internal lake (an agent cannot sign in through OIDC), and a lake release that includes #131, #140, #141 and #145. Once both hold, follow the steps in the description. The operator saves."
 priority: normal
 due_on: null
 labels:
@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T03:40:37Z
-updated_at: 2026-09-29T03:41:09Z
+updated_at: 2026-09-29T06:17:38Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -52,3 +52,9 @@ Needs a dashboard session with the `operator` role, and a lake running a release
 - [ ] The rules are grouped and a consolidated document is drafted in the editor
 - [ ] The operator reviewed the admitted list and saved with a note naming this ticket
 - [ ] A note records the rule counts before and after
+
+## Notes
+
+**agent:claude-code/58fb7d84** at 2026-09-29T06:17:38Z
+
+ready to blocked: Needs an operator dashboard session on the internal lake (an agent cannot sign in through OIDC), and a lake release that includes #131, #140, #141 and #145. Once both hold, follow the steps in the description. The operator saves.
