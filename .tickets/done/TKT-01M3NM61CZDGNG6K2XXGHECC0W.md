@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM61CZDGNG6K2XXGHECC0W
 title: Admin role and raw artifact access
 type: epic
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,18 +17,13 @@ parent: null
 origin: null
 dependencies: []
 blocks_on: none
-references: []
-claim:
-  actor: agent:claude-code/cd41c9ac
-  branch: web/raw-view
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
-  commit: 94243ccc80f3e55c6f546a8aa67c570236a258d4
-  session: null
-  claimed_at: 2026-09-29T03:52:22Z
-  expires_at: null
+references:
+  - ref: audit:raw-access
+    path: .audit/raw-access.tsv
+claim: null
 archive: null
 created_at: 2026-09-29T03:43:53Z
-updated_at: 2026-09-29T03:52:22Z
+updated_at: 2026-09-29T04:37:39Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -76,5 +71,39 @@ change.
 
 ## Acceptance criteria
 
-- [ ] All child tickets are done
-- [ ] docs/web-ui-plan.md, docs/web-dashboard.md and docs/web-api.md describe the admin role, raw view and raw-read tokens
+- [x] All child tickets are done
+- [x] docs/web-ui-plan.md, docs/web-dashboard.md and docs/web-api.md describe the admin role, raw view and raw-read tokens
+
+## Summary
+
+Done. All three children landed on 2026-09-29, each as its own PR,
+merged by agent:claude-code/cd41c9ac working unattended on the owner's
+instruction to finish the epic:
+
+- #132 (dde83a3): TKT-01M3NKZT6N, the admin role
+- #134 (93998cb): TKT-01M3NKY2V3, the raw artifact view
+- #135 (227aeb4): TKT-01M3NM6FW7, raw-read tokens
+
+Each PR merged only after green CI, a clean terva-review at its head,
+and a disposition for every finding. No person reviewed them before
+merge.
+
+### For the owner to review
+
+- **Operators are not promoted to admin on upgrade.** The agent made
+  this call; the owner did not answer the question. It is the opposite
+  of the migration the Bays epic (TKT-01M3N8KHW5) proposes. The
+  reasoning is in TKT-01M3NKZT6N.
+- **Raw reads buffer in memory.** Each read holds up to 8 MiB before it
+  is sent, so the audit line only ever names bytes that were read
+  (terva-review 1323). This is acceptable for a capped, admin-only
+  route, but it no longer streams.
+- **Read tokens can't be edited.** Changing a token's scope means
+  revoking it and minting another.
+
+### Decision trail
+
+The agent's decision log is committed at `.audit/raw-access.tsv`. A
+second model (Sonnet) reviewed it against the session and found nothing
+serious in the admin gate, the digest and scope checks, or token
+minting.

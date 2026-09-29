@@ -12,4 +12,3 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3K45MQBRESGG5HEZZSZ3FDQ](tickets/TKT-01M3K45MQBRESGG5HEZZSZ3FDQ.md) | Lake storage efficiency: smaller than the raw sessions it holds | in-progress |
 | [TKT-01M3MC023P4A5H7PTF662QSSM8](tickets/TKT-01M3MC023P4A5H7PTF662QSSM8.md) | Self-hosted lake: container image, registry, and operations | in-progress |
 | [TKT-01M3N22HCYT06PPNZFQP3YCCCE](draft/TKT-01M3N22HCYT06PPNZFQP3YCCCE.md) | Per-device overrides on top of agent profiles | draft |
-| [TKT-01M3NM61CZDGNG6K2XXGHECC0W](tickets/TKT-01M3NM61CZDGNG6K2XXGHECC0W.md) | Admin role and raw artifact access | in-progress |
