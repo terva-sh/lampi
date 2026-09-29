@@ -379,7 +379,7 @@ func TestSnippetOffsets(t *testing.T) {
 }
 
 func removeFile(s *api.Server, uid string) error {
-	return os.Remove(filepath.Join(s.Normalized, uid+".jsonl"))
+	return os.Remove(filepath.Join(s.Normalized, uid+normalize.EventsExt))
 }
 
 func TestStructuredFilters(t *testing.T) {

@@ -127,15 +127,45 @@ func EventLink(uid string, gen, pos int64) string {
 	return "/sessions/" + url.PathEscape(uid) + "/transcript?" + q.Encode() + "#e-" + strconv.FormatInt(pos, 10)
 }
 
-// snapshot is an open JSONL file known to hold pub's generation.
+// snapshot is an open events file known to hold pub's generation.
 type snapshot struct {
-	f     *os.File
+	ev    *normalize.EventsFile
 	pub   catalog.Publication
 	size  int64
 	mtime int64
 }
 
-func (s *snapshot) Close() error { return s.f.Close() }
+func (s *snapshot) Close() error { return s.ev.Close() }
+
+// lines returns the events from pos as a buffered reader, having
+// skipped to it: from the start of the frame holding it in a
+// compressed file, or from off, a signed cursor's byte offset at pos in
+// a plain one. at is the position reached, below pos past the end, and
+// consumed the plain file's byte offset there; zero in a compressed
+// file, which a cursor finds by position.
+func (s *snapshot) lines(ctx context.Context, pos, off int64) (br *bufio.Reader, at, consumed int64, err error) {
+	r, first, err := s.ev.From(pos, off)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	br = bufio.NewReaderSize(r, 64<<10)
+	if !s.ev.Compressed && first == pos {
+		consumed = off
+	}
+	at = first
+	if first < pos {
+		n, skipped, err := skipLines(ctx, br, pos-first)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		at += skipped
+		consumed += n
+	}
+	if s.ev.Compressed {
+		consumed = 0
+	}
+	return br, at, consumed, nil
+}
 
 // open pins the published generation of uid. Publication is read,
 // the file opened, and publication read again. A worker bumps
@@ -155,7 +185,7 @@ func (r *Reader) open(ctx context.Context, uid string) (*snapshot, error) {
 		if before.State != "ready" {
 			return nil, UnavailableError{before.State}
 		}
-		f, err := os.Open(filepath.Join(r.normalized, uid+".jsonl"))
+		ev, err := normalize.OpenEvents(r.normalized, uid)
 		if errors.Is(err, os.ErrNotExist) {
 			after, perr := r.publication(ctx, uid)
 			if perr != nil {
@@ -174,11 +204,11 @@ func (r *Reader) open(ctx context.Context, uid string) (*snapshot, error) {
 		}
 		after, err := r.publication(ctx, uid)
 		if err != nil {
-			f.Close()
+			ev.Close()
 			return nil, err
 		}
 		if after != before {
-			f.Close()
+			ev.Close()
 			if attempt == 0 {
 				continue
 			}
@@ -187,12 +217,7 @@ func (r *Reader) open(ctx context.Context, uid string) (*snapshot, error) {
 			}
 			return nil, ErrGenerationChanged
 		}
-		st, err := f.Stat()
-		if err != nil {
-			f.Close()
-			return nil, err
-		}
-		return &snapshot{f: f, pub: before, size: st.Size(), mtime: st.ModTime().UnixNano()}, nil
+		return &snapshot{ev: ev, pub: before, size: ev.Size, mtime: ev.MTime}, nil
 	}
 }
 
@@ -298,23 +323,13 @@ func (r *Reader) Events(ctx context.Context, uid string, req EventRequest) (Even
 		if cur.Off < 0 || cur.Off > snap.size || cur.Pos < 0 {
 			return EventPage{}, ErrInvalid
 		}
-		if _, err := snap.f.Seek(cur.Off, io.SeekStart); err != nil {
-			return EventPage{}, err
-		}
 		pos, off = cur.Pos, cur.Off
 	}
-	br := bufio.NewReaderSize(snap.f, 64<<10)
-	if req.Cursor == "" && pos > 0 {
-		n, skipped, err := skipLines(ctx, br, pos)
-		if err != nil {
-			return EventPage{}, err
-		}
-		if skipped < pos {
-			// Past the end: an empty last page, not an error, so a
-			// link to a shortened session still lands somewhere.
-			pos = skipped
-		}
-		off = n
+	// Past the end, at is short of pos: an empty last page, not an
+	// error, so a link to a shortened session still lands somewhere.
+	br, pos, off, err := snap.lines(ctx, pos, off)
+	if err != nil {
+		return EventPage{}, err
 	}
 	page := EventPage{SessionUID: uid, Generation: snap.pub.Gen, Head: snap.pub.Head, From: pos, Items: []EventItem{}, AsOf: time.Now().UTC().Format(time.RFC3339Nano)}
 	if pos > 0 {
@@ -342,7 +357,9 @@ func (r *Reader) Events(ctx context.Context, uid string, req EventRequest) (Even
 		used += len(b)
 		page.Items = append(page.Items, item)
 		pos++
-		off += n
+		if !snap.ev.Compressed {
+			off += n
+		}
 		if err == io.EOF {
 			page.End = true
 			break

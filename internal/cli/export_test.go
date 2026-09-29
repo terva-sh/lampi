@@ -13,6 +13,7 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
 
 	_ "modernc.org/sqlite"
@@ -69,7 +70,7 @@ func TestKnownPromptAfterIngest(t *testing.T) {
 	}
 
 	// Drop the derived file so export projects from the raw blob again.
-	if err := os.Remove(filepath.Join(dir, "normalized", ack.SessionUID+".jsonl")); err != nil {
+	if err := os.Remove(filepath.Join(dir, "normalized", ack.SessionUID+normalize.EventsExt)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -427,7 +428,7 @@ func TestShareGPTExportStripsTrainingTextOnly(t *testing.T) {
 		t.Fatalf("events export was rewritten:\n%s", events)
 	}
 
-	normalized, err := os.ReadFile(filepath.Join(dir, "normalized", ack.SessionUID+".jsonl"))
+	normalized, err := normalize.ReadEventsFile(filepath.Join(dir, "normalized"), ack.SessionUID)
 	if err != nil {
 		t.Fatal(err)
 	}

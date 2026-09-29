@@ -66,7 +66,7 @@ func TestManifestAckDoesNotWaitForNormalize(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("normalize worker did not start")
 	}
-	if _, err := os.Stat(s.Normalized + "/" + ack.SessionUID + ".jsonl"); !os.IsNotExist(err) {
+	if _, err := os.Stat(s.Normalized + "/" + ack.SessionUID + normalize.EventsExt); !os.IsNotExist(err) {
 		t.Fatalf("jsonl existed while normalize was blocked: %v", err)
 	}
 	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)

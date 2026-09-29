@@ -1,7 +1,6 @@
 package recall
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -68,11 +67,9 @@ func (r *Reader) Excerpt(ctx context.Context, uid string, req ExcerptRequest) (E
 	if err != nil {
 		return Excerpt{}, err
 	}
-	br := bufio.NewReaderSize(snap.f, 64<<10)
-	if req.From > 0 {
-		if _, _, err := skipLines(ctx, br, req.From); err != nil {
-			return Excerpt{}, err
-		}
+	br, _, _, err := snap.lines(ctx, req.From, 0)
+	if err != nil {
+		return Excerpt{}, err
 	}
 	ex := Excerpt{SessionUID: uid, Generation: snap.pub.Gen, From: req.From, To: req.From}
 	ex.Link = req.Origin + EventLink(uid, snap.pub.Gen, req.From)
