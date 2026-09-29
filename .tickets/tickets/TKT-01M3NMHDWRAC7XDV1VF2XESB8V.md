@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:50:06Z
-updated_at: 2026-09-29T03:50:13Z
+updated_at: 2026-09-29T03:51:18Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -72,3 +72,9 @@ A machine that syncs to a lake with a device token but never registered has no p
 - [x] The dashboard says a token-file device with no profile fetches none and to run lakes adopt
 - [x] docs for people (registration-and-lakes, cli, web-dashboard, web-api) and for model agents (AGENTS.md)
 - [ ] The workstation's original importer (token-1) is adopted and takes the default profile
+
+## Notes
+
+**agent:claude-code/16ebd168** at 2026-09-29T03:51:18Z
+
+Rehearsed 2026-09-29 against a scratch v0.3.0 lake with a token-file device (ws), with a v0.2.0 agent running on the legacy config, which is the workstation's situation. First, lakes adopt --fingerprint (branch build) pinned it: the running agent logged 'reload: restarted default', then synced with unchanged 5 and uploaded 0. The config moved into lakes.default with the local allow rule and device_id dev_vdveh…. Second, --allow-from profile against a default profile that allowed one checkout refused and listed the lampi remote (4 sessions, +3 checkouts). Third, with a git_remote rule added to the profile, the switch succeeded: agent config showed allow_source=lake:default, the agent reloaded and applied the profile, the next sync uploaded 0, and serve devices list shows the same ws device, now bound to the machine. just ci (GOFLAGS=-mod=mod, XDG isolated) passed.
