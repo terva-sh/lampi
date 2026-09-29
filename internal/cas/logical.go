@@ -37,7 +37,8 @@ type logicalIndex struct {
 // untouched and the parts are not read. exists is then true. A damaged
 // object is removed once the parts verify, so Read opens the chunks. A
 // logical file has no such object: Has stays false, and Read opens the
-// chunks.
+// chunks. The same chunk list recorded already is not read again: an
+// unchanged re-post of a file past the object cap costs no read of it.
 func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exists bool, err error) {
 	if !protocol.ValidDigest(digest) {
 		return false, fmt.Errorf("cas: invalid digest %q: %w", digest, ErrRejected)
@@ -78,6 +79,21 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 		}
 	}
 
+	idx := logicalIndex{
+		ChunkSHA256s: append([]string(nil), parts...),
+		ChunkLengths: append([]int64(nil), lengths...),
+	}
+	// An index is written only once its chunks hash to digest, so the
+	// same index already here needs no second read. A chunk damaged
+	// since is fsck's to find, as it is for an object Has reports.
+	prev, readErr := s.readLogical(digest)
+	if readErr == nil && sameLogical(prev, idx) {
+		return true, s.removeObjectLocked(digest)
+	}
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return false, readErr
+	}
+
 	h := sha256.New()
 	for _, p := range parts {
 		f, openErr := s.Open(p)
@@ -98,16 +114,6 @@ func (s *Store) BindLogical(digest string, parts []string, lengths []int64) (exi
 	if err := s.removeObjectLocked(digest); err != nil {
 		return false, err
 	}
-
-	idx := logicalIndex{
-		ChunkSHA256s: append([]string(nil), parts...),
-		ChunkLengths: append([]int64(nil), lengths...),
-	}
-	if prev, readErr := s.readLogical(digest); readErr == nil && sameLogical(prev, idx) {
-		return true, nil
-	} else if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		return false, readErr
-	}
 	if err := s.writeLogical(digest, idx); err != nil {
 		return false, err
 	}
@@ -122,11 +128,18 @@ func (s *Store) removeObjectLocked(digest string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(p); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
+	removed := false
+	for _, name := range []string{p + zstSuffix, p} {
+		if err := os.Remove(name); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("cas: %w", err)
 		}
-		return fmt.Errorf("cas: %w", err)
+		removed = true
+	}
+	if !removed {
+		return nil
 	}
 	return syncDir(filepath.Dir(p))
 }

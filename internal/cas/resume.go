@@ -131,13 +131,15 @@ func (s *Store) installCoveredLocked(digest, dataPath string, size int64) (bool,
 	if sum != digest {
 		return false, fmt.Errorf("cas: assembled sha256 %s does not match %s: %w", sum, digest, ErrRejected)
 	}
-	if err := os.Chmod(dataPath, 0o600); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
-	if err := syncFile(dataPath); err != nil {
+	z, err := s.seal(dataPath, digest, size)
+	if err != nil {
 		return false, err
 	}
-	return s.commitFileLocked(digest, dataPath, size)
+	exists, err := s.commitFileLocked(digest, z, size)
+	if err != nil || exists {
+		os.Remove(z)
+	}
+	return exists, err
 }
 
 // Concat installs digest as the concatenation of parts, which are
@@ -217,32 +219,28 @@ func (s *Store) Concat(digest string, parts []string, limit int64) (exists bool,
 	if sum != digest {
 		return false, fmt.Errorf("cas: assembled sha256 %s does not match %s: %w", sum, digest, ErrRejected)
 	}
-	if err := tmp.Chmod(0o600); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
-	exists, err = s.commitFileLocked(digest, tmpName, total)
+	z, err := s.seal(tmpName, digest, total)
 	if err != nil {
 		return false, err
 	}
-	if !exists {
-		tmpName = ""
+	exists, err = s.commitFileLocked(digest, z, total)
+	if err != nil || exists {
+		os.Remove(z)
 	}
-	return exists, nil
+	return exists, err
 }
 
-// commitFileLocked moves src, a synced file of size bytes that hashes to
-// digest, onto the object path unless an intact object is already there.
-// A present object with the wrong size or hash is replaced. The rename is
-// flushed to the directory before this returns. The caller holds s.mu.
-// On exists, src is left for the caller to delete.
+// commitFileLocked moves src, a synced frame from seal of size bytes
+// that hash to digest, onto the compressed object path unless an intact
+// object is already there. A present object with the wrong size or hash
+// is replaced, and a raw object left beside the new one is removed. The
+// rename is flushed to the directory before this returns. The caller
+// holds s.mu. On exists, src is left for the caller to delete.
 func (s *Store) commitFileLocked(digest, src string, size int64) (exists bool, err error) {
-	final, err := s.Path(digest)
+	final, err := s.zstPath(digest)
 	if err != nil {
 		return false, err
 	}
@@ -257,6 +255,12 @@ func (s *Store) commitFileLocked(digest, src string, size int64) (exists bool, e
 		return true, nil
 	}
 	if err := os.Rename(src, final); err != nil {
+		return false, fmt.Errorf("cas: %w", err)
+	}
+	// The compressed form is read first, so the raw one is a second
+	// copy from here on, and a damaged one if that is why this ran.
+	raw, _ := s.Path(digest)
+	if err := os.Remove(raw); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("cas: %w", err)
 	}
 	if err := syncDir(filepath.Dir(final)); err != nil {

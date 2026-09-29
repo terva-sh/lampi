@@ -45,7 +45,7 @@ func TestCodexExportEventsShareGPTAndTrajectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeCAS, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", sum[:2], sum[2:]))
+	beforeCAS, err := readCAS(dir, sum)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,14 +184,14 @@ func TestCodexExportEventsShareGPTAndTrajectory(t *testing.T) {
 	if !bytes.Equal(afterNorm, beforeNorm) {
 		t.Fatal("normalized JSONL was rewritten")
 	}
-	afterCAS, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", sum[:2], sum[2:]))
+	afterCAS, err := readCAS(dir, sum)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(afterCAS, beforeCAS) || !bytes.Equal(afterCAS, body) {
 		t.Fatal("CAS object was rewritten")
 	}
-	quietCAS, err := os.ReadFile(filepath.Join(dir, "cas", "sha256", quietSum[:2], quietSum[2:]))
+	quietCAS, err := readCAS(dir, quietSum)
 	if err != nil {
 		t.Fatal(err)
 	}

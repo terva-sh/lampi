@@ -162,21 +162,34 @@ func (s *Store) heldBytes(base string, depth int) (int64, error) {
 	return total, nil
 }
 
-// ObjectSize is the size of digest's object file, and false when it has
-// none.
+// ObjectSize is the number of bytes digest's object holds, once
+// decompressed, and false when it has none. A frame whose header does
+// not decode reports errDamaged.
 func (s *Store) ObjectSize(digest string) (int64, bool, error) {
-	p, err := s.Path(digest)
-	if err != nil {
+	o, ok, err := s.object(digest)
+	if err != nil || !ok {
 		return 0, false, err
 	}
-	st, err := os.Lstat(p)
+	n, err := o.logicalSize()
+	// Grow removes a superseded object with no lock held here, so one
+	// found a moment ago may be gone. It has no object now.
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, false, nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("cas: %w", err)
+		return 0, true, err
 	}
-	return st.Size(), true, nil
+	return n, true, nil
+}
+
+// StoredSize is the disk size of digest's object file, compressed or
+// not, and false when it has none. It is what removing the object frees.
+func (s *Store) StoredSize(digest string) (int64, bool, error) {
+	o, ok, err := s.object(digest)
+	if err != nil || !ok {
+		return 0, false, err
+	}
+	return o.size, true, nil
 }
 
 // prefixReader is the first left bytes of rc. A base that ends early is
@@ -290,24 +303,29 @@ func (s *Store) Grow(digest, prefix string, prefixSize int64, tail string, limit
 	if rest == 0 || hex.EncodeToString(whole.Sum(nil)) != digest {
 		return false, fmt.Errorf("cas: %s followed by %s is not %s: %w", prefix, tail, digest, ErrNotGrown)
 	}
-	if err := tmp.Chmod(0o600); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return false, fmt.Errorf("cas: %w", err)
-	}
 	if err := tmp.Close(); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
+	// The grown file is one frame, so the bytes it shares with every
+	// earlier version compress together rather than as small tails.
+	z, err := s.seal(tmpName, digest, total)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if z != "" {
+			os.Remove(z)
+		}
+	}()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	exists, err = s.commitFileLocked(digest, tmpName, total)
+	exists, err = s.commitFileLocked(digest, z, total)
 	if err != nil {
 		return false, err
 	}
 	if !exists {
-		tmpName = ""
+		z = ""
 	}
 	return exists, s.supersedeLocked(prefix, digest, prefixSize)
 }
@@ -368,23 +386,26 @@ func (s *Store) Materialize(digest string) error {
 	if sum := hex.EncodeToString(h.Sum(nil)); sum != digest {
 		return fmt.Errorf("cas: prefix record %s reads as %s", digest, sum)
 	}
-	if err := tmp.Chmod(0o600); err != nil {
-		return fmt.Errorf("cas: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return fmt.Errorf("cas: %w", err)
-	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("cas: %w", err)
 	}
+	z, err := s.seal(tmpName, digest, n)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if z != "" {
+			os.Remove(z)
+		}
+	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	exists, err := s.commitFileLocked(digest, tmpName, n)
+	exists, err := s.commitFileLocked(digest, z, n)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		tmpName = ""
+		z = ""
 	}
 	return s.removeLogicalLocked(digest)
 }
@@ -450,28 +471,30 @@ func (s *Store) GrowParts(prev, tail string, limit int64) (parts []string, lengt
 			}
 		}
 	}()
-	// write copies r into a new temp file, and records it as a piece.
+	// write copies r into a new temp file, compresses it beside its
+	// object, and records it as a piece.
 	write := func(r io.Reader) error {
 		f, err := os.CreateTemp(dir, ".put-*")
 		if err != nil {
 			return fmt.Errorf("cas: %w", err)
 		}
-		made = append(made, piece{tmp: f.Name()})
+		raw := f.Name()
+		defer os.Remove(raw)
+		made = append(made, piece{})
 		h := sha256.New()
 		size, err := io.Copy(io.MultiWriter(f, h), r)
-		if err == nil {
-			err = f.Chmod(0o600)
-		}
-		if err == nil {
-			err = f.Sync()
-		}
 		if cerr := f.Close(); err == nil {
 			err = cerr
 		}
 		if err != nil {
 			return fmt.Errorf("cas: %w", err)
 		}
-		made[len(made)-1].sum, made[len(made)-1].size = hex.EncodeToString(h.Sum(nil)), size
+		sum := hex.EncodeToString(h.Sum(nil))
+		z, err := s.seal(raw, sum, size)
+		if err != nil {
+			return err
+		}
+		made[len(made)-1] = piece{tmp: z, sum: sum, size: size}
 		return nil
 	}
 

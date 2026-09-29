@@ -31,13 +31,16 @@ func TestPutLayoutAndIdempotent(t *testing.T) {
 	if exists {
 		t.Fatal("first put reported exists")
 	}
-	want := filepath.Join(root, "sha256", d[:2], d[2:])
-	got, err := os.ReadFile(want)
+	want := filepath.Join(root, "sha256", d[:2], d[2:]+".zst")
+	frame, err := os.ReadFile(want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, body) {
-		t.Fatalf("stored %q", got)
+	if !bytes.HasPrefix(frame, []byte{0x28, 0xb5, 0x2f, 0xfd}) {
+		t.Fatalf("stored %q, not a zstd frame", frame)
+	}
+	if got, err := s.Read(d); err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("read %q %v", got, err)
 	}
 	st, err := os.Stat(want)
 	if err != nil {

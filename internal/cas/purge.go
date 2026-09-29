@@ -12,14 +12,8 @@ import (
 // parses: a chunk list, or the one base a prefix record names.
 // A damaged object still counts as stored.
 func (s *Store) Stored(digest string) (object, logical bool, chunks []string, err error) {
-	p, err := s.Path(digest)
-	if err != nil {
+	if _, object, err = s.object(digest); err != nil {
 		return false, false, nil, err
-	}
-	if _, err := os.Lstat(p); err == nil {
-		object = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, false, nil, fmt.Errorf("cas: %w", err)
 	}
 	lp, err := s.logicalPath(digest)
 	if err != nil {

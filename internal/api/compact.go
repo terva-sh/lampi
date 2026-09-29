@@ -289,7 +289,7 @@ func (s *Server) foldBases(plan map[string]fold) (map[string]string, error) {
 // has found that base does not read from d. folded is false when the
 // store refuses the fold anyway.
 func (s *Server) applyFold(d, base string, length int64, opt CompactOptions, rep *CompactReport) (folded bool, err error) {
-	size, object, err := s.CAS.ObjectSize(d)
+	size, object, err := s.CAS.StoredSize(d)
 	if err != nil {
 		return false, err
 	}

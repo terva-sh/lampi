@@ -46,6 +46,64 @@ func putAll(t *testing.T, s *Store, bodies ...[]byte) {
 	}
 }
 
+// objectForms are the two names an object can have: the compressed one
+// every install writes, and the raw one installed before compression.
+var objectForms = map[string]func(s *Store, d string) (string, error){
+	"compressed": (*Store).zstPath,
+	"raw":        (*Store).Path,
+}
+
+// installedAs checks that digest reads as want and is stored in the
+// compressed form only.
+func installedAs(t *testing.T, s *Store, d string, want []byte) {
+	t.Helper()
+	got, err := s.Read(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("object reads %q, want %q", got, want)
+	}
+	raw, _ := s.Path(d)
+	if _, err := os.Lstat(raw); !os.IsNotExist(err) {
+		t.Fatalf("raw object left beside the compressed one: %v", err)
+	}
+	if _, err := os.Lstat(raw + zstSuffix); err != nil {
+		t.Fatalf("no compressed object: %v", err)
+	}
+}
+
+// storeFrame replaces digest's object with a well-formed frame of
+// content: an object whose bytes are wrong, or shorter than they were.
+func storeFrame(t *testing.T, s *Store, d string, content []byte) string {
+	t.Helper()
+	p, _ := s.zstPath(d)
+	var buf bytes.Buffer
+	if err := encode(&buf, bytes.NewReader(content), int64(len(content))); err != nil {
+		t.Fatal(err)
+	}
+	damage(t, p, buf.Bytes())
+	return p
+}
+
+// objectBytes sums what every object holds once decompressed.
+func objectBytes(t *testing.T, s *Store) int64 {
+	t.Helper()
+	var held int64
+	err := s.Entries(func(e Entry) error {
+		if e.Logical {
+			return nil
+		}
+		n, _, err := s.ObjectSize(e.Digest)
+		held += n
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return held
+}
+
 func damage(t *testing.T, path string, content []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -64,7 +122,7 @@ func TestPutSyncsShardAndDirectoryAfterRename(t *testing.T) {
 	}
 	body := []byte("durable\n")
 	d := digestOf(body)
-	final, _ := s.Path(d)
+	final, _ := s.zstPath(d)
 	syncs := recordSyncs(t, final)
 
 	if _, err := s.Put(d, bytes.NewReader(body), 1024); err != nil {
@@ -89,7 +147,7 @@ func TestConcatRangeAndLogicalSyncDirectory(t *testing.T) {
 	full := digestOf(whole)
 	putAll(t, s, left, right)
 
-	final, _ := s.Path(full)
+	final, _ := s.zstPath(full)
 	syncs := recordSyncs(t, final)
 	if _, err := s.Concat(full, []string{digestOf(left), digestOf(right)}, 0); err != nil {
 		t.Fatal(err)
@@ -100,7 +158,7 @@ func TestConcatRangeAndLogicalSyncDirectory(t *testing.T) {
 
 	ranged := []byte("ranged body")
 	rd := digestOf(ranged)
-	rfinal, _ := s.Path(rd)
+	rfinal, _ := s.zstPath(rd)
 	syncs = recordSyncs(t, rfinal)
 	n := int64(len(ranged))
 	if _, complete, err := s.PutRange(rd, 0, n-1, n, 0, bytes.NewReader(ranged)); err != nil || !complete {
@@ -149,36 +207,32 @@ func TestPutRepairsDamagedObject(t *testing.T) {
 		"empty":       {},
 		"zero-filled": make([]byte, len(body)),
 	} {
-		t.Run(name, func(t *testing.T) {
-			s, err := Open(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			final, _ := s.Path(d)
-			damage(t, final, bad)
+		for form, path := range objectForms {
+			t.Run(form+"/"+name, func(t *testing.T) {
+				s, err := Open(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				final, _ := path(s, d)
+				damage(t, final, bad)
 
-			exists, err := s.Put(d, bytes.NewReader(body), 1024)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if exists {
-				t.Fatal("put over a damaged object reported exists")
-			}
-			got, err := os.ReadFile(final)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(got, body) {
-				t.Fatalf("object not repaired: %q", got)
-			}
-			if exists, err := s.Put(d, bytes.NewReader(body), 1024); err != nil || !exists {
-				t.Fatalf("put over the repaired object: exists %v err %v", exists, err)
-			}
-			leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(final), ".put-*"))
-			if len(leftovers) != 0 {
-				t.Fatalf("temp files left: %v", leftovers)
-			}
-		})
+				exists, err := s.Put(d, bytes.NewReader(body), 1024)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if exists {
+					t.Fatal("put over a damaged object reported exists")
+				}
+				installedAs(t, s, d, body)
+				if exists, err := s.Put(d, bytes.NewReader(body), 1024); err != nil || !exists {
+					t.Fatalf("put over the repaired object: exists %v err %v", exists, err)
+				}
+				leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(final), ".put-*"))
+				if len(leftovers) != 0 {
+					t.Fatalf("temp files left: %v", leftovers)
+				}
+			})
+		}
 	}
 }
 
@@ -191,25 +245,28 @@ func TestConcatAndRangeRepairDamagedObject(t *testing.T) {
 	whole := append(append([]byte{}, left...), right...)
 	full := digestOf(whole)
 	putAll(t, s, left, right)
-	final, _ := s.Path(full)
+	for form, path := range objectForms {
+		if err := s.RemoveEntry(Entry{Digest: full}); err != nil {
+			t.Fatal(err)
+		}
+		final, _ := path(s, full)
+		damage(t, final, make([]byte, len(whole)))
+		exists, err := s.Concat(full, []string{digestOf(left), digestOf(right)}, 0)
+		if err != nil || exists {
+			t.Fatalf("%s: concat over damaged object: exists %v err %v", form, exists, err)
+		}
+		installedAs(t, s, full, whole)
 
-	damage(t, final, make([]byte, len(whole)))
-	exists, err := s.Concat(full, []string{digestOf(left), digestOf(right)}, 0)
-	if err != nil || exists {
-		t.Fatalf("concat over damaged object: exists %v err %v", exists, err)
-	}
-	if got, _ := os.ReadFile(final); !bytes.Equal(got, whole) {
-		t.Fatalf("concat did not repair: %q", got)
-	}
-
-	damage(t, final, whole[:3])
-	total := int64(len(whole))
-	exists, complete, err := s.PutRange(full, 0, total-1, total, 0, bytes.NewReader(whole))
-	if err != nil || exists || !complete {
-		t.Fatalf("range over damaged object: exists %v complete %v err %v", exists, complete, err)
-	}
-	if got, _ := os.ReadFile(final); !bytes.Equal(got, whole) {
-		t.Fatalf("range did not repair: %q", got)
+		if err := s.RemoveEntry(Entry{Digest: full}); err != nil {
+			t.Fatal(err)
+		}
+		damage(t, final, whole[:3])
+		total := int64(len(whole))
+		exists, complete, err := s.PutRange(full, 0, total-1, total, 0, bytes.NewReader(whole))
+		if err != nil || exists || !complete {
+			t.Fatalf("%s: range over damaged object: exists %v complete %v err %v", form, exists, complete, err)
+		}
+		installedAs(t, s, full, whole)
 	}
 }
 
@@ -311,7 +368,7 @@ func TestHasReportsEmptyDamagedObjectMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	putAll(t, s, body, nil)
-	p, err := s.Path(digest)
+	p, err := s.zstPath(digest)
 	if err != nil {
 		t.Fatal(err)
 	}

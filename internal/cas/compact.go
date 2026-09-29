@@ -40,7 +40,7 @@ func (s *Store) Terminal(digest string) (string, error) {
 }
 
 // Fold records digest as the first length bytes of base and removes
-// digest's object, if it has one. freed is that object's size. The
+// digest's object, if it has one. freed is that object's disk size. The
 // caller has hashed those bytes of base and found digest. A chunk list
 // digest had is replaced by the record; its chunks are left for the
 // unreferenced sweep. A base that reads from digest is refused: the
@@ -58,7 +58,7 @@ func (s *Store) Fold(digest, base string, length int64) (freed int64, err error)
 	if loops {
 		return 0, fmt.Errorf("cas: %s reads from %s: %w", base, digest, ErrWouldLoop)
 	}
-	size, object, err := s.ObjectSize(digest)
+	size, object, err := s.StoredSize(digest)
 	if err != nil {
 		return 0, err
 	}
@@ -112,19 +112,22 @@ func (s *Store) readsFromLocked(from, target string) (bool, error) {
 }
 
 // Entry is one file in the store: an object under sha256/, or a chunk
-// list or prefix record under logical/.
+// list or prefix record under logical/. Size is the file's disk size.
+// Compressed is an object stored as a zstd frame; one that is not was
+// installed before compression, and compact re-encodes it.
 type Entry struct {
-	Digest   string
-	Logical  bool
-	Size     int64
-	Modified time.Time
+	Digest     string
+	Logical    bool
+	Compressed bool
+	Size       int64
+	Modified   time.Time
 }
 
 // Entries calls fn for every object, then every logical entry. Temp
 // files and paths that are not digests are skipped; fsck reports those.
 func (s *Store) Entries(fn func(Entry) error) error {
 	for _, sub := range []string{"sha256", "logical"} {
-		err := walkEntries(filepath.Join(s.Root, sub), func(path, digest string) error {
+		err := walkEntries(filepath.Join(s.Root, sub), sub == "sha256", func(path, digest string) error {
 			if digest == "" {
 				return nil
 			}
@@ -132,7 +135,8 @@ func (s *Store) Entries(fn func(Entry) error) error {
 			if err != nil {
 				return err
 			}
-			return fn(Entry{Digest: digest, Logical: sub == "logical", Size: st.Size(), Modified: st.ModTime()})
+			_, compressed := objectName(filepath.Base(path))
+			return fn(Entry{Digest: digest, Logical: sub == "logical", Compressed: sub == "sha256" && compressed, Size: st.Size(), Modified: st.ModTime()})
 		})
 		if err != nil {
 			return err
@@ -141,8 +145,8 @@ func (s *Store) Entries(fn func(Entry) error) error {
 	return nil
 }
 
-// RemoveEntry deletes one object, or one logical entry, and nothing
-// else.
+// RemoveEntry deletes one object, in both its forms, or one logical
+// entry, and nothing else.
 func (s *Store) RemoveEntry(e Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

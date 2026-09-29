@@ -28,7 +28,7 @@ func TestSweepRemovesOldTempsAndPartials(t *testing.T) {
 	}
 	body := []byte("kept object")
 	putAll(t, s, body)
-	obj, _ := s.Path(digestOf(body))
+	obj, _ := s.zstPath(digestOf(body))
 	now := time.Now()
 	old := now.Add(-48 * time.Hour)
 
@@ -86,7 +86,7 @@ func TestVerifyNamesBadObjectsAndRepairRemovesThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	fd := digestOf(flipped)
-	fp, _ := s.Path(fd)
+	fp, _ := s.zstPath(fd)
 	damage(t, fp, []byte("flipped objecT"))
 	// An index whose chunk was lost, and an index that does not parse.
 	lost := digestOf([]byte("lost"))
