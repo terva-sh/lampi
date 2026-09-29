@@ -39,6 +39,12 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
 	go func() { done <- runAgentLoop(ctx, env, "", "") }()
 
+	// The lake keeps only the newest report, and a report carries only
+	// the newest sync. A profile reload can land before the watch starts
+	// and leave a second pass right after the upload, which finds the
+	// session unchanged and replaces the upload's report before a poll
+	// sees it (TKT-01M3MJDS). So wait for the session in the lake and a
+	// report whose sync saw it, uploaded or already there.
 	var got catalog.DeviceReport
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -46,7 +52,11 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(all) == 1 && all[0].Report.LastSync != nil && all[0].Report.LastSync.Uploaded == 1 {
+		n, err := lake.Catalog.Counts(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) == 1 && n.Sessions == 1 && all[0].Report.LastSync != nil && all[0].Report.LastSync.Uploaded+all[0].Report.LastSync.Unchanged == 1 {
 			got = all[0]
 			break
 		}
