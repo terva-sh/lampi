@@ -609,7 +609,7 @@ role, `404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
 | Route under `/api/web/v1` | Result |
 |---|---|
 | `POST /conflicts/{id}/keep-head` | Resolves the conflict as `kept_head`. Takes no body or `{"note": TEXT}`: one line, at most 500 characters, with no control characters, checked as sent; surrounding spaces are then dropped. |
-| `POST /conflicts/{id}/reopen` | Removes the resolution. Takes no body. It does not move the head. |
+| `POST /conflicts/{id}/reopen` | Removes the resolution. Takes no body, or an empty object. It does not move the head. |
 
 Each answers `200` with `{conflict}` as above.
 
@@ -617,7 +617,7 @@ Each answers `200` with `{conflict}` as above.
 |---|---|
 | No divergent copy has the id, or the action is not one of these | `404 not_found` |
 | A body that is not one JSON object of these fields | `400 invalid_request` |
-| A note over 500 characters or on more than one line, or any note on reopen | `400 invalid_note` |
+| A note over 500 characters or on more than one line, or a `note` field on reopen, even empty or null | `400 invalid_note` |
 | Keeping the head of a resolved conflict | `409 already_resolved`, with the conflict |
 | Reopening an open conflict | `409 not_resolved`, with the conflict |
 

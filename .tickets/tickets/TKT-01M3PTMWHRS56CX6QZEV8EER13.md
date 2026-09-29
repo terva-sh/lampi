@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T14:56:05Z
-updated_at: 2026-09-29T15:17:59Z
+updated_at: 2026-09-29T16:36:15Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -64,3 +64,7 @@ An operator can settle a conflict without a lake-host command.
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:17:59Z
 
 Page /conflicts/{artifact} (viewer) with both sides, device names, and where they part (byte offset + line, up to 64 MiB of each, offsets only, never content); admin gets raw download links. Operator: Keep the head (optional one-line note, 500 chars) and Reopen, as forms and as POST /api/web/v1/conflicts/{id}/{keep-head|reopen}; CSRF-checked, audited in the transaction, flushed before answering. Mounted with the other operator routes, so a lake without Registrations serves the page but no actions. Tests mutation-checked: operator gate, audit flush, line counting, copy-ends branch, API CSRF each fail the suite when removed. Screenshots checked for open (operator/admin) and resolved states.
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T16:36:15Z
+
+terva-review 1406 (run 3dd865a8): two medium findings, both accepted and fixed in 80e6859 (dispositions posted on #153): the page claimed a read failure when the server had no blob store; notes were trimmed before validation and measured in bytes. Tests added for each, mutation-checked.

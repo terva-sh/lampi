@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -362,26 +363,43 @@ func (s *Server) conflictActionPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type conflictActionRequest struct {
-	Note string `json:"note"`
-}
+// conflictFields are the body fields each action takes. A field named
+// is refused on an action that does not take it, whatever its value,
+// null included.
+var conflictFields = map[string][]string{"keep-head": {"note"}, "reopen": nil}
 
 func (s *Server) conflictActionAPI(w http.ResponseWriter, r *http.Request) {
 	if !s.auth.CheckWrite(r, r.Header.Get(CSRFHeader)) {
 		apiError(w, http.StatusForbidden, "csrf_failed")
 		return
 	}
-	// keep-head takes {"note": TEXT} or no body; reopen takes no body.
-	var req conflictActionRequest
+	// keep-head takes {"note": TEXT} or no body; reopen takes no body,
+	// or an empty object.
+	var fields map[string]json.RawMessage
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
+	if err := dec.Decode(&fields); err != nil && !errors.Is(err, io.EOF) || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
 	id := r.PathValue("id")
-	status, code := s.changeConflict(r, id, r.PathValue("action"), req.Note)
+	action := r.PathValue("action")
+	for k := range fields {
+		if !slices.Contains(conflictFields[action], k) {
+			code := "invalid_request"
+			if k == "note" {
+				code = "invalid_note"
+			}
+			apiError(w, http.StatusBadRequest, code)
+			return
+		}
+	}
+	var note string
+	if raw, ok := fields["note"]; ok && json.Unmarshal(raw, &note) != nil {
+		apiError(w, http.StatusBadRequest, "invalid_note")
+		return
+	}
+	status, code := s.changeConflict(r, id, action, note)
 	if code == "not_found" || code == "invalid_note" {
 		apiError(w, status, code)
 		return

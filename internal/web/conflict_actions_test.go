@@ -198,8 +198,10 @@ func TestConflictAPI(t *testing.T) {
 	if w := post(h, "/api/web/v1/conflicts/"+id+"/keep-head", `{"note":"x","extra":1}`, op, hdr); w.Code != 400 {
 		t.Errorf("unknown field: %d", w.Code)
 	}
-	if w := post(h, "/api/web/v1/conflicts/"+id+"/reopen", `{"note":"x"}`, op, hdr); w.Code != 400 {
-		t.Errorf("reopen with a note: %d", w.Code)
+	for _, body := range []string{`{"note":"x"}`, `{"note":""}`, `{"note":null}`} {
+		if w := post(h, "/api/web/v1/conflicts/"+id+"/reopen", body, op, hdr); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_note") {
+			t.Errorf("reopen with %s: %d %s", body, w.Code, w.Body)
+		}
 	}
 	w = post(h, "/api/web/v1/conflicts/"+id+"/keep-head", `{"note":"ok"}`, op, hdr)
 	got = struct {
@@ -242,5 +244,13 @@ func TestConflictPageWhenAReadFails(t *testing.T) {
 	body := get(h, conflictURL(ack.ArtifactIDs[0]), signInAs(t, idp, h, "readers")).Body.String()
 	if !strings.Contains(body, "could not read both files") || strings.Contains(body, "does not read stored bytes") {
 		t.Error("a failed read is not reported as one")
+	}
+}
+
+func TestConflictPageNamesTheFirstByte(t *testing.T) {
+	lake, idp, h, _ := rawLake(t, nil)
+	_, id := forkSession(t, lake, "forked", "abc\n", "xbc\n")
+	if body := get(h, conflictURL(id), signInAs(t, idp, h, "readers")).Body.String(); !strings.Contains(body, "at byte 0 on line 1") {
+		t.Error("the first-byte case does not name the offset and line")
 	}
 }
