@@ -576,7 +576,7 @@ Operators hide projects they will not import, and unhide them. The rules of
 | Route under `/api/web/v1` | Body | Result |
 |---|---|---|
 | `POST /review/hide` | `{"keys": [{"kind": "git_remote", "key": "github.com/acme/app"}], "note": "vendored"}` | Hides each key. `note` is optional, at most 500 characters. |
-| `POST /review/unhide` | `{"keys": [...]}` | Removes each key's hide. It takes no note. |
+| `POST /review/unhide` | `{"keys": [...]}` | Removes each key's hide. It records no note: an empty or blank `note` is ignored, and any other is refused. |
 
 A key is a project as the [review queue](#review-queue) names it: `kind` is
 `git_remote` or `cwd`. Each answers `200` with `{"changed": [KEY, ...]}`, the
@@ -586,7 +586,7 @@ keys, and changes all of them or none.
 
 | Refusal | Status and `error` |
 |---|---|
-| Not one JSON object of these fields, no keys, more than 500, a key that is not a key, or a note on unhide | `400 invalid_request` |
+| Not one JSON object of these fields, no keys, more than 500, a key that is not a key, or a note that is not blank on unhide | `400 invalid_request` |
 | A note over 500 characters | `400 invalid_note` |
 
 A hide sends nothing to agents. Each change goes to `audit.jsonl` as
