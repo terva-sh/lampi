@@ -71,7 +71,14 @@ type Record struct {
 	// Resolution names what was decided about a conflict, when it was
 	// resolved.
 	Resolution string `json:"resolution,omitempty"`
-	row        int64
+	// A conflict also carries the head's size, the machines that posted
+	// each side, and how many copies sit at its path. Other collections
+	// leave these empty.
+	HeadSize     int64    `json:"head_size,omitempty"`
+	Machines     []string `json:"machines,omitempty"`
+	HeadMachines []string `json:"head_machines,omitempty"`
+	CopiesAtPath int      `json:"copies_at_path,omitempty"`
+	row          int64
 }
 type pageCursor struct {
 	Version int    `json:"v"`
@@ -396,10 +403,45 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 		}
 		out.Items = append(out.Items, a)
 	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	// One connection: the page query is closed before the reads below.
+	rows.Close()
 	if len(out.Items) > r.Limit {
 		out.Items = out.Items[:r.Limit]
 		last := out.Items[len(out.Items)-1]
 		out.NextCursor = cur.encode(last.ID, last.row)
 	}
-	return out, rows.Err()
+	if kind == "conflicts" {
+		for i := range out.Items {
+			if err := c.describeConflict(ctx, &out.Items[i]); err != nil {
+				return out, err
+			}
+		}
+	}
+	return out, nil
+}
+
+// describeConflict adds what a reader needs to judge a conflict: the
+// head's size, the machines behind each side, and how many open copies
+// share its path, so a session that stopped moving stands out.
+func (c *Catalog) describeConflict(ctx context.Context, a *Record) error {
+	err := c.db.QueryRowContext(ctx, `SELECT
+		COALESCE((SELECT size FROM artifacts WHERE session_uid=? AND sha256=? ORDER BY current DESC, size DESC LIMIT 1), 0),
+		(SELECT COUNT(*) FROM artifacts a WHERE a.session_uid=? AND a.relpath=(SELECT relpath FROM artifacts WHERE artifact_id=?) AND a.relation='divergent_copy' AND `+unresolvedSQL+`)`,
+		a.SessionUID, a.HeadSHA256, a.SessionUID, a.ID).Scan(&a.HeadSize, &a.CopiesAtPath)
+	if err != nil {
+		return err
+	}
+	// RelPath is a display preview, so the full path is read back by id.
+	var rel string
+	if err := c.db.QueryRowContext(ctx, `SELECT relpath FROM artifacts WHERE artifact_id=?`, a.ID).Scan(&rel); err != nil {
+		return err
+	}
+	if a.Machines, err = c.digestMachines(ctx, a.SessionUID, rel, a.SHA256); err != nil {
+		return err
+	}
+	a.HeadMachines, err = c.digestMachines(ctx, a.SessionUID, "", a.HeadSHA256)
+	return err
 }

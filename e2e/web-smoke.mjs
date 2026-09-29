@@ -52,8 +52,14 @@ try {
   await page.getByRole('link', {name: 'Provenance', exact: true}).click();
   assert.match(await page.locator('tbody').innerText(), /synthetic-machine/);
   await page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Conflicts', exact: true}).click();
-  assert.ok((await page.locator('tbody tr').count()) > 0);
-  assert.match(await page.locator('tbody').innerText(), /Head retained/);
+  assert.equal(await page.locator('tbody tr').count(), 5);
+  const conflicts = await page.locator('tbody').innerText();
+  assert.match(conflicts, /shorter/);
+  assert.match(conflicts, /3 open copies at this path/);
+  assert.match(conflicts, /from laptop/);
+  await page.getByRole('link', {name: 'Open and resolved', exact: true}).click();
+  assert.equal(await page.locator('tbody tr').count(), 6);
+  assert.match(await page.locator('tbody').innerText(), /Head kept/);
   // Transcript viewer: a ready session, literal text, bounds, paging and deep links.
   await page.goto(live.url + '/sessions?state=ready');
   await page.locator('.session-name').first().click();
