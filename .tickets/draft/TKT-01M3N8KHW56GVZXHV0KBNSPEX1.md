@@ -12,6 +12,7 @@ labels:
   - area/catalog
   - area/agent
   - area/auth
+  - policy
 assignees: []
 milestone: null
 parent: null
@@ -22,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T04:01:26Z
+updated_at: 2026-09-29T04:06:22Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -34,19 +35,85 @@ extensions: {}
 
 ## Description
 
-### Idea
+### Outcome
 
-One lake can be split into named **bays**. Each session is sent to one bay: the default bay, which every lake has, or a bay a user created. Bays let one lake hold work that should be kept apart, such as work and personal sessions, or one client's projects, without running a second lake.
+One lake can be split into named **bays**, and each bay is an access boundary. A dashboard user, an MCP client or a device is granted some bays and not others, and every read path shows only the sessions in the caller's bays. Filtering search, export and views by bay comes along with it.
 
-The name comes from the lake metaphor. A bay is part of the lake and shares its water, so it is not a second lake. `docs/naming.md` should record the choice. "Pond" was the first word for this and was dropped because lampi already means pond. "Partition" was rejected because the repository uses it for the parquet partitions, and "space" and "collection" because they already appear in the code and docs.
+A session belongs to one or more bays. An agent asks for bays, the lake applies its own rules on top, and whatever nothing places lands in the `default` bay. The default is an inbox: it holds sessions nobody has sorted yet, only admins and explicit grants can read it, and the tooling and docs help keep it at zero.
+
+### Why "bay"
+
+A bay is part of a lake and shares its water, so it is not a second lake. "Pond" was the first word for this and was dropped because lampi already means pond. "Partition" was rejected because the repository uses it for parquet partitions, and "space" and "collection" because they already appear in the code and docs. `docs/naming.md` records the choice.
 
 ### How this differs from many lakes
 
-TKT-01M3FHHBC (Agent onboarding: registration codes, lake config, many lakes) already lets one agent send different sessions to different lakes, each with its own token, allowlist and state. That gives separation by running a second lake. Bays give separation inside one lake: one host, one store, one operator. TKT-01M3FHHBC lists "multi-tenant lakes" as out of scope, and this epic reopens part of that.
+TKT-01M3FHHBC (Agent onboarding: registration codes, lake config, many lakes) lets one agent send different sessions to different lakes. That is separation by running another lake, with its own host, store and operator. Bays separate inside one lake. TKT-01M3FHHBC lists "multi-tenant lakes" as out of scope, and this epic reopens that for access within one lake, so the first child amends the policy before code lands.
 
-### Status
+### Design decisions, with the alternatives
 
-An idea, being fleshed out by a grilling session with the owner. The design decisions and open questions are recorded below as they are settled. No children have been filed yet.
+The owner settled these in a grilling session on 2026-09-29. The notes on this ticket hold each round, including where an answer changed an earlier one.
+
+- **Bays are an access boundary, not only a filter.** Rejected: organization only, which is a saved filter and leaves one whole-lake viewer as the only access level. Rejected: full isolation with per-bay retention, backup and encryption, which is close to running separate lakes, and TKT-01M3FHHBC already provides that.
+- **The unit is the session, and a session can be in several bays.** Membership is a catalog relation and never copies data. A project-wide or device-wide default is expressed as a rule. Rejected: one bay per session, which rules out sharing one session with two audiences without a copy. Rejected: routing by project or by device, which is less flexible than rules over session fields. Accepted cost: a project whose remote or cwd changes can be split across bays.
+- **Storage stays shared.** One blob store with dedup across bays. Derived views (normalized JSONL, parquet, search.db) are not partitioned by bay, because a session in several bays would need several copies and a move would rewrite files. Every read path joins against catalog membership. search.db may carry each session's bay set for FTS filtering, refreshed on a membership change without re-projecting. Known limit, recorded and not fixed: `blobs/check` lets a device confirm that a hash it can guess exists somewhere in the lake. Filesystem access to the lake directory is admin-level access.
+- **The default bay is the landing bucket.** Every lake has one. Existing data migrates into it, and a session nothing places lands there. It cannot be deleted. It can be given an alias, a second name it is shown and routable under, which does not make it a different bay. Only admins and principals granted it explicitly can read it, operators included. An admin can turn the default off. Then a session that no rule, request or grant places is refused with a distinct error code, and the agent keeps it pending locally and reports it as "no bay". Rejected: a hidden holding area for those sessions, which would be the default bay under another name. Accepted cost: a refused session exists only on its machine until a rule or grant is added.
+- **Routing is shared between agent and lake, and the lake wins.** Each lake's entry in the agent's config gains bay request rules shaped like `projects.allow` (cwd prefix, git remote, harness, naming one or more bays) and a `default_bays` list. A lake profile may suggest both, and local config wins, the precedence profiles already have. The lake then applies its rules at ingest:
+  - **hold** replaces the requested bays with a holding bay until an admin releases it;
+  - **add** keeps the requested bays and adds another;
+  - **deny** keeps the session out of one named bay.
+
+  Hold takes precedence. The bays the agent requested are always recorded, so a release restores them in one step. Rejected: lake-only routing, which cannot place a session with nothing to match on, such as a scratch directory with no remote. Rejected: agent-only routing, where the lake could not keep sensitive work out of a bay. Rejected: a per-repository marker file, because a cloned repository could then send your sessions into a shared bay.
+- **A requested bay the device may not write to is recorded, not obeyed.** The session is accepted into the default bay, with the refused request and its reason recorded. Rejected: refusing the manifest, which would strand the session on the machine over what is usually a missing grant.
+- **Every manifest is routed again, add-only.** A session gains a bay when a later append requests one it may write, and the rules run again on each manifest. Nothing is removed automatically. A hold that matches a session already in other bays flags it for review and does not remove it.
+- **Admin and operator are different roles.** An admin reads everything, and creates, renames and deletes bays, rules and grants. An operator mints registration codes and manages devices, can be limited to specific bays, and reads session content only in bays it is granted. A viewer reads only the bays it is granted. A grant is (principal, bay, permission), where a principal is an OIDC group, a device, or later an MCP identity, and the permission is read or write. Rejected: making operator the all-bays role, because letting a machine ingest is a lesser power than reading every session.
+- **Registration grants a device its write bays.** The grants sit on the lake's pending registration row, as the profile already does (`internal/catalog/registrations.go`), are capped at the minting operator's scope, and are applied when the code is redeemed. The code itself (`internal/regcode` `Code`) does not change. A device's bays are changed later by editing its grants on the lake.
+- **A device sees only the bays it may write to.** Bay names can carry client names. The agent gets `terva-lampi bays`, which lists them per lake, and `terva-lampi bays which [PATH]`, which says which lake and bays a session started at PATH would request, and which rule caused each.
+- **Bay lifecycle belongs to admins.** A bay has a stable id. A rename keeps the old name as an alias, so agents that request it keep working. Deleting a bay removes it from every membership, a session left in no bay moves to the default, and no data is deleted.
+- **Every read path is scoped by bay:** recall, search, excerpts, transcripts, activity, overview counts, and MCP when it lands. On the lake host, `terva-lampi export` is admin-level and gains `--bay`. The training export stays gated by the `projects` allowlist and also by `--bay`. A test lists every catalog query that returns session data and fails when a new one takes no bay scope. Considered and not chosen: a single choke point, such as a query builder that requires a scope, which is stronger but needs `internal/recall` refactored first.
+- **Inbox tooling ships with the epic.** `serve bays inbox` lists unsorted, held and refused sessions with a reason each (no rule matched, request refused, hold rule X). Bulk move by filter and `serve bays apply-rules` both take `--dry-run`. A docs guide covers sorting a lake after upgrade and keeping the inbox at zero. The dashboard shows inbox counts and the list with reasons, and lets an admin move one session and release a hold. Those are the dashboard's first writes to session membership, so the web path gets CSRF protection and audit entries. Bulk move and rule editing stay CLI-only.
+
+### Upgrade and compatibility
+
+The upgrade changes no behavior. Existing data is in `default`. Existing viewer groups get an explicit read grant on `default`, existing operator groups become operators scoped to all bays and also admins, and existing devices get a write grant on `default`. The web config gains an `admin` role mapping, and startup logs which groups were granted what.
+
+The protocol change is additive, so `capture_protocol` stays 1. The manifest gains an optional `bays` field, and the lake publishes each device's writable bays. An old agent sends no bays and is placed by the lake's rules and the default. The "no bay" error code goes only to agents that announce bay support; an old agent gets a plain 4xx it already backs off on. The lake upgrades before any agent.
+
+### Children, in order
+
+1. Policy and docs: amend `docs/policy.md` and `docs/architecture.md`, and add bay to `docs/naming.md`. Owner sign-off.
+2. Catalog: bays, membership, requested bays, membership audit, grants; schema bump and migration.
+3. Roles: admin split from operator, operator bay scope, bay grants on registration and devices.
+4. Read-path scoping and the query-list test.
+5. Protocol and lake routing.
+6. Agent bay requests and `terva-lampi bays`.
+7. Inbox tooling and the guide.
+8. Dashboard: bay scoping, inbox view, move and release.
+
+Child 4 lands before child 5, so no bay can hold data until every read path honors bays.
+
+### Left to the children
+
+Bay name syntax; `serve backup`, `fsck` and `purge` coverage of the new tables; how long audit entries are kept. MCP identity grants wait on TKT-01M3FPWCH (MCP: authenticate clients as OIDC users).
+
+### Out of scope, filed as follow-up drafts
+
+A dashboard triage flow for held and refused sessions, and per-bay retention and purge ("delete a bay and its data").
+
+## Acceptance criteria
+
+- [ ] A viewer granted one bay sees only that bay's sessions in the dashboard, search, excerpts and recall, and a test fails when a query returning session data takes no bay scope
+- [ ] An agent requesting bays A and B lands one session in both with one stored copy, and a lake hold rule sends a matching session to the holding bay with its requested bays recorded, and a release restores them
+- [ ] A request for a bay the device may not write lands the session in default with the refused request recorded
+- [ ] With the default bay off, an unplaced session is refused, stays pending on the agent, and is reported as no bay
+- [ ] A scoped operator can mint a code only for bays within its scope, and cannot read sessions in a bay it is not granted
+- [ ] An existing lake upgrades with no change in behavior: all data in default, viewers still read it, operators become admins, and old agents keep syncing
+- [ ] serve bays inbox lists every unsorted, held and refused session with its reason, and bulk move and apply-rules have --dry-run
+
+## Definition of done
+
+- [ ] All children of this epic are done
+- [ ] docs/policy.md records bays and the reopened multi-tenant decision with owner sign-off
+- [x] The triage UI and per-bay retention follow-ups are filed as drafts
 
 ## Notes
 
