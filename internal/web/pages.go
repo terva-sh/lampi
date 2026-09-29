@@ -95,6 +95,7 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"lifetimes":       func() []struct{ Value, Label string } { return codeLifetimes },
 	"revokeURL":       func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
 	"resolutionLabel": resolutionLabel,
+	"conflictURL":     conflictURL,
 	"machineName": func(names map[string]string, id string) string {
 		if n, ok := names[id]; ok {
 			return n
@@ -139,6 +140,8 @@ type pageData struct {
 	Raw   rawView
 	// Conflicts is the Conflicts page, and a session's Conflicts tab.
 	Conflicts conflictsView
+	// Conflict is one conflict's page.
+	Conflict conflictView
 	// ReadTokens is the admin's read token page.
 	ReadTokens readTokensView
 	Codes      codesView
@@ -188,7 +191,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")

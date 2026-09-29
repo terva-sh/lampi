@@ -215,6 +215,20 @@ A resolved conflict leaves the list and the overview count. Open and
 resolved lists both, each with its resolution. Resolving never deletes
 bytes.
 
+Details on a row opens `/conflicts/{artifact}`: both sides, the devices
+that sent each, and where they part, as a byte offset and line number
+(the lake reads up to 64 MiB of each to find it). An admin also gets a
+raw download of each side. An operator settles it there:
+
+- **Keep the head** resolves it: the session goes on showing the head it
+  has, and the copy's bytes stay. A one-line note goes to the audit log
+  with the resolution.
+- **Reopen** puts a resolved conflict back on the list. It does not move
+  the head.
+
+Both write `conflict.resolved` or `conflict.reopened` to `audit.jsonl`
+with the operator as actor.
+
 ### Theme
 
 The dashboard follows the system's light or dark setting. The theme button
