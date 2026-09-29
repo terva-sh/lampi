@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T04:42:48Z
+updated_at: 2026-09-29T04:44:43Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -115,3 +115,7 @@ Both actions change the form only. Nothing is saved without the operator.
 **agent:claude-code/58fb7d84** at 2026-09-29T04:42:48Z
 
 Review 1333 on PR 140, finding 1 (medium): the Fewer rules hint promised that the preview lists every project a change admits. It lists only what the devices' newest inventories show. Accepted, and the hint was reworded in 80fe1c39be472cd95771054b143abfb06a7fd278.
+
+**agent:claude-code/58fb7d84** at 2026-09-29T04:44:43Z
+
+Review 1335 on PR 140, finding 1 (medium): tidyForm folded any owner a form named, which let a crafted form fold fewer remotes than an offer needs. Accepted, and fixed in c4b8dd715ea10c72f0b12dde1bfb407b71bd4c68: it now folds only an owner that ownerFolds offers for the submitted rules. TestEditorOffersFewerRules covers an owner with two remotes.
