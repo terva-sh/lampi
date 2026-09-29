@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T14:56:05Z
-updated_at: 2026-09-29T15:24:05Z
+updated_at: 2026-09-29T17:29:40Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -73,3 +73,7 @@ only way forward today is a purge. An operator should be able to say
 **agent:claude-code/cd41c9ac** at 2026-09-29T15:24:05Z
 
 catalog.MakeConflictHead(blobs, id, expectHead, by, note, now), one transaction: the copy becomes current at its path and the session head, the old head row stops being current (same or other path), resolution made_head (relation stays divergent_copy), other open copies at the path that the new head extends (Relate through the CAS) resolved superseded, head_updates row relation=made_head attributed to MIN(machine) that posted the copy, normalize_gen bumped with a job row, audit conflict.resolved(s) + conflict.head_changed(old_head). Refusals: ErrHeadMoved (expectHead is the head the page showed), ErrNotHeadCandidate (companion of the head, non-head-bearing kind, other kind), ErrConflictResolved. Reopen of a copy that is its session's head now: ErrConflictIsHead, and the page hides Reopen there. Web: make-head form inside a details, hidden head field; Registrations.Normalize = lake.ReloadNormalizeJobs so the job runs now, not at next start. Mutation-checked: head check, clearing current, supersede filter, companion refusal, is-head refusal, normalize kick. No undo button: the replaced head stays stored and a later post of its lineage would show as a conflict; recorded as a decision rather than built.
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T17:29:40Z
+
+terva-review on #155: 1420 (make-head offered without a blob store), 1421 (failed normalize kick reported as success; head update attributed by digest across paths), 1426 (open copy with the head's bytes at another path lost its actions; kick skipped after a failed audit flush). All accepted and fixed with mutation-checked tests; dispositions posted on #155.
