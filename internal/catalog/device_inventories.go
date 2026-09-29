@@ -34,7 +34,8 @@ type DeviceInventory struct {
 }
 
 // PutDeviceInventory records inv as device id's newest inventory,
-// received at now, and reports whether it was kept. The order is the
+// received at now, and reports whether it was kept. A kept inventory
+// also marks each project it lists as seen on the device now. The order is the
 // agent's: an inventory generated at or after inv.GeneratedAt stays,
 // however the requests arrived. A tie keeps the one stored, since the
 // time cannot say which is newer; the agent sends again with a later
@@ -54,7 +55,12 @@ func (c *Catalog) PutDeviceInventory(ctx context.Context, id string, inv protoco
 	if err != nil {
 		return false, fmt.Errorf("catalog: %w", err)
 	}
-	res, err := c.db.ExecContext(ctx, `
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO device_inventories (device_id, generated_ns, received_ns, inventory) VALUES (?, ?, ?, ?)
 		ON CONFLICT(device_id) DO UPDATE SET generated_ns = excluded.generated_ns,
 			received_ns = excluded.received_ns, inventory = excluded.inventory
@@ -67,7 +73,18 @@ func (c *Catalog) PutDeviceInventory(ctx context.Context, id string, inv protoco
 	if err != nil {
 		return false, fmt.Errorf("catalog: %w", err)
 	}
-	return n > 0, nil
+	if n == 0 {
+		return false, nil
+	}
+	// The projects it lists are seen now, by the lake's clock: the
+	// review queue orders by when the lake learned of a project.
+	if err := recordSightings(ctx, tx, id, inv, now.UnixNano()); err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("catalog: %w", err)
+	}
+	return true, nil
 }
 
 // DeviceInventoryOf returns device id's newest inventory; false when it
