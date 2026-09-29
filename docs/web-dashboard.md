@@ -495,11 +495,14 @@ nobody has reviewed. The list has these limits:
   inventory lists nothing. The preview names both, since it cannot say what
   the change admits on them.
 - The lake cannot see a device's own deny rules. A project refused under a
-  deny rule is left out only when all of these hold: the device reports deny
-  rules of its own, it has applied the saved profile, and the saved profile's
-  deny rules do not match the project. Otherwise the refusal may come from an
-  older profile, so the project is listed, even though the device may still
-  deny it.
+  deny rule is left out only when all of these hold:
+  - the device reports deny rules of its own;
+  - it reported applying the saved profile;
+  - its inventory arrived after both that report and the save;
+  - the saved profile's deny rules do not match the project.
+
+  Otherwise the refusal may come from an older profile, so the project is
+  listed, even though the device may still deny it.
 
 Under **Fewer rules**, the editor offers two ways to shorten the allow list:
 

@@ -72,11 +72,12 @@ type profileDevice struct {
 	// local means this profile's allow rules do not reach it.
 	AllowSource string `json:"allow_source,omitempty"`
 	// DenySource and Applied are the device's deny_source and the
-	// profile version it applied, from its newest report. The preview
-	// reads them to tell a deny rule of the device's own from one of an
-	// older profile.
-	DenySource string `json:"-"`
-	Applied    string `json:"-"`
+	// profile version it applied, from its newest report, and Reported
+	// is when the lake received that report. The preview reads them to
+	// tell a deny rule of the device's own from one of an older profile.
+	DenySource string    `json:"-"`
+	Applied    string    `json:"-"`
+	Reported   time.Time `json:"-"`
 }
 
 type profileRevisionView struct {
@@ -128,9 +129,9 @@ func (s *Server) profileUsers(ctx context.Context) (map[string][]profileDevice, 
 	if err != nil {
 		return nil, err
 	}
-	report := make(map[string]protocol.AgentReport, len(reports))
+	report := make(map[string]catalog.DeviceReport, len(reports))
 	for _, r := range reports {
-		report[r.DeviceID] = r.Report
+		report[r.DeviceID] = r
 	}
 	users := map[string][]profileDevice{}
 	for _, d := range devices {
@@ -142,7 +143,8 @@ func (s *Server) profileUsers(ctx context.Context) (map[string][]profileDevice, 
 			name = config.DefaultProfile
 		}
 		r := report[d.ID]
-		users[name] = append(users[name], profileDevice{ID: d.ID, Name: d.Name, AllowSource: r.AllowSource, DenySource: r.DenySource, Applied: r.ProfileVersion})
+		users[name] = append(users[name], profileDevice{ID: d.ID, Name: d.Name, AllowSource: r.Report.AllowSource,
+			DenySource: r.Report.DenySource, Applied: r.Report.ProfileVersion, Reported: r.Received})
 	}
 	return users, nil
 }

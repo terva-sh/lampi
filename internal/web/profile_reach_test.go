@@ -29,14 +29,17 @@ func TestPreviewListsTheProjectsAChangeAdmitsAndDrops(t *testing.T) {
 	}
 	laptop, desk, ci := devices[0], devices[1], devices[2]
 	stored := `{"projects":{"allow":[{"git_remote":"git.example/team/lib"},{"cwd_prefix":"/home/me/notes"}]}}`
-	first, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(stored), "test", "", now)
+	// The profile is saved, then the devices report applying it, then
+	// they send the inventories the preview reads.
+	saved, reported := now.Add(-2*time.Minute), now.Add(-time.Minute)
+	first, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(stored), "test", "", saved)
 	if err != nil {
 		t.Fatal(err)
 	}
 	lakeRules := config.OriginLake("default")
 	report := func(id string, r protocol.AgentReport) {
 		t.Helper()
-		if err := lake.Catalog.PutDeviceReport(ctx, id, r, now); err != nil {
+		if err := lake.Catalog.PutDeviceReport(ctx, id, r, reported); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -106,16 +109,24 @@ func TestPreviewListsTheProjectsAChangeAdmitsAndDrops(t *testing.T) {
 		}
 	}
 
-	// The same refusal on a device with no deny rules of its own, or
-	// one that has not applied the stored profile, may be an older
-	// profile's: the project is listed.
-	for _, r := range []protocol.AgentReport{
-		{AllowSource: lakeRules, DenySource: lakeRules, ProfileVersion: first.Version},
-		{AllowSource: lakeRules, DenySource: config.OriginLocal + "+" + lakeRules, ProfileVersion: "sha256:older"},
+	// The same refusal may be an older profile's, and the project is
+	// listed, when the device has no deny rules of its own, has not
+	// applied the stored profile, or sent the inventory before it
+	// reported applying it.
+	for _, c := range []struct {
+		name string
+		r    protocol.AgentReport
+		at   time.Time
+	}{
+		{"no local deny rules", protocol.AgentReport{AllowSource: lakeRules, DenySource: lakeRules, ProfileVersion: first.Version}, reported},
+		{"an older profile", protocol.AgentReport{AllowSource: lakeRules, DenySource: config.OriginLocal + "+" + lakeRules, ProfileVersion: "sha256:older"}, reported},
+		{"a report after the inventory", protocol.AgentReport{AllowSource: lakeRules, DenySource: config.OriginLocal, ProfileVersion: first.Version}, now.Add(time.Minute)},
 	} {
-		report(laptop.ID, r)
+		if err := lake.Catalog.PutDeviceReport(ctx, laptop.ID, c.r, c.at); err != nil {
+			t.Fatal(err)
+		}
 		if page := preview(map[string]string{"allow.0.git_remote_prefix": "git.example/team"}); !strings.Contains(squash(page), "git.example/team/secret repository on laptop · 6 sessions") {
-			t.Errorf("deny source %q, applied %s: the refused project is not listed", r.DenySource, r.ProfileVersion)
+			t.Errorf("%s: the refused project is not listed", c.name)
 		}
 	}
 

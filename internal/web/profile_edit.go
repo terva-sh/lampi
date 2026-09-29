@@ -406,7 +406,15 @@ func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profi
 		}
 	}
 	if slices.ContainsFunc(pv.Changed, func(c string) bool { return c == "projects.allow" || c == "projects.deny" }) {
-		reach, err := s.reach(r.Context(), cur.Projects, p.Projects, cur.Version(), pv.Devices)
+		st := storedProfile{Version: cur.Version()}
+		if stored {
+			sp, err := s.catalog.ProfileByName(r.Context(), name)
+			if err != nil {
+				return nil, err
+			}
+			st.Saved = sp.Updated
+		}
+		reach, err := s.reach(r.Context(), cur.Projects, p.Projects, st, pv.Devices)
 		if err != nil {
 			return nil, err
 		}
