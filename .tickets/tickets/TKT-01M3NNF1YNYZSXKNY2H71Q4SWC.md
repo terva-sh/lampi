@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T14:58:27Z
+updated_at: 2026-09-29T15:00:00Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -51,5 +51,11 @@ The owner signs off on the policy change in a ticket note or the PR.
 
 ## Acceptance criteria
 
-- [ ] docs/policy.md, docs/architecture.md and docs/naming.md record bays as decided in the epic
-- [ ] The owner's sign-off on the policy change is recorded
+- [x] docs/policy.md, docs/architecture.md and docs/naming.md record bays as decided in the epic
+- [x] The owner's sign-off on the policy change is recorded
+
+## Notes
+
+**agent:claude-code/7859b064** at 2026-09-29T15:00:00Z
+
+Docs written at aa88bad: docs/policy.md gains a Bays section (model, known limits) and a retention line; docs/architecture.md gains the storage consequence under Auth; docs/naming.md gains why bay. Sign-off: the owner decided every point in the grilling on 2026-09-29 (notes on TKT-01M3N8KHW5) and asked for the epic to be worked. The wording itself has not been read by the owner; it is flagged for review in the PR.
