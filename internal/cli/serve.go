@@ -713,7 +713,7 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 }
 
 // logAdmins says at startup which groups hold admin. A lake with none
-// works as before; its dashboard just offers no raw artifact reads.
+// works as before.
 func logAdmins(log *slog.Logger, cfg webconfig.Config) {
 	if log == nil {
 		return
@@ -721,7 +721,7 @@ func logAdmins(log *slog.Logger, cfg webconfig.Config) {
 	if groups := cfg.AdminGroups(); len(groups) > 0 {
 		log.Info("web admin groups", "groups", strings.Join(groups, ","))
 	} else {
-		log.Warn("web config maps no group to admin; raw artifact reads are off")
+		log.Warn("web config maps no group to admin")
 	}
 }
 

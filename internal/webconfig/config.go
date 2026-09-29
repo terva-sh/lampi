@@ -87,7 +87,7 @@ func (c *Config) Secure() bool        { return strings.HasPrefix(c.BaseURL, "htt
 
 // The roles role_map grants. An operator is also a viewer, and can
 // manage registration codes (TKT-01M3J5HX9); a viewer only reads. An
-// admin is also an operator, and can read raw session artifacts
+// admin is also an operator, and is the role admin-only routes check
 // (TKT-01M3NKZT6N). No group is promoted to admin on upgrade.
 const (
 	RoleViewer   = "viewer"
