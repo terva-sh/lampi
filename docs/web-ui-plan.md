@@ -274,7 +274,10 @@ normalized data without an extra redaction pass, clearly disclosed in the UI.
 Preflight the entire selection: forbidden, missing, stale/unavailable or
 ineligible sessions produce a structured refusal before a download, without
 silently skipping. Audit actor, selected UIDs, format, result and byte count;
-never log transcript content. Raw blobs and Parquet downloads remain out of scope.
+never log transcript content. Parquet downloads remain out of scope. Raw blobs
+were out of scope too until the
+[raw artifacts addendum](#addendum-2026-09-28-raw-artifacts-for-admins) let admins
+read them.
 
 ## Release C measurement contract
 
@@ -297,6 +300,33 @@ coverage boundary, empty buckets, and purged-history limitations. Charts are
 server-rendered SVG beside an equivalent table, and remain read-only viewer
 features. Physical storage, online agents, token/cost analytics
 and complete network throughput require separate future requirements.
+
+## Addendum 2026-09-28: raw artifacts for admins
+
+The owner decided on 2026-09-28 to let admins read a session's raw
+artifacts, reversing the Release B line that kept raw blobs out of scope.
+The line was written before the dashboard had roles. The trigger was a
+session whose normalization failed: the dashboard showed no transcript
+and no way to see the input the projector rejected.
+
+Raw bytes are the least filtered copy in the lake. Ruleset v2 quarantines
+a hit but never rewrites the file, so a file let through with
+`quarantine allow` or `redaction.upload_hits` still holds the secret.
+Raw reads are therefore gated on an `admin` role above `operator`. No
+group is promoted to admin on upgrade. A read names one digest that the
+session links to, so the route is not arbitrary CAS access. Every read is
+queued to the audit log before a byte is sent, and a read that cannot be
+recorded is refused. A response stops at 8 MiB, and HTTP `Range`
+requests fetch the rest.
+
+An admin can also mint a read token for a tool with no browser session.
+It is a bearer token that reads the raw artifact route and nothing else,
+scoped to the lake or to listed sessions, with an expiry of at most 90
+days. Only its hash is stored, and minting, revoking and every read are
+audited. Its permissions are a set, holding `raw:read` today, so that the
+broader read scope planned in TKT-01M3KAMD1Z can add permissions to the
+same tokens rather than build a second kind. See the
+[ticket map](#admin-role-and-raw-access).
 
 ## Verification and delivery
 
@@ -378,3 +408,13 @@ Epic: [TKT-01M3F2RKCZZNB6C1EGEG1FDCQH — Lake analytics: record and visualize a
 | [TKT-01M3F2RKGB79Y16RGTW3Z244QC](../.tickets/done/TKT-01M3F2RKGB79Y16RGTW3Z244QC.md) | Catalog: record idempotent accepted head-update history |
 | [TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7](../.tickets/done/TKT-01M3F2RKKRM1MP6GJ0P5BJ3JW7.md) | Web API: serve bounded UTC buckets of accepted head updates |
 | [TKT-01M3JEKA6RBHK9WSGEZZKKQYHC](../.tickets/done/TKT-01M3JEKA6RBHK9WSGEZZKKQYHC.md) | Web UI: activity page with charts, tables and release C validation |
+
+### Admin role and raw access
+
+Epic: [TKT-01M3NM61CZDGNG6K2XXGHECC0W — Admin role and raw artifact access](../.tickets/tickets/TKT-01M3NM61CZDGNG6K2XXGHECC0W.md). See the [addendum](#addendum-2026-09-28-raw-artifacts-for-admins).
+
+| Ticket | Work |
+|---|---|
+| [TKT-01M3NKZT6N7MW8AA0ZZ5ZJWKB9](../.tickets/tickets/TKT-01M3NKZT6N7MW8AA0ZZ5ZJWKB9.md) | Dashboard: admin role above operator |
+| [TKT-01M3NKY2V3KA0G5458R62ZD9H7](../.tickets/tickets/TKT-01M3NKY2V3KA0G5458R62ZD9H7.md) | Dashboard: admin-only raw artifact view |
+| [TKT-01M3NM6FW7YRJ7W6WR0BY8MFB5](../.tickets/tickets/TKT-01M3NM6FW7YRJ7W6WR0BY8MFB5.md) | Raw-read tokens: admins mint scoped tokens for raw artifacts |

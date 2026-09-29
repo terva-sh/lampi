@@ -87,3 +87,21 @@ func TestStartWebIndexesPublishedSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TKT-01M3NKZT6N: startup names the admin groups, and warns when there
+// are none rather than refusing to start.
+func TestLogAdmins(t *testing.T) {
+	var out bytes.Buffer
+	cfg := webconfig.Config{OIDC: webconfig.OIDC{RoleMap: map[string]string{"readers": "viewer", "owners": "admin"}}}
+	logAdmins(accessLogger(&out), cfg)
+	if got := out.String(); !strings.Contains(got, "level=INFO") || !strings.Contains(got, "groups=owners") {
+		t.Fatalf("admin groups line %q", got)
+	}
+	out.Reset()
+	cfg.OIDC.RoleMap = map[string]string{"readers": "viewer", "ops": "operator"}
+	logAdmins(accessLogger(&out), cfg)
+	if got := out.String(); !strings.Contains(got, "level=WARN") || !strings.Contains(got, "no group to admin") {
+		t.Fatalf("no-admin line %q", got)
+	}
+	logAdmins(nil, cfg)
+}

@@ -1,7 +1,8 @@
 // Package audit is the lake's append-only record of who may upload:
 // devices created, bound, unbound and revoked, and, as registration
 // lands, codes minted and redeemed and keys added and retired. Profile
-// saves and deletions are recorded too.
+// saves and deletions are recorded too, and so is every read of a raw
+// session artifact.
 //
 // It is one JSON object per line in audit.jsonl in the lake directory,
 // at mode 0600. serve and the operator commands beside it both append.
@@ -45,6 +46,15 @@ const (
 
 	ProjectHidden   = "project.hidden"
 	ProjectUnhidden = "project.unhidden"
+
+	// ArtifactRead is an admin reading a session's raw bytes. Detail
+	// names the session, the digest and the byte range, never content.
+	ArtifactRead = "artifact.read"
+
+	// ReadTokenCreated and ReadTokenRevoked record an admin minting and
+	// revoking a read token. Detail names the token, never its secret.
+	ReadTokenCreated = "read_token.created"
+	ReadTokenRevoked = "read_token.revoked"
 )
 
 // Event is one line. Device is the device name. Actor is where the
