@@ -55,6 +55,12 @@ const (
 	// revoking a read token. Detail names the token, never its secret.
 	ReadTokenCreated = "read_token.created"
 	ReadTokenRevoked = "read_token.revoked"
+
+	// ConflictResolved and ConflictReopened record a divergent copy
+	// being resolved, by an operator or a catalog migration, and a
+	// resolution being removed. Detail names the artifact and session.
+	ConflictResolved = "conflict.resolved"
+	ConflictReopened = "conflict.reopened"
 )
 
 // Event is one line. Device is the device name. Actor is where the

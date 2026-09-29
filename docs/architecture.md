@@ -58,7 +58,7 @@ packed-refs, or config changes. A strict append uploads only the new tail;
 `byte_watermark_prev` is the previous length and `tail_sha256` is the
 hash of those bytes. The lake assembles the tail onto the stored prefix
 and moves the head. Bytes that are not a prefix either way are stored
-as `divergent_copy` and the previous head stays. `terva-lampi conflicts` lists those rows, and `GET /v1/conflicts` returns the same list. A failed push is tried
+as `divergent_copy` and the previous head stays. `terva-lampi conflicts` lists those rows that no one has resolved, and `GET /v1/conflicts` returns the same list. A resolution, in `conflict_resolutions`, records what was decided and keeps the bytes. A failed push is tried
 again after a jittered wait that starts at 2s and backs off to 5 minutes;
 a 401 or 403 waits the 5 minutes and is logged once. `hello` runs
 before the files are read and scanned, so a lake that is down costs

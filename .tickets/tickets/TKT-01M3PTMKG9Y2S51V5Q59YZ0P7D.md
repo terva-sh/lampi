@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3PTMKG9Y2S51V5Q59YZ0P7D
 title: "Conflicts: record resolutions, resolve TKT-01M3M5VEQ leftovers"
 type: bug
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/cd41c9ac
+  branch: feat/conflict-cleanup
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
+  commit: 8d23734430a0475df162a9898f0abdec8657e0a1
+  session: null
+  claimed_at: 2026-09-29T14:56:17Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T14:55:56Z
-updated_at: 2026-09-29T14:56:06Z
+updated_at: 2026-09-29T15:03:17Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -65,7 +72,46 @@ Conflicts page and the overview count show 184 conflicts that are not.
 
 ## Acceptance criteria
 
-- [ ] Resolving and reopening a conflict each queue an audit event in the same transaction
-- [ ] A migration resolves as not_a_conflict every divergent copy that is a companion of its session head with no earlier non-divergent row at its path
-- [ ] A real divergence of a companion file, after an earlier head or grown_from row at its path, stays unresolved
-- [ ] The Conflicts page, session Conflicts tab, overview count, /v1/conflicts, /api/web/v1/conflicts and terva-lampi conflicts show unresolved conflicts, and each can include resolved ones
+- [x] Resolving and reopening a conflict each queue an audit event in the same transaction
+- [x] A migration resolves as not_a_conflict every divergent copy that is a companion of its session head with no earlier non-divergent row at its path
+- [x] A real divergence of a companion file, after an earlier head or grown_from row at its path, stays unresolved
+- [x] The Conflicts page, session Conflicts tab, overview count, /v1/conflicts, /api/web/v1/conflicts and terva-lampi conflicts show unresolved conflicts, and each can include resolved ones
+
+## Implementation plan
+
+Resolve, do not relabel. `relation` stays how the bytes compared, and
+a new table records the decision.
+
+- Migration 18, `migrateConflictResolutions`: `conflict_resolutions`
+  (artifact_id PK, session_uid, resolution, resolved_at, resolved_by,
+  note). It resolves as `not_a_conflict`, actor `catalog migration`,
+  each divergent copy whose path is a companion of its session head and
+  that has no earlier artifact at its session and path other than a
+  divergent copy. Each is audited as `conflict.resolved`.
+- `catalog.ResolveConflict` and `ReopenConflict` queue
+  `conflict.resolved` / `conflict.reopened` in the same transaction.
+  Errors: ErrNoConflict, ErrConflictResolved, ErrConflictOpen.
+- `DivergentCopies(ctx, resolved)`, `PageRequest.Resolved`,
+  `Record.Resolution`; the overview count is unresolved copies.
+  `serve purge` deletes the session's resolutions.
+- `GET /v1/conflicts?resolved=true`, `/api/web/v1/conflicts` and the
+  session conflicts collection take `resolved=true`;
+  `terva-lampi conflicts --resolved`. `api.WireConflicts` replaces the
+  CLI's copy of the conversion.
+
+### Alternatives
+
+- Relabel leftovers as `grown_from`: claims a prefix relation nobody
+  checked, and `compact`/`purge` walk grown_from chains. Rejected.
+- Delete the leftover rows: loses the record, and the blobs are still
+  referenced by provenance. Rejected; storage stays with compact/purge.
+- Match leftovers by time (before the fix's deploy): the catalog has no
+  migration timestamps, and a lake upgraded later would have a
+  different cut-off. The structural rule (nothing at its own path to
+  diverge from) is exact for the bug and needs no clock.
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T15:03:17Z
+
+Not run against the live dev lake's catalog: /var/lib/terva-lampi/catalog.db is not readable by this user. The migration test builds the three shapes (pre-fix leftovers, a post-fix divergence at the same path, a moved transcript); each rule was mutation-checked (dropping the no-earlier-row clause, the companion check, or the list filter fails the tests). Expected on the dev lake after upgrade: the 184 rows resolve as not_a_conflict and the Conflicts page is empty.

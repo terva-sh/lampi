@@ -131,7 +131,11 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	body["error"] = code
 	_ = json.NewEncoder(w).Encode(body)
 }
-func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageRequest, error) {
+
+// parsePage reads a list request. collection is the records collection
+// asked for, or empty for sessions: current is for artifacts and
+// resolved for conflicts.
+func parsePage(q url.Values, sessionFilters bool, collection string) (catalog.PageRequest, error) {
 	var p catalog.PageRequest
 	for k, v := range q {
 		if len(v) != 1 {
@@ -144,7 +148,11 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 				return p, catalog.ErrPage
 			}
 		case "current":
-			if !artifacts {
+			if collection != "artifacts" {
+				return p, catalog.ErrPage
+			}
+		case "resolved":
+			if collection != "conflicts" {
 				return p, catalog.ErrPage
 			}
 		default:
@@ -165,7 +173,7 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 	for _, entry := range []struct {
 		key  string
 		dest *bool
-	}{{"unlinked", &p.Unlinked}, {"current", &p.Current}} {
+	}{{"unlinked", &p.Unlinked}, {"current", &p.Current}, {"resolved", &p.Resolved}} {
 		if !q.Has(entry.key) {
 			continue
 		}
@@ -193,7 +201,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v)
 }
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePage(r.URL.Query(), true, false)
+	p, err := parsePage(r.URL.Query(), true, "")
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -223,7 +231,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("collection")
-	p, err := parsePage(r.URL.Query(), false, kind == "artifacts")
+	p, err := parsePage(r.URL.Query(), false, kind)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -243,7 +251,7 @@ func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v)
 }
 func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePage(r.URL.Query(), false, false)
+	p, err := parsePage(r.URL.Query(), false, "conflicts")
 	if err != nil {
 		fail(w, r, err)
 		return
