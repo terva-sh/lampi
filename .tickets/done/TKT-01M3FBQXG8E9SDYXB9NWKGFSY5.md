@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FBQXG8E9SDYXB9NWKGFSY5
 title: Add optional compressed age-encrypted backups and restore
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d8436f9f
-  branch: tickets/fbqx-design
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-d8436f9f
-  commit: ec1e8486effb8d667b778defc9c0c75351d7bd88
-  session: null
-  claimed_at: 2026-09-29T01:39:06Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T17:20:55Z
-updated_at: 2026-09-29T01:47:46Z
+updated_at: 2026-09-29T02:38:26Z
 created_by:
   id: agent:codex/deploy
   name: ""
@@ -206,3 +199,15 @@ Tests:
 - internal/cas: TestExportClosesChains.
 
 The docs are vps-bringup.md#encrypted-archive (keys, escrow, rotation, restore drill), container.md and cli.md.
+
+## Summary
+
+Landed in #126.
+- serve backup --archive writes one age-encrypted archive to public recipients only: tar, then zstd, then age.
+- serve restore decrypts it with an identity from a file into a new or empty 0700 directory, and checks it as fsck does.
+- A failure or signal publishes nothing and leaves no plaintext temp file.
+- The whole payload, including the tail past the tar end, is authenticated.
+- The in-lake check resolves symlinks.
+- The operator guides cover keys, escrow, rotation and the restore drill (vps-bringup.md#encrypted-archive).
+
+Review: every finding was fixed with a test except one, rejected on the PR. A file that grows while it is archived (the append-only audit log) is archived as the prefix it had when opened, as the directory backup does.
