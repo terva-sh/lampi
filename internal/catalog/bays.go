@@ -603,8 +603,17 @@ func (c *Catalog) RenameBay(ctx context.Context, ref, name, actor string, now ti
 		if id == DefaultBayID {
 			return audit.Event{}, errors.New("catalog: the default bay keeps its name; give it an alias instead")
 		}
-		if err := nameFree(ctx, tx, name); err != nil {
-			return audit.Event{}, err
+		// A bay may take back one of its own aliases, such as the name it
+		// had before a rename (review 1405). The alias gives way to the
+		// name in the same transaction, so the name never stops resolving.
+		res, err := tx.ExecContext(ctx, `DELETE FROM bay_aliases WHERE alias=? AND bay_id=?`, name, id)
+		if err != nil {
+			return audit.Event{}, fmt.Errorf("catalog: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			if err := nameFree(ctx, tx, name); err != nil {
+				return audit.Event{}, err
+			}
 		}
 		var old string
 		if err := tx.QueryRowContext(ctx, `SELECT name FROM bays WHERE id=?`, id).Scan(&old); err != nil {
