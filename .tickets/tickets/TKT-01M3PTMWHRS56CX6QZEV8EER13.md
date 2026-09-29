@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T14:56:05Z
-updated_at: 2026-09-29T16:36:15Z
+updated_at: 2026-09-29T16:46:16Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -68,3 +68,7 @@ Page /conflicts/{artifact} (viewer) with both sides, device names, and where the
 **agent:claude-code/cd41c9ac** at 2026-09-29T16:36:15Z
 
 terva-review 1406 (run 3dd865a8): two medium findings, both accepted and fixed in 80e6859 (dispositions posted on #153): the page claimed a read failure when the server had no blob store; notes were trimmed before validation and measured in bytes. Tests added for each, mutation-checked.
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T16:46:16Z
+
+terva-review 1411 (run 2003286e): prior two verified resolved; new medium (reopen accepted an empty or null note) and low (first-byte case did not name byte 0/line 1) both accepted and fixed; dispositions posted on #153.

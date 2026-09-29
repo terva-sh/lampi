@@ -195,8 +195,13 @@ func TestConflictAPI(t *testing.T) {
 	if w := post(h, "/api/web/v1/conflicts/"+id+"/keep-head", "", op, nil); w.Code != 403 {
 		t.Errorf("without csrf: %d", w.Code)
 	}
-	if w := post(h, "/api/web/v1/conflicts/"+id+"/keep-head", `{"note":"x","extra":1}`, op, hdr); w.Code != 400 {
-		t.Errorf("unknown field: %d", w.Code)
+	for _, body := range []string{`{"note":"x","extra":1}`, `null`, `[]`, `"x"`, `{} {}`} {
+		if w := post(h, "/api/web/v1/conflicts/"+id+"/keep-head", body, op, hdr); w.Code != 400 {
+			t.Errorf("keep-head with %s: %d", body, w.Code)
+		}
+		if w := post(h, "/api/web/v1/conflicts/"+id+"/reopen", body, op, hdr); w.Code != 400 {
+			t.Errorf("reopen with %s: %d", body, w.Code)
+		}
 	}
 	for _, body := range []string{`{"note":"x"}`, `{"note":""}`, `{"note":null}`} {
 		if w := post(h, "/api/web/v1/conflicts/"+id+"/reopen", body, op, hdr); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_note") {

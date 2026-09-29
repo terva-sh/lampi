@@ -375,12 +375,20 @@ func (s *Server) conflictActionAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	// keep-head takes {"note": TEXT} or no body; reopen takes no body,
 	// or an empty object.
-	var fields map[string]json.RawMessage
+	// A pointer, so a body of null is told apart from none, as the
+	// device actions do.
+	var req *map[string]json.RawMessage
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&fields); err != nil && !errors.Is(err, io.EOF) || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
+	err := dec.Decode(&req)
+	empty := errors.Is(err, io.EOF)
+	if err != nil && !empty || !empty && req == nil || !errors.Is(dec.Decode(new(json.RawMessage)), io.EOF) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
+	}
+	var fields map[string]json.RawMessage
+	if req != nil {
+		fields = *req
 	}
 	id := r.PathValue("id")
 	action := r.PathValue("action")
