@@ -131,7 +131,8 @@ func foldOwner(rules []config.ProjectMatch, owner string) ([]config.ProjectMatch
 
 // tidyForm applies the offer the operator pressed, if any, to the rules
 // read from the form: "tidy=covered" removes the covered allow rules,
-// and "fold=OWNER" folds that owner's remotes. An empty note is filled
+// and "fold=OWNER" folds that owner's remotes when ownerFolds offers it
+// for those rules. An empty note is filled
 // with what was done, so the saved revision says why the rules went.
 func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
 	var n int
@@ -141,6 +142,11 @@ func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
 		p.Projects.Allow, n = withoutCovered(p.Projects.Allow)
 		note = "Remove " + strconv.Itoa(n) + " covered allow " + plural(n, "rule", "rules")
 	case owner != "":
+		// Only an owner the editor offers for these rules: a fold is a
+		// widening, and the offer is where its threshold lives.
+		if !slices.ContainsFunc(ownerFolds(p.Projects.Allow), func(f ownerFold) bool { return f.Owner == owner }) {
+			return
+		}
 		p.Projects.Allow, n = foldOwner(p.Projects.Allow, owner)
 		note = "Replace " + strconv.Itoa(n) + " git_remote " + plural(n, "rule", "rules") + " under " + owner + " with one git_remote_prefix"
 	}

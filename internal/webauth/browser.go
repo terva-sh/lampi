@@ -272,8 +272,18 @@ func (b *Browser) Guard(next http.Handler) http.Handler {
 // else, so a viewer learns nothing about operator routes. It runs
 // inside Guard, which has already authenticated the request.
 func OperatorOnly(next http.Handler) http.Handler {
+	return only(func(id Identity) bool { return id.Operator }, next)
+}
+
+// AdminOnly serves next to an admin and answers 404 to anyone else,
+// operators included. It runs inside Guard.
+func AdminOnly(next http.Handler) http.Handler {
+	return only(func(id Identity) bool { return id.Admin }, next)
+}
+
+func only(allowed func(Identity) bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if id, _ := Current(r); !id.Operator {
+		if id, _ := Current(r); !allowed(id) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				jsonError(w, 404, "not_found")
 			} else {
