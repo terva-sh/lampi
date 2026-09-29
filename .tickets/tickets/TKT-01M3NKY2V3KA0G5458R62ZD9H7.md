@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NKY2V3KA0G5458R62ZD9H7
 title: "Dashboard: admin-only raw artifact view"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -20,10 +20,17 @@ dependencies:
   - TKT-01M3NKZT6N7MW8AA0ZZ5ZJWKB9
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/cd41c9ac
+  branch: web/raw-view
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
+  commit: 94243ccc80f3e55c6f546a8aa67c570236a258d4
+  session: null
+  claimed_at: 2026-09-29T03:52:22Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T03:39:32Z
-updated_at: 2026-09-29T03:44:52Z
+updated_at: 2026-09-29T03:55:55Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -98,9 +105,13 @@ raw does neither.
 
 ## Acceptance criteria
 
-- [ ] docs/web-ui-plan.md carries a dated addendum that replaces the raw-blob out-of-scope line and links this ticket
-- [ ] Raw tab and route render only for admins; operators and viewers get 404 on the route and no tab
-- [ ] The route serves only digests that belong to the named session; any other digest is 404
-- [ ] Responses are attachments with nosniff and no-store, capped with Range support, and a truncated read is marked
-- [ ] Each read writes an audit line (actor, session, digest, range) before any byte is sent; audit failure refuses the read
-- [ ] Tests cover non-admin denial, foreign digest, zstd and logical objects, cap and Range, and audit failure
+- [x] docs/web-ui-plan.md carries a dated addendum that replaces the raw-blob out-of-scope line and links this ticket
+- [x] Raw tab and route render only for admins; operators and viewers get 404 on the route and no tab
+- [x] The route serves only digests that belong to the named session; any other digest is 404
+- [x] Responses are attachments with nosniff and no-store, capped with Range support, and a truncated read is marked
+- [x] Each read writes an audit line (actor, session, digest, range) before any byte is sent; audit failure refuses the read
+- [x] Tests cover non-admin denial, foreign digest, zstd and logical objects, cap and Range, and audit failure
+
+## Implementation plan
+
+Registrations gains Blobs (*cas.Store); serve wires lake.CAS. rawRoutes mounts GET /sessions/{uid}/raw (page) and /sessions/{uid}/raw/{digest} (download) behind Guard+AdminOnly, only when Blobs is set. serveRaw (shared with the token route in TKT-01M3NM6FW7): digest must be one of the session's artifact rows, else 404; size via cas.Size; single Range; 8 MiB cap marked by Lampi-Raw-Truncated; QueueAudit(artifact.read) before any byte, refusing on error; FlushAudit best-effort; cas.Open handles zstd, logical and prefix records. Smoketest gains -admin. Docs: web-ui-plan addendum and ticket map, web-dashboard Raw artifacts section, web-api route reference.

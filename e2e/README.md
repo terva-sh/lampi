@@ -75,7 +75,8 @@ plans, response sizes and timings for 20,000 sessions, including concurrent writ
 
 For manual inspection, run `go run ./internal/web/smoketest` and open the printed
 `url` in a test browser that trusts the fixture's HTTPS IdP. Stop with Ctrl-C. Use
-`--deny` or `--empty` to inspect those states. Never use this fixture as a service.
+`--deny` or `--empty` to inspect those states, `--operator` for operator pages, and
+`--admin` for the raw artifact pages. Never use this fixture as a service.
 
 ## README screenshots
 

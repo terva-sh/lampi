@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/registrar"
@@ -26,6 +27,9 @@ type Registrations struct {
 	// Release is the tag the lake was built from, such as v0.1.1, or ""
 	// for a build from no tag. The install line pins install.sh to it.
 	Release string
+	// Blobs is the lake's blob store. When set, admins can read a
+	// session's raw artifacts; nil leaves those routes out.
+	Blobs *cas.Store
 }
 
 // DefaultCodeLifetime is the expiry the dashboard offers first. A code
@@ -155,6 +159,7 @@ func (s *Server) registrationRoutes(m *http.ServeMux) {
 	s.profileRoutes(m)
 	s.reviewRoutes(m)
 	s.registrationPages(m)
+	s.rawRoutes(m)
 }
 
 func (s *Server) now() time.Time {

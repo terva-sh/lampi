@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/cd41c9ac
+  branch: web/raw-view
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-fdd1a9d1
+  commit: 94243ccc80f3e55c6f546a8aa67c570236a258d4
+  session: null
+  claimed_at: 2026-09-29T03:52:22Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T03:43:53Z
-updated_at: 2026-09-29T03:45:01Z
+updated_at: 2026-09-29T03:52:22Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
