@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:05Z
-updated_at: 2026-09-29T04:24:11Z
+updated_at: 2026-09-29T04:25:23Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -52,5 +52,22 @@ Fix: at the end of a reclaim, run `PRAGMA wal_checkpoint(TRUNCATE)`. Also open t
 
 ## Acceptance criteria
 
-- [ ] The search.db WAL is truncated after a pass that reclaimed
-- [ ] search.db opens with a journal_size_limit
+- [x] The search.db WAL is truncated after a pass that reclaimed
+- [x] search.db opens with a journal_size_limit
+
+## Implementation plan
+
+1. `reclaim` ends with `PRAGMA wal_checkpoint(TRUNCATE)`. It runs after every pass that wrote, and while a merge is pending. A reader still on the WAL makes the checkpoint report busy rather than fail.
+2. `indexDSN` adds `journal_size_limit(64 MiB)`, so a WAL whose truncate found a reader shrinks at the next reset.
+3. Test: a pass that reclaims leaves a zero-byte WAL, and the pragma is set on the index's connections.
+
+Alternatives considered:
+- `journal_size_limit` alone. The WAL only shrinks when the next write resets it, so an idle index keeps its WAL until then.
+- Checkpoint after each session's transaction. The autocheckpoint already does a passive one, and a truncate after each session would wait on readers up to 600 times a pass.
+- Smaller transactions during a rebuild. That would change indexSession's one-transaction-per-session guarantee, which lets queries see a session whole. The WAL still needs a truncate afterwards.
+
+## Notes
+
+**agent:claude-code/65ab7244** at 2026-09-29T04:25:23Z
+
+Built on search/wal-limit. TestAReclaimTruncatesTheWAL fails with the checkpoint replaced by a no-op and passes with it. GOFLAGS=-mod=mod just ci green on origin/main 93998cb.
