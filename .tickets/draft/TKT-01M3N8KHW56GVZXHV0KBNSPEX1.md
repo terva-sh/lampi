@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T02:40:02Z
+updated_at: 2026-09-29T03:56:42Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -88,3 +88,12 @@ Grilling round 4 with human:sothr, 2026-09-29. Decisions:
 - Registration grants the new device its write bays, capped at the minting operator's own scope. Fact checked at 600438c: the code itself (internal/regcode Code) carries only url, lake id, key, secret and expiry, and the profile lives on the lake's pending registrations row (internal/catalog/registrations.go) and is applied when the code is redeemed. Bay grants follow the same path. Nothing in the code has to be updated, and changing a device's bays later is an edit to its grants on the lake.
 - Bay lifecycle: only an admin creates, renames or deletes a bay and changes rules and grants. A bay has a stable id; a rename keeps the old name as an alias. Deleting a bay removes it from every membership, a session left in no bay moves to the default bay, and no data is deleted. Per-bay retention and purge is a follow-up, not part of this epic.
 - Upgrade: behavior does not change. Existing viewer groups get an explicit read grant on the default bay. Existing operator groups become operators scoped to all bays and also admins. Existing devices get a write grant on the default bay. The web config gains an admin role mapping, and startup logs which groups were granted what.
+
+**agent:claude-code/7859b064** at 2026-09-29T03:56:42Z
+
+Grilling round 5 with human:sothr, 2026-09-29. Decisions:
+
+- Agent bay requests (the owner left this to the agent, putting developer and user experience first). Each lake's entry in config.json gains bay request rules shaped like projects.allow (cwd prefix, git remote, harness, naming one or more bays) and a default_bays list. A lake profile may suggest both, and local config wins, the precedence profiles already have. The lake's hold/add/deny rules are the backstop for operator control. For the developer's side: `terva-lampi bays` lists the bays each lake lets this device write to, and `terva-lampi bays which [PATH]` says which lake and bays a session started at PATH would ask for and why. A request for a bay the device cannot write to warns in status and is still sent, so the lake records it. Rejected: a per-repository marker file, because a cloned repository could then direct your sessions into a shared bay.
+- Protocol: additive, capture_protocol stays 1. The manifest gains an optional bays field, and the lake publishes each device's writable bays. An old agent sends no bays and is placed by the lake rules and the default bay. The new "no bay" error code goes only to agents that announce bay support; an old agent gets a plain 4xx it already backs off on.
+- Growing sessions: every manifest is routed again, add-only. Newly requested bays that are allowed are added. Rules run again. Nothing is ever removed automatically: a hold that matches a session already in other bays flags it for review and does not remove it.
+- Inbox tooling in this epic: `serve bays inbox` with a reason per session (no rule matched, request refused, hold rule X), bulk move by filter with --dry-run, `serve bays apply-rules` with --dry-run, and a docs guide to sorting a lake after upgrading and keeping the inbox at zero. The dashboard is part of this epic; how much of it is being settled in round 6. A full triage UI for held and refused sessions is a follow-up.
