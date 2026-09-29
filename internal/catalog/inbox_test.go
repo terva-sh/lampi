@@ -146,11 +146,11 @@ func TestBayProblems(t *testing.T) {
 	if p, err := r.c.BayProblems(ctx); err != nil || len(p) != 0 {
 		t.Fatalf("clean lake: %+v err=%v", p, err)
 	}
-	if _, err := r.c.db.Exec(`DELETE FROM session_bays WHERE session_uid=?; INSERT INTO bay_grants VALUES ('group','g','bay_gone','read','','t')`, uid); err != nil {
+	if _, err := r.c.db.Exec(`DELETE FROM session_bays WHERE session_uid=?; INSERT INTO bay_grants VALUES ('group','g','bay_gone','read','','t'); INSERT INTO session_holds(session_uid, bay_id, rule_id, state, created_at) VALUES('`+uid+`','bay_gone',1,'held','t')`, uid); err != nil {
 		t.Fatal(err)
 	}
 	p, err := r.c.BayProblems(ctx)
-	if err != nil || !reflect.DeepEqual(p, []BayProblem{{"sessions in no bay", 1}, {"grants naming a bay that is gone", 1}}) {
+	if err != nil || !reflect.DeepEqual(p, []BayProblem{{"sessions in no bay", 1}, {"grants naming a bay that is gone", 1}, {"holds naming a bay that is gone", 1}}) {
 		t.Fatalf("problems %+v err=%v", p, err)
 	}
 	if got := inboxReasons(t, r.c); !strings.Contains(strings.Join(got[uid], ""), "in no bay") {

@@ -402,8 +402,8 @@ func addingRule(rules []BayRule, m protocol.Manifest, bay string) int64 {
 }
 
 // BayProblem is a membership fact no write should leave: a session in
-// no bay, or a membership, request, grant or rule naming a bay that is
-// gone. serve fsck reports them.
+// no bay, or a membership, grant, rule, alias or hold naming a bay
+// that is gone. serve fsck reports them.
 type BayProblem struct {
 	What  string
 	Count int
@@ -419,6 +419,7 @@ func (c *Catalog) BayProblems(ctx context.Context) ([]BayProblem, error) {
 		{"grants naming a bay that is gone", `SELECT count(*) FROM bay_grants g WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = g.bay_id)`},
 		{"rules naming a bay that is gone", `SELECT count(*) FROM bay_rules r WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = r.bay_id)`},
 		{"aliases naming a bay that is gone", `SELECT count(*) FROM bay_aliases a WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = a.bay_id)`},
+		{"holds naming a bay that is gone", `SELECT count(*) FROM session_holds h WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = h.bay_id)`},
 		{"lakes with no default bay", `SELECT 1 - count(*) FROM bays WHERE id = '` + DefaultBayID + `' AND is_default = 1`},
 	} {
 		var n int

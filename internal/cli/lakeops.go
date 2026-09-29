@@ -402,13 +402,17 @@ func runServeFsck(env Env, args []string) error {
 	fmt.Fprintf(env.stdout(), "checked %d entries, %d bad\n", checked, len(bad))
 	idErr := fsckIdentity(env, data)
 	bayErr := fsckBays(env, data)
-	if len(bad) == 0 {
-		return errors.Join(idErr, bayErr)
+	// A bad CAS entry does not hide what the identity and bay checks
+	// found (review 1464).
+	var casErr error
+	switch {
+	case len(bad) == 0:
+	case repair:
+		casErr = fmt.Errorf("fsck: %d bad entries, %d removed", len(bad), removed)
+	default:
+		casErr = fmt.Errorf("fsck: %d bad entries; --repair removes them", len(bad))
 	}
-	if repair {
-		return fmt.Errorf("fsck: %d bad entries, %d removed", len(bad), removed)
-	}
-	return fmt.Errorf("fsck: %d bad entries; --repair removes them", len(bad))
+	return errors.Join(casErr, idErr, bayErr)
 }
 
 // fsckBays reports the bay facts no write should leave. A lake with no
