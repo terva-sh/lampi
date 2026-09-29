@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N8F354GDK9D0CTQ2BMZBMY
 title: "Project review queue: hide, batch allow, short confirm"
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T00:19:07Z
-updated_at: 2026-09-29T01:14:42Z
+updated_at: 2026-09-29T01:47:35Z
 created_by:
   id: agent:claude-code/10adf304
   name: ""
@@ -50,7 +50,11 @@ This epic adds a lake-wide review queue with hide, batch allow, and a short conf
 
 ## Acceptance criteria
 
-- [ ] One page lists every refused project across devices that still needs a decision
-- [ ] An operator hides projects they will not import, lake-wide, and can unhide them
-- [ ] An operator allows several projects in one confirm and save, and returns to where they started
-- [ ] Single Allow returns to the device page
+- [x] One page lists every refused project across devices that still needs a decision
+- [x] An operator hides projects they will not import, lake-wide, and can unhide them
+- [x] An operator allows several projects in one confirm and save, and returns to where they started
+- [x] Single Allow returns to the device page
+
+## Summary
+
+Delivered in five PRs. #123 (TKT-01M3N8FHQ): single Allow returns to the device page with Back, plus a catalog-backed saved notice. #124 (TKT-01M3N8FHS): migration 16 with project sightings, lake-wide hidden projects, and ReviewQueue. #125 (TKT-01M3N8FHV): /review and its API, grouped lake-wide, with needs review, allow pending, denied, hidden and strict sections and a header count. Then TKT-01M3N8FHX: hide and unhide, singly or in bulk, from the queue and the device page. Then TKT-01M3N8FHZ: Allow selected with a short per-profile confirm page, saved all or nothing through catalog.PutProfilesIf. Not built: a recent IdP sign-in for batch saves, since no profile save requires one today (see the TKT-01M3N8FHZ note). Per-device targets wait on TKT-01M3N22HC.
