@@ -55,6 +55,14 @@ const (
 	// revoking a read token. Detail names the token, never its secret.
 	ReadTokenCreated = "read_token.created"
 	ReadTokenRevoked = "read_token.revoked"
+
+	// Bay events (TKT-01M3N8KHW5). Detail names the session, bay and
+	// principal by id, and how and why a membership changed.
+	BayCreated       = "bay.created"
+	BayMemberAdded   = "bay.member.added"
+	BayMemberRemoved = "bay.member.removed"
+	BayGrantAdded    = "bay.grant.added"
+	BayGrantRemoved  = "bay.grant.removed"
 )
 
 // Event is one line. Device is the device name. Actor is where the

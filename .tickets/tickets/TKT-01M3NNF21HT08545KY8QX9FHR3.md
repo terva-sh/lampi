@@ -17,10 +17,17 @@ dependencies:
   - TKT-01M3NNF1YNYZSXKNY2H71Q4SWC
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/7859b064
+  branch: bays/catalog
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
+  commit: 14bca02b5ce7bcd5390a9574f775b5e73264a12f
+  session: null
+  claimed_at: 2026-09-29T15:00:30Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T14:58:27Z
+updated_at: 2026-09-29T15:00:30Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""

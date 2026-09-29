@@ -298,6 +298,9 @@ func (c *Catalog) Redeem(ctx context.Context, secretSHA256, tokenSHA256, machine
 		d.ID, d.Name, d.TokenSHA256, d.Source, d.Profile, d.MachineID, stamp(d.Created)); err != nil {
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
 	}
+	if err := grantDefaultWrite(ctx, tx, d.ID, now); err != nil {
+		return Device{}, r, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE registrations SET used_at=?, device_id=? WHERE id=?`, stamp(now), d.ID, r.ID); err != nil {
 		return Device{}, r, fmt.Errorf("catalog: %w", err)
 	}
