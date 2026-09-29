@@ -699,11 +699,12 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	// The device's write grants decide which requested bays it gets.
 	// A lake with no tokens has no device and every bay is accepted,
 	// as every bay is read there.
-	var route catalog.Route
-	if d, ok := deviceOf(r); ok {
-		route.DeviceID = d.ID
+	deviceID, ok := s.requestDevice(r)
+	if !ok {
+		s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this request has no device"))
+		return
 	}
-	ack, changed, err := s.Catalog.IngestRouted(r.Context(), m, route, s.now(), decisions, s.CAS)
+	ack, changed, err := s.Catalog.IngestRouted(r.Context(), m, catalog.Route{DeviceID: deviceID}, s.now(), decisions, s.CAS)
 	if errors.Is(err, catalog.ErrNoBayForSession) {
 		s.refuseUnplaced(w, r, m.BayAware)
 		return
@@ -872,13 +873,25 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // included, so it reads every bay. Any other request that reached here
 // without a device reads nothing.
 func (s *Server) deviceScope(r *http.Request) (catalog.Scope, error) {
-	d, ok := deviceOf(r)
+	id, ok := s.requestDevice(r)
 	switch {
-	case ok:
-		return s.Catalog.DeviceScope(r.Context(), d.ID)
-	case s.Devices == nil || s.Devices.Empty():
+	case !ok:
+		return catalog.Scope{}, nil
+	case id == "":
 		return catalog.AllBays(), nil
 	default:
-		return catalog.Scope{}, nil
+		return s.Catalog.DeviceScope(r.Context(), id)
 	}
+}
+
+// requestDevice is the device a request acts as. id is empty on a lake
+// served without tokens, which has no device to ask. ok is false when a
+// lake with tokens let a request through without a device, which authed
+// never does; the caller refuses it rather than treat it as the
+// tokenless lake.
+func (s *Server) requestDevice(r *http.Request) (id string, ok bool) {
+	if d, found := deviceOf(r); found {
+		return d.ID, true
+	}
+	return "", s.Devices == nil || s.Devices.Empty()
 }

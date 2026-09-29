@@ -23,3 +23,22 @@ func TestDeviceScopeWithoutADevice(t *testing.T) {
 		t.Errorf("lake with tokens, no device: all=%v bays=%v %v", scope.All(), scope.Bays(), err)
 	}
 }
+
+// A manifest or hello on a lake with tokens must carry a device: one
+// without is refused, not taken as the tokenless lake that writes every
+// bay.
+func TestRequestDevice(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	r := httptest.NewRequest("POST", "/v1/manifests", nil)
+	if id, ok := s.requestDevice(r); !ok || id != "" {
+		t.Errorf("tokenless lake: %q %v", id, ok)
+	}
+	s.Allow(laptopToken)
+	if id, ok := s.requestDevice(r); ok {
+		t.Errorf("lake with tokens took a request with no device as %q", id)
+	}
+}
