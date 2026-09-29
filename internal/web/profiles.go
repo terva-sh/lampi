@@ -71,6 +71,13 @@ type profileDevice struct {
 	// AllowSource is where the agent says its allow rules come from;
 	// local means this profile's allow rules do not reach it.
 	AllowSource string `json:"allow_source,omitempty"`
+	// DenySource and Applied are the device's deny_source and the
+	// profile version it applied, from its newest report, and Reported
+	// is when the lake received that report. The preview reads them to
+	// tell a deny rule of the device's own from one of an older profile.
+	DenySource string    `json:"-"`
+	Applied    string    `json:"-"`
+	Reported   time.Time `json:"-"`
 }
 
 type profileRevisionView struct {
@@ -122,9 +129,9 @@ func (s *Server) profileUsers(ctx context.Context) (map[string][]profileDevice, 
 	if err != nil {
 		return nil, err
 	}
-	allow := make(map[string]string, len(reports))
+	report := make(map[string]catalog.DeviceReport, len(reports))
 	for _, r := range reports {
-		allow[r.DeviceID] = r.Report.AllowSource
+		report[r.DeviceID] = r
 	}
 	users := map[string][]profileDevice{}
 	for _, d := range devices {
@@ -135,7 +142,9 @@ func (s *Server) profileUsers(ctx context.Context) (map[string][]profileDevice, 
 		if name == "" {
 			name = config.DefaultProfile
 		}
-		users[name] = append(users[name], profileDevice{ID: d.ID, Name: d.Name, AllowSource: allow[d.ID]})
+		r := report[d.ID]
+		users[name] = append(users[name], profileDevice{ID: d.ID, Name: d.Name, AllowSource: r.Report.AllowSource,
+			DenySource: r.Report.DenySource, Applied: r.Report.ProfileVersion, Reported: r.Received})
 	}
 	return users, nil
 }

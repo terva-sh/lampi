@@ -533,7 +533,28 @@ preview to get more. Clearing every field of a rule removes it.
 - which parts change;
 - the devices it reaches;
 - how many of those devices set their own allow rules, which the new allow
-  rules will not reach.
+  rules will not reach;
+- when the allow or deny rules change, the projects the change admits and the
+  projects it stops, each with its devices and session count.
+
+The project list reads the newest inventory of each device on the profile
+under the saved rules and the edited ones. Check it before you save a wider
+rule, such as a `git_remote_prefix`, because a wider rule can admit projects
+nobody has reviewed. The list has these limits:
+
+- A device that sets its own allow rules is left out.
+- A strict device lists only what it uploads, and a device that has sent no
+  inventory lists nothing. The preview names both, since it cannot say what
+  the change admits on them.
+- The lake cannot see a device's own deny rules. A project refused under a
+  deny rule is left out only when all of these hold:
+  - the device reports deny rules of its own;
+  - it reported applying the saved profile;
+  - its inventory arrived after both that report and the save;
+  - the saved profile's deny rules do not match the project.
+
+  Otherwise the refusal may come from an older profile, so the project is
+  listed, even though the device may still deny it.
 
 `git_remote` and `git_remote_prefix` are stored in the form the agent compares,
 so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.
