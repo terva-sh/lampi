@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NMCJV30YM9HSA70T00X3WS
 title: "Flaky under load: TestAgentReportsItsSyncAndProfileToTheLake"
 type: bug
-status: draft
+status: archived
 status_reason: null
 priority: low
 due_on: null
@@ -18,9 +18,12 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-09-29T05:05:09Z
+  from_status: draft
+  reason: null
 created_at: 2026-09-29T03:47:27Z
-updated_at: 2026-09-29T03:47:27Z
+updated_at: 2026-09-29T05:05:09Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -33,3 +36,9 @@ extensions: {}
 ## Description
 
 Failed once in a full local `just ci` on 2026-09-28 (branch t3code/add-raw-session-option, admin role work, which touches no agent code) with "no report of the upload" at internal/cli/agent_report_test.go:54, after a 10 s wait, and a TempDir cleanup error. It passed 5 times alone (-count=5) and in a full `go test ./internal/cli` right after. It looks like a timing window under parallel load, like TKT-01M3MSE6 (Flaky in CI: TestAgentRetriesFailedSyncWithoutGrowth times out).
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T05:05:00Z
+
+Duplicate of TKT-01M3MJDS (Flaky under load: TestAgentReportsItsSyncAndProfileToTheLake), filed a day earlier, which this ticket missed. This occurrence is recorded there. Archived in favor of it.

@@ -23,7 +23,7 @@ references:
 claim: null
 archive: null
 created_at: 2026-09-29T03:43:53Z
-updated_at: 2026-09-29T04:37:39Z
+updated_at: 2026-09-29T05:05:00Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -73,6 +73,12 @@ change.
 
 - [x] All child tickets are done
 - [x] docs/web-ui-plan.md, docs/web-dashboard.md and docs/web-api.md describe the admin role, raw view and raw-read tokens
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T05:05:00Z
+
+Owner confirmed on 2026-09-29 the first item under 'For the owner to review': operators are not promoted to admin on upgrade. See the note on TKT-01M3NKZT6N.
 
 ## Summary
 
