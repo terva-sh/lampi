@@ -257,10 +257,18 @@ func (s *Store) commitFileLocked(digest, src string, size int64) (exists bool, e
 	if err := os.Rename(src, final); err != nil {
 		return false, fmt.Errorf("cas: %w", err)
 	}
+	// The frame's entry is durable before the raw file goes, so a crash
+	// between the two cannot leave neither.
+	if err := syncDir(filepath.Dir(final)); err != nil {
+		return false, err
+	}
 	// The compressed form is read first, so the raw one is a second
 	// copy from here on, and a damaged one if that is why this ran.
 	raw, _ := s.Path(digest)
-	if err := os.Remove(raw); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(raw); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
 		return false, fmt.Errorf("cas: %w", err)
 	}
 	if err := syncDir(filepath.Dir(final)); err != nil {

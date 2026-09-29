@@ -389,3 +389,32 @@ func TestHasReportsEmptyDamagedObjectMissing(t *testing.T) {
 		t.Fatalf("Has(repaired) = %v, %v; want true", ok, err)
 	}
 }
+
+// Replacing a raw object with a frame makes the frame's directory entry
+// durable before the raw file is removed, so a crash between the two
+// leaves at least one copy (review 1295).
+func TestFrameIsDurableBeforeTheRawCopyGoes(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("raw before, framed after\n")
+	d := digestOf(body)
+	raw, _ := s.Path(d)
+	damage(t, raw, []byte("damaged raw bytes, same len"))
+	var rawAtSync []bool
+	prev := syncDir
+	syncDir = func(dir string) error {
+		_, err := os.Lstat(raw)
+		rawAtSync = append(rawAtSync, err == nil)
+		return prev(dir)
+	}
+	t.Cleanup(func() { syncDir = prev })
+	if _, err := s.Put(d, bytes.NewReader(body), 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(rawAtSync) < 2 || !rawAtSync[len(rawAtSync)-2] || rawAtSync[len(rawAtSync)-1] {
+		t.Fatalf("raw file present at each directory sync: %v; want a sync with it still there, then one after it goes", rawAtSync)
+	}
+	installedAs(t, s, d, body)
+}
