@@ -216,3 +216,52 @@ func TestCreateGuardedAcrossCreateAndDelete(t *testing.T) {
 		t.Fatalf("create after reading the deletion: %v %v", changed, err)
 	}
 }
+
+// TKT-01M3N8FHZR: a batch saves every profile against the revision its
+// caller read, or none of them.
+func TestPutProfilesIfIsAllOrNothing(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	ci, _, err := c.PutProfile(ctx, "ci", []byte(`{}`), "test", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, err := c.LatestProfileRevision(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowA := []byte(`{"projects":{"allow":[{"cwd_prefix":"/a"}]}}`)
+
+	// One stale base refuses the whole batch.
+	_, err = c.PutProfilesIf(ctx, []ProfileWrite{{"default", allowA, def}, {"ci", allowA, ci.Revision + 7}}, "oidc:ops", "both", now)
+	if !errors.Is(err, ErrProfileChanged) {
+		t.Fatalf("stale: %v", err)
+	}
+	if _, err := c.ProfileByName(ctx, "default"); !errors.Is(err, ErrNoProfile) {
+		t.Fatalf("a refused batch saved default: %v", err)
+	}
+	if _, err := c.PutProfilesIf(ctx, []ProfileWrite{{"ci", allowA, ci.Revision}, {"ci", allowA, ci.Revision}}, "oidc:ops", "", now); err == nil {
+		t.Fatal("a profile written twice in one batch was accepted")
+	}
+
+	ps, err := c.PutProfilesIf(ctx, []ProfileWrite{{"default", allowA, def}, {"ci", allowA, ci.Revision}}, "oidc:ops", "both", now)
+	if err != nil || len(ps) != 2 || ps[0].Name != "default" || ps[1].Revision <= ci.Revision {
+		t.Fatalf("batch: %+v %v", ps, err)
+	}
+	for _, name := range []string{"default", "ci"} {
+		p, err := c.ProfileByName(ctx, name)
+		if err != nil || len(p.Config.Projects.Allow) != 1 {
+			t.Fatalf("%s: %+v %v", name, p, err)
+		}
+		revs, _ := c.RecentProfileRevisions(ctx, name, 1)
+		if len(revs) != 1 || revs[0].Note != "both" || revs[0].CreatedBy != "oidc:ops" {
+			t.Fatalf("%s revision %+v", name, revs)
+		}
+	}
+	// Writing what is stored changes nothing and saves no revision.
+	again, err := c.PutProfilesIf(ctx, []ProfileWrite{{"ci", allowA, ps[1].Revision}}, "oidc:ops", "", now)
+	if err != nil || again[0].Revision != ps[1].Revision {
+		t.Fatalf("unchanged: %+v %v", again, err)
+	}
+}

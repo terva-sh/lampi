@@ -168,6 +168,75 @@ func (c *Catalog) putProfile(ctx context.Context, name string, raw []byte, actor
 		return Profile{}, false, fmt.Errorf("catalog: %w", err)
 	}
 	defer tx.Rollback()
+	p, changed, err := putProfileTx(ctx, tx, p, note, base, now)
+	if err != nil || !changed {
+		return p, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Profile{}, false, fmt.Errorf("catalog: %w", err)
+	}
+	return p, true, nil
+}
+
+// ProfileWrite is one profile a batch saves: its document, and the
+// revision the caller read, as PutProfileIf takes it.
+type ProfileWrite struct {
+	Name     string
+	Document []byte
+	Base     int64
+}
+
+// PutProfilesIf saves every profile in writes, each against the revision
+// its caller read, in one transaction with one note: all of them, or,
+// when any moved since, none, with ErrProfileChanged naming it. A
+// profile the write would not change is left alone and comes back as
+// stored. It returns the profiles in the order given.
+func (c *Catalog) PutProfilesIf(ctx context.Context, writes []ProfileWrite, actor, note string, now time.Time) ([]Profile, error) {
+	var ps []Profile
+	for _, w := range writes {
+		if !config.ValidProfileName(w.Name) {
+			return nil, fmt.Errorf("%w: %q", ErrProfileName, w.Name)
+		}
+		if w.Base < 0 {
+			return nil, fmt.Errorf("%w: revision %d", ErrProfileChanged, w.Base)
+		}
+		prof, err := config.ParseProfile(w.Document)
+		if err != nil {
+			return nil, fmt.Errorf("profile %s: %w", w.Name, err)
+		}
+		doc, err := json.Marshal(prof)
+		if err != nil {
+			return nil, err
+		}
+		ps = append(ps, Profile{Name: w.Name, Config: prof, Document: string(doc), Version: prof.Version(), Updated: now.UTC(), UpdatedBy: actor})
+	}
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	seen := map[string]bool{}
+	for i, p := range ps {
+		if seen[p.Name] {
+			return nil, fmt.Errorf("catalog: profile %s is written twice in one batch", p.Name)
+		}
+		seen[p.Name] = true
+		if ps[i], _, err = putProfileTx(ctx, tx, p, note, writes[i].Base, now); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return ps, nil
+}
+
+// putProfileTx saves p inside tx if the stored profile is at revision
+// base, or any revision when base is -1, and queues profile.put. It
+// reports false, with the stored profile, when p changes nothing, and
+// ErrProfileChanged, with the stored profile, when the revision moved.
+func putProfileTx(ctx context.Context, tx *sql.Tx, p Profile, note string, base int64, now time.Time) (Profile, bool, error) {
+	name, actor, prof := p.Name, p.UpdatedBy, p.Config
 	cur, err := scanProfile(tx.QueryRowContext(ctx, `SELECT `+profileCols+` FROM profiles WHERE name=?`, name))
 	existed := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -206,9 +275,6 @@ func (c *Catalog) putProfile(ctx context.Context, name string, raw []byte, actor
 	e := audit.Event{Kind: audit.ProfilePut, Actor: actor, Detail: fmt.Sprintf("profile=%s revision=%d version=%s changed=%s", name, p.Revision, p.Version, changed)}
 	if err := queueAudit(ctx, tx, now, e); err != nil {
 		return Profile{}, false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return Profile{}, false, fmt.Errorf("catalog: %w", err)
 	}
 	return p, true, nil
 }

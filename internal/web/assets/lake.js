@@ -190,3 +190,9 @@ showLatest(document);
   show();
   button.hidden = false;
 })();
+// Select all: a header checkbox ticks every row checkbox bound to its form.
+document.querySelectorAll('input[data-select-all]').forEach(all => {
+  const rows = () => document.querySelectorAll(`input[type=checkbox][name=key][form="${all.dataset.selectAll}"]`);
+  all.hidden = false;
+  all.addEventListener('change', () => rows().forEach(box => { box.checked = all.checked; }));
+});

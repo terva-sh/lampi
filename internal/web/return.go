@@ -79,44 +79,77 @@ func (s *Server) returnLabel(r *http.Request, path string) string {
 	return "the device"
 }
 
-// savedURL is path with the profile revision a save made, for the page
-// to say what was saved.
-func savedURL(path string, p catalog.Profile) string {
+// savedRef names a profile revision a save made.
+type savedRef struct {
+	Name string
+	Rev  int64
+}
+
+// maxSavedRefs bounds the revisions one page names; a batch Allow saves
+// at most one per profile.
+const maxSavedRefs = 32
+
+// savedURL is path with the profile revisions a save made, for the page
+// to say what was saved: the first maxSavedRefs of them, which is as
+// many as savedQuery reads.
+func savedURL(path string, ps ...catalog.Profile) string {
+	ps = ps[:min(len(ps), maxSavedRefs)]
 	sep := "?"
 	if strings.Contains(path, "?") {
 		sep = "&"
 	}
-	return path + sep + "saved=" + url.QueryEscape(p.Name) + "&revision=" + strconv.FormatInt(p.Revision, 10)
+	for _, p := range ps {
+		path += sep + "saved=" + url.QueryEscape(p.Name) + "&revision=" + strconv.FormatInt(p.Revision, 10)
+		sep = "&"
+	}
+	return path
 }
 
-// savedQuery reads ?saved=NAME&revision=N off a page a save came back
-// to. present is true when the query carries the pair, well formed or
-// not, so the page can take it off before reading the rest.
-func savedQuery(q url.Values) (name string, rev int64, present bool) {
+// savedQuery reads the saved=NAME&revision=N pairs off a page a save
+// came back to. present is true when the query carries either key, well
+// formed or not, so the page can take them off before reading the rest;
+// a malformed set names nothing.
+func savedQuery(q url.Values) (refs []savedRef, present bool) {
 	if !q.Has("saved") && !q.Has("revision") {
-		return "", 0, false
+		return nil, false
 	}
-	name = q.Get("saved")
-	rev, err := strconv.ParseInt(q.Get("revision"), 10, 64)
-	if len(q["saved"]) != 1 || len(q["revision"]) != 1 || !config.ValidProfileName(name) || err != nil || rev < 1 {
-		return "", 0, true
+	names, revs := q["saved"], q["revision"]
+	if len(names) != len(revs) || len(names) > maxSavedRefs {
+		return nil, true
 	}
-	return name, rev, true
+	for i, name := range names {
+		rev, err := strconv.ParseInt(revs[i], 10, 64)
+		if !config.ValidProfileName(name) || err != nil || rev < 1 {
+			return nil, true
+		}
+		refs = append(refs, savedRef{name, rev})
+	}
+	return refs, true
 }
 
-// savedNotice says who saved revision rev of profile name, when, and
-// with what note. It is read from the catalog and states only what the
-// catalog records, so a link that names a revision cannot make the page
-// claim anything that did not happen. "" when there is no such saved
-// revision.
-func (s *Server) savedNotice(r *http.Request, name string, rev int64) string {
-	pr, err := s.catalog.ProfileRevisionByID(r.Context(), name, rev)
-	if err != nil || pr.Deleted {
+// savedNotice says, for each ref whose profile keep accepts, who saved
+// that revision, when, and with what note. It is read from the catalog
+// and states only what the catalog records, so a link that names a
+// revision cannot make the page claim anything that did not happen.
+// "" when no ref names a saved revision.
+func (s *Server) savedNotice(r *http.Request, refs []savedRef, keep func(string) bool) string {
+	var lines []string
+	for _, ref := range refs {
+		if !keep(ref.Name) {
+			continue
+		}
+		pr, err := s.catalog.ProfileRevisionByID(r.Context(), ref.Name, ref.Rev)
+		if err != nil || pr.Deleted {
+			continue
+		}
+		line := "Profile " + ref.Name + " revision " + strconv.FormatInt(ref.Rev, 10) + " was saved by " + pr.CreatedBy + " at " + pr.Created.UTC().Format("2006-01-02 15:04 UTC")
+		if pr.Note != "" {
+			line += ": " + pr.Note
+		}
+		lines = append(lines, line+".")
+	}
+	if len(lines) == 0 {
 		return ""
 	}
-	notice := "Profile " + name + " revision " + strconv.FormatInt(rev, 10) + " was saved by " + pr.CreatedBy + " at " + pr.Created.UTC().Format("2006-01-02 15:04 UTC")
-	if pr.Note != "" {
-		notice += ": " + pr.Note
-	}
-	return notice + ". Devices on it fetch it within seconds; this page shows the change once the device sends a new inventory."
+	return strings.Join(lines, " ") + " Devices on it fetch it within seconds; a project shows the change once its device sends a new inventory."
 }

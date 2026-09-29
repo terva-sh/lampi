@@ -126,8 +126,9 @@ type pageData struct {
 	Profile  profileView
 	// ProfileEdit is the operator's profile editor.
 	ProfileEdit profileEditView
-	// Review is the review queue's page.
+	// Review is the review queue's page, and Allow its confirm page.
 	Review reviewView
+	Allow  allowView
 	// ReviewCount is how many projects need review, for the header;
 	// -1 when unknown.
 	ReviewCount int
