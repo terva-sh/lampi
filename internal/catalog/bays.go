@@ -701,7 +701,11 @@ func (c *Catalog) DeleteBay(ctx context.Context, ref, actor string, now time.Tim
 		}
 		return audit.Event{Kind: audit.BayDeleted, Actor: actor, Detail: fmt.Sprintf("bay %s (%s) deleted; %d sessions left in no other bay moved to the default", name, id, moved)}, nil
 	})
-	return moved, err
+	if err != nil {
+		// Rolled back: nothing moved (review 1401).
+		return 0, err
+	}
+	return moved, nil
 }
 
 // SetDefaultEnabled turns the default bay on or off. Off applies at

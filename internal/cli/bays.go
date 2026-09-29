@@ -132,10 +132,16 @@ func runServeBays(env Env, args []string) error {
 		}
 		done = fmt.Sprintf("created bay %s (%s)", b.Name, b.ID)
 	case "rename":
-		if err := cat.RenameBay(ctx, pos[0], pos[1], actor, now); err != nil {
+		// BAY may be an id or an alias; the name kept as an alias is the
+		// bay's own (review 1401).
+		b, err := cat.ResolveBay(ctx, pos[0])
+		if err != nil {
 			return err
 		}
-		done = fmt.Sprintf("renamed %s to %s; %s stays as an alias", pos[0], pos[1], pos[0])
+		if err := cat.RenameBay(ctx, b.ID, pos[1], actor, now); err != nil {
+			return err
+		}
+		done = fmt.Sprintf("renamed %s to %s; %s stays as an alias", b.Name, pos[1], b.Name)
 	case "alias":
 		if err := cat.AliasBay(ctx, pos[0], pos[1], actor, now); err != nil {
 			return err

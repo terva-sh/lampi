@@ -3,6 +3,7 @@ package webauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"terva.sh/lampi/internal/testidp"
@@ -132,5 +133,25 @@ func TestIdentityKeepsItsGroups(t *testing.T) {
 	}
 	if want := []string{"client-x", "readers"}; !slices.Equal(id.Groups, want) {
 		t.Fatalf("groups %v want %v", id.Groups, want)
+	}
+}
+
+// TestTheGroupCapKeepsRoleGroups is review 1401: a role group past the
+// cap in claim order is still kept, so its bay grants apply.
+func TestTheGroupCapKeepsRoleGroups(t *testing.T) {
+	s := testidp.New()
+	defer s.Close()
+	var claimed []string
+	for i := range maxGroups + 10 {
+		claimed = append(claimed, fmt.Sprintf("g%03d", i))
+	}
+	s.Groups = append(claimed, "readers")
+	p, _ := NewProvider(providerConfig(s), s.Client())
+	id, err := p.Exchange(t.Context(), s.Issue("n", "v", "lake"), "n", "v")
+	if err != nil || !id.Viewer {
+		t.Fatalf("id %+v err=%v", id, err)
+	}
+	if len(id.Groups) != maxGroups || !slices.Contains(id.Groups, "readers") {
+		t.Fatalf("%d groups, readers kept=%v", len(id.Groups), slices.Contains(id.Groups, "readers"))
 	}
 }

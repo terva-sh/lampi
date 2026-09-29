@@ -243,10 +243,19 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 			break
 		}
 	}
-	for _, g := range groups(claims[p.cfg.OIDC.GroupsClaim]) {
-		if len(out.Groups) < maxGroups && !slices.Contains(out.Groups, g) {
-			out.Groups = append(out.Groups, g)
+	claimed := groups(claims[p.cfg.OIDC.GroupsClaim])
+	// A group that gives the role is kept before the cap applies, so a
+	// role and the bay grants of the group that gave it never part
+	// (review 1401). Other groups fill the rest in claim order.
+	for _, roles := range []bool{true, false} {
+		for _, g := range claimed {
+			_, role := p.cfg.OIDC.RoleMap[g]
+			if role == roles && len(out.Groups) < maxGroups && !slices.Contains(out.Groups, g) {
+				out.Groups = append(out.Groups, g)
+			}
 		}
+	}
+	for _, g := range claimed {
 		switch p.cfg.OIDC.RoleMap[g] {
 		case webconfig.RoleViewer:
 			out.Viewer = true

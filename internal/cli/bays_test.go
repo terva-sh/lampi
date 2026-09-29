@@ -56,6 +56,10 @@ func TestServeBays(t *testing.T) {
 	must("renamed client-x to acme", "rename", "client-x", "acme")
 	must("acme id=bay_", "list")
 	must("aliases=client-x", "list")
+	// Renamed through an alias, the bay keeps its own name as an alias.
+	must("created bay zeta", "create", "zeta")
+	must("z is now an alias of zeta", "alias", "zeta", "z")
+	must("renamed zeta to omega; zeta stays as an alias", "rename", "z", "omega")
 	must("inbox is now an alias of default", "alias", "default", "inbox")
 	if _, err := run("rename", "default", "other"); err == nil {
 		t.Fatal("renamed the default bay")
