@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF1YNYZSXKNY2H71Q4SWC
 title: "Bays: amend policy, architecture and naming docs"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/7859b064
+  branch: bays/policy-docs
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
+  commit: 0afc10f1e1a1973ecb897701a561647a725baf67
+  session: null
+  claimed_at: 2026-09-29T14:58:27Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T04:06:17Z
+updated_at: 2026-09-29T14:58:27Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""

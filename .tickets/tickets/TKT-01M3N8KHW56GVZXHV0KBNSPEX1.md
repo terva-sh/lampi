@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N8KHW56GVZXHV0KBNSPEX1
 title: "Bays: segment one lake and route sessions to a bay"
 type: epic
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -20,10 +20,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/7859b064
+  branch: bays/policy-docs
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
+  commit: 0afc10f1e1a1973ecb897701a561647a725baf67
+  session: null
+  claimed_at: 2026-09-29T14:58:27Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T14:52:08Z
+updated_at: 2026-09-29T14:58:28Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
