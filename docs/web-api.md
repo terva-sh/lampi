@@ -134,7 +134,7 @@ public URL check does, whether or not it ends in a code.
 | A name that is not a device name | `400 invalid_name` |
 | An expiry that does not parse, or is over 30 days | `400 invalid_expiry` |
 | A profile the lake does not hold | `400 unknown_profile` |
-| A body that is not one JSON object of these fields | `400 invalid_request` |
+| A body that is not one JSON object of these fields, `make-head` without a 64-character `head`, or `head` on another action | `400 invalid_request` |
 | A device, or a pending code, already has the name | `409 name_taken` |
 | No identity, no public URL, or a public URL that does not reach this lake | `503 lake_not_ready` |
 | Cancelling a code that does not exist | `404 not_found` |
@@ -619,6 +619,7 @@ role, `404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
 | Route under `/api/web/v1` | Result |
 |---|---|
 | `POST /conflicts/{id}/keep-head` | Resolves the conflict as `kept_head`. Takes no body or `{"note": TEXT}`: one line, at most 500 characters, with no control characters, checked as sent; surrounding spaces are then dropped. |
+| `POST /conflicts/{id}/make-head` | Makes the copy the session's head. Takes `{"head": DIGEST}`, the session head the caller saw, and an optional `note`. See below. |
 | `POST /conflicts/{id}/reopen` | Removes the resolution. Takes no body, or an empty object. It does not move the head. |
 
 Each answers `200` with `{conflict}` as above.
@@ -630,9 +631,24 @@ Each answers `200` with `{conflict}` as above.
 | A note over 500 characters or on more than one line, or a `note` field on reopen, even empty or null | `400 invalid_note` |
 | Keeping the head of a resolved conflict | `409 already_resolved`, with the conflict |
 | Reopening an open conflict | `409 not_resolved`, with the conflict |
+| Reopening a copy that is its session's head now | `409 is_head`, with the conflict |
+| `make-head` when the session's head is not `head` | `409 head_moved`, with the conflict |
+| `make-head` on a server that has no blob store to read | `503 make_head_unavailable` |
+| `make-head` committed but normalizing again could not be started; it runs at the next start or SIGHUP | `500 normalize_failed`, with the conflict |
+| `make-head` on a companion of the head, such as a subagent transcript, or another kind of file | `409 not_head_candidate`, with the conflict |
+
+`make-head` makes the copy the current artifact at its path and the session's
+head. The row that held the head, at that path or another, stops being current.
+The copy is resolved as `made_head` and keeps its `divergent_copy` relation.
+Every other open copy at its path whose bytes it continues is resolved as
+`superseded`. A `head_updates` row with relation `made_head` records the change,
+attributed to a machine that posted the copy at its path, and the session is
+normalized again. The replaced head's bytes stay stored. The next upload that continues the
+copy moves the head as any append does.
 
 Each change goes to `audit.jsonl` as `conflict.resolved` or
-`conflict.reopened`, with the operator as actor. A change whose audit line fails
+`conflict.reopened`, and `make-head` adds `conflict.head_changed` naming the head
+it replaced, with the operator as actor. A change whose audit line fails
 still stands, and answers `500 audit_failed`; the line stays queued.
 
 ## Review queue

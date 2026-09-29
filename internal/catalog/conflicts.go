@@ -34,6 +34,9 @@ var (
 	ErrNoConflict       = errors.New("catalog: no such conflict")
 	ErrConflictResolved = errors.New("catalog: conflict is already resolved")
 	ErrConflictOpen     = errors.New("catalog: conflict is not resolved")
+	// ErrConflictIsHead: the copy is its session's head now, so it
+	// cannot be reopened as a conflict with that head.
+	ErrConflictIsHead = errors.New("catalog: the copy is the session head")
 )
 
 // ValidResolution reports whether r is a resolution ResolveConflict
@@ -225,8 +228,9 @@ func resolveConflict(ctx context.Context, tx *sql.Tx, artifactID, resolution, by
 
 // ReopenConflict removes the resolution of the divergent copy
 // artifactID and queues its conflict.reopened event in the same
-// transaction. It does not move a head a resolution moved. A conflict
-// with no resolution is ErrConflictOpen.
+// transaction. It does not move a head a resolution moved, so a copy
+// that is its session's head now is ErrConflictIsHead. A conflict with
+// no resolution is ErrConflictOpen.
 func (c *Catalog) ReopenConflict(ctx context.Context, artifactID, by string, now time.Time) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -236,6 +240,14 @@ func (c *Catalog) ReopenConflict(ctx context.Context, artifactID, by string, now
 	uid, err := conflictSession(ctx, tx, artifactID)
 	if err != nil {
 		return err
+	}
+	var isHead bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM artifacts a JOIN sessions s ON s.session_uid = a.session_uid
+		WHERE a.artifact_id = ? AND a.current = 1 AND a.sha256 = s.head_sha256)`, artifactID).Scan(&isHead); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	if isHead {
+		return ErrConflictIsHead
 	}
 	var was string
 	err = tx.QueryRowContext(ctx, `DELETE FROM conflict_resolutions WHERE artifact_id = ? RETURNING resolution`, artifactID).Scan(&was)
@@ -252,4 +264,159 @@ func (c *Catalog) ReopenConflict(ctx context.Context, artifactID, by string, now
 		return fmt.Errorf("catalog: %w", err)
 	}
 	return nil
+}
+
+var (
+	// ErrHeadMoved: the session's head is not the one the caller saw.
+	ErrHeadMoved = errors.New("catalog: the session head moved")
+	// ErrNotHeadCandidate: the copy cannot be a head: its kind carries
+	// none, it is another kind than the head, or it is a companion of
+	// the head, such as a Claude subagent transcript.
+	ErrNotHeadCandidate = errors.New("catalog: this copy cannot be the session head")
+)
+
+// MadeHead is what MakeConflictHead changed.
+type MadeHead struct {
+	SessionUID string
+	OldHead    string
+	// Superseded is the other open copies at the copy's path whose bytes
+	// the new head extends, now resolved as superseded.
+	Superseded []string
+}
+
+// MakeConflictHead makes the open divergent copy artifactID the head of
+// its session, when the session's head is still expectHead. The copy
+// becomes the current artifact at its path, and the row that held the
+// head, at that path or another, stops being current, as a moved file
+// does on ingest. Its relation stays divergent_copy; it is resolved as
+// made_head. Every other open copy at the same path whose bytes the new
+// head extends, read through blobs, is resolved as superseded. A
+// head_updates row records the change, attributed to a machine that
+// posted the copy at its path, and the session is queued for normalization. The
+// head's bytes stay stored. Everything, with one audit event per
+// resolution, commits in one transaction (TKT-01M3PTMWM9).
+func (c *Catalog) MakeConflictHead(ctx context.Context, blobs BlobReader, artifactID, expectHead, by, note string, now time.Time) (MadeHead, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	var cp ArtifactRow
+	var size int64
+	err = tx.QueryRowContext(ctx, `SELECT session_uid, kind, relpath, sha256, size FROM artifacts WHERE artifact_id = ? AND relation = ?`,
+		artifactID, protocol.RelationDivergentCopy).Scan(&cp.SessionUID, &cp.Kind, &cp.RelPath, &cp.SHA256, &size)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MadeHead{}, fmt.Errorf("%w: %s", ErrNoConflict, artifactID)
+	}
+	if err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	var resolved bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM conflict_resolutions WHERE artifact_id = ?)`, artifactID).Scan(&resolved); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	if resolved {
+		return MadeHead{}, ErrConflictResolved
+	}
+	uid := cp.SessionUID
+	var head, harness string
+	if err := tx.QueryRowContext(ctx, `SELECT head_sha256, harness FROM sessions WHERE session_uid = ?`, uid).Scan(&head, &harness); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	if head != expectHead {
+		return MadeHead{}, ErrHeadMoved
+	}
+	row, found, err := headRow(ctx, tx, uid, head)
+	if err != nil {
+		return MadeHead{}, err
+	}
+	if !headBearing(cp.Kind) || found && (row.Kind != cp.Kind || companion(cp.RelPath, row.RelPath)) {
+		return MadeHead{}, ErrNotHeadCandidate
+	}
+	oldSize, err := headSize(ctx, tx, uid, head)
+	if err != nil {
+		return MadeHead{}, err
+	}
+	for _, rel := range []string{cp.RelPath, row.RelPath} {
+		if rel == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE artifacts SET current = 0 WHERE session_uid = ? AND relpath = ? AND current = 1`, uid, rel); err != nil {
+			return MadeHead{}, fmt.Errorf("catalog: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE artifacts SET current = 1 WHERE artifact_id = ?`, artifactID); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET head_sha256 = ? WHERE session_uid = ?`, cp.SHA256, uid); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	out := MadeHead{SessionUID: uid, OldHead: head}
+	detail := conflictDetail(artifactID, uid, ResolutionMadeHead) + " old_head=" + head
+	if err := resolveConflict(ctx, tx, artifactID, ResolutionMadeHead, by, note, now); err != nil {
+		return MadeHead{}, err
+	}
+	// The event resolveConflict queued names the resolution; this one
+	// names the head it replaced.
+	if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.ConflictHeadChanged, Actor: by, Detail: detail}); err != nil {
+		return MadeHead{}, err
+	}
+
+	type other struct{ id, sha string }
+	var others []other
+	rows, err := tx.QueryContext(ctx, `SELECT a.artifact_id, a.sha256 FROM artifacts a
+		WHERE a.session_uid = ? AND a.relpath = ? AND a.relation = 'divergent_copy' AND a.artifact_id <> ? AND `+unresolvedSQL+`
+		ORDER BY a.artifact_id`, uid, cp.RelPath, artifactID)
+	if err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	for rows.Next() {
+		var o other
+		if err := rows.Scan(&o.id, &o.sha); err != nil {
+			rows.Close()
+			return MadeHead{}, fmt.Errorf("catalog: %w", err)
+		}
+		others = append(others, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	for _, o := range others {
+		rel, err := Relate(blobs, o.sha, cp.SHA256)
+		if err != nil {
+			return MadeHead{}, fmt.Errorf("catalog: conflict %s: %w", o.id, err)
+		}
+		if rel != protocol.RelationGrownFrom && rel != protocol.RelationUnchanged {
+			continue
+		}
+		if err := resolveConflict(ctx, tx, o.id, ResolutionSuperseded, by, "extended by "+artifactID, now); err != nil {
+			return MadeHead{}, err
+		}
+		out.Superseded = append(out.Superseded, o.id)
+	}
+
+	var machine string
+	// A machine that posted these bytes at this path.
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(machine_id), '') FROM provenance WHERE session_uid = ? AND sha256 = ? AND relpath = ?`, uid, cp.SHA256, cp.RelPath).Scan(&machine); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	if err := recordHeadUpdate(ctx, tx, headUpdate{uid: uid, machine: machine, harness: harness, received: now,
+		oldSHA: head, newSHA: cp.SHA256, oldSize: oldSize, newSize: size, relation: ResolutionMadeHead}); err != nil {
+		return MadeHead{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET normalize_gen = normalize_gen + 1 WHERE session_uid = ?`, uid); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO normalize_jobs (session_uid, gen, enqueued_at)
+		SELECT session_uid, normalize_gen, ? FROM sessions WHERE session_uid = ?
+		ON CONFLICT(session_uid) DO UPDATE
+		SET gen = excluded.gen, enqueued_at = excluded.enqueued_at`, now.UTC().Format(time.RFC3339Nano), uid); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MadeHead{}, fmt.Errorf("catalog: %w", err)
+	}
+	return out, nil
 }

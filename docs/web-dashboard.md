@@ -229,11 +229,21 @@ raw download of each side. An operator settles it there:
 - **Keep the head** resolves it: the session goes on showing the head it
   has, and the copy's bytes stay. A one-line note goes to the audit log
   with the resolution.
+- **Make this the head** is for a harness that rewrote the file and
+  kept writing to it, so every upload is another copy and the session in
+  the lake has stopped moving. The copy becomes the session's head, its
+  transcript is normalized again, and the next upload that continues it
+  moves the head as usual. Older open copies at the path that it
+  continues are resolved as superseded. The replaced head stays stored.
+  The form carries the head the page showed, so a head that moved since
+  is refused rather than replaced unseen. A companion file, such as a
+  subagent transcript, cannot be made the head.
 - **Reopen** puts a resolved conflict back on the list. It does not move
-  the head.
+  the head, so a copy that is the head now cannot be reopened.
 
-Both write `conflict.resolved` or `conflict.reopened` to `audit.jsonl`
-with the operator as actor.
+Each writes `conflict.resolved`, `conflict.reopened`, or for a new head
+also `conflict.head_changed`, to `audit.jsonl` with the operator as
+actor.
 
 ### Theme
 

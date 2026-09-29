@@ -1169,6 +1169,9 @@ type DivergentCopy struct {
 	HeadMachines []string
 	// Resolution is set when the conflict was resolved.
 	Resolution *Resolution
+	// IsHead is set when this artifact is its session's current head,
+	// as after an operator made it the head.
+	IsHead bool
 }
 
 // DivergentCopies lists the divergent_copy artifacts, oldest first:
@@ -1218,7 +1221,8 @@ func (c *Catalog) divergentCopies(ctx context.Context, scope Scope, resolved boo
 			COALESCE(r.resolution, ''),
 			COALESCE(r.resolved_at, ''),
 			COALESCE(r.resolved_by, ''),
-			COALESCE(r.note, '')
+			COALESCE(r.note, ''),
+			a.current = 1 AND a.sha256 = s.head_sha256
 		FROM artifacts a
 		JOIN sessions s ON s.session_uid = a.session_uid
 		LEFT JOIN conflict_resolutions r ON r.artifact_id = a.artifact_id
@@ -1261,7 +1265,7 @@ func scanDivergentCopies(rows *sql.Rows) ([]DivergentCopy, error) {
 		if err := rows.Scan(
 			&d.SessionUID, &d.ArtifactID, &d.Harness, &d.NativeID,
 			&d.Kind, &d.RelPath, &d.SHA256, &d.Size, &d.HeadSHA256, &d.HeadSize,
-			&r.Resolution, &at, &r.By, &r.Note,
+			&r.Resolution, &at, &r.By, &r.Note, &d.IsHead,
 		); err != nil {
 			return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
 		}

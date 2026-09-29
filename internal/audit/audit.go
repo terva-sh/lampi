@@ -78,6 +78,11 @@ const (
 	BayRuleRemoved   = "bay.rule.removed"
 	BayHold          = "bay.hold"
 	BayHoldReleased  = "bay.hold.released"
+
+	// ConflictHeadChanged records an operator making a divergent copy
+	// the session's head. Detail names the copy and the head it
+	// replaced, whose bytes stay stored.
+	ConflictHeadChanged = "conflict.head_changed"
 )
 
 // Event is one line. Device is the device name. Actor is where the

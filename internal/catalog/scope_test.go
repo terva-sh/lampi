@@ -34,7 +34,7 @@ var unscoped = map[string]string{
 	"Migrated": "lifecycle", "PutDeviceInventory": "write", "PutDeviceReport": "write",
 	"PutProfile": "write", "PutProfileIf": "write", "PutProfilesIf": "write", "QueueAudit": "write",
 	"RecordExpiries": "write", "RecordLakeID": "write", "RecordStorage": "write", "Redeem": "write",
-	"RemoveFromBay": "write", "ResolveConflict": "write", "ReopenConflict": "write", "RemoveGrant": "write", "RenameBay": "write", "RevokeDevice": "write",
+	"RemoveFromBay": "write", "ResolveConflict": "write", "ReopenConflict": "write", "MakeConflictHead": "write, checked against the caller's scope by the web layer first", "RemoveGrant": "write", "RenameBay": "write", "RevokeDevice": "write",
 	"RevokeDeviceByID": "write", "RevokeReadToken": "write", "RevokeRegistration": "write",
 	"SeedRoleGrants": "write", "SetDefaultEnabled": "write", "SetDeviceProfile": "write",
 	"SetDeviceProfileByID": "write", "SetNormalizeError": "write", "SetPublicURL": "write",
