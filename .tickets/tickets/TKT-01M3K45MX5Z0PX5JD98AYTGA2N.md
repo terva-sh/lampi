@@ -153,6 +153,10 @@ hosted lake is the owner's call, as the earlier note says.
 
 terva-review on #121, head 586672e, run 019176d3: clean, no findings at the failure threshold, and CI is green. The search-index part of this ticket is still to do: measure docs.content and the trigram index, then try contentless FTS5 with snippets read from the events file, and detail settings.
 
+**agent:claude-code/fbqx** at 2026-09-29T02:15:16Z
+
+Search-index part: the hosted index at 4.9 GB is mostly churn, not size. Untimed events were rewritten at every sync (TKT-01M3NENNN8, search index rewrites untimed events at every sync). A one-shot build of 329 local sessions (1.09 GB normalized) is 611 MiB, about 0.56x normalized: docs and their indexes take 236 MiB, and the trigram FTS 380 MiB. Shrinking beyond that is a separate question for after the rebuild lands.
+
 **agent:claude-code/fbqx** at 2026-09-29T02:15:39Z
 
 Owner decision 2026-09-29, for the hosted lake's upgrade to the release with zstd CAS and events:
