@@ -384,6 +384,32 @@ when a rule in the profile already covers it, such as a `cwd_prefix` above it:
 the device picks that rule up with its next profile fetch. Allowing for one
 device alone waits for per-device overrides.
 
+## Review
+
+`/review` lists every project your devices hold that no one has decided about
+yet, across all devices, so onboarding a machine is one page rather than a
+visit to each device. The header's Review link counts them. A project is
+named by its git remote, or by its folder when it has none, so the same
+repository on two devices is one row, listing both devices, their profiles
+and checkouts.
+
+- **Needs review** holds refused projects that are not hidden and that no rule
+  in the device's profile allows yet, newest first seen first. *First seen* is
+  when the lake first saw the project on a device. A project that was already
+  there when the lake began recording reads "or before".
+- **Allow pending** holds projects a rule now allows whose device has not sent
+  a new inventory yet. They leave once it does.
+- **Denied** holds projects a deny rule refuses, or sessions with no working
+  directory. An allow rule cannot let those through.
+- **Hidden** is a tab of the projects hidden from review.
+- A strict device appears as a line with its refused session count and size,
+  since it names none of those projects.
+
+Filters narrow by device, harness and profile. Operators get **Allow in
+PROFILE…** for each device's copy. It works like [Allow on a device's
+page](#a-devices-page), and Back and Save both return to the queue with its
+filters.
+
 ## Profiles
 
 `/profiles` lists the lake's profiles, the default first. Each shows its

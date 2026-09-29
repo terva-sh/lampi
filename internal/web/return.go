@@ -17,7 +17,8 @@ import (
 // accepted, so the field cannot send a browser anywhere else.
 
 // returnPath is raw as a page to come back to, or "" when it is not
-// one: a device's page, with its refused filter if it had one.
+// one: a device's page, with its refused filter if it had one, or the
+// review queue with its filter.
 func returnPath(raw string) string {
 	if raw == "" || strings.ContainsAny(raw, "\\\r\n\t#") || strings.HasPrefix(raw, "//") {
 		return ""
@@ -25,6 +26,13 @@ func returnPath(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Fragment != "" || u.RawPath != "" {
 		return ""
+	}
+	if u.Path == reviewPath {
+		f, ok := parseReviewFilter(u.Query())
+		if !ok {
+			return ""
+		}
+		return f.URL()
 	}
 	id, ok := strings.CutPrefix(u.Path, devicesPath+"/")
 	if !ok || !validDeviceID(id) {
@@ -56,6 +64,9 @@ func validDeviceID(id string) bool {
 // returnLabel names the page at path, a returnPath, for a Back link.
 func (s *Server) returnLabel(r *http.Request, path string) string {
 	u, _ := url.Parse(path)
+	if u.Path == reviewPath {
+		return "review"
+	}
 	id := strings.TrimPrefix(u.Path, devicesPath+"/")
 	if d, err := deviceByID(r.Context(), s.catalog, id); err == nil {
 		return d.Name

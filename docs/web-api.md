@@ -508,6 +508,60 @@ Each change goes to `audit.jsonl` with the operator as actor. A change whose
 audit line fails still stands, and answers `500 audit_failed` with the device;
 the line stays queued and is written at the next flush.
 
+## Review queue
+
+`GET /api/web/v1/review` is the review queue: every refused project in the
+newest inventories of the active devices, grouped lake-wide by project. A
+project is named by its folded git remote, or by its cwd when it has none, so
+the same repository on two devices is one entry. The `/review` page shows the
+same data. Any viewer can read it.
+
+It takes `device` (a `dev_` id), `harness` and `profile`, each at most once, to
+narrow the queue; an empty value means all. Anything else is
+`400 invalid_filters_or_cursor`.
+
+```json
+{
+  "as_of": "2026-09-28T15:02:00Z",
+  "sightings_since": "2026-09-28T12:00:00Z",
+  "filter": {},
+  "needs_review": [
+    {"key": {"kind": "git_remote", "key": "github.com/acme/app"},
+     "devices": [
+       {"device_id": "dev_...", "device_name": "desk", "profile": "ci", "state": "needs_review",
+        "first_seen": "2026-09-28T14:41:11Z",
+        "project": {"git_remote": "github.com/acme/app", "cwd": "/src/app", "cwds": 1,
+                    "harnesses": ["claude"], "sessions": 12, "bytes": 409600,
+                    "allowed": false, "reason": "no allow rule matches"}}],
+     "sessions": 12, "bytes": 409600, "first_seen": "2026-09-28T14:41:11Z"}
+  ],
+  "allow_pending": [],
+  "denied": [],
+  "hidden": [{"key": {"kind": "cwd", "key": "/home/me/scratch"}, "hidden_by": "oidc:...",
+              "hidden_at": "2026-09-28T14:50:00Z", "note": "throwaway", "devices": 1}],
+  "strict": [{"device_id": "dev_...", "device_name": "locked", "sessions": 3, "bytes": 12288}]
+}
+```
+
+- Each device's copy of a project has a `state`, and a project is listed in the
+  section of each state its copies are in:
+  - `needs_review`: refused, not hidden, and the device's profile has no rule
+    that allows it.
+  - `allow_pending`: the device's profile allows it now, and the device has not
+    sent an inventory since.
+  - `denied`: a deny rule refuses it, or it has no cwd, so no allow rule can let
+    it through.
+- `profile` is the profile the device fetches. `local_allow` marks a device
+  whose `config.json` sets its own allow rules, which a profile rule does not
+  reach.
+- `first_seen` is when the lake first saw the project on the device.
+  `first_seen_at_or_before` marks a project first seen when the lake began
+  recording sightings, at `sightings_since`: it may have been there before.
+- A hidden project leaves the other sections and is listed in `hidden`, with
+  how many active devices refuse it now.
+- A `strict` device names no refused project; `strict` gives its totals.
+- Sections are ordered by `first_seen`, newest first.
+
 ## Profiles
 
 `GET /api/web/v1/profiles` and `GET /api/web/v1/profiles/{name}` read the
