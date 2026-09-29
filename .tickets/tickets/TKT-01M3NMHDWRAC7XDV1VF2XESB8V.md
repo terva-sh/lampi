@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:50:06Z
-updated_at: 2026-09-29T04:07:45Z
+updated_at: 2026-09-29T04:37:26Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -99,3 +99,17 @@ The sixth terva-review, on a97b591, has two medium findings:
 - `no_profile` cannot tell an unpinned device from a pinned one whose first fetch is pending.
 
 Neither is fixed yet.
+
+**agent:claude-code/16ebd168** at 2026-09-29T04:37:26Z
+
+Owner decisions, 2026-09-29, on the widening in the previous note:
+- keep the 60 sessions uploaded;
+- narrow default's home-folder rules;
+- the workstation stays on default so it follows fleet updates.
+
+Prepared in the external handoff `narrow-default-A6uVhshY`, for the owner to run as root:
+- The three cwd_prefix rules /home/sothr, /Users/sothr and /Users/drewshort become cwd_hash rules, which match those exact folders.
+- 6 git_remote and 6 cwd_hash rules are added for the projects the workstation uploads today only through /home/sothr.
+- On the workstation, agent refused gives the same result under both profiles: 23 sessions in 6 projects.
+- The Macs were not checked. A project there that only /Users/* allowed goes back to the Review queue.
+- apply.sh refuses if default moved past sha256:e057488d835e22bf.
