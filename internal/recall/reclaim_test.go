@@ -121,3 +121,33 @@ func TestAStoppedPassLeavesTheReclaimPending(t *testing.T) {
 		t.Fatal("a pass stopped after writing left no reclaim pending")
 	}
 }
+
+// A pass that reclaims leaves the WAL empty. The WAL kept the size of
+// its largest stretch between resets, and on the dev lake it held
+// 845 MiB after the rebuild (TKT-01M3NPFNJA).
+func TestAReclaimTruncatesTheWAL(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "wal")
+	path := filepath.Join(t.TempDir(), IndexFile)
+	x, err := OpenIndex(path, NewReader(s.Catalog, s.Normalized))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { x.Close() })
+	var limit int64
+	if err := x.db.QueryRow(`PRAGMA journal_size_limit`).Scan(&limit); err != nil {
+		t.Fatal(err)
+	}
+	if limit != walLimit {
+		t.Fatalf("journal_size_limit is %d, want %d", limit, walLimit)
+	}
+	publish(t, s, uid, events(300, func(i int) string { return fmt.Sprintf("wal text %d %s", i, strings.Repeat("x", 500)) }))
+	pass(t, x)
+	st, err := os.Stat(path + "-wal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() != 0 {
+		t.Fatalf("the WAL is %d bytes after a pass that reclaimed", st.Size())
+	}
+}
