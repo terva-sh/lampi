@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -87,6 +88,9 @@ type profilePreview struct {
 	// LocalAllow counts the devices the allow rules do not reach, shown
 	// when the allow rules change.
 	LocalAllow int
+	// Reach is what the change does to the devices' projects, set when
+	// the project rules change.
+	Reach *profileReach
 }
 
 type profileEditView struct {
@@ -394,6 +398,21 @@ func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profi
 				pv.LocalAllow++
 			}
 		}
+	}
+	if slices.ContainsFunc(pv.Changed, func(c string) bool { return c == "projects.allow" || c == "projects.deny" }) {
+		st := storedProfile{Version: cur.Version()}
+		if stored {
+			sp, err := s.catalog.ProfileByName(r.Context(), name)
+			if err != nil {
+				return nil, err
+			}
+			st.Saved = sp.Updated
+		}
+		reach, err := s.reach(r.Context(), cur.Projects, p.Projects, st, pv.Devices)
+		if err != nil {
+			return nil, err
+		}
+		pv.Reach = &reach
 	}
 	return pv, nil
 }
