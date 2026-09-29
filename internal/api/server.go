@@ -842,11 +842,18 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // deviceScope is what the requesting device reads: the bays it may
-// write. A request with no device, from a test fixture, reads them all.
+// write. A lake served without tokens has no device to ask and already
+// answers every request for the whole lake, ingest and raw reads
+// included, so it reads every bay. Any other request that reached here
+// without a device reads nothing.
 func (s *Server) deviceScope(r *http.Request) (catalog.Scope, error) {
 	d, ok := deviceOf(r)
-	if !ok {
+	switch {
+	case ok:
+		return s.Catalog.DeviceScope(r.Context(), d.ID)
+	case s.Devices == nil || s.Devices.Empty():
 		return catalog.AllBays(), nil
+	default:
+		return catalog.Scope{}, nil
 	}
-	return s.Catalog.DeviceScope(r.Context(), d.ID)
 }
