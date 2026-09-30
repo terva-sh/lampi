@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-30T13:59:43Z
-updated_at: 2026-09-30T13:59:43Z
+updated_at: 2026-09-30T14:09:27Z
 created_by:
   id: agent:claude-code/cb0b017c
   name: ""
@@ -69,7 +69,7 @@ The owner added that rigid matching hurts: no multiple terms, no wildcards, no f
   - Creation date: the earliest recorded event time. With none, show the lake's first-received time, marked "received".
   - A dim second line shows the harness badge, machines, the hit count ("50+" when capped) and the UUID as a copy-on-click token.
   - Rejected: the first prompt only, and no title at all. Harness titles, such as Claude `ai-title`, are written to be recognizable.
-- **Order in the sessions shape.** Sessions come newest first by their latest matching event, with no sort toggle. Hits within a session are in transcript order, first 3 shown. "Show all N" links to `view=events&session=…`.
+- **Order in the sessions shape.** Sessions come newest first by their latest matching event, with no sort toggle. Hits within a session are in transcript order, first 3 shown. "Show all N" links to `view=events&session=…` and carries the current text and filters, so it lists that session's matching hits.
   - Rejected: most hits first. Counts are capped and tie, and ordering by count makes the spike harder.
   - Rejected: expanding the hits in place with `<details>`. It makes the page and the query heavier.
 - **Order and count in the events shape.** With `session=`, transcript order through `docs_session`. Without it, "most recently indexed first", labelled honestly on the page. No total count.
@@ -80,12 +80,12 @@ The owner added that rigid matching hurts: no multiple terms, no wildcards, no f
   - Stronger highlight in both themes. Every term is highlighted. A second window is shown when the terms are far apart.
   - Duplicate snippets are not collapsed, because which sessions read a file is recall information.
 - **Form.**
-  - Always visible: a wide text box with a syntax hint, a project picker built from the catalog, a harness picker, and a date range with presets.
+  - Always visible: a wide text box with a one-line hint, a project picker built from the catalog, a harness picker, and a date range with presets.
   - Behind "More filters": event type, actor, and tool, with suggestions.
   - Removed from the web form: raw type, unlinked only, and tool errors only. The API keeps them, and a URL that sets them shows them as chips.
   - Active filters are shown as chips.
   - There is no machine filter, even though TKT-01M3FPP3 decision 6 promised one.
-- **Chrome.** Hide the refresh bar on Search; refreshing today also redraws the form. Use a smaller header with no description line. The coverage line shrinks to "N of M sessions searchable", with details on hover, and sits beside the results. The help paragraph is replaced by the syntax hint.
+- **Chrome.** Hide the refresh bar on Search; refreshing today also redraws the form. Use a smaller header with no description line. The coverage line shrinks to "N of M sessions searchable", with details on hover, and sits beside the results. The help paragraph becomes a one-line hint describing the current matching, and the multi-term query ticket changes that hint when its syntax ships, so the page never advertises syntax it cannot run.
 - **Hit rows.** Each hit gets a copy action. With JavaScript on it copies to the clipboard. Without it, it links to `/sessions/{uid}/excerpt?gen=G&from=P&count=1`.
   - Time shows short per hit (`00:40 UTC`, with the date when it differs from the header), and the ISO time on hover.
 

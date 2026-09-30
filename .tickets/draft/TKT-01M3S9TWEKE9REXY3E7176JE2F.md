@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-30T13:59:59Z
-updated_at: 2026-09-30T13:59:59Z
+updated_at: 2026-09-30T14:09:27Z
 created_by:
   id: agent:claude-code/cb0b017c
   name: ""
@@ -40,6 +40,7 @@ extensions: {}
 - Keep the no-temp-b-tree query plans, and update the plan assertions.
 - Keep the cursor fingerprint valid across the new syntax.
 - Document the syntax in `docs/web-api.md`.
+- Replace the search form's one-line hint with the new syntax (`words · "exact phrase" · -exclude`) in the same PR, so the page never advertises syntax the query does not support.
 
 Out of scope: wildcards (a later ticket if still needed), fuzzy matching, and matching a whole session.
 
@@ -50,3 +51,4 @@ Out of scope: wildcards (a later ticket if still needed), fuzzy matching, and ma
 - [ ] A short term is post-filtered and an all-short query is refused
 - [ ] Zero hits report per-term matches in the result shape
 - [ ] Query plans still show no temp b-tree
+- [ ] The form hint shows the new syntax only once this ticket's query change ships

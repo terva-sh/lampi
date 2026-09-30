@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-30T14:00:00Z
-updated_at: 2026-09-30T14:00:00Z
+updated_at: 2026-09-30T14:09:27Z
 created_by:
   id: agent:claude-code/cb0b017c
   name: ""
@@ -40,7 +40,7 @@ Make the sessions shape the web default. It depends on the spike's verdict, the 
 - The sessions shape pages 20 sessions at a time, with a forward-only cursor over sessions.
 - Order sessions newest first by their latest matching event, with no sort toggle.
 - Each group shows the header from the session-identity ticket, a dim second line (harness, machines, hit count capped as "50+", UUID copy token), and up to 3 hits in transcript order.
-- "Show all N" is a plain link to `view=events&session=…`.
+- "Show all N" is a plain link to `view=events&session=…` that carries the current text and every active filter, so it opens that session's matching hits, not every event in it.
 - The whole page works with JavaScript off. Move the smoke test's 50-row JS-off check to `view=events`, and add a check for the grouped page.
 - If the spike rules the shape out, build the fallback instead: group each flat page in the template. Record that in a note.
 
@@ -49,3 +49,4 @@ Make the sessions shape the web default. It depends on the spike's verdict, the 
 - [ ] The sessions view is the web default and the events view keeps the flat list
 - [ ] Groups show header, second line and up to 3 hits in transcript order
 - [ ] The grouped page and the events page both pass JS-off smoke checks
+- [ ] Show all N keeps the text and filters and lists only that session's matching hits
