@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3RMFD64RRX4XW3J1RQ7C6ZC
 title: "Release v0.5.0: bays and conflicts; notes, tag, archives and image"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -18,15 +18,22 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/27b21f4b
+  branch: release/v0.5.0
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
+  commit: 85480f57367c8652a4bbbd40b6aa07066c72fd34
+  session: null
+  claimed_at: 2026-09-30T19:41:36Z
+  expires_at: null
 archive: null
 created_at: 2026-09-30T07:46:43Z
-updated_at: 2026-09-30T07:46:43Z
+updated_at: 2026-09-30T19:41:36Z
 created_by:
   id: agent:claude-code/fdd1a9d1
   name: ""
 updated_by:
-  id: agent:claude-code/fdd1a9d1
+  id: agent:claude-code/27b21f4b
   name: ""
 extensions: {}
 ---
@@ -110,3 +117,7 @@ A scratch lake was seeded by the v0.4.0 release binary (1740c08) with a token-fi
 - Rollback: v0.4.0 refuses the upgraded catalog (`schema 21 is newer than this binary's 17`) and serves a copy of the checkpoint at schema 17.
 
 Not covered: the scratch lake had no divergent copies, so migration 18 resolved nothing here. Its selection is covered by `internal/catalog/conflicts_test.go`. The live lake's 184 rows get checked on the Conflicts page after the deploy. Nobody signed in, so the dashboard under bays was not exercised; the route tests and the smoketest cover it.
+
+**agent:claude-code/27b21f4b** at 2026-09-30T19:41:36Z
+
+Owner asked for the cut on 2026-09-30 and confirmed v0.5.0. Tagging 85480f5, which is main on both forges (Forgejo and GitHub CI green). No code changed since the rehearsal at 0d9d06b, only .tickets/, so the rehearsal stands. No internal/normalize diff since v0.4.0 and no agent advisory.
