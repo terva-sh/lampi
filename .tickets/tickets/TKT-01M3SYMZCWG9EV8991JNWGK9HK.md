@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-30T20:03:46Z
-updated_at: 2026-09-30T20:04:29Z
+updated_at: 2026-09-30T20:15:40Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -54,10 +54,10 @@ This uses the v0.4.0 bundle's script with the versions and schemas changed, plus
 
 ## Acceptance criteria
 
-- [ ] A verified checkpoint of the stopped schema-17 lake exists, taken with v0.4.0
-- [ ] The lake runs v0.5.0 at schema 21 with integrity ok, counts preserved, and every session in the default bay
-- [ ] Health, auth refusals and the public URL answer after the upgrade, and each web group mapped to viewer or operator holds its default-bay grant
-- [ ] The workstation agent runs v0.5.0, stays pinned on the default profile, and its next sync re-uploads nothing
+- [x] A verified checkpoint of the stopped schema-17 lake exists, taken with v0.4.0
+- [x] The lake runs v0.5.0 at schema 21 with integrity ok, counts preserved, and every session in the default bay
+- [x] Health, auth refusals and the public URL answer after the upgrade, and each web group mapped to viewer or operator holds its default-bay grant
+- [x] The workstation agent runs v0.5.0, stays pinned on the default profile, and its next sync re-uploads nothing
 - [ ] The Conflicts page no longer lists the Claude subagent false conflicts migration 18 resolves
 
 ## Implementation plan
@@ -67,3 +67,28 @@ This uses the v0.4.0 bundle's script with the versions and schemas changed, plus
 3. The owner checks the Conflicts page for the subagent false conflicts that migration 18 resolves.
 
 The script is the v0.4.0 bundle's, which ran on this lake on 2026-09-29, with the versions and schemas changed and the bays block added. The bays block and the journal filter were tested on 2026-09-30 against a scratch lake created by v0.4.0, with a token-file device and a viewer/operator `role_map`, then upgraded by the bundle binary. The unit and web drop-in are byte-identical to the v0.4.0 bundle's copies. The bundle README carries the rollback, which restores only the catalog.
+
+## Notes
+
+**agent:claude-code/27b21f4b** at 2026-09-30T20:15:39Z
+
+### Deployed, 2026-09-30
+
+**Lake.** The owner ran `deploy-v0.5.0-JCwhUpMC/operator-deploy.sh` as root at about 20:11Z, and it completed on the first run.
+
+- The checkpoint is `/var/lib/terva-lampi-pre-v0.5.0-E4ePDkhQ`: v0.4.0's `serve backup` of the stopped lake, with fsck clean and counts matching the live catalog (644 sessions, 17897 artifacts, 17896 provenance rows, schema 17). serve also kept `migration-backups/catalog-20260930T201155…-v17.db`.
+- serve ran migrations 18 to 21 and reported `17 -> 21`. Integrity is ok, counts are preserved, and the lake id `lake_u3cpc5lo4dwujlk5il3mpjepai` is unchanged. Health, the anonymous 401s and the public URL answer.
+- There is one bay, `default`, holding every session. The grants are device write ×6, group read ×2 and group write ×1. `Brokkr Lampi User` has read, `Brokkr Lampi Admin` has read+write (its role_map role is operator), and each grant was logged at start.
+- serve logged `web admin groups groups=GROUP`, so role_map now maps a group to admin, unlike at v0.4.0, when no group was admin. The owner can confirm the group name is the intended one.
+- Migration 18 recorded 184 `not_a_conflict` resolutions by `catalog migration`, exactly the 184 the release ticket expected.
+- The v0.4.0 agent's first sync against the new lake uploaded nothing (unchanged 169, refused 19, quarantined 13).
+
+**Refusals are not new.** Syncs at 15:03 local, before the upgrade, already showed `refused 19, quarantined 13`. The journal names these as redaction-ruleset-v2 quarantines (openai-key, private-key, anthropic-key, aws-access-key-id hits) in older transcripts. They are unrelated to v0.5.0.
+
+**Workstation agent.** Upgraded to v0.5.0 (85480f5) at `~/.local/bin/terva-lampi`, which the unit runs. Copies of the old binary and config.json are in `~/.local/state/agent-handoffs/lampi/agent-rollback-v0.5.0-aTv6CPlG`.
+
+- `agent config`: still pinned to the lake with `allow_source=lake:default` (136 rules), profile default `sha256:daef40156d2c1d6b`.
+- `terva-lampi bays` prints `default: bays: default`, and `status` reports `lake_release: v0.5.0`.
+- The forced sync checked 123 and uploaded 2, both transcripts being written at the time (live sessions in lampi and ketju), with 168 unchanged.
+
+**Left for the owner:** sign in and check that the Conflicts page no longer lists the subagent false conflicts (criterion 5). `status` shows `lake_normalization failed=2`; this deploy changed no normalizer, and nobody checked whether those two failures predate it.
