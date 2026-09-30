@@ -207,6 +207,22 @@ func transcript(n int, native, harness string) []normalize.Event {
 		add(normalize.ActorHarness, normalize.EventUsage, "", func(e *normalize.Event) {
 			e.Usage = normalize.Usage{Input: num(1200 + turn), Output: num(300), CacheRead: num(0)}
 		})
+		// Bookkeeping records with nothing to read: four in a row fold
+		// into one run, two stay as cards, and a titled one is shown.
+		quiet := func(raw string) {
+			add(normalize.ActorHarness, normalize.EventUnknown, "", func(e *normalize.Event) { e.RawType = raw })
+		}
+		switch turn {
+		case 1:
+			quiet("file-history-snapshot")
+			quiet("queue-operation")
+			quiet("file-history-snapshot")
+			quiet("file-history-snapshot")
+			add(normalize.ActorHarness, normalize.EventUnknown, "Synthetic session title", func(e *normalize.Event) { e.RawType = "ai-title" })
+		case 2:
+			quiet("file-history-snapshot")
+			quiet("file-history-snapshot")
+		}
 		if turn == 5 {
 			add(normalize.ActorAssistant, normalize.EventMessage, strings.Repeat("A very long synthetic answer line. ", 2000), nil)
 			add(normalize.ActorAssistant, normalize.EventMessage, "Reasoning is stored encrypted.", func(e *normalize.Event) {
