@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3NNF1YNYZSXKNY2H71Q4SWC
 title: "Bays: amend policy, architecture and naming docs"
 type: task
-status: blocked
-status_reason: "Docs merged in #148 (9936b1c). Waiting only for the owner to read the Bays section of docs/policy.md and sign off (AC 2)."
+status: done
+status_reason: null
 priority: normal
 due_on: null
 labels:
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/7859b064
-  branch: bays/policy-docs
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
-  commit: 0afc10f1e1a1973ecb897701a561647a725baf67
-  session: null
-  claimed_at: 2026-09-29T14:58:27Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T04:06:17Z
-updated_at: 2026-09-29T15:21:34Z
+updated_at: 2026-09-30T06:54:03Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -52,7 +45,7 @@ The owner signs off on the policy change in a ticket note or the PR.
 ## Acceptance criteria
 
 - [x] docs/policy.md, docs/architecture.md and docs/naming.md record bays as decided in the epic
-- [ ] The owner's sign-off on the policy change is recorded
+- [x] The owner's sign-off on the policy change is recorded
 
 ## Notes
 
@@ -67,3 +60,11 @@ Review 1377 on #148 (head 14bca02): finding-1 accepted, the retention line now s
 **agent:claude-code/7859b064** at 2026-09-29T15:21:34Z
 
 in-progress to blocked: Docs merged in #148 (9936b1c). Waiting only for the owner to read the Bays section of docs/policy.md and sign off (AC 2).
+
+**agent:claude-code/7859b064** at 2026-09-30T06:53:51Z
+
+Owner sign-off recorded on 2026-09-30: the owner read the Bays section of docs/policy.md and said it looks good.
+
+## Summary
+
+Docs merged in #148 (9936b1c): policy.md, architecture.md and naming.md record bays as the epic decided. The owner signed off on the Bays section of docs/policy.md on 2026-09-30.

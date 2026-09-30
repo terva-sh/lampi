@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3N8KHW56GVZXHV0KBNSPEX1
 title: "Bays: segment one lake and route sessions to a bay"
 type: epic
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/7859b064
-  branch: bays/policy-docs
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-7859b064
-  commit: 0afc10f1e1a1973ecb897701a561647a725baf67
-  session: null
-  claimed_at: 2026-09-29T14:58:27Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T00:21:33Z
-updated_at: 2026-09-29T20:04:29Z
+updated_at: 2026-09-30T06:53:51Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -116,19 +109,19 @@ A dashboard triage flow for held and refused sessions, and per-bay retention and
 
 ## Acceptance criteria
 
-- [ ] A viewer granted one bay sees only that bay's sessions in the dashboard, search, excerpts and recall, and a test fails when a query returning session data takes no bay scope
-- [ ] An agent requesting bays A and B lands one session in both with one stored copy, and a lake hold rule sends a matching session to the holding bay with its requested bays recorded, and a release restores them
-- [ ] A request for a bay the device may not write lands the session in default with the refused request recorded
-- [ ] With the default bay off, an unplaced session is refused, stays pending on the agent, and is reported as no bay
-- [ ] A scoped operator can mint a code only for bays within its scope, and cannot read sessions in a bay it is not granted
-- [ ] serve bays inbox lists every unsorted, held and refused session with its reason, and bulk move and apply-rules have --dry-run
-- [ ] An existing lake upgrades with no change in behavior: all data in default, viewers and operators still read it, no group becomes admin, and old agents keep syncing
-- [ ] A read token scoped to a bay reads raw artifacts only of sessions in that bay
+- [x] A viewer granted one bay sees only that bay's sessions in the dashboard, search, excerpts and recall, and a test fails when a query returning session data takes no bay scope
+- [x] An agent requesting bays A and B lands one session in both with one stored copy, and a lake hold rule sends a matching session to the holding bay with its requested bays recorded, and a release restores them
+- [x] A request for a bay the device may not write lands the session in default with the refused request recorded
+- [x] With the default bay off, an unplaced session is refused, stays pending on the agent, and is reported as no bay
+- [x] A scoped operator can mint a code only for bays within its scope, and cannot read sessions in a bay it is not granted
+- [x] serve bays inbox lists every unsorted, held and refused session with its reason, and bulk move and apply-rules have --dry-run
+- [x] An existing lake upgrades with no change in behavior: all data in default, viewers and operators still read it, no group becomes admin, and old agents keep syncing
+- [x] A read token scoped to a bay reads raw artifacts only of sessions in that bay
 
 ## Definition of done
 
-- [ ] All children of this epic are done
-- [ ] docs/policy.md records bays and the reopened multi-tenant decision with owner sign-off
+- [x] All children of this epic are done
+- [x] docs/policy.md records bays and the reopened multi-tenant decision with owner sign-off
 - [x] The triage UI and per-bay retention follow-ups are filed as drafts
 
 ## Notes
@@ -242,3 +235,20 @@ No write leaves a session in no bay, and every path that could sends it to the d
 ### Still open
 - TKT-01M3NNF1YN needs the owner to read the Bays section of docs/policy.md and sign off. The epic stays open until then.
 - Two follow-up drafts are filed and not started: TKT-01M3NNF2NN (dashboard triage flow for held and refused sessions, which also covers editing device grants) and TKT-01M3NNF2R9 (per-bay retention and purge).
+
+**agent:claude-code/7859b064** at 2026-09-30T06:53:51Z
+
+Closing: which tests back each acceptance criterion.
+
+1. Viewer scope: TestNoRouteShowsASessionOutsideTheViewersBays (web) and TestEverySessionReadTakesAScope (catalog, which fails on an unscoped query). Recall search and events take a Scope. MCP is not built yet; it will take the same Scope when it is.
+2. Two bays, one copy: TestBayRequestsRouteASessionToTwoBays. Hold and release: TestAHoldHoldsANewSessionAndFlagsAStoredOne and TestAHeldRequestWaitsForAGrant.
+3. Refused request lands in default: TestARefusedRequestLandsInDefault.
+4. Default off: TestDefaultOffRefusesOnlyASessionNothingPlaces and TestANoBayRefusalWaitsAndShowsInStatus.
+5. Scoped operator: mints are checked against the minter's write grants inside the transaction (ErrBayScope, #154), and read scope comes from TKT-01M3NNF27A.
+6. Inbox and dry runs: the TKT-01M3NNF2FE tests.
+7. Upgrade: the catalog child's migration (all sessions in default) and the one-time upgrade grants for web groups; capture_protocol stays 1, so old agents sync unchanged.
+8. Bay-scoped read token: TestReadTokenBayScope.
+
+## Summary
+
+Bays shipped in #148 and #150–#163, with ticket closures in #164 and this change. One lake is split into bays: every read is scoped to the caller's bays; manifests request bays and lake rules route them (hold, add, deny); the agent asks per lake; admins sort the inbox from the CLI or the dashboard. The owner signed off on the policy on 2026-09-30. Follow-ups filed as drafts: TKT-01M3NNF2NN (triage UI) and TKT-01M3NNF2R9 (per-bay retention).
