@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3RMFD64RRX4XW3J1RQ7C6ZC
 title: "Release v0.5.0: bays and conflicts; notes, tag, archives and image"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: release/v0.5.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: 85480f57367c8652a4bbbd40b6aa07066c72fd34
-  session: null
-  claimed_at: 2026-09-30T19:41:36Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-30T07:46:43Z
-updated_at: 2026-09-30T19:41:36Z
+updated_at: 2026-09-30T19:50:04Z
 created_by:
   id: agent:claude-code/fdd1a9d1
   name: ""
@@ -69,8 +62,8 @@ Deploying to the internal lake and the workstation agent is a separate ticket, f
 ## Acceptance criteria
 
 - [x] A scratch lake seeded by v0.4.0 upgraded with a main build: schema 21, counts kept, every session in default, fsck clean, agents sync nothing new
-- [ ] The release is tagged on both forges and its archives and image name the tag
-- [ ] Release notes state the 17 to 21 migration and its rollback, the bays upgrade grants, lake-before-agents, and the conflict cleanup
+- [x] The release is tagged on both forges and its archives and image name the tag
+- [x] Release notes state the 17 to 21 migration and its rollback, the bays upgrade grants, lake-before-agents, and the conflict cleanup
 
 ## Implementation plan
 
@@ -121,3 +114,19 @@ Not covered: the scratch lake had no divergent copies, so migration 18 resolved 
 **agent:claude-code/27b21f4b** at 2026-09-30T19:41:36Z
 
 Owner asked for the cut on 2026-09-30 and confirmed v0.5.0. Tagging 85480f5, which is main on both forges (Forgejo and GitHub CI green). No code changed since the rehearsal at 0d9d06b, only .tickets/, so the rehearsal stands. No internal/normalize diff since v0.4.0 and no agent advisory.
+
+**agent:claude-code/27b21f4b** at 2026-09-30T19:50:04Z
+
+### Cut, 2026-09-30
+
+- Tagged v0.5.0 (annotated) at 85480f5 and pushed it to origin and github. Before tagging: both mains at 85480f5, and CI green on both forges.
+- GitHub release run 36767450013 passed. Five archives plus `checksums.txt`, not a prerelease. The linux/amd64 archive matches its checksum and reports `terva-lampi v0.5.0 (85480f57367c)`. `ghcr.io/terva-sh/lampi:0.5.0` pulled and reports `terva-lampi v0.5.0 (85480f5)`.
+- Forgejo release (id 17604) passed, including "Build and Publish Release" and "Build Image". It has the same six assets, and the linux/amd64 archive matches its checksum and reports the tag.
+- The two forges' `checksums.txt` differ. This is expected: Forgejo built with go1.27.1 from `golang:1.27-alpine` and GitHub with go1.27.0 from setup-go, so the archives are not byte-identical. v0.4.0's checksums differ across the forges the same way. Both are built from 85480f5 with `-trimpath`.
+- The notes from the plan were prepended to both release bodies with `####` headings, matching v0.4.0's layout.
+
+Still open: deploying to the internal lake and the workstation agent. Per the description, that gets its own ticket when the owner asks. After the deploy, check the live lake's 184 migration-18 conflict rows on the Conflicts page.
+
+## Summary
+
+v0.5.0 is tagged at 85480f5 and published on GitHub (archives, plus ghcr.io/terva-sh/lampi:0.5.0) and on Forgejo (archives). Each archive and the image report v0.5.0. Both release bodies open with the upgrade notes (schema 17 to 21 and its rollback, the bay grants, lake before agents, the conflict cleanup) and the new features. The deploy to the internal lake is a separate ticket, filed when the owner asks.
