@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3SYMZCWG9EV8991JNWGK9HK
 title: Deploy v0.5.0 to the internal lake and workstation agent
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M3RMFD64RRX4XW3J1RQ7C6ZC
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: release/v0.5.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: 07b6c8b1be8675826d31087bcc0ea34db9364306
-  session: null
-  claimed_at: 2026-09-30T20:03:50Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-30T20:03:46Z
-updated_at: 2026-09-30T20:15:40Z
+updated_at: 2026-09-30T23:11:03Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -58,7 +51,7 @@ This uses the v0.4.0 bundle's script with the versions and schemas changed, plus
 - [x] The lake runs v0.5.0 at schema 21 with integrity ok, counts preserved, and every session in the default bay
 - [x] Health, auth refusals and the public URL answer after the upgrade, and each web group mapped to viewer or operator holds its default-bay grant
 - [x] The workstation agent runs v0.5.0, stays pinned on the default profile, and its next sync re-uploads nothing
-- [ ] The Conflicts page no longer lists the Claude subagent false conflicts migration 18 resolves
+- [x] The Conflicts page no longer lists the Claude subagent false conflicts migration 18 resolves
 
 ## Implementation plan
 
@@ -92,3 +85,11 @@ The script is the v0.4.0 bundle's, which ran on this lake on 2026-09-29, with th
 - The forced sync checked 123 and uploaded 2, both transcripts being written at the time (live sessions in lampi and ketju), with 168 unchanged.
 
 **Left for the owner:** sign in and check that the Conflicts page no longer lists the subagent false conflicts (criterion 5). `status` shows `lake_normalization failed=2`; this deploy changed no normalizer, and nobody checked whether those two failures predate it.
+
+**agent:claude-code/27b21f4b** at 2026-09-30T23:11:03Z
+
+Owner checked the Conflicts page after the deploy, 2026-09-30: the subagent false conflicts are resolved. Migration 18 recorded 184 not_a_conflict resolutions.
+
+## Summary
+
+Deployed v0.5.0 on 2026-09-30. The owner ran deploy-v0.5.0-JCwhUpMC/operator-deploy.sh as root, first run. The lake migrated 17 -> 21 with integrity ok and counts preserved (644 sessions, 17897 artifacts, 17896 provenance rows); the lake id is unchanged. The checkpoint is /var/lib/terva-lampi-pre-v0.5.0-E4ePDkhQ. Every session is in the default bay: 6 devices have write, Brokkr Lampi User read, Brokkr Lampi Admin read+write. Migration 18 resolved 184 false conflicts, and the owner confirmed the Conflicts page. The workstation agent runs v0.5.0, is still pinned on lake:default, and re-uploaded nothing; its rollback copies are in agent-rollback-v0.5.0-aTv6CPlG. Left open: serve logged the admin group as 'GROUP' (a role_map entry to confirm), and lake_normalization shows failed=2, not checked against the pre-upgrade state.
