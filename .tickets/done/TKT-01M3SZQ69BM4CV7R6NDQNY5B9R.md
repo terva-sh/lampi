@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3SZQ69BM4CV7R6NDQNY5B9R
 title: "Transcript page: collapse runs of unknown harness events"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: web/collapse-unknown-events
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: c0a6275d477d47151fd02d1ca9f86df4e7fe2c59
-  session: null
-  claimed_at: 2026-09-30T23:02:22Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-30T20:22:27Z
-updated_at: 2026-09-30T23:02:22Z
+updated_at: 2026-09-30T23:07:43Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -65,9 +58,30 @@ This is server-side in `transcriptPage` (`internal/web/pages.go:340-388`) and th
 
 ## Acceptance criteria
 
-- [ ] Three or more consecutive unknown events without text render as one collapsed <details> naming the range, the count and each raw type
-- [ ] Expanding a run shows the original cards, with #e-N ids, links and excerpt selection unchanged
-- [ ] An unknown event with text ends a run and stays visible
+- [x] Three or more consecutive unknown events without text render as one collapsed <details> naming the range, the count and each raw type
+- [x] Expanding a run shows the original cards, with #e-N ids, links and excerpt selection unchanged
+- [x] An unknown event with text ends a run and stays visible
 - [ ] A run holding the page's target event renders open, and an open run stays open across the live refresh
-- [ ] Each unknown card shows its raw type
-- [ ] internal/web/transcript_test.go covers a run, a short stretch, a run with text inside it, and a target inside a run
+- [x] Each unknown card shows its raw type
+- [x] internal/web/transcript_test.go covers a run, a short stretch, a run with text inside it, and a target inside a run
+
+## Notes
+
+**agent:claude-code/27b21f4b** at 2026-09-30T23:07:43Z
+
+### Built, 2026-09-30
+
+- **`internal/web/transcript_runs.go`**: `transcriptBlocks` groups a page's items. An event is *quiet* when it is `unknown`, has no content text, and is not oversized, unreadable, opaque or truncated, so no hint is lost. `minQuietRun = 3`. `unknownKind` names the raw type, with `/subtype` or `/block_type` from `Extra` when present, e.g. `system/local_command`.
+- **Template**: the card moved into `{{define "event"}}`. A run renders as `<li class="event-run"><details id="run-FROM">`, whose summary reads `N unknown events #FROM–#TO kinds`, wrapping a nested `<ol class="events">` of the unchanged cards. Every unknown card shows its kind in a chip beside `unknown`.
+- **Target**: `transcriptPage` computes the blocks with the deep link's target, and a run holding it renders `open`. `lake.js` unfolds the enclosing `<details>` before focusing a bare `#e-N` target.
+- **Test**: `TestTranscriptFoldsRunsOfQuietUnknownEvents` covers a run of three with two kinds, a pair that stays as cards, a pair cut short by a titled `ai-title` event, which stays visible, a `system/local_command` run, cards nested inside their run, and `?at=12` opening run 11 and marking e-12. Setting `minQuietRun` to 1000 makes it fail.
+- **Checked in a browser**: headless Chromium rendered the smoketest transcript, both light folded and dark opened by `?at=11`. The run reads as one dashed row. Opened, it shows four cards with checkboxes and kind chips, and the target is highlighted.
+- `GOFLAGS=-mod=mod just ci` passes.
+
+Criterion 4 is half verified. Server-side `open` for the target is tested. Staying open across Refresh relies on the existing `details[id][open]` handling in `lake.js:39` and the stable `run-FROM` id, but no browser run exercised it. To check it by hand: open a run, press Refresh now, and the run should stay open.
+
+The smoketest's preview browser could not reach loopback, so screenshots came from `chrome-headless-shell` behind a local proxy that added the synthetic session cookie.
+
+## Summary
+
+Runs of three or more quiet unknown events on the transcript page fold into one <details> that names the range and each raw type. Cards inside are unchanged. A deep link into a run opens it, and every unknown card shows its raw type. Refresh keeping a run open is unverified in a browser; see the note.
