@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3SZQ69BM4CV7R6NDQNY5B9R
 title: "Transcript page: collapse runs of unknown harness events"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/27b21f4b
+  branch: web/collapse-unknown-events
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
+  commit: c0a6275d477d47151fd02d1ca9f86df4e7fe2c59
+  session: null
+  claimed_at: 2026-09-30T23:02:22Z
+  expires_at: null
 archive: null
 created_at: 2026-09-30T20:22:27Z
-updated_at: 2026-09-30T20:22:27Z
+updated_at: 2026-09-30T23:02:22Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""

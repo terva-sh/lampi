@@ -17,15 +17,22 @@ import (
 
 func publishEvents(t *testing.T, lake *api.Server, uid string, n int, text func(int) string) int64 {
 	t.Helper()
-	ctx := context.Background()
-	gen, err := lake.Catalog.EnqueueNormalize(ctx, uid, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
 	evs := make([]normalize.Event, n)
 	for i := range evs {
 		txt := text(i)
 		evs[i] = normalize.Event{SchemaVersion: 1, EventID: fmt.Sprint(i), SessionID: "s", Harness: "codex", RecordedAt: "2026-09-26T10:00:00Z", IngestedAt: "2026-09-26T10:00:01Z", Actor: normalize.ActorAssistant, EventType: normalize.EventMessage, ContentText: &txt, Redaction: normalize.Redaction{Status: "none"}}
+	}
+	return publishNormalized(t, lake, uid, evs)
+}
+
+// publishNormalized publishes evs as uid's transcript and returns the
+// generation.
+func publishNormalized(t *testing.T, lake *api.Server, uid string, evs []normalize.Event) int64 {
+	t.Helper()
+	ctx := context.Background()
+	gen, err := lake.Catalog.EnqueueNormalize(ctx, uid, time.Now())
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := lake.StoreEvents(ctx, uid, evs, nil); err != nil {
 		t.Fatal(err)
@@ -236,5 +243,89 @@ func TestExcerptAPIAndPlainPage(t *testing.T) {
 	w = get(h, "/sessions/"+uid+"/transcript", cookie)
 	if !strings.Contains(w.Body.String(), "This page as plain text") || !strings.Contains(w.Body.String(), `id="excerpt-bar"`) {
 		t.Fatal("transcript copy controls")
+	}
+}
+
+// TestTranscriptFoldsRunsOfQuietUnknownEvents: three or more unknown
+// events with no text in a row fold into one <details> naming the
+// range and each raw type (TKT-01M3SZQ69B). Shorter stretches, and an
+// unknown event that carries text, stay as cards.
+func TestTranscriptFoldsRunsOfQuietUnknownEvents(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid := seedSession(t, lake.Catalog, "runs")
+	cookie, _ := signIn(t, idp, h)
+	ev := func(i int, eventType, actor, raw, text string, extra map[string]any) normalize.Event {
+		e := normalize.Event{SchemaVersion: 1, EventID: fmt.Sprint(i), SessionID: "s", Harness: "claude", RecordedAt: "2026-09-28T06:49:52Z", IngestedAt: "2026-09-28T06:49:53Z", Actor: actor, EventType: eventType, RawType: raw, Extra: extra, Redaction: normalize.Redaction{Status: "none"}}
+		if text != "" {
+			e.ContentText = &text
+		}
+		return e
+	}
+	msg := func(i int) normalize.Event {
+		return ev(i, normalize.EventMessage, normalize.ActorUser, "user", fmt.Sprint("message ", i), nil)
+	}
+	quiet := func(i int, raw string, extra map[string]any) normalize.Event {
+		return ev(i, normalize.EventUnknown, normalize.ActorHarness, raw, "", extra)
+	}
+	local := map[string]any{"subtype": "local_command"}
+	evs := []normalize.Event{
+		msg(0),
+		quiet(1, "file-history-snapshot", nil), quiet(2, "queue-operation", nil), quiet(3, "file-history-snapshot", nil),
+		msg(4),
+		quiet(5, "file-history-snapshot", nil), quiet(6, "file-history-snapshot", nil),
+		msg(7),
+		quiet(8, "file-history-snapshot", nil), quiet(9, "file-history-snapshot", nil),
+		ev(10, normalize.EventUnknown, normalize.ActorHarness, "ai-title", "Talkoot avatar notes", nil),
+		quiet(11, "system", local), quiet(12, "system", local), quiet(13, "system", local),
+		msg(14),
+	}
+	publishNormalized(t, lake, uid, evs)
+	page := "/sessions/" + uid + "/transcript"
+	w := get(h, page, cookie)
+	body := w.Body.String()
+	if w.Code != 200 {
+		t.Fatal("page", w.Code)
+	}
+	for _, want := range []string{
+		`<details id="run-1">`,
+		`3 unknown events</span><span class="mono">#1–#3</span><span class="sub-inline">file-history-snapshot ×2, queue-operation ×1</span>`,
+		`id="e-2" class="event actor-harness"`,
+		`<details id="run-11">`,
+		`system/local_command ×3`,
+		`<span class="etype">unknown</span><span class="harness">file-history-snapshot</span>`,
+		`<span class="etype">unknown</span><span class="harness">system/local_command</span>`,
+		`Talkoot avatar notes`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	// Two in a row, and two cut short by a titled unknown event, are
+	// not runs. The titled event is never folded.
+	for _, bad := range []string{`id="run-5"`, `id="run-8"`, `id="run-9"`, `id="run-10"`, `id="run-0"`} {
+		if strings.Contains(body, bad) {
+			t.Errorf("page folds %s", bad)
+		}
+	}
+	for i := range 15 {
+		if !strings.Contains(body, fmt.Sprintf(`id="e-%d"`, i)) {
+			t.Errorf("event %d has no card", i)
+		}
+	}
+	// Every card of the run sits inside the run's <details>.
+	start := strings.Index(body, `<details id="run-11">`)
+	if start < 0 {
+		t.Fatal("no run 11 on the page")
+	}
+	end := strings.Index(body[start:], `</details>`) + start
+	for _, id := range []string{`id="e-11"`, `id="e-12"`, `id="e-13"`} {
+		if !strings.Contains(body[start:end], id) {
+			t.Errorf("%s is not inside run 11", id)
+		}
+	}
+	// A deep link into a run unfolds it and marks the event.
+	body = get(h, page+"?at=12&from=0", cookie).Body.String()
+	if !strings.Contains(body, `<details id="run-11" open>`) || !strings.Contains(body, `id="e-12" class="event actor-harness target"`) || !strings.Contains(body, `<details id="run-1">`) {
+		t.Fatal("deep link into a run does not unfold it")
 	}
 }

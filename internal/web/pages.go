@@ -62,6 +62,7 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"ruleText":      ruleText,
 	"ownerOf":       ownerOf,
 	"sessionURL":    func(uid string) string { return "/sessions/" + url.PathEscape(uid) },
+	"unknownKind":   unknownKind,
 	"transcriptURL": func(uid string) string { return "/sessions/" + url.PathEscape(uid) + "/transcript" },
 	"rawURL":        func(uid string) string { return rawPath(url.PathEscape(uid)) },
 	"rawFileURL":    func(uid, digest string) string { return rawPath(url.PathEscape(uid)) + "/" + url.PathEscape(digest) },
@@ -122,6 +123,9 @@ type pageData struct {
 	Collection, NextURL, AsOf  string
 	Poll                       bool
 	Transcript                 recall.EventPage
+	// TranscriptBlocks is Transcript's page grouped for display, with
+	// runs of quiet unknown events folded (transcriptBlocks).
+	TranscriptBlocks []transcriptBlock
 	// Unavailable names why a transcript cannot be shown: a
 	// normalization state, "missing", or "stale" for a link to a
 	// generation that is no longer published.
@@ -375,6 +379,7 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		d.AsOf = d.Transcript.AsOf
+		d.TranscriptBlocks = transcriptBlocks(d.Transcript.Items, d.Target, d.HasTarget)
 		render(w, r, d)
 	case errors.As(err, &unavailable):
 		d.Unavailable = unavailable.State
