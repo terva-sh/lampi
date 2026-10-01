@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V52D6SRZG41ZSX4Y05KB01
 title: Deploy v0.5.2 to the internal lake and workstation agent
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: release/v0.5.2
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: 1f2f84eca2ddba4e948354b959cfd89f84c04c93
-  session: null
-  claimed_at: 2026-10-01T07:16:47Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T07:15:12Z
-updated_at: 2026-10-01T07:32:21Z
+updated_at: 2026-10-01T07:35:32Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -49,7 +42,7 @@ The point of the deploy is the search index WAL. On 2026-10-01 `search.db-wal` h
 ## Acceptance criteria
 
 - [x] The lake runs v0.5.2 with schema 21, integrity ok and counts preserved
-- [ ] search.db-wal is at most 64 MiB after the first index pass
+- [x] search.db-wal is at most 64 MiB after the first index pass
 - [x] The workstation agent runs v0.5.2 and its next sync uploads nothing new
 
 ## Implementation plan
@@ -82,3 +75,23 @@ Alternatives considered:
 - **Syncs:** the first after the restart uploaded 0, with 194 unchanged. The next uploaded 2 files that live sessions were still writing.
 
 **Criterion 2 is open.** A WAL of 0 bytes right after a restart is expected under either version, because a clean stop deletes the WAL. It closes when the owner's `sudo stat` after hours of uploads shows `search.db-wal` at most 64 MiB.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T07:35:32Z
+
+### WAL on the live lake after v0.5.2, 2026-10-01
+
+The owner ran `sudo stat` on the lake twice after the deploy. serve started at about 07:30 UTC.
+
+| when | search.db | search.db-wal |
+|---|---|---|
+| a minute after the start | 3019833344 | 0 |
+| about 07:34 UTC, after the agent's first uploads | 3131387904 | 311397872 (297 MiB) |
+| a few minutes later | 3118047232 | 0 |
+
+The truncating checkpoint works on the live lake: the WAL went from 297 MiB back to 0 when the pass ended. That fixes the problem in this ticket's title. Under v0.5.1 the WAL stayed at 1617 MiB.
+
+**Correction to the deploy bundle's README.** It said `search.db-wal` should stay at most 64 MiB. That was wrong. `journal_size_limit` only limits what is left after the WAL resets. It does not limit growth within a pass, and one pass here wrote about 300 MiB. Criterion 2 says "after the first index pass", and that holds. The transient peak is the size of one pass's writes, which belongs to TKT-01M3NPFNMH (Search index: FTS segments hold 0.5 GiB over live size after rebuild).
+
+## Summary
+
+v0.5.2 is deployed on the internal lake and the workstation agent. Lake: schema 21, counts preserved (692/20391/20390), lake id and admin group unchanged, checkpoint /var/lib/terva-lampi-pre-v0.5.2-3gCC9co7. search.db-wal went from 1617 MiB under v0.5.1 to 0, peaked at 297 MiB during a pass, and returned to 0 when the pass ended, so the truncation works. The README's claim that it would stay under 64 MiB was wrong. The per-pass write volume is noted on TKT-01M3NPFNMH. Agent: v0.5.2, its rollback copies are in agent-rollback-v0.5.2-P89B, and its first sync uploaded nothing. The single refused upload predates the deploy.

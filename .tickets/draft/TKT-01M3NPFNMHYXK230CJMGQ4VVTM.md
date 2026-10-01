@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-10-01T06:24:58Z
+updated_at: 2026-10-01T07:35:32Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -73,3 +73,11 @@ The dead share grew from about 35% on 09-29 to 40%, so the 2000-page forced merg
 **Proposal:** run a full `optimize` when the index has been idle and deleted data has passed a threshold, plus an operator command to run it by hand. It needs the WAL fix (TKT-01M3NPFNJA) first, because one optimize writes a transaction the size of `fts_data` through the WAL.
 
 **Layout measurement, for TKT-01M3K45MX:** the same text with `detail=column` takes 581 MiB of `fts_data` once optimized. Its search behaviour was not tested.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T07:35:32Z
+
+### One pass wrote about 300 MiB of WAL on the live lake, 2026-10-01
+
+v0.5.2 truncates the WAL at the end of each pass (TKT-01M3NPFNJA), so a pass's writes now show up as a transient WAL size. On the internal lake, about three minutes after the v0.5.2 start, the agent had uploaded two growing sessions. `search.db-wal` was then 311397872 bytes, and it was 0 again a few minutes later. `search.db` went from 3131387904 to 3118047232 bytes over the same span.
+
+So one pass that re-indexed a few live sessions wrote about 300 MiB, while the sessions only grew by kilobytes. That is a clue for this ticket's third to-do item: either most of each session's rows are replaced every generation, or FTS5's merges inside the session's transaction rewrite large segments. A transient peak is acceptable disk use. The write volume per pass, every few minutes, is the cost worth finding.
