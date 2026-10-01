@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-10-01T08:06:08Z
+updated_at: 2026-10-01T09:59:14Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -141,3 +141,7 @@ Alternatives considered:
 - **Automatic optimize in serve when dead space is high.** FTS5 gives no cheap measure of dead space. Tracking deleted rows would need new persistent state, and an `optimize` inside serve is a 1.3 GiB transaction that holds the index's write lock for about a minute. That is not worth it for a one-time backlog.
 - **Forced merges on every reclaim.** They rewrote 1.3 GiB to save 2 MiB on a clean index.
 - **`detail=column`.** This was measured at 581 MiB on the live data, but trigram substring search needs positions.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T09:59:14Z
+
+Merged in #180 (e680473). Reviews 1715 and 1717 led to: a freelist-empty check that a one-step vacuum fails (522 pages left), a busy-checkpoint error when another process reads search.db, and a dry-run size that includes the WAL. Criterion 4 waits for a release carrying #180 to be deployed to the internal lake. That deploy should stop serve, run serve compact, record the search index size before and after, and then start serve again. The expected result is fts_data going from about 2.1 to 1.3 GiB.
