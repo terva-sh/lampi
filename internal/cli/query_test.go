@@ -145,6 +145,13 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 			// it would send the token in the clear.
 			http.Redirect(w, r, "http://lake.example/api/read/v1/events", http.StatusFound)
 			return
+		case "stalled-error":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"err`))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
 		case "silent":
 			w.Write([]byte(`{"a":1}` + "\n"))
 			w.(http.Flusher).Flush()
@@ -190,6 +197,9 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 	}
 	defer func(d time.Duration) { queryIdle = d }(queryIdle)
 	queryIdle = 200 * time.Millisecond
+	if _, err := run("stalled-error"); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Errorf("stalled error body: %v", err)
+	}
 	if _, err := run("silent"); err == nil || !strings.Contains(err.Error(), "sent nothing for 200ms, after 1 events") {
 		t.Errorf("silent lake: %v", err)
 	}

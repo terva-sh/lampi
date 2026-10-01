@@ -222,21 +222,23 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 		return end, fmt.Errorf("query: lake unreachable: %w", err)
 	}
 	defer resp.Body.Close()
+	// A silence longer than queryIdle cancels the request, which ends
+	// any read of the body, an error's included (review 1688), with an
+	// error.
+	idle := time.AfterFunc(queryIdle, cancel)
+	defer idle.Stop()
+	body := idleReader{resp.Body, idle}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		return end, fmt.Errorf("query: lake answered %d, a redirect to %s; pass that URL as --server if it is the lake", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if resp.StatusCode != http.StatusOK {
-		var body struct {
+		var refusal struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body)
-		return end, fmt.Errorf("query: lake answered %d %s%s", resp.StatusCode, body.Error, queryHint(resp.StatusCode, body.Error))
+		_ = json.NewDecoder(io.LimitReader(body, 64<<10)).Decode(&refusal)
+		return end, fmt.Errorf("query: lake answered %d %s%s", resp.StatusCode, refusal.Error, queryHint(resp.StatusCode, refusal.Error))
 	}
-	// A silence longer than queryIdle cancels the request, which ends
-	// the read below with an error.
-	idle := time.AfterFunc(queryIdle, cancel)
-	defer idle.Stop()
-	br := bufio.NewReaderSize(idleReader{resp.Body, idle}, 64<<10)
+	br := bufio.NewReaderSize(body, 64<<10)
 	bw := bufio.NewWriterSize(out, 64<<10)
 	var rows int64
 	ended := false
