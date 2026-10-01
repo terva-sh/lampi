@@ -162,14 +162,14 @@ func (c *Catalog) VacuumInto(ctx context.Context, dest string) error {
 	return nil
 }
 
-// dataSource is a file URI carrying the per-connection pragmas. The
-// driver runs them on every connection it opens, so a reopened
-// connection keeps busy_timeout. synchronous is FULL because the
-// manifest ACK follows the commit.
 // walLimit is the size SQLite cuts catalog.db-wal back to when it
 // resets it.
 const walLimit = 64 << 20
 
+// dataSource is a file URI carrying the per-connection pragmas. The
+// driver runs them on every connection it opens, so a reopened
+// connection keeps busy_timeout. synchronous is FULL because the
+// manifest ACK follows the commit.
 func dataSource(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
