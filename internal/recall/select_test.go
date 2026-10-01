@@ -48,3 +48,37 @@ func TestSelect(t *testing.T) {
 		t.Fatalf("emit error: %+v %v after %d", st, err, n)
 	}
 }
+
+// A line too long to read is counted whatever the filter, because the
+// filter cannot see inside it; it is written only when it can match.
+func TestSelectCountsOversizedLines(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "big")
+	evs := events(2, func(i int) string { return fmt.Sprint("line ", i) })
+	big := strings.Repeat("x", MaxLine)
+	evs = append(evs, events(1, func(int) string { return big })...)
+	publish(t, s, uid, evs)
+	r := NewReader(s.Catalog, s.Normalized)
+	all := func(string) (bool, error) { return true, nil }
+	for name, c := range map[string]struct {
+		f      EventFilter
+		fields Fields
+		rows   int64
+	}{
+		"type filter skips it":       {EventFilter{EventType: "message"}, nil, 2},
+		"unreadable, fields":         {EventFilter{EventType: "unreadable"}, Fields{"content_text"}, 1},
+		"unreadable, whole events":   {EventFilter{EventType: "unreadable"}, nil, 0},
+		"session filter with fields": {EventFilter{Harness: "codex"}, Fields{"actor"}, 3},
+	} {
+		var lines []string
+		st, err := r.Select(t.Context(), c.f, c.fields, all, func(l []byte) error { lines = append(lines, string(l)); return nil })
+		if err != nil || st.Oversized != 1 || st.Rows != c.rows || int64(len(lines)) != c.rows {
+			t.Errorf("%s: %+v %v", name, st, err)
+		}
+		for _, l := range lines {
+			if len(l) > 1<<20 {
+				t.Errorf("%s: wrote the oversized line", name)
+			}
+		}
+	}
+}

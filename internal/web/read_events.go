@@ -50,8 +50,15 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	q := r.URL.Query()
-	f, fields, err := parseReadEvents(q)
+	// ParseQuery reports what URL.Query drops silently, such as a bad
+	// percent escape, so a malformed parameter is refused rather than
+	// left out of the filter (review 1682).
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	var f recall.EventFilter
+	var fields recall.Fields
+	if err == nil {
+		f, fields, err = parseReadEvents(q)
+	}
 	if err != nil {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return

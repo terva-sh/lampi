@@ -13,8 +13,12 @@ type SelectStats struct {
 	Sessions int   `json:"sessions"`
 	// Skipped counts sessions left out because their publication
 	// changed or went away while they were opened. Oversized counts
-	// matching lines too long to read, written only when Fields is set,
-	// with every field null.
+	// lines of the sessions read that were too long to read at all
+	// (over MaxLine). The filter cannot see inside them, so they match
+	// only what search matches them by: event_type unreadable, or a
+	// filter with no event part. One that matches is written as nulls
+	// under Fields and left out otherwise. A nonzero Oversized means
+	// that many events could not be checked (review 1682).
 	Skipped   int   `json:"skipped"`
 	Oversized int64 `json:"oversized"`
 }
@@ -78,18 +82,15 @@ func (r *Reader) selectSession(ctx context.Context, snap *snapshot, f EventFilte
 		if rerr != nil && rerr != io.EOF {
 			return rerr
 		}
-		if f.Line(line) {
+		if line == nil {
+			st.Oversized++
+		}
+		// An oversized line was not kept, so without fields there is
+		// nothing to write for it.
+		if f.Line(line) && (line != nil || fields != nil) {
 			out := line
-			switch {
-			case fields != nil:
+			if fields != nil {
 				out = fields.Project(line)
-				if line == nil {
-					st.Oversized++
-				}
-			case line == nil:
-				// The line was not kept, so there is nothing to write.
-				st.Oversized++
-				continue
 			}
 			if err := emit(out); err != nil {
 				return err

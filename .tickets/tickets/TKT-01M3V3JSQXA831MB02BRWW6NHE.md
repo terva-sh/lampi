@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T06:49:12Z
-updated_at: 2026-10-01T07:12:46Z
+updated_at: 2026-10-01T07:33:53Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -100,3 +100,7 @@ recall.Reader.Select walks catalog.PublishedSessions, skips sessions not ready o
 **agent:claude-code/dae09bda** at 2026-10-01T07:12:46Z
 
 PR #177 (https://git.local.sothr.com/terva-sh/lampi/pulls/177), stacked on #175 and #173. terva-review dispatched.
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:33:53Z
+
+Review 1682: finding-1 (medium) accepted. Select now counts every line over MaxLine in the sessions it reads, whatever the filter, so a nonzero oversized in the end line says how many events could not be checked; they still match only what search matches them by. finding-2 (low) accepted: the handler parses RawQuery with url.ParseQuery and refuses what URL.Query would have dropped. Tests: TestSelectCountsOversizedLines; two malformed queries added to TestReadEventsStream.
