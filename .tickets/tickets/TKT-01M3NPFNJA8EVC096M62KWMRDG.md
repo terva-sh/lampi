@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:05Z
-updated_at: 2026-10-01T06:24:57Z
+updated_at: 2026-10-01T06:41:25Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -87,3 +87,7 @@ TKT-01M3V1AJGS was filed for this without knowing about this ticket, and it is a
 Picking it up again:
 - **Updated:** origin/main is merged into search/wal-limit, which merged cleanly. `TestAReclaimTruncatesTheWAL` still passes.
 - **Added:** `journal_size_limit(64 MiB)` on catalog.db's connections too, which was criterion 3 of the duplicate. The catalog's WAL was only 4 MiB, but it keeps its peak the same way. `TestPragmasSurviveNewConnection` now checks the limit on a fresh connection. Removing the pragma fails it with `journal_size_limit = -1, want 67108864`, and the driver's default is -1, so the test checks the setting and not a default.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:41:25Z
+
+Review 1670 finding 1: reclaim discarded the wal_checkpoint(TRUNCATE) result row, so a reader on the WAL (busy=1) let a pass clear the pending reclaim with the WAL untruncated. Fixed in 1c37375: reclaim scans (busy, log, checkpointed) and returns more while busy. TestAReaderOnTheWALLeavesTheReclaimPending opens a deferred reader from beforeReclaim (indexDSN's _txlock=immediate would take the write lock instead) and fails without the fix.
