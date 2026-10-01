@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-10-01T08:01:42Z
+updated_at: 2026-10-01T08:06:08Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -56,6 +56,22 @@ To do:
 - Measure the file over a few hours on the dev lake, and check whether the forced merges converge.
 - If they do not, run a merge to completion after a pass that wrote a large share of the index, such as a rebuild. That can be spread over passes as a forced merge, or done as one `optimize`. `optimize` costs a transaction the size of the FTS index, about 1 GiB of WAL here.
 - Find what still replaces rows after TKT-01M3NENNN8. Compare signatures of one session across two generations.
+
+## Acceptance criteria
+
+- [x] The forced merges are measured, and the answer to whether they converge is recorded
+- [x] Nothing still replaces rows at a sync, or what does is found
+- [x] serve compact frees the entries of deleted rows in the search index, with a test that fails without it
+- [ ] The internal lake's index is compacted and its size before and after recorded
+
+## Implementation plan
+
+1. Answer the to-dos with measurements (findings note): no rows are replaced at a sync; the forced merges do not converge and are expensive; the live overhead is dead entries from earlier deletes.
+2. `serve compact` gains a search index step, `recall.OptimizeIndex`: an FTS5 `optimize`, an incremental vacuum and a truncating checkpoint, with serve stopped. `--dry-run` reports the index's size.
+3. Tests: `TestOptimizeFreesTheEntriesOfRemovedRows` removes a session, then checks that `optimize` shrinks the segments by at least 4x and the file. The kept session stays searchable, the removed one is gone, and the WAL ends at 0. It fails without the `optimize` statement. `TestCompactDryRunsBesideServeAndOtherwiseNeedsTheLock` checks both compact outputs with and without an index.
+4. Docs: the Compact section of `docs/vps-bringup.md` and the `docs/cli.md` row.
+5. The per-transaction WAL peak from automerge is split out as TKT-01M3V7ZNT0TTQV363HZ0VJ738E (Search index: automerge rewrites old segments inside large transactions).
+6. On the internal lake, run `serve compact` at the next deploy and record the index size before and after.
 
 ## Notes
 
