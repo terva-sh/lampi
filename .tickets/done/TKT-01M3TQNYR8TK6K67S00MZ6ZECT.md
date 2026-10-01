@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3TQNYR8TK6K67S00MZ6ZECT
 title: "Release v0.5.1: transcript run folding, torn-line fix; tag and notes"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: release/next
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: 996b66441151b331c4d6ba6f706d8353eecc61a1
-  session: null
-  claimed_at: 2026-10-01T03:21:13Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T03:21:12Z
-updated_at: 2026-10-01T05:17:46Z
+updated_at: 2026-10-01T05:24:44Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -70,8 +63,8 @@ The owner ran `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow-
 
 - [x] A lake at v0.5.0 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck
 - [x] The owner confirmed the version and the cut
-- [ ] The release is tagged on both forges and its archives and image name the tag
-- [ ] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the run folding
+- [x] The release is tagged on both forges and its archives and image name the tag
+- [x] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the run folding
 
 ## Implementation plan
 
@@ -128,3 +121,11 @@ This supersedes the 2026-09-30 rehearsal and its fsck caveat. The build was 74eb
 **agent:claude-code/27b21f4b** at 2026-10-01T05:17:46Z
 
 Owner confirmed the cut as v0.5.1 and asked for a deploy afterwards (2026-10-01). Tagged 4ef0c50 (annotated), main on both forges; main CI passed on 4ef0c50, and GitHub main was fast-forwarded to it. Pushed to origin and github. Review record for #171: review 1638 on c8d1001 found the stale scope description (medium). It was fixed in 3bdcd7e with disposition finding-1 accepted, and the scope-fix review of 3bdcd7e found nothing. #170 had clean reviews of 5cf2215 and 3c40344.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T05:24:44Z
+
+Published 2026-10-01. GitHub release run 36819064159 passed: 6 assets, not a prerelease, and the linux_amd64 archive matches checksums.txt and reports 'terva-lampi v0.5.1 (4ef0c505de03)'. ghcr.io/terva-sh/lampi:0.5.1 reports 'terva-lampi v0.5.1 (4ef0c50)'. The Forgejo release (id 17618) passed both jobs, has 6 assets, and its linux_amd64 binary reports the tag. Notes prepended to both bodies (#### Upgrading from v0.5.0 / New / Fixed).
+
+## Summary
+
+v0.5.1 is tagged at 4ef0c50 and published on GitHub (archives, plus ghcr.io/terva-sh/lampi:0.5.1) and on Forgejo (archives). Each archive and the image report v0.5.1. It carries the transcript run folding (#169) and the torn-line marker capped at 64 (#170), with no migration. The notes cover the binary-swap rollback and recovering failed sessions with normalize --failed and a SIGHUP. Deployed in TKT-01M3TYFVD9.
