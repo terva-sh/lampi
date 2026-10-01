@@ -170,3 +170,30 @@ func TestReadEventsStream(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// The stream is never silent for longer than its interval: buffered
+// rows are flushed, and an idle stream gets a blank line.
+func TestKeepaliveWriter(t *testing.T) {
+	idle := httptest.NewRecorder()
+	k := newKeepaliveWriter(idle, 5*time.Millisecond)
+	time.Sleep(40 * time.Millisecond)
+	k.stop()
+	if err := k.finish([]byte(`{"end":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	body := idle.Body.String()
+	if !strings.HasPrefix(body, "\n") || !strings.HasSuffix(body, "\n"+`{"end":1}`+"\n") || strings.Trim(body, "\n") != `{"end":1}` {
+		t.Fatalf("idle stream %q", body)
+	}
+
+	busy := httptest.NewRecorder()
+	k = newKeepaliveWriter(busy, 5*time.Millisecond)
+	if err := k.line([]byte(`{"a":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(40 * time.Millisecond)
+	k.stop()
+	if !strings.HasPrefix(busy.Body.String(), `{"a":1}`+"\n") || !busy.Flushed {
+		t.Fatalf("buffered row not flushed by the interval: %q", busy.Body.String())
+	}
+}
