@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V1AJJ5C69T9R3CRQQ06PB6
 title: "Search index: reclaim deleted FTS5 rows with a scheduled optimize"
 type: task
-status: draft
+status: archived
 status_reason: null
 priority: normal
 due_on: null
@@ -18,9 +18,12 @@ dependencies:
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-10-01T06:24:43Z
+  from_status: draft
+  reason: Duplicate of TKT-01M3NPFNMH
 created_at: 2026-10-01T06:09:45Z
-updated_at: 2026-10-01T06:09:45Z
+updated_at: 2026-10-01T06:24:43Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -62,3 +65,13 @@ Option 1 is the likely choice, with 3 as the manual way to trigger it. Decide af
 - [ ] The index runs a full optimize on its own when deleted data passes a threshold and it is idle, and an operator can trigger one
 - [ ] On a copy of a large index, fts_data after the scheduled optimize matches a manual optimize
 - [ ] Indexing waits rather than fails while an optimize holds the lock
+
+## Notes
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:24:42Z
+
+Duplicate of TKT-01M3NPFNMH (Search index: FTS segments hold 0.5 GiB over live size after rebuild), a draft filed 2026-09-28 on the unmerged branch search/wal-limit. This ticket's measurements are copied there.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:24:43Z
+
+archived from draft: Duplicate of TKT-01M3NPFNMH

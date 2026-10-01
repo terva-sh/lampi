@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V1AJGSZB7C2C52JCA2SF88
 title: search.db WAL is never capped or truncated; it reached 1.5 GiB
 type: bug
-status: draft
+status: archived
 status_reason: null
 priority: high
 due_on: null
@@ -17,9 +17,12 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-10-01T06:24:42Z
+  from_status: draft
+  reason: "Duplicate of TKT-01M3NPFNJA (Search index WAL keeps its peak size); the fix continues in PR #137"
 created_at: 2026-10-01T06:09:45Z
-updated_at: 2026-10-01T06:09:45Z
+updated_at: 2026-10-01T06:24:42Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -56,3 +59,13 @@ The growth back to 1.5 GiB also says how much the index writes: well over a giga
 - [ ] search.db sets journal_size_limit, and the WAL is truncated after a pass that wrote rows
 - [ ] A test shows the WAL file shrinking back under the limit after a large indexing pass
 - [ ] catalog.db is checked for the same gap, and fixed or ruled out
+
+## Notes
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:24:28Z
+
+Duplicate of TKT-01M3NPFNJA (Search index WAL keeps its peak size), filed 2026-09-28 with its fix in PR #137, which was never reviewed or merged. That ticket was only on the unmerged branch search/wal-limit, so a search of main missed it. The fix continues there, with this ticket's catalog.db criterion added. Archived.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:24:42Z
+
+archived from draft: Duplicate of TKT-01M3NPFNJA (Search index WAL keeps its peak size); the fix continues in PR #137

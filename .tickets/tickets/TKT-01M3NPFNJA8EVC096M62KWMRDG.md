@@ -26,12 +26,12 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:05Z
-updated_at: 2026-09-29T04:25:23Z
+updated_at: 2026-10-01T06:24:57Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
 updated_by:
-  id: agent:claude-code/65ab7244
+  id: agent:claude-code/27b21f4b
   name: ""
 extensions: {}
 ---
@@ -54,6 +54,7 @@ Fix: at the end of a reclaim, run `PRAGMA wal_checkpoint(TRUNCATE)`. Also open t
 
 - [x] The search.db WAL is truncated after a pass that reclaimed
 - [x] search.db opens with a journal_size_limit
+- [x] catalog.db opens with a journal_size_limit too
 
 ## Implementation plan
 
@@ -71,3 +72,18 @@ Alternatives considered:
 **agent:claude-code/65ab7244** at 2026-09-29T04:25:23Z
 
 Built on search/wal-limit. TestAReclaimTruncatesTheWAL fails with the checkpoint replaced by a no-op and passes with it. GOFLAGS=-mod=mod just ci green on origin/main 93998cb.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:24:57Z
+
+### On the internal lake, 2026-10-01: picked up again
+
+PR #137 passed CI on 2026-09-28 but was never reviewed or merged. The same failure reached the internal lake running v0.5.1:
+- The storage report showed `search.db-wal` at 739 MiB.
+- `measure.sh` ran `wal_checkpoint(TRUNCATE)` on the live index and took it to 0.
+- When the script ran again shortly after, the WAL was back at **1,597,274,592 bytes**, and the checkpoint took it to 0 again.
+
+TKT-01M3V1AJGS was filed for this without knowing about this ticket, and it is archived as a duplicate.
+
+Picking it up again:
+- **Updated:** origin/main is merged into search/wal-limit, which merged cleanly. `TestAReclaimTruncatesTheWAL` still passes.
+- **Added:** `journal_size_limit(64 MiB)` on catalog.db's connections too, which was criterion 3 of the duplicate. The catalog's WAL was only 4 MiB, but it keeps its peak the same way. `TestPragmasSurviveNewConnection` now checks the limit on a fresh connection. Removing the pragma fails it with `journal_size_limit = -1, want 67108864`, and the driver's default is -1, so the test checks the setting and not a default.

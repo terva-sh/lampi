@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-10-01T06:09:45Z
+updated_at: 2026-10-01T06:24:58Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -191,3 +191,7 @@ The index took 2958 MiB on disk: `fts_data` 2102 MiB, `docs` 751 MiB, the rest i
 **Dead rows:** deleted rows left in unmerged segments are their own ticket, TKT-01M3V1AJJ5C69T9R3CRQQ06PB6 (Search index: reclaim deleted FTS5 rows with a scheduled optimize).
 
 **WAL:** the 1.5 GiB write-ahead log is TKT-01M3V1AJGSZB7C2C52JCA2SF88 (search.db WAL is never capped or truncated).
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:24:58Z
+
+Correction to the previous note: the dead-rows ticket is TKT-01M3NPFNMH (Search index: FTS segments hold 0.5 GiB over live size after rebuild), and the WAL ticket is TKT-01M3NPFNJA (Search index WAL keeps its peak size). TKT-01M3V1AJJ5 and TKT-01M3V1AJGS, which that note named, are archived as their duplicates.
