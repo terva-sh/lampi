@@ -672,6 +672,14 @@ newest's bytes first. Last, it compresses every object that a release
 from before compression stored raw. It hashes each object on the way and
 leaves any object that doesn't match its digest for `serve fsck`.
 
+When the lake has a search index, compact then merges the index's
+full-text segments into one. The index keeps the entries of deleted rows
+until a merge meets them, and rows deleted by a purge, by `serve
+normalize --stale` or by a release before v0.5.2 stay on disk until
+then. On one lake that was 0.8 GiB of a 2.1 GiB full-text index. The
+merge rewrites the whole full-text index in one transaction, so it needs
+free space about the size of `search.db` while it runs.
+
 See what it would do first. The dry run writes nothing and can run
 beside `serve`.
 

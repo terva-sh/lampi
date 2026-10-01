@@ -734,6 +734,47 @@ func RemoveFromIndex(ctx context.Context, path, uid string) error {
 	return x.remove(ctx, uid)
 }
 
+// OptimizeIndex merges the full-text index at path into one segment,
+// returns the pages that frees to the filesystem, and truncates the WAL,
+// for serve compact. It reports the index's size before and after: the
+// file and its WAL. A lake with no index has nothing to optimize. The
+// caller holds lake.lock.
+//
+// A merge frees the entries of deleted rows only where it meets them,
+// and reclaim's merges run when a pass deleted rows, which a sync no
+// longer does. On the internal lake the deletes of earlier releases left
+// fts_data at 2.1 GiB with 1.3 GiB live (TKT-01M3NPFNMH). optimize
+// rewrites the whole full-text index in one transaction, so its WAL
+// grows to about that size before the truncate.
+func OptimizeIndex(ctx context.Context, path string) (before, after int64, err error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
+	}
+	before = indexSize(path)
+	db, err := openIndexDB(path)
+	if err != nil {
+		return before, before, err
+	}
+	defer db.Close()
+	for _, q := range []string{`INSERT INTO fts(fts) VALUES('optimize')`, `PRAGMA incremental_vacuum`, `PRAGMA wal_checkpoint(TRUNCATE)`} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return before, indexSize(path), fmt.Errorf("search: optimize: %w", err)
+		}
+	}
+	return before, indexSize(path), nil
+}
+
+// indexSize is the bytes of the index file at path and its WAL.
+func indexSize(path string) int64 {
+	var n int64
+	for _, p := range []string{path, path + "-wal"} {
+		if st, err := os.Stat(p); err == nil {
+			n += st.Size()
+		}
+	}
+	return n
+}
+
 // waitPasses blocks until n passes have finished, for tests.
 func (x *Index) waitPasses(n int) {
 	x.mu.Lock()
