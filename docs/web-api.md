@@ -243,6 +243,11 @@ same flags, and `fields` takes the paths `--fields` takes.
 - The stream reads only published normalized files. It never starts
   normalization and never reads raw blobs.
 
+The stream is never silent for more than 15 seconds. While the lake reads
+sessions with nothing to send, it writes a blank line. Skip blank lines;
+`jq` and the `query events` command already do. A client can treat a
+longer silence as a dead connection.
+
 The last line is the only one with the key `lampi:end`:
 
 ```json
