@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T03:21:12Z
-updated_at: 2026-10-01T05:03:08Z
+updated_at: 2026-10-01T05:07:43Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -44,19 +44,27 @@ The owner asked on 2026-09-30 to prepare the next release after v0.5.0. That req
 
 ### What it carries
 
-Since v0.5.0 (85480f5), main changed only `internal/web`: the transcript run folding from TKT-01M3SZQ69B (Transcript page: collapse runs of unknown harness events), merged in #169. There is no diff in `internal/catalog`, `internal/normalize`, `internal/protocol`, `deploy/` or the `Dockerfile`.
+Since v0.5.0 (85480f5), main gained two changes:
+
+- **#169, TKT-01M3SZQ69B** (Transcript page: collapse runs of unknown harness events). Dashboard only, in `internal/web`.
+- **#170, TKT-01M3NQ2R** (Normalize: a torn line mid-file fails the whole session). This changes `internal/normalize` for Claude, Codex and terva JSONL: a line that is not a JSON object becomes an error event instead of failing the session, and more than 64 such lines still fail the file.
+
+There is no diff in `internal/catalog`, `internal/protocol`, `deploy/` or the `Dockerfile`.
 
 - The catalog stays at schema 21, and no migration is appended.
-- The normalizer, search index and protocol are unchanged, so nothing needs to be normalized or rebuilt, and agents need no upgrade.
-- Rollback is swapping the binary back: v0.5.0 runs the same schema-21 catalog.
+- **Normalizer output** changes only for sessions that previously failed. A session with no bad line projects exactly as before, so ready sessions need no re-projection. Sessions that failed on a torn line recover with `serve normalize --failed` and a SIGHUP.
+- The search index format and the protocol are unchanged, and agents need no upgrade.
+- **Rollback** is swapping the binary back, because v0.5.0 runs the same schema-21 catalog. A session recovered by the retry keeps its derived files under v0.5.0, but v0.5.0 would fail it again if it were re-projected.
 
 ### Version
 
-v0.5.1 is proposed, not decided. The release is a dashboard display change with no schema, protocol, config or agent change. v0.6.0 would be the choice if every feature release takes a minor, as v0.2.0 to v0.5.0 each did.
+v0.5.1 is proposed, not decided. The release is a bug fix plus a dashboard display change, with no schema, protocol, config or agent change. v0.6.0 would be the choice if every feature release takes a minor, as v0.2.0 to v0.5.0 each did.
 
-### Open before the tag
+### Diagnosis it came from
 
-The owner runs `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow-ups from TKT-01M3SYMZCW (Deploy v0.5.0 to the internal lake and workstation agent): the `GROUP` admin mapping in role_map, and the two failed normalizations. If the failures show a normalizer bug, its fix joins this release, and the notes and the rehearsal change with it.
+The owner ran `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow-ups from TKT-01M3SYMZCW (Deploy v0.5.0 to the internal lake and workstation agent):
+- **role_map** mapped a group literally named `GROUP` to admin. The owner chose to make `Brokkr Lampi Admin` admin instead, and the deploy applies it.
+- **The two failed normalizations** are the torn lines of TKT-01M3NQ2R, which #170 fixes.
 
 ## Acceptance criteria
 
