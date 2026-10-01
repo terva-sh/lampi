@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NPFNJA8EVC096M62KWMRDG
 title: "Search index WAL keeps its peak size: 845 MiB on the dev lake"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/65ab7244
-  branch: search/wal-limit
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-123283bc
-  commit: 93998cb107dfcd01c021cf76b22b1a0081fefb09
-  session: null
-  claimed_at: 2026-09-29T04:24:11Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T04:24:05Z
-updated_at: 2026-10-01T06:41:25Z
+updated_at: 2026-10-01T06:51:54Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -91,3 +84,7 @@ Picking it up again:
 **agent:claude-code/27b21f4b** at 2026-10-01T06:41:25Z
 
 Review 1670 finding 1: reclaim discarded the wal_checkpoint(TRUNCATE) result row, so a reader on the WAL (busy=1) let a pass clear the pending reclaim with the WAL untruncated. Fixed in 1c37375: reclaim scans (busy, log, checkpointed) and returns more while busy. TestAReaderOnTheWALLeavesTheReclaimPending opens a deferred reader from beforeReclaim (indexDSN's _txlock=immediate would take the write lock instead) and fails without the fix.
+
+## Summary
+
+Merged in #137 (360e460). search.db opens with journal_size_limit 64 MiB and each reclaim ends with wal_checkpoint(TRUNCATE); a busy checkpoint keeps the reclaim pending (review 1670). catalog.db opens with the same limit. Ships in v0.5.2; the internal lake's 1.5 GiB WAL is cut back at the first pass after it is deployed.
