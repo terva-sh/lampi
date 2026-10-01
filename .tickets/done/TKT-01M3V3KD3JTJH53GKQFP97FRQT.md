@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V3KD3JTJH53GKQFP97FRQT
 title: Count matching events by field in export and query
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -19,17 +19,10 @@ dependencies:
   - TKT-01M3V3KCRA78QSQTY4SV0JVRAJ
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/dae09bda
-  branch: count/by-field
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
-  commit: 35f3145068dd921a0404525c53249953a6a2505e
-  session: null
-  claimed_at: 2026-10-01T08:05:03Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T06:49:32Z
-updated_at: 2026-10-01T08:35:36Z
+updated_at: 2026-10-01T08:47:57Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -89,3 +82,7 @@ recall.Counter (internal/recall/count.go) counts selected lines by the compact J
 **agent:claude-code/dae09bda** at 2026-10-01T08:35:36Z
 
 Review 1706: finding-1 (high) accepted, the counter also stops when its distinct values' JSON text totals more than CountMaxBytes (32 MiB), since lines up to 16 MiB make 100,000 values unbounded in bytes; it fails without partial counts, as at the value cap. finding-2 (low) accepted, the stream's end-line rows counts the count rows actually written.
+
+## Summary
+
+Landed in #179 (merge 41867cc). --count-by PATH on export and query events, and count_by on the event stream, write one {"value":V,"count":N} line per distinct value instead of events, by count then value. Free-text paths (content_text, content_ref, extra, extra.*) and --fields with --count-by are refused. A count stops at 100,000 distinct values or 32 MiB of them (review 1706) and then fails without partial counts.

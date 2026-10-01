@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-10-01T06:49:32Z
+updated_at: 2026-10-01T08:47:57Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -134,3 +134,7 @@ Owner decision 2026-10-01 amends decision 4: agents and MCP clients authenticate
 **agent:claude-code/dae09bda** at 2026-10-01T06:49:32Z
 
 Supersedes the previous note's child list, which printed null for three IDs: the new children are TKT-01M3V3J8VZKAZJJAR9VTMDGJGD Export: filter normalized events and select their fields; TKT-01M3V3JSQXA831MB02BRWW6NHE Read API: stream filtered normalized events to read tokens; TKT-01M3V3KCRA78QSQTY4SV0JVRAJ CLI: query events from a remote lake with a read token; TKT-01M3V3KD3JTJH53GKQFP97FRQT Count matching events by field in export and query. TKT-01M3FPWCH4GFYYX4GKT9XFN53G holds the auth decision.
+
+**agent:claude-code/dae09bda** at 2026-10-01T08:47:57Z
+
+Agent bulk reads are done and on main, not yet in a release (v0.5.2 predates them): TKT-01M3V3J8 export filters and --fields (#173), TKT-01M3FPWCH read tokens with events:read (#175), TKT-01M3V3JS GET /api/read/v1/events (#177), TKT-01M3V3KC terva-lampi query events and docs/reading-the-lake.md (#178), TKT-01M3V3KD --count-by (#179). The MCP child TKT-01M3FPWCF can now authenticate with events:read read tokens through web.tokenFor, and reuse recall.EventFilter, Fields, Select and Counter.
