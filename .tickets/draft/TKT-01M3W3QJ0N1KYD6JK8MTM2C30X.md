@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-01T16:11:02Z
-updated_at: 2026-10-01T16:11:02Z
+updated_at: 2026-10-01T16:20:47Z
 created_by:
   id: agent:claude-code/0f3154cf
   name: ""
@@ -76,3 +76,16 @@ reasons, and the Dex ticket depends on it.
 - [ ] Each option is recorded with why it wins or loses
 - [ ] Dex's groups claim and max_age/auth_time support are checked and recorded
 - [ ] Any change to the HTTPS issuer rule is reflected in docs/policy.md
+
+## Notes
+
+**agent:claude-code/0f3154cf** at 2026-10-01T16:20:47Z
+
+Owner, 2026-10-01: a Mac laptop already runs Dex for this, with a
+self-signed certificate that the machine trusts through Apple's
+tooling (the system keychain). That is option 1 in practice on macOS,
+and the owner thinks it may be a good fit there. The spike should
+start from that setup: record how the certificate was made and
+trusted, and check it against the groups and max_age/auth_time
+questions above. Linux still needs its own answer for the trust store
+step.
