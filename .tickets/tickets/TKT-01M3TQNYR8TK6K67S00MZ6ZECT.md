@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T03:21:12Z
-updated_at: 2026-10-01T04:59:05Z
+updated_at: 2026-10-01T05:03:08Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -60,7 +60,7 @@ The owner runs `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow
 
 ## Acceptance criteria
 
-- [ ] A lake at v0.5.0 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck
+- [x] A lake at v0.5.0 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck
 - [ ] The owner confirmed the version and the cut
 - [ ] The release is tagged on both forges and its archives and image name the tag
 - [ ] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the run folding
@@ -102,3 +102,17 @@ Correction to the rehearsal note: serve fsck with the 996b664 build exited 0 ('c
 **agent:claude-code/27b21f4b** at 2026-10-01T04:59:05Z
 
 Scope grew on 2026-10-01: the release now carries TKT-01M3NQ2R (torn line becomes a marker, capped at 64) from #170, which changes internal/normalize. Criterion 1 is unticked until the rehearsal is re-run on the final main. Normalize output changes only for sessions that previously failed, so ready sessions need no re-projection.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T05:03:08Z
+
+### Rehearsal on the final main, 2026-10-01
+
+This supersedes the 2026-09-30 rehearsal and its fsck caveat. The build was 74ebae3: main 759a12d with #170, plus this branch's ticket commits.
+
+- **Seeded with v0.5.0.** The v0.5.0 release binary served a scratch lake, and a scratch agent uploaded a Claude transcript whose line 3 is a cut-off record with the next one joined on, the shape of the internal lake's line 691. It failed with `normalize: line 3 is not a JSON object`. Counts: 1 session, 1 artifact, 1 provenance row.
+- **Upgraded.** `migrate --check` with the new build reported `catalog schema 21, up to date`, and serve logged the same at start, with no migration.
+- **Recovered live.** `serve normalize --failed` queued the session, and a SIGHUP to the running serve projected it: ready=1, failed=0. The recovery works without a restart.
+- **Agent.** The next sync uploaded nothing (unchanged 1).
+- **Checks.** Counts are unchanged (1, 1, 1), integrity is ok, and `serve fsck` reports 1 entry, 0 bad.
+
+`GOFLAGS=-mod=mod just ci` passed on #170's head, and Forgejo CI and terva-review passed on 3c40344.
