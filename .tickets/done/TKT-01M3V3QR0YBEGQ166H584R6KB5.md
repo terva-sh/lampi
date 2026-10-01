@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V3QR0YBEGQ166H584R6KB5
 title: "Release v0.5.2: search index and catalog WAL cap; tag and notes"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: release/v0.5.2
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: 360e46007ca28b53d51ab519de2eacb31bf62fe5
-  session: null
-  claimed_at: 2026-10-01T06:52:08Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T06:51:54Z
-updated_at: 2026-10-01T06:52:10Z
+updated_at: 2026-10-01T07:08:14Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -60,8 +53,8 @@ There is no diff in `internal/normalize`, `internal/protocol`, `deploy/` or the 
 ## Acceptance criteria
 
 - [x] A lake at v0.5.1 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck, and indexes with its WAL truncated
-- [ ] The release is tagged on both forges and its archives and image name the tag
-- [ ] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the WAL fix
+- [x] The release is tagged on both forges and its archives and image name the tag
+- [x] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the WAL fix
 
 ## Implementation plan
 
@@ -92,3 +85,19 @@ The build was cc2fcf6, the head #137 merged as 360e460 (main b856d38 plus the WA
 - **Checks.** `normalize --status`: ready=3, failed=0. The next sync uploaded nothing (unchanged 3). Integrity ok, counts 3/3/3, and `serve fsck` checked 3 entries, 0 bad.
 
 `GOFLAGS=-mod=mod just ci` passed on the merged tree, and Forgejo CI and terva-review passed on cc2fcf6.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T07:08:14Z
+
+### Published, 2026-10-01
+
+- **Tag.** v0.5.2 is an annotated tag on 360e460, main on both forges after `just sync-github --yes`. It was pushed to origin and github.
+- **Workflows.** The GitHub release workflow (run 36828026273) succeeded. On Forgejo, Build Image and Build and Publish Release succeeded.
+- **Archives.** Each forge's five archives match its own `checksums.txt`. The two checksum files differ because each forge builds separately: GitHub used go1.27.0 and Forgejo go1.27.1. Both linux_amd64 binaries print `terva-lampi v0.5.2 (360e46007ca2)`.
+- **Image.** With podman, `ghcr.io/terva-sh/lampi:0.5.2` and `:latest` both print `terva-lampi v0.5.2 (360e460)`.
+- **Notes.** The plan's notes were prepended to both release bodies, with `####` headings.
+
+Deploying to the internal lake waits for the owner to ask.
+
+## Summary
+
+v0.5.2 tagged at 360e460 and published on both forges with notes; archives and the GHCR image name v0.5.2. It carries #137 (TKT-01M3NPFNJA): search.db and catalog.db open with a 64 MiB journal_size_limit, and each index reclaim ends with a truncating checkpoint that is retried while a reader holds the WAL. No migration (schema 21), rollback is a binary swap, agents need no upgrade. Deploy is not part of this ticket.
