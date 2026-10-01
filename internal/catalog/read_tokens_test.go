@@ -67,3 +67,24 @@ func TestReadTokens(t *testing.T) {
 		t.Fatalf("queued audit events %d %v, want created and revoked", n, err)
 	}
 }
+
+// TKT-01M3FPWCH: a token holds raw:read, events:read or both, and each
+// is checked on its own. An unknown or repeated permission is refused.
+func TestReadTokenPermissions(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	for _, perms := range [][]string{nil, {"search:read"}, {PermRawRead, PermRawRead}} {
+		if _, err := c.CreateReadToken(ctx, ReadToken{Label: "bad", Permissions: perms, Expires: now.Add(time.Hour)}, strings.Repeat("a", 64), now); err == nil {
+			t.Errorf("minted a token with permissions %q", perms)
+		}
+	}
+	both, err := c.CreateReadToken(ctx, ReadToken{Label: "agent", Permissions: []string{PermRawRead, PermEventsRead}, Expires: now.Add(time.Hour)}, strings.Repeat("b", 64), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := ReadToken{Permissions: []string{PermEventsRead}, Expires: now.Add(time.Hour)}
+	if !both.Allows(PermEventsRead, "01A", now) || !both.Allows(PermRawRead, "01A", now) || events.Allows(PermRawRead, "01A", now) || !events.Allows(PermEventsRead, "01A", now) {
+		t.Fatal("permissions are not checked one by one")
+	}
+}

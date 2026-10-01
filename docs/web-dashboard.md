@@ -280,11 +280,23 @@ HTTP `Range` requests; the routes are in
 
 ### Read tokens
 
-An admin gets a **Read tokens** link, `/admin/read-tokens`, for tools that
-fetch raw artifacts without a browser session. The API is in
+An admin gets a **Read tokens** link, `/admin/read-tokens`, for tools and
+agents that read the lake without a browser session. The API is in
 [web-api.md](web-api.md#read-tokens).
 
-- **Minting** takes a label, an optional list of session UIDs, an
+A token reads what its permissions name, and nothing else:
+
+| Permission | Reads |
+|---|---|
+| `raw:read` | Raw artifacts, the uploaded files as stored. |
+| `events:read` | Normalized events, for agents that look back over past sessions. |
+
+A read token is its own principal. It reads what its permissions and
+scope allow, not what the admin who minted it can read, and it keeps
+working if that admin's role changes. Revoke it to stop it.
+
+- **Minting** takes a label, one or both permissions (neither is checked
+  to begin with), an optional list of session UIDs, an
   optional list of [bays](policy.md#bays), and an expiry of up to 90
   days. An empty session list reads every session. A bay list limits the
   token to sessions in those bays at the time of each read, so a session
@@ -297,11 +309,12 @@ fetch raw artifacts without a browser session. The API is in
   starts with `lrt_`, so a leaked one is easy to find in a log or with a
   secret scanner.
 - **Revoke** stops a token on its next request. The list shows each
-  token's scope, expiry, who minted it, and when it was last used.
+  token's permissions, scope, expiry, who minted it, and when it was
+  last used.
 
 Minting and revoking are written to `audit.jsonl` as `read_token.created`
-and `read_token.revoked`, naming the token by id and label and never by
-its value. Each read is an `artifact.read` event with the token as actor.
+and `read_token.revoked`, naming the token by id, label and permissions,
+and never by its value. Each read is an `artifact.read` event with the token as actor.
 A mint whose line cannot be written to `audit.jsonl` is revoked at once and
 its token is never shown. A revoke whose line cannot be written still
 stands: the page says so, and the line is written at the next flush.

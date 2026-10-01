@@ -14,24 +14,34 @@ import (
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/registrar"
 )
 
 var mintedToken = regexp.MustCompile(`id="token-only">(lrt_[A-Za-z0-9_-]+)<`)
 
-// mintReadToken mints a token through the admin page and returns it.
+// mintReadToken mints a raw:read token through the admin page and
+// returns it.
 func mintReadToken(t *testing.T, h http.Handler, admin *http.Cookie, label, sessions string) string {
+	t.Helper()
+	tok, _ := mintReadTokenWith(t, h, admin, label, sessions, catalog.PermRawRead)
+	return tok
+}
+
+// mintReadTokenWith mints a token holding perms and returns it with the
+// page that showed it.
+func mintReadTokenWith(t *testing.T, h http.Handler, admin *http.Cookie, label, sessions string, perms ...string) (string, string) {
 	t.Helper()
 	page := get(h, adminReadTokensPath, admin).Body.String()
 	a := attemptField.FindStringSubmatch(page)
 	if a == nil {
 		t.Fatal("no mint form")
 	}
-	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {label}, "sessions": {sessions}, "expires": {"24h"}}, admin)
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {label}, "sessions": {sessions}, "expires": {"24h"}, "permissions": perms}, admin)
 	m := mintedToken.FindStringSubmatch(w.Body.String())
 	if w.Code != 200 || m == nil {
 		t.Fatalf("mint %d: %s", w.Code, w.Body.String())
 	}
-	return m[1]
+	return m[1], w.Body.String()
 }
 
 func bearer(h http.Handler, method, path, token string) *httptest.ResponseRecorder {
@@ -230,7 +240,7 @@ func TestUnauditedMintIsRevokedAndNotShown(t *testing.T) {
 	admin := signInAs(t, idp, h, "owners")
 	a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
 	breakAuditLog(t, dir)
-	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"unaudited"}, "expires": {"24h"}}, admin)
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"unaudited"}, "expires": {"24h"}, "permissions": {catalog.PermRawRead}}, admin)
 	if w.Code != 500 || mintedToken.MatchString(w.Body.String()) || strings.Contains(w.Body.String(), ReadTokenPrefix) {
 		t.Fatalf("unaudited mint %d showed a token", w.Code)
 	}
@@ -281,7 +291,7 @@ func TestMintSessionCheckFailureIsAServerError(t *testing.T) {
 	if err := lake.Catalog.Close(); err != nil {
 		t.Fatal(err)
 	}
-	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrf}, "attempt": {a[1]}, "label": {"x"}, "sessions": {uid}, "expires": {"24h"}}, admin)
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrf}, "attempt": {a[1]}, "label": {"x"}, "sessions": {uid}, "expires": {"24h"}, "permissions": {catalog.PermRawRead}}, admin)
 	if w.Code != 500 || !strings.Contains(w.Body.String(), "Minting failed") {
 		t.Fatalf("session check on a closed catalog: %d", w.Code)
 	}
@@ -327,7 +337,7 @@ func TestReadTokenBayScope(t *testing.T) {
 	}
 	admin := signInAs(t, idp, h, "owners")
 	a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
-	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"work only"}, "bays": {"work"}, "expires": {"24h"}}, admin)
+	w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"work only"}, "bays": {"work"}, "expires": {"24h"}, "permissions": {catalog.PermRawRead}}, admin)
 	m := mintedToken.FindStringSubmatch(w.Body.String())
 	if w.Code != 200 || m == nil {
 		t.Fatalf("mint %d: %s", w.Code, w.Body.String())
@@ -353,8 +363,89 @@ func TestReadTokenBayScope(t *testing.T) {
 		t.Fatalf("after leaving the bay: %d", w.Code)
 	}
 	a = attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
-	w = postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"typo"}, "bays": {"nope"}, "expires": {"24h"}}, admin)
+	w = postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"typo"}, "bays": {"nope"}, "expires": {"24h"}, "permissions": {catalog.PermRawRead}}, admin)
 	if w.Code != 400 || mintedToken.MatchString(w.Body.String()) || !strings.Contains(w.Body.String(), "not in the lake") {
 		t.Fatalf("unknown bay mint: %d", w.Code)
+	}
+}
+
+// TKT-01M3FPWCH: a token reads what its permissions name. An events-only
+// token cannot read raw artifacts, a route that needs events:read
+// refuses a raw-only token, a device token and a browser session, and a
+// mint must name at least one known permission.
+func TestReadTokenPermissions(t *testing.T) {
+	lake, idp, h, dir := rawLake(t, nil)
+	device := strings.Repeat("d", 64)
+	lake.Allow(device)
+	uid, digest := storeSession(t, lake, "tok-perm", []byte("perm\n"))
+	admin := signInAs(t, idp, h, "owners")
+
+	page := get(h, adminReadTokensPath, admin).Body.String()
+	if strings.Contains(page, `name="permissions" value="raw:read" checked`) || strings.Contains(page, `name="permissions" value="events:read" checked`) {
+		t.Fatal("a permission is checked before the admin chose one")
+	}
+	events, shown := mintReadTokenWith(t, h, admin, "agent recall", "", catalog.PermEventsRead)
+	if !strings.Contains(shown, "It reads normalized events of every session") || strings.Contains(shown, "Fetching an artifact") {
+		t.Fatalf("events token panel:\n%s", shown)
+	}
+	raw := mintReadToken(t, h, admin, "raw only", "")
+	both, shown := mintReadTokenWith(t, h, admin, "both", "", catalog.PermEventsRead, catalog.PermRawRead)
+	if !strings.Contains(shown, "It reads raw artifacts and normalized events of") || !strings.Contains(shown, "Fetching an artifact") {
+		t.Fatalf("two-permission panel:\n%s", shown)
+	}
+	if !strings.Contains(get(h, adminReadTokensPath, admin).Body.String(), "raw:read events:read") {
+		t.Fatal("the token list does not show permissions")
+	}
+
+	if w := bearer(h, "GET", rawTokenPath(uid, digest), events); w.Code != 404 {
+		t.Errorf("events token on the raw route: %d", w.Code)
+	}
+	if w := bearer(h, "GET", rawTokenPath(uid, digest), both); w.Code != 200 {
+		t.Errorf("two-permission token on the raw route: %d", w.Code)
+	}
+
+	// No route needs events:read yet (the read API stream adds one), so
+	// a probe route checks the helper every such route will call.
+	srv := &Server{reg: &Registrations{Lake: func() registrar.Lake { return registrar.Lake{Catalog: lake.Catalog, Dir: dir} }}}
+	probe := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := srv.tokenFor(w, r, catalog.PermEventsRead, "lampi-events", time.Now()); ok {
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+	for name, c := range map[string]struct {
+		token string
+		want  int
+	}{
+		"events token":   {events, 204},
+		"both":           {both, 204},
+		"raw-only token": {raw, 404},
+		"device token":   {device, 401},
+		"no token":       {"", 401},
+	} {
+		if w := bearer(probe, "GET", "/probe", c.token); w.Code != c.want {
+			t.Errorf("%s: %d, want %d", name, w.Code, c.want)
+		}
+	}
+	r := httptest.NewRequest("GET", "https://lake.example/probe", nil)
+	r.AddCookie(admin)
+	w := httptest.NewRecorder()
+	probe.ServeHTTP(w, r)
+	if w.Code != 401 || !strings.Contains(w.Header().Get("WWW-Authenticate"), `realm="lampi-events"`) {
+		t.Errorf("browser session: %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
+	}
+
+	for _, perms := range [][]string{nil, {"admin:all"}, {catalog.PermEventsRead, "admin:all"}} {
+		a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
+		w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"bad perms"}, "expires": {"24h"}, "permissions": perms}, admin)
+		if w.Code != 400 || mintedToken.MatchString(w.Body.String()) || !strings.Contains(w.Body.String(), "Choose what the token reads") {
+			t.Errorf("mint with %q: %d", perms, w.Code)
+		}
+	}
+	log, err := os.ReadFile(audit.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "permissions=events:read scope=lake") {
+		t.Errorf("audit does not name the permission:\n%s", log)
 	}
 }
