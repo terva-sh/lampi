@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -616,5 +618,133 @@ func TestExportByBay(t *testing.T) {
 	}
 	if err := Run([]string{"export", "--data", dir, "--bay", "nope"}, Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err == nil {
 		t.Fatal("unknown bay accepted")
+	}
+}
+
+// publishEvents files a session and publishes evs as its normalized
+// generation, the way a worker would, without a raw transcript.
+func publishEvents(t *testing.T, lake *api.Server, harness, native, remote string, evs []normalize.Event) {
+	t.Helper()
+	ctx := t.Context()
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: harness, NativeSessionID: native,
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: native + ".jsonl", SHA256: strings.Repeat("c", 64), Size: 12}}}
+	if remote != "" {
+		m.Project = protocol.Project{GitRemote: remote, GitRoot: strings.Repeat("d", 40)}
+	}
+	ack, err := lake.Catalog.Ingest(ctx, m, time.Now(), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen, err := lake.Catalog.EnqueueNormalize(ctx, ack.SessionUID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.StoreEvents(ctx, ack.SessionUID, evs, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := lake.Catalog.DeleteNormalizeJob(ctx, ack.SessionUID, gen); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExportFiltersAndFields(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	ev := func(harness string, day int, typ, tool, text string) normalize.Event {
+		e := normalize.Event{SchemaVersion: 1, SessionID: "native", Harness: harness, Actor: normalize.ActorUser, EventType: typ,
+			RecordedAt: fmt.Sprintf("2026-09-%02dT12:00:00Z", day), IngestedAt: "2026-09-30T00:00:00Z", ContentText: &text}
+		if tool != "" {
+			e.Actor, e.Tool.Name = normalize.ActorAssistant, &tool
+		}
+		return e
+	}
+	failed := ev("codex", 3, normalize.EventToolResult, "Bash", "rejected")
+	failed.Actor, failed.Tool.IsError = normalize.ActorTool, &yes
+	publishEvents(t, lake, "codex", "sid-a", "git@example.com:org/one.git", []normalize.Event{
+		ev("codex", 1, normalize.EventMessage, "", "push it"),
+		ev("codex", 2, normalize.EventToolCall, "Bash", "git push"),
+		failed,
+		ev("codex", 4, normalize.EventToolCall, "Read", "README.md"),
+	})
+	publishEvents(t, lake, "claude", "sid-b", "", []normalize.Event{
+		ev("claude", 5, normalize.EventToolCall, "Bash", "ls"),
+		ev("claude", 6, normalize.EventMessage, "", "done"),
+	})
+	if err := lake.Close(); err != nil {
+		t.Fatal(err)
+	}
+	export := func(args ...string) []string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := Run(append([]string{"export", "--data", dir}, args...), Env{Stdout: &out, Stderr: &bytes.Buffer{}}); err != nil {
+			t.Fatal(args, err)
+		}
+		lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+		slices.Sort(lines)
+		if lines[0] == "" {
+			return nil
+		}
+		return lines
+	}
+	got := export("--event-type", "tool_call", "--fields", "harness,tool.name,content_text,tool.is_error")
+	want := []string{
+		`{"harness":"claude","tool.name":"Bash","content_text":"ls","tool.is_error":null}`,
+		`{"harness":"codex","tool.name":"Bash","content_text":"git push","tool.is_error":null}`,
+		`{"harness":"codex","tool.name":"Read","content_text":"README.md","tool.is_error":null}`,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("tool calls:\n%s", strings.Join(got, "\n"))
+	}
+	project := protocol.ProjectLinkID("git@example.com:org/one.git", strings.Repeat("d", 40))
+	for name, c := range map[string]struct {
+		args []string
+		want []string
+	}{
+		"failed whole events": {[]string{"--tool", "Bash", "--tool-error", "true", "--fields", "content_text"}, []string{`{"content_text":"rejected"}`}},
+		"harness":             {[]string{"--harness", "claude", "--fields", "content_text"}, []string{`{"content_text":"done"}`, `{"content_text":"ls"}`}},
+		"project":             {[]string{"--project", project, "--actor", "user", "--fields", "content_text"}, []string{`{"content_text":"push it"}`}},
+		"time window":         {[]string{"--since", "2026-09-02", "--until", "2026-09-03", "--fields", "content_text"}, []string{`{"content_text":"git push"}`, `{"content_text":"rejected"}`}},
+		"date-only until":     {[]string{"--until", "2026-09-01", "--fields", "content_text"}, []string{`{"content_text":"push it"}`}},
+		"nothing":             {[]string{"--tool", "bash"}, nil},
+	} {
+		if got := export(c.args...); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+	whole := export("--tool-error", "true")
+	var e normalize.Event
+	if len(whole) != 1 || json.Unmarshal([]byte(whole[0]), &e) != nil || e.EventType != normalize.EventToolResult || e.Harness != "codex" {
+		t.Fatalf("filter without --fields: %q", whole)
+	}
+
+	for _, c := range []struct {
+		args []string
+		says string
+	}{
+		{[]string{"--event-type", "nonsense"}, `--event-type "nonsense"`},
+		{[]string{"--harness", "emacs"}, `--harness "emacs"`},
+		{[]string{"--actor", "robot"}, `--actor "robot"`},
+		{[]string{"--tool-error", "maybe"}, "--tool-error"},
+		{[]string{"--since", "yesterday"}, "--since"},
+		{[]string{"--since", "2026-09-05", "--until", "2026-09-01"}, "--until must be after --since"},
+		{[]string{"--fields", "nope"}, `--fields: unknown field "nope"`},
+		{[]string{"--format", "sharegpt", "--tool", "Bash"}, "--format events only"},
+		{[]string{"--format", "trajectory", "--fields", "harness"}, "--format events only"},
+		{[]string{"--format", "sharegpt", "--fields", ""}, "-fields: empty value"},
+		{[]string{"--fields", ""}, "-fields: empty value"},
+		{[]string{"--tool", ""}, "-tool: empty value"},
+	} {
+		out := filepath.Join(t.TempDir(), "out.jsonl")
+		err := Run(append([]string{"export", "--data", dir, "--out", out}, c.args...), Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
+		if err == nil || !strings.Contains(err.Error(), c.says) {
+			t.Errorf("%q: %v, want it to say %s", c.args, err, c.says)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Errorf("%q wrote %s before refusing", c.args, out)
+		}
 	}
 }

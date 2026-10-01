@@ -16,11 +16,12 @@ import (
 	"terva.sh/lampi/internal/webauth"
 )
 
-// Raw-read tokens (TKT-01M3NM6FW7). An admin mints a bearer token that
-// reads raw artifacts, for a tool with no browser session. It reads the
-// raw artifact route and nothing else: no page, no /api/web/v1 route,
-// no /v1 ingestion. Only its SHA-256 is stored, and mint, revoke and
-// every read are audited.
+// Read tokens (TKT-01M3NM6FW7, TKT-01M3FPWCH). An admin mints a bearer
+// token for a tool or an agent with no browser session. Its permissions
+// say what it reads: raw:read the raw artifact route, events:read the
+// routes that serve normalized events to agents. It reads nothing else:
+// no page, no /api/web/v1 route, no /v1 ingestion. Only its SHA-256 is
+// stored, and mint, revoke and every read are audited.
 
 const (
 	adminReadTokensPath = "/admin/read-tokens"
@@ -51,11 +52,21 @@ func (s *Server) readTokenRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET "+rawTokenPath("{uid}", "{digest}"), s.rawByToken)
 }
 
+// readTokenPermLabels says what each permission reads, in the words the
+// page uses.
+var readTokenPermLabels = map[string]string{
+	catalog.PermRawRead:    "raw artifacts",
+	catalog.PermEventsRead: "normalized events",
+}
+
 // readTokenView is one token as the page shows it. It never holds the
 // secret.
 type readTokenView struct {
-	// Scope is the table's column; Reach finishes "It reads raw
-	// artifacts of" on the shown-once panel. Both name a bay limit.
+	// Reads names what its permissions read, as "raw artifacts and
+	// normalized events".
+	Reads string
+	// Scope is the table's column; Reach finishes "It reads READS of"
+	// on the shown-once panel. Both name a bay limit.
 	ID, Label, State, Scope      string
 	Reach                        string
 	Created, CreatedBy, Expires  string
@@ -87,7 +98,11 @@ func viewReadToken(t catalog.ReadToken, names map[string]string, now time.Time) 
 			scope, reach = "Sessions in "+in, "the sessions in "+in
 		}
 	}
-	return readTokenView{ID: t.ID, Label: t.Label, State: t.State(now), Scope: scope, Reach: reach, Permissions: strings.Join(t.Permissions, " "),
+	var reads []string
+	for _, p := range t.Permissions {
+		reads = append(reads, readTokenPermLabels[p])
+	}
+	return readTokenView{ID: t.ID, Label: t.Label, State: t.State(now), Scope: scope, Reach: reach, Permissions: strings.Join(t.Permissions, " "), Reads: strings.Join(reads, " and "),
 		Created: stampOf(t.Created), CreatedBy: t.CreatedBy, Expires: stampOf(t.Expires),
 		Revoked: stampOf(t.Revoked), RevokedBy: t.RevokedBy, LastUsed: stampOf(t.LastUsed)}
 }
@@ -121,9 +136,11 @@ type readTokensView struct {
 	Fresh     bool
 	FreshURL  string
 	Lifetimes []struct{ Value, Label string }
-	Form      readTokenForm
-	Attempt   string
-	Problem   string
+	// Perms are the form's permission checkboxes.
+	Perms   []readTokenPerm
+	Form    readTokenForm
+	Attempt string
+	Problem string
 	// Minted is the token just minted, and Secret its value. Secret is
 	// set on this one response and nowhere else.
 	Minted *readTokenView
@@ -132,7 +149,15 @@ type readTokensView struct {
 	Example string
 }
 
-type readTokenForm struct{ Label, Sessions, Bays, Expires string }
+type readTokenForm struct {
+	Label, Sessions, Bays, Expires string
+	Perms                          []string
+}
+
+type readTokenPerm struct {
+	Value, Label string
+	Checked      bool
+}
 
 func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v readTokensView, status int) {
 	now := s.now()
@@ -155,6 +180,11 @@ func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v read
 	v.FreshURL = webauth.FreshLoginURL(adminReadTokensPath)
 	v.Attempt = s.attempts.issue(now)
 	v.Lifetimes = readTokenLifetimes
+	// No permission is checked to begin with: the admin says what the
+	// token is for.
+	for _, p := range catalog.ReadTokenPermissions {
+		v.Perms = append(v.Perms, readTokenPerm{Value: p, Label: readTokenPermLabels[p], Checked: slices.Contains(v.Form.Perms, p)})
+	}
 	if v.Form.Expires == "" {
 		v.Form.Expires = readTokenLifetimes[0].Value
 	}
@@ -177,6 +207,7 @@ var readTokenProblems = map[string]string{
 	"unknown_session":  "A listed session is not in the lake. Check the UIDs.",
 	"unknown_bay":      "A listed bay is not in the lake. serve bays list names them.",
 	"invalid_bays":     "The bays field holds separators and no bay. Leave it empty for no bay limit.",
+	"invalid_perms":    "Choose what the token reads: raw artifacts, normalized events, or both.",
 	"mint_failed":      "Minting failed. Operator logs hold the details.",
 	"audit_failed":     "Writing the mint to the audit log failed, so the token was revoked and is not shown. Operator logs hold the details. Fix the audit log and mint again.",
 }
@@ -192,7 +223,7 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, webauth.FreshLoginURL(adminReadTokensPath), http.StatusSeeOther)
 		return
 	}
-	form := readTokenForm{Label: strings.TrimSpace(r.PostForm.Get("label")), Sessions: r.PostForm.Get("sessions"), Bays: r.PostForm.Get("bays"), Expires: r.PostForm.Get("expires")}
+	form := readTokenForm{Label: strings.TrimSpace(r.PostForm.Get("label")), Sessions: r.PostForm.Get("sessions"), Bays: r.PostForm.Get("bays"), Expires: r.PostForm.Get("expires"), Perms: r.PostForm["permissions"]}
 	attempt := r.PostForm.Get("attempt")
 	if prior, ok := s.attempts.claim(attempt, now); !ok {
 		problem := "This form was already sent, or is out of date. Mint again from the form below."
@@ -246,7 +277,10 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.attempts.done(attempt, t.ID)
 	v := viewReadToken(t, s.bayNames(r), now)
-	out := readTokensView{Minted: &v, Secret: secret, Example: "curl -fsS -H 'Authorization: Bearer " + secret + "' -o artifact " + s.origin + rawTokenPath("SESSION_UID", "SHA256")}
+	out := readTokensView{Minted: &v, Secret: secret}
+	if slices.Contains(t.Permissions, catalog.PermRawRead) {
+		out.Example = "curl -fsS -H 'Authorization: Bearer " + secret + "' -o artifact " + s.origin + rawTokenPath("SESSION_UID", "SHA256")
+	}
 	s.renderReadTokens(w, r, out, http.StatusOK)
 }
 
@@ -300,8 +334,19 @@ func (s *Server) readTokenRequest(r *http.Request, f readTokenForm, now time.Tim
 	if len(bays) == 0 && strings.TrimSpace(f.Bays) != "" {
 		return catalog.ReadToken{}, "invalid_bays"
 	}
+	// Permissions are checked last, so that a form from before they
+	// existed is told about its other problems first.
+	var perms []string
+	for _, p := range catalog.ReadTokenPermissions {
+		if slices.Contains(f.Perms, p) {
+			perms = append(perms, p)
+		}
+	}
+	if len(perms) == 0 || slices.ContainsFunc(f.Perms, func(p string) bool { return !slices.Contains(catalog.ReadTokenPermissions, p) }) {
+		return catalog.ReadToken{}, "invalid_perms"
+	}
 	id, _ := webauth.Current(r)
-	return catalog.ReadToken{Label: f.Label, Permissions: []string{catalog.PermRawRead}, Sessions: sessions, BayScoped: len(bays) > 0, Bays: bays, CreatedBy: actor(id).Audit, Expires: now.Add(life)}, ""
+	return catalog.ReadToken{Label: f.Label, Permissions: perms, Sessions: sessions, BayScoped: len(bays) > 0, Bays: bays, CreatedBy: actor(id).Audit, Expires: now.Add(life)}, ""
 }
 
 func (s *Server) revokeReadTokenPage(w http.ResponseWriter, r *http.Request) {
@@ -344,16 +389,8 @@ func (s *Server) rawByToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	t, ok, err := s.readTokenOf(r, now)
-	if err != nil {
-		// The token may be fine; a 401 would tell the tool to drop it.
-		s.logError(r, "looking up a read token failed", err)
-		apiError(w, http.StatusInternalServerError, "read_failed")
-		return
-	}
+	t, ok := s.tokenFor(w, r, catalog.PermRawRead, "lampi-raw", now)
 	if !ok {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="lampi-raw"`)
-		apiError(w, http.StatusUnauthorized, "not_authenticated")
 		return
 	}
 	uid := r.PathValue("uid")
@@ -376,6 +413,33 @@ func (s *Server) rawByToken(w http.ResponseWriter, r *http.Request) {
 		s.logError(r, "recording a read token's use failed", err)
 	}
 	s.serveRaw(w, r, uid, r.PathValue("digest"), "token:"+t.ID+" ("+t.Label+")")
+}
+
+// tokenFor authenticates the request's bearer read token for perm, and
+// answers the request itself when it cannot. A missing, unknown,
+// expired or revoked token is 401 with a Bearer challenge in realm. A
+// token without perm is 404, the answer a token gets for a session
+// outside its scope, so it learns nothing about a route it cannot use.
+// A lookup that fails is 500: the token may be fine, and a 401 would
+// tell the tool to drop it. A device token or a browser session is
+// never a read token, so it is 401 here.
+func (s *Server) tokenFor(w http.ResponseWriter, r *http.Request, perm, realm string, now time.Time) (catalog.ReadToken, bool) {
+	t, ok, err := s.readTokenOf(r, now)
+	if err != nil {
+		s.logError(r, "looking up a read token failed", err)
+		apiError(w, http.StatusInternalServerError, "read_failed")
+		return catalog.ReadToken{}, false
+	}
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+realm+`"`)
+		apiError(w, http.StatusUnauthorized, "not_authenticated")
+		return catalog.ReadToken{}, false
+	}
+	if !slices.Contains(t.Permissions, perm) {
+		apiError(w, http.StatusNotFound, "not_found")
+		return catalog.ReadToken{}, false
+	}
+	return t, true
 }
 
 // readTokenOf finds the active read token in the request's

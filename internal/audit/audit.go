@@ -51,6 +51,10 @@ const (
 	// names the session, the digest and the byte range, never content.
 	ArtifactRead = "artifact.read"
 
+	// EventsRead is a read token streaming normalized events. Detail is
+	// the query: filters and field paths, never content.
+	EventsRead = "events.read"
+
 	// ReadTokenCreated and ReadTokenRevoked record an admin minting and
 	// revoking a read token. Detail names the token, never its secret.
 	ReadTokenCreated = "read_token.created"
