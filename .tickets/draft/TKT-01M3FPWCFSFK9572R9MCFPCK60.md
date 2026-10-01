@@ -25,13 +25,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-09-26T20:35:43Z
+updated_at: 2026-10-01T06:49:12Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/cd41c9ac
-  name: Claude Code local agent
+  id: agent:claude-code/dae09bda
+  name: ""
 extensions: {}
 ---
 
@@ -43,3 +43,9 @@ Serve an MCP endpoint from the lake exposing search, structured filters, event w
 
 - [ ] MCP tools return the same results as the web API for the same inputs.
 - [ ] Documentation shows how to configure an agent to use the lake for recall instead of terva-ext-session-search.
+
+## Notes
+
+**agent:claude-code/dae09bda** at 2026-10-01T06:49:12Z
+
+MCP authenticates with read tokens holding events:read, per TKT-01M3FPWCH4GFYYX4GKT9XFN53G. Tools should reuse the internal/recall event filter from TKT-01M3V3J8VZKAZJJAR9VTMDGJGD.
