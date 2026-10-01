@@ -286,16 +286,33 @@ type eventFlags struct {
 }
 
 func (e *eventFlags) register(fs *flag.FlagSet) {
-	fs.StringVar(&e.harness, "harness", "", "keep events of sessions from this harness")
-	fs.StringVar(&e.project, "project", "", "keep events of sessions with this project id")
-	fs.StringVar(&e.eventType, "event-type", "", "keep events of this type")
-	fs.StringVar(&e.actor, "actor", "", "keep events by this actor")
-	fs.StringVar(&e.tool, "tool", "", "keep events of this tool name")
-	fs.StringVar(&e.toolError, "tool-error", "", "keep tool results that failed (true) or succeeded (false)")
-	fs.StringVar(&e.rawType, "raw-type", "", "keep events of this harness type")
-	fs.StringVar(&e.since, "since", "", "keep events recorded at or after this time")
-	fs.StringVar(&e.until, "until", "", "keep events recorded before this time")
-	fs.StringVar(&e.fields, "fields", "", "write only these comma-separated event paths")
+	for _, f := range []struct {
+		name  string
+		dest  *string
+		usage string
+	}{
+		{"harness", &e.harness, "keep events of sessions from this harness"},
+		{"project", &e.project, "keep events of sessions with this project id"},
+		{"event-type", &e.eventType, "keep events of this type"},
+		{"actor", &e.actor, "keep events by this actor"},
+		{"tool", &e.tool, "keep events of this tool name"},
+		{"tool-error", &e.toolError, "keep tool results that failed (true) or succeeded (false)"},
+		{"raw-type", &e.rawType, "keep events of this harness type"},
+		{"since", &e.since, "keep events recorded at or after this time"},
+		{"until", &e.until, "keep events recorded before this time"},
+		{"fields", &e.fields, "write only these comma-separated event paths"},
+	} {
+		// An empty value is refused, not read as the flag left out: an
+		// empty --fields would otherwise write whole events, and pass
+		// the check that keeps --fields to --format events (review 1678).
+		fs.Func(f.name, f.usage, func(v string) error {
+			if v == "" {
+				return errors.New("empty value")
+			}
+			*f.dest = v
+			return nil
+		})
+	}
 }
 
 func (e *eventFlags) parse() (recall.EventFilter, recall.Fields, error) {

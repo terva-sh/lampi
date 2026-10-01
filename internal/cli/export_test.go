@@ -734,6 +734,9 @@ func TestExportFiltersAndFields(t *testing.T) {
 		{[]string{"--fields", "nope"}, `--fields: unknown field "nope"`},
 		{[]string{"--format", "sharegpt", "--tool", "Bash"}, "--format events only"},
 		{[]string{"--format", "trajectory", "--fields", "harness"}, "--format events only"},
+		{[]string{"--format", "sharegpt", "--fields", ""}, "-fields: empty value"},
+		{[]string{"--fields", ""}, "-fields: empty value"},
+		{[]string{"--tool", ""}, "-tool: empty value"},
 	} {
 		out := filepath.Join(t.TempDir(), "out.jsonl")
 		err := Run(append([]string{"export", "--data", dir, "--out", out}, c.args...), Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
