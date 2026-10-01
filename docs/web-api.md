@@ -253,8 +253,13 @@ A stream that ends without that line was cut short. `complete` is false,
 with `error` set, when the lake stopped reading partway: the rows before
 it are real but are not all of them. `skipped` counts sessions left out
 because their generation changed or went away while they were opened.
-`oversized` counts matching lines over 16 MiB, which are left out of
-whole-event output and written with every field null under `fields`.
+`oversized` counts lines over 16 MiB in the sessions read. A filter
+cannot see inside such a line, so it matches only what search matches it
+by: `event_type=unreadable`, or filters on harness, project or nothing
+else. A matching one is written with every field null under `fields`,
+and left out of whole-event output. When `oversized` is above zero, that
+many events could not be checked against the filters, and the result may
+be missing some.
 
 Each request is written to `audit.jsonl` as one `events.read` event before
 any line is sent, naming the token as actor and the query as detail:

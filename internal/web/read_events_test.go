@@ -150,7 +150,7 @@ func TestReadEventsStream(t *testing.T) {
 	if w := bearer(h, "GET", readEventsPath+"?fields=harness", events); w.Code != 400 || !strings.Contains(w.Body.String(), "filter_required") {
 		t.Errorf("fields alone: %d %s", w.Code, w.Body.String())
 	}
-	for _, bad := range []string{"?q=push", "?tool=Bash&tool=Read", "?tool=", "?event_type=nonsense", "?tool=Bash&fields=nope", "?tool_error=maybe", "?since=yesterday", "?tool=Bash&fields="} {
+	for _, bad := range []string{"?q=push", "?tool=Bash&tool=Read", "?tool=", "?event_type=nonsense", "?tool=Bash&fields=nope", "?tool_error=maybe", "?since=yesterday", "?tool=Bash&fields=", "?tool=Bash&%XX=1", "?tool=Bash;x=1"} {
 		if w := bearer(h, "GET", readEventsPath+bad, events); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_request") {
 			t.Errorf("%s: %d %s", bad, w.Code, w.Body.String())
 		}
