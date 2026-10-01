@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-01T07:06:00Z
+updated_at: 2026-10-01T07:11:52Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -108,3 +108,7 @@ catalog: PermEventsRead and ReadTokenPermissions beside PermRawRead; CreateReadT
 - A token without the route's permission gets 404, as the ticket said: the same answer as a session outside its scope, so a raw-only token learns nothing about the events routes.
 - The read token page still registers only when raw reads are on (reg.Blobs). The event stream ticket (TKT-01M3V3JS) decides whether an events-only lake needs the page without raw.
 - No route needs events:read yet. The probe test pins the helper those routes will call.
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:11:52Z
+
+Review 1681 (low): docs/web-ui-plan.md linked this ticket under .tickets/done/ before it moved there. The links now use .tickets/tickets/. Closing this ticket must move both links to .tickets/done/ in the same commit.
