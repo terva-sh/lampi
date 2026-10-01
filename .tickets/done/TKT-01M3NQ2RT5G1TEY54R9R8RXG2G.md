@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:34:31Z
-updated_at: 2026-10-01T04:42:31Z
+updated_at: 2026-10-01T04:58:39Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -91,6 +91,20 @@ OpenCode, Cursor and Cursor CLI take one JSON document per blob, so they are una
 - `GOFLAGS=-mod=mod just ci` passes.
 
 **On the internal lake**, after the release with this fix is deployed, `serve normalize --failed` and a SIGHUP should bring both sessions to ready.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T04:58:39Z
+
+### Cap on unreadable lines, 2026-10-01
+
+This supersedes the plan's "a file with no JSON object line still fails" as the only failure.
+
+PR #170's CI run 1652 timed out (`panic: test timed out after 10m0s` in `TestGrowingChunkedFileIsStoredOnce`, internal/api). That test sends a 32 MiB errors sidecar of random bytes followed by JSON lines.
+- Before the change, terva failed it at line 1.
+- With markers, it projected one for each of about 130k random lines at every version. Locally the test finished first, in 10.6s, but the slow runner hung past the limit.
+
+That is a real input shape too: a file that is binary or garbage would have become a session of markers.
+
+Fix: past `maxUnreadable` (64) unreadable lines, a file fails with the first bad line's error plus "more than 64 lines are not JSON objects", and it fails as soon as it passes the cap. `TestUnreadableLinesAreCapped` checks that 64 bad lines among good ones project with 64 markers in Claude, Codex and terva, and that 65 fail without quoting the line. The growth test now takes 1.6s, `internal/api` takes 7.9s against about 16s before, and `GOFLAGS=-mod=mod just ci` passes.
 
 ## Summary
 
