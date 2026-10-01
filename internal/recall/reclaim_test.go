@@ -209,3 +209,112 @@ func TestAReaderOnTheWALLeavesTheReclaimPending(t *testing.T) {
 		t.Fatalf("the WAL is not empty once the reader left: %v %v", st, err)
 	}
 }
+
+// freePages is the index's freelist length.
+func freePages(t *testing.T, path string) int64 {
+	t.Helper()
+	db, err := openIndexDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int64
+	if err := db.QueryRow(`PRAGMA freelist_count`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// ftsBytes is the payload of the index's full-text segments.
+func ftsBytes(t *testing.T, path string) int64 {
+	t.Helper()
+	db, err := openIndexDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int64
+	if err := db.QueryRow(`SELECT coalesce(sum(length(block)),0) FROM fts_data`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// Removing a session leaves its entries in the full-text segments until a
+// merge meets them, and no pass merges after a purge. OptimizeIndex frees
+// them and returns the pages to the filesystem (TKT-01M3NPFNMH).
+func TestOptimizeFreesTheEntriesOfRemovedRows(t *testing.T) {
+	s := lake(t)
+	keep := ingest(t, s, "keep")
+	gone := ingest(t, s, "gone")
+	publish(t, s, keep, events(20, func(i int) string { return fmt.Sprint("keepword text ", i) }))
+	publish(t, s, gone, events(2000, func(i int) string { return fmt.Sprintf("goneword %d %s", i, strings.Repeat("y", 400)) }))
+	path := filepath.Join(t.TempDir(), IndexFile)
+	x, err := OpenIndex(path, NewReader(s.Catalog, s.Normalized))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass(t, x)
+	for x.merging {
+		pass(t, x)
+	}
+	x.Close()
+	if err := RemoveFromIndex(t.Context(), path, gone); err != nil {
+		t.Fatal(err)
+	}
+	removed := ftsBytes(t, path)
+
+	before, after, err := OptimizeIndex(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ftsBytes(t, path); got*4 > removed {
+		t.Fatalf("full-text segments hold %d bytes after optimize, %d before", got, removed)
+	}
+	if after >= before {
+		t.Fatalf("the index is %d bytes after optimize, %d before", after, before)
+	}
+	// incremental_vacuum frees one page per step, so a vacuum not run to
+	// the end leaves pages on the freelist.
+	if n := freePages(t, path); n != 0 {
+		t.Fatalf("%d pages are still on the freelist after optimize", n)
+	}
+	if st, err := os.Stat(path + "-wal"); err == nil && st.Size() != 0 {
+		t.Fatalf("the WAL is %d bytes after optimize", st.Size())
+	}
+	y, err := OpenIndex(path, NewReader(s.Catalog, s.Normalized))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer y.Close()
+	if p := search(t, y, SearchRequest{Scope: catalog.AllBays(), Query: "keepword"}); len(p.Items) == 0 {
+		t.Fatal("the kept session is not searchable after optimize")
+	}
+	if p := search(t, y, SearchRequest{Scope: catalog.AllBays(), Query: "goneword"}); len(p.Items) != 0 {
+		t.Fatal("the removed session is searchable after optimize")
+	}
+
+	// A reader that did not take lake.lock keeps the WAL from being
+	// truncated, and optimize says so. The wait is the DSN's busy_timeout.
+	r, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	tx, err := r.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OptimizeIndex(t.Context(), path); err == nil || !strings.Contains(err.Error(), "not truncated") {
+		t.Fatalf("optimize beside a reader: %v", err)
+	}
+	tx.Rollback()
+
+	if before, after, err := OptimizeIndex(t.Context(), filepath.Join(t.TempDir(), "absent.db")); err != nil || before != 0 || after != 0 {
+		t.Fatalf("no index to optimize: %d %d %v", before, after, err)
+	}
+}

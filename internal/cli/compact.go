@@ -4,9 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/recall"
 )
 
 const compactUsage = `terva-lampi serve compact — store each grown file's bytes once
@@ -32,6 +35,12 @@ leading bytes.
 Last, every object stored raw by a release from before objects were
 compressed is rewritten as a zstd frame. Its bytes are hashed on the
 way, and one that is not its digest is left for serve fsck.
+
+Then, when the lake has a search index, compact merges its full-text
+index into one segment. That frees the entries of deleted rows, which
+the index's own merges leave behind, and returns the space to the
+filesystem. It rewrites the whole full-text index in one transaction,
+so it needs free space of about the size of search.db while it runs.
 
 compact can be run again, and a second run over a compacted lake changes
 nothing.
@@ -114,8 +123,17 @@ func runServeCompact(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	index := filepath.Join(data, recall.IndexFile)
 	if dryRun {
+		if _, err := os.Stat(index); err == nil {
+			fmt.Fprintf(out, "search index to optimize: %.1f MiB\n", float64(recall.IndexSize(index))/(1<<20))
+		}
 		fmt.Fprintln(out, "dry run; nothing was written")
+		return nil
 	}
-	return nil
+	before, after, err := recall.OptimizeIndex(context.Background(), index)
+	if before > 0 {
+		fmt.Fprintf(out, "search index optimized: %.1f MiB to %.1f MiB\n", float64(before)/(1<<20), float64(after)/(1<<20))
+	}
+	return err
 }
