@@ -125,8 +125,8 @@ func runServeCompact(env Env, args []string) error {
 	}
 	index := filepath.Join(data, recall.IndexFile)
 	if dryRun {
-		if st, err := os.Stat(index); err == nil {
-			fmt.Fprintf(out, "search index to optimize: %.1f MiB\n", float64(st.Size())/(1<<20))
+		if _, err := os.Stat(index); err == nil {
+			fmt.Fprintf(out, "search index to optimize: %.1f MiB\n", float64(recall.IndexSize(index))/(1<<20))
 		}
 		fmt.Fprintln(out, "dry run; nothing was written")
 		return nil

@@ -750,7 +750,7 @@ func OptimizeIndex(ctx context.Context, path string) (before, after int64, err e
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return 0, 0, nil
 	}
-	before = indexSize(path)
+	before = IndexSize(path)
 	db, err := openIndexDB(path)
 	if err != nil {
 		return before, before, err
@@ -759,16 +759,26 @@ func OptimizeIndex(ctx context.Context, path string) (before, after int64, err e
 	// incremental_vacuum frees one page per step. ExecContext steps it to
 	// the end, which TestOptimizeFreesTheEntriesOfRemovedRows checks by
 	// the freelist.
-	for _, q := range []string{`INSERT INTO fts(fts) VALUES('optimize')`, `PRAGMA incremental_vacuum`, `PRAGMA wal_checkpoint(TRUNCATE)`} {
+	for _, q := range []string{`INSERT INTO fts(fts) VALUES('optimize')`, `PRAGMA incremental_vacuum`} {
 		if _, err := db.ExecContext(ctx, q); err != nil {
-			return before, indexSize(path), fmt.Errorf("search: optimize: %w", err)
+			return before, IndexSize(path), fmt.Errorf("search: optimize: %w", err)
 		}
 	}
-	return before, indexSize(path), nil
+	// The caller holds lake.lock, so a reader here is another process
+	// that opened search.db without it. Its WAL is left for serve's
+	// first reclaim to truncate.
+	var busy, logPages, done int64
+	if err := db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &done); err != nil {
+		return before, IndexSize(path), fmt.Errorf("search: optimize: checkpoint: %w", err)
+	}
+	if busy != 0 {
+		return before, IndexSize(path), errors.New("search: optimize: another process is reading search.db, so its WAL was not truncated")
+	}
+	return before, IndexSize(path), nil
 }
 
-// indexSize is the bytes of the index file at path and its WAL.
-func indexSize(path string) int64 {
+// IndexSize is the bytes of the index file at path and its WAL.
+func IndexSize(path string) int64 {
 	var n int64
 	for _, p := range []string{path, path + "-wal"} {
 		if st, err := os.Stat(p); err == nil {

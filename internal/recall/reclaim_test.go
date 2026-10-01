@@ -294,6 +294,26 @@ func TestOptimizeFreesTheEntriesOfRemovedRows(t *testing.T) {
 		t.Fatal("the removed session is searchable after optimize")
 	}
 
+	// A reader that did not take lake.lock keeps the WAL from being
+	// truncated, and optimize says so. The wait is the DSN's busy_timeout.
+	r, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	tx, err := r.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OptimizeIndex(t.Context(), path); err == nil || !strings.Contains(err.Error(), "not truncated") {
+		t.Fatalf("optimize beside a reader: %v", err)
+	}
+	tx.Rollback()
+
 	if before, after, err := OptimizeIndex(t.Context(), filepath.Join(t.TempDir(), "absent.db")); err != nil || before != 0 || after != 0 {
 		t.Fatalf("no index to optimize: %d %d %v", before, after, err)
 	}
