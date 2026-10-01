@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T03:21:12Z
-updated_at: 2026-10-01T03:21:15Z
+updated_at: 2026-10-01T03:21:29Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -86,3 +86,7 @@ The owner runs `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow
 **agent:claude-code/27b21f4b** at 2026-10-01T03:21:14Z
 
 Rehearsal, 2026-09-30: a scratch lake created by v0.4.0 and upgraded by v0.5.0 (schema 21, token-file device, viewer/operator role_map) started on a build of 996b664 (main 57f2200 plus a ticket commit). migrate --check reported 'catalog schema 21, up to date'; serve logged 'catalog schema 21, up to date' with no migration, and healthz answered. GOFLAGS=-mod=mod just ci passed on the feature branch, and main CI passed on the merged tree 57f2200. Rerun if a fix from the diagnosis lands.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T03:21:29Z
+
+Correction to the rehearsal note: serve fsck with the 996b664 build exited 0 ('checked 0 entries, 0 bad'), but the scratch lake holds no blobs, so fsck had nothing to check. That is acceptable here only because nothing since v0.5.0 touches storage, the catalog or the normalizer.
