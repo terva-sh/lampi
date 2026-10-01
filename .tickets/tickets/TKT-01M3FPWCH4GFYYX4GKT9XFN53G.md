@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-01T07:11:52Z
+updated_at: 2026-10-01T07:12:46Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -112,3 +112,7 @@ catalog: PermEventsRead and ReadTokenPermissions beside PermRawRead; CreateReadT
 **agent:claude-code/dae09bda** at 2026-10-01T07:11:52Z
 
 Review 1681 (low): docs/web-ui-plan.md linked this ticket under .tickets/done/ before it moved there. The links now use .tickets/tickets/. Closing this ticket must move both links to .tickets/done/ in the same commit.
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:12:46Z
+
+PR #175 (https://git.local.sothr.com/terva-sh/lampi/pulls/175), stacked on #173. Review 1681 had one low finding, fixed in 5699fcb.

@@ -30,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T06:49:12Z
-updated_at: 2026-10-01T07:11:21Z
+updated_at: 2026-10-01T07:12:46Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -96,3 +96,7 @@ recall.Reader.Select walks catalog.PublishedSessions, skips sessions not ready o
 - web TestReadEventsStream: three filter shapes give the same rows as export's selection over the same published files; a session-scoped token reads only its session; a raw-only token gets 404, and a device token, no token and a browser session get 401; no filter and fields alone are filter_required; eight malformed queries are invalid_request; the audit names the token and the query and holds no content or secret.
 - recall TestSelect: a session not reached is skipped, a published session whose file went away is counted as skipped, an unpublished one is ignored, and errors from reaches and emit stop the walk.
 - `GOFLAGS=-mod=mod just ci` passes.
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:12:46Z
+
+PR #177 (https://git.local.sothr.com/terva-sh/lampi/pulls/177), stacked on #175 and #173. terva-review dispatched.
