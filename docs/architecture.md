@@ -147,7 +147,8 @@ A line of a JSONL transcript that is not a JSON object, such as one a
 harness tore mid-write, does not fail the session. It becomes an
 `error` event in its place that names the line number and its length
 but not its bytes. A file in which no line is a JSON object still
-fails.
+fails, and so does one with more than 64 such lines, as soon as it
+passes that: it is not JSONL.
 Unknown harness fields are kept on the event. `encrypted_content` is
 copied through as an opaque string and is not written into
 `content_text`. Image bytes stay in the raw blob. Pre-compaction rows

@@ -67,9 +67,9 @@ func (t Terva) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 	var st metaState
 	rest := raw
 	lineNo := 0
-	// objects counts lines that are JSON objects; firstBad is the first
-	// that is not. See unreadable.go.
-	objects := 0
+	// objects and unreadable count the lines that are and are not JSON
+	// objects; firstBad is the first that is not. See unreadable.go.
+	objects, unreadable := 0, 0
 	var firstBad error
 	for len(rest) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -99,6 +99,9 @@ func (t Terva) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		if errors.As(err, &bad) {
 			if firstBad == nil {
 				firstBad = err
+			}
+			if unreadable++; unreadable > maxUnreadable {
+				return nil, tooUnreadable(firstBad)
 			}
 			ev, err := t.emit(&st, "", EventError, "", time.Time{}, offset, unreadableText(lineNo, len(line)), Tool{}, Usage{}, unreadableExtra(lineNo, len(line)))
 			if err != nil {

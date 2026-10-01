@@ -9,7 +9,21 @@ import "fmt"
 // record off mid-string and wrote the next record on the same line, and
 // one torn line used to leave the whole session with no events, search
 // entries or transcript. A file in which no line is a JSON object still
-// fails with the first line's error: it is not this format at all.
+// fails with the first line's error: it is not this format at all. So
+// does one with more than maxUnreadable such lines, and it fails as soon
+// as it passes that, rather than projecting a marker for every line of
+// a file that is not JSONL.
+
+// maxUnreadable is how many lines a file may have that are not JSON
+// objects before it is treated as not JSONL. A harness tears a line
+// rarely; a file of random or binary bytes has one every few hundred.
+const maxUnreadable = 64
+
+// tooUnreadable is the failure for a file past maxUnreadable. It keeps
+// the first bad line's error, which names the line and not its bytes.
+func tooUnreadable(first error) error {
+	return fmt.Errorf("%w; more than %d lines are not JSON objects", first, maxUnreadable)
+}
 
 // unreadableLine is the error a projector's line function returns for a
 // line that is not a JSON object.
