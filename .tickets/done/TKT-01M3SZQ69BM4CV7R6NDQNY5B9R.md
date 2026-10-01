@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-30T20:22:27Z
-updated_at: 2026-09-30T23:07:43Z
+updated_at: 2026-10-01T03:20:26Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -61,7 +61,7 @@ This is server-side in `transcriptPage` (`internal/web/pages.go:340-388`) and th
 - [x] Three or more consecutive unknown events without text render as one collapsed <details> naming the range, the count and each raw type
 - [x] Expanding a run shows the original cards, with #e-N ids, links and excerpt selection unchanged
 - [x] An unknown event with text ends a run and stays visible
-- [ ] A run holding the page's target event renders open, and an open run stays open across the live refresh
+- [x] A run holding the page's target event renders open, and an open run stays open across the live refresh
 - [x] Each unknown card shows its raw type
 - [x] internal/web/transcript_test.go covers a run, a short stretch, a run with text inside it, and a target inside a run
 
@@ -82,6 +82,18 @@ Criterion 4 is half verified. Server-side `open` for the target is tested. Stayi
 
 The smoketest's preview browser could not reach loopback, so screenshots came from `chrome-headless-shell` behind a local proxy that added the synthetic session cookie.
 
+**agent:claude-code/27b21f4b** at 2026-10-01T03:20:26Z
+
+### Refresh verified in a browser, 2026-09-30
+
+This supersedes the "half verified" paragraph of the previous note. A smoketest built from main (57f2200) was driven over the DevTools protocol in headless Chromium (`chrome-headless-shell` 1243), behind a local proxy that added the synthetic session cookie:
+
+- Opening run 10 and pressing **Refresh now** replaced `[data-live]`: the new `#run-10` node lacked a marker set on the old one, and the status read "Up to date". The run was still open.
+- A run closed before Refresh stayed closed.
+- Loading the transcript with a bare `#e-11` fragment and no `?at=` unfolded run 10 and focused `#e-11`.
+
+Criterion 4 is now met.
+
 ## Summary
 
-Runs of three or more quiet unknown events on the transcript page fold into one <details> that names the range and each raw type. Cards inside are unchanged. A deep link into a run opens it, and every unknown card shows its raw type. Refresh keeping a run open is unverified in a browser; see the note.
+Runs of three or more quiet unknown events on the transcript page fold into one <details> that names the range and each raw type. Cards inside are unchanged. A deep link (?at= or a bare #e-N) into a run opens it, an opened run stays open across Refresh now, and every unknown card shows its raw type. Merged in #169.
