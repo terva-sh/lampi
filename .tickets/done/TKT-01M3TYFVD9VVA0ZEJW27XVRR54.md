@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-01T05:20:12Z
-updated_at: 2026-10-01T05:33:07Z
+updated_at: 2026-10-01T06:21:00Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -85,6 +85,10 @@ Tested on 2026-10-01: the upgrade and the retry against a v0.5.0 scratch lake wi
 **Workstation agent.** Upgraded to v0.5.1 (4ef0c50) at `~/.local/bin/terva-lampi`. Copies of the old binary and config.json are in `~/.local/state/agent-handoffs/lampi/agent-rollback-v0.5.1-H6JS0coU`. It stays pinned on `allow_source=lake:default` (138 rules, profile version sha256:eb5436a95cc6a4ca). A forced sync uploaded 0 (unchanged 192). `status` reports `lake_release: v0.5.1` and `lake_normalization: ready=689 failed=0`.
 
 **Left for the owner:** sign in and confirm that `Brokkr Lampi Admin` members see the admin links (raw artifacts and the bays inbox).
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:21:00Z
+
+Owner sign-in check, 2026-10-01: the owner signed in after the deploy and confirmed they see what the Lampi Admin role should see. That completes plan step 3, the check review 1653 asked for before this ticket counts as done.
 
 ## Summary
 
