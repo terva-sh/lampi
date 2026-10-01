@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"time"
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/api"
@@ -18,12 +19,14 @@ import (
 	"terva.sh/lampi/internal/lakelock"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/recall"
 )
 
 const exportUsage = `terva-lampi export — write normalized events or a training trajectory
 
 usage:
   terva-lampi export [--data DIR] [--out FILE] [--format events|sharegpt|trajectory] [--bay BAY]...
+                     [event filters] [--fields PATH,...]
 
 --format events (the default) writes schema_version 1 events, one JSON
 object per line. FILE defaults to stdout. A session whose last
@@ -51,6 +54,34 @@ The CAS and the normalized events are not rewritten.
 by id, name or alias (see serve bays). Without it every bay is
 exported: export reads the lake directory, which holds them all.
 
+Event filters, with --format events only, keep the events that match
+every filter given. They take the names and values of the web search
+filters and select the same events:
+  --harness H         terva, claude, codex, opencode, cursor or cursor-cli
+  --project ID        the session's project id
+  --event-type T      message, tool_call, tool_result, usage, compaction,
+                      meta, error, unknown, or unreadable for a line that
+                      is not an event
+  --actor A           user, assistant, system, tool or harness
+  --tool NAME         the tool name, exactly
+  --tool-error B      true or false; a result whose harness did not
+                      record either matches neither
+  --raw-type T        the harness's own type for the line, exactly
+  --since T, --until T
+                      recorded time, RFC 3339 or YYYY-MM-DD in UTC; since
+                      is inclusive, until exclusive, and a date-only until
+                      covers that day. An event with no recorded time
+                      matches neither.
+
+--fields PATH,... writes one JSON object per event holding only those
+paths, keyed by the path. A path is an event field (session_id), one
+field of a nested object (tool.name, model.id), or a key of extra
+(extra.KEY). A path the event lacks is null.
+
+Every tool call, with the tool and its input:
+  terva-lampi export --event-type tool_call \
+    --fields harness,session_id,tool.name,content_text
+
 DuckDB, events:
   SELECT content_text FROM read_ndjson('events.jsonl')
 sqlite3, after loading each line into a table:
@@ -64,11 +95,13 @@ func runExport(env Env, args []string) error {
 	}
 	var data, outPath, format string
 	var bays bayList
+	var ef eventFlags
 	rest, err := parseFlags(env, args, exportUsage, func(fs *flag.FlagSet) {
 		fs.Var(&bays, "bay", "export only sessions in this bay (repeatable)")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&outPath, "out", "", "JSONL path (default: stdout)")
 		fs.StringVar(&format, "format", "events", "events, sharegpt, or trajectory")
+		ef.register(fs)
 	})
 	if err != nil {
 		return err
@@ -83,6 +116,13 @@ func runExport(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), exportUsage)
 		return fmt.Errorf("unknown export format %q", format)
 	}
+	filter, fields, err := ef.parse()
+	if err != nil {
+		return err
+	}
+	if (!filter.IsZero() || fields != nil) && format != "" && format != "events" {
+		return fmt.Errorf("event filters and --fields apply to --format events only")
+	}
 	if data == "" {
 		data, err = config.StateDir(env.getenv)
 		if err != nil {
@@ -94,7 +134,7 @@ func runExport(env Env, args []string) error {
 		return err
 	}
 	defer closeLake()
-	x := exporter{env: env, lake: lake, live: live, scope: catalog.AllBays()}
+	x := exporter{env: env, lake: lake, live: live, scope: catalog.AllBays(), filter: filter, fields: fields}
 	if len(bays) > 0 {
 		var ids []string
 		for _, ref := range bays {
@@ -132,6 +172,10 @@ type exporter struct {
 	live bool
 	// scope is the bays --bay chose, or every bay.
 	scope catalog.Scope
+	// filter and fields select events and their paths for --format
+	// events. The zero filter and nil fields write sessions as stored.
+	filter recall.EventFilter
+	fields recall.Fields
 }
 
 // inScope reports whether a session is in the bays being exported.
@@ -186,6 +230,9 @@ func (x exporter) writeEvents(out io.Writer) error {
 			}
 			continue
 		}
+		if !x.filter.Session(sess.Harness, sess.ProjectID) {
+			continue
+		}
 		body, ok, err := x.sessionJSONL(sess)
 		if err != nil {
 			return err
@@ -193,11 +240,108 @@ func (x exporter) writeEvents(out io.Writer) error {
 		if !ok {
 			continue
 		}
-		if _, err := out.Write(body); err != nil {
+		if x.filter.IsZero() && x.fields == nil {
+			_, err = out.Write(body)
+		} else {
+			err = x.writeSelected(out, body)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeSelected writes the lines of one session's JSONL that the filter
+// keeps, each cut to the chosen fields when there are any. A line too
+// long for the search index to read is read as the index reads it: as
+// an unreadable line with no fields.
+func (x exporter) writeSelected(out io.Writer, body []byte) error {
+	var buf bytes.Buffer
+	for len(body) > 0 {
+		line, rest, _ := bytes.Cut(body, []byte("\n"))
+		body = rest
+		read := line
+		if len(line) > recall.MaxLine {
+			read = nil
+		}
+		if !x.filter.Line(read) {
+			continue
+		}
+		if x.fields != nil {
+			buf.Write(x.fields.Project(read))
+		} else {
+			buf.Write(line)
+		}
+		buf.WriteByte('\n')
+	}
+	_, err := out.Write(buf.Bytes())
+	return err
+}
+
+// eventFlags are the event filter and --fields flags, shared by every
+// command that reads normalized events.
+type eventFlags struct {
+	harness, project, eventType, actor, tool, toolError, rawType, since, until, fields string
+}
+
+func (e *eventFlags) register(fs *flag.FlagSet) {
+	fs.StringVar(&e.harness, "harness", "", "keep events of sessions from this harness")
+	fs.StringVar(&e.project, "project", "", "keep events of sessions with this project id")
+	fs.StringVar(&e.eventType, "event-type", "", "keep events of this type")
+	fs.StringVar(&e.actor, "actor", "", "keep events by this actor")
+	fs.StringVar(&e.tool, "tool", "", "keep events of this tool name")
+	fs.StringVar(&e.toolError, "tool-error", "", "keep tool results that failed (true) or succeeded (false)")
+	fs.StringVar(&e.rawType, "raw-type", "", "keep events of this harness type")
+	fs.StringVar(&e.since, "since", "", "keep events recorded at or after this time")
+	fs.StringVar(&e.until, "until", "", "keep events recorded before this time")
+	fs.StringVar(&e.fields, "fields", "", "write only these comma-separated event paths")
+}
+
+func (e *eventFlags) parse() (recall.EventFilter, recall.Fields, error) {
+	f := recall.EventFilter{Harness: e.harness, Project: e.project, EventType: e.eventType, Actor: e.actor, ToolName: e.tool, RawType: e.rawType}
+	switch e.toolError {
+	case "":
+	case "true", "false":
+		v := e.toolError == "true"
+		f.ToolError = &v
+	default:
+		return f, nil, fmt.Errorf("--tool-error %q: want true or false", e.toolError)
+	}
+	for _, w := range []struct {
+		flag, raw string
+		dest      **time.Time
+		end       bool
+	}{{"--since", e.since, &f.Since, false}, {"--until", e.until, &f.Until, true}} {
+		if w.raw == "" {
+			continue
+		}
+		t, err := recall.ParseWhen(w.raw, w.end)
+		if err != nil {
+			return f, nil, fmt.Errorf("%s %q: want RFC 3339 or YYYY-MM-DD", w.flag, w.raw)
+		}
+		*w.dest = &t
+	}
+	if err := f.Validate(); err != nil {
+		var fe *recall.FilterError
+		if errors.As(err, &fe) && fe.Param == "until" {
+			return f, nil, errors.New("--until must be after --since")
+		}
+		if errors.As(err, &fe) {
+			flags := map[string][2]string{
+				"harness": {"--harness", e.harness}, "project": {"--project", e.project}, "event_type": {"--event-type", e.eventType},
+				"actor": {"--actor", e.actor}, "tool": {"--tool", e.tool}, "raw_type": {"--raw-type", e.rawType},
+			}
+			bad := flags[fe.Param]
+			return f, nil, fmt.Errorf("%s %q: not a value it accepts (see --help)", bad[0], bad[1])
+		}
+		return f, nil, err
+	}
+	fields, err := recall.ParseFields(e.fields)
+	if err != nil {
+		return f, nil, fmt.Errorf("--fields: %w", err)
+	}
+	return f, fields, nil
 }
 
 func (x exporter) writeShareGPT(out io.Writer) error {

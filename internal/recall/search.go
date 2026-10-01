@@ -72,6 +72,13 @@ var (
 // filterMaxBytes caps a free-form exact filter value.
 const filterMaxBytes = 256
 
+// Filter is the structured part of req, for a reader that applies it
+// to normalized JSONL without the index.
+func (req SearchRequest) Filter() EventFilter {
+	return EventFilter{Harness: req.Harness, Project: req.Project, Since: req.Since, Until: req.Until,
+		EventType: req.EventType, Actor: req.Actor, ToolName: req.ToolName, ToolError: req.ToolError, RawType: req.RawType}
+}
+
 func (req SearchRequest) hasEventFilter() bool {
 	return req.EventType != "" || req.Actor != "" || req.ToolName != "" || req.ToolError != nil || req.RawType != ""
 }
@@ -170,14 +177,7 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 			return page, err
 		}
 	}
-	if (req.EventType != "" && !oneOf(req.EventType, EventTypes)) || (req.Actor != "" && !oneOf(req.Actor, Actors)) ||
-		len(req.ToolName) > filterMaxBytes || len(req.RawType) > filterMaxBytes || !utf8.ValidString(req.ToolName) || !utf8.ValidString(req.RawType) {
-		return page, ErrInvalid
-	}
-	if !validHarness(req.Harness) {
-		return page, ErrInvalid
-	}
-	if req.Since != nil && req.Until != nil && !req.Since.Before(*req.Until) {
+	if req.Filter().Validate() != nil {
 		return page, ErrInvalid
 	}
 	fp := req.fingerprint()

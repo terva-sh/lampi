@@ -54,6 +54,44 @@ normalized event per line. `--bay`, repeated, limits either format to
 the sessions in those [bays](policy.md#bays); without it export reads
 every bay, as anything that reads the lake directory does.
 
+### Select events and fields
+
+With `--format events`, filters keep only the events that match every
+filter given. They take the names and values of the
+[web search filters](web-api.md#search) and select the same events: harness and
+project come from the session, and the rest from the event.
+
+| Flag | Keeps |
+|------|-------|
+| `--harness H` | Sessions from `terva`, `claude`, `codex`, `opencode`, `cursor` or `cursor-cli`. |
+| `--project ID` | Sessions with this project id. |
+| `--event-type T` | `message`, `tool_call`, `tool_result`, `usage`, `compaction`, `meta`, `error`, `unknown`, or `unreadable` for a line that is not an event. |
+| `--actor A` | `user`, `assistant`, `system`, `tool` or `harness`. |
+| `--tool NAME` | Events with this tool name, matched exactly. |
+| `--tool-error B` | Tool results that failed (`true`) or succeeded (`false`). A result whose harness recorded neither matches neither. |
+| `--raw-type T` | Events with this harness-native type, matched exactly. |
+| `--since T`, `--until T` | Events recorded in this range, RFC 3339 or `YYYY-MM-DD` in UTC. `--since` is inclusive and `--until` exclusive; a date-only `--until` covers that whole day. An event with no recorded time matches neither. |
+
+`--fields PATH,...` writes one JSON object per event that holds only
+those paths, keyed by the path. A path is an event field
+(`session_id`), one field of a nested object (`tool.name`, `model.id`),
+or a key of `extra` (`extra.KEY`). A path the event lacks is `null`, so
+every row has the same keys.
+
+An invalid value or an unknown path is refused before anything is
+written, and the error names the flag. Filters and `--fields` work only
+with `--format events`.
+
+Every tool call, with its harness, session and input:
+
+```sh
+sudo -u terva-lampi terva-lampi export --data /var/lib/terva-lampi \
+  --event-type tool_call --fields harness,session_id,tool.name,content_text \
+  --out tool-calls.jsonl
+```
+
+`--out` creates the file with mode 0600.
+
 `--format sharegpt` and `--format trajectory` write one ShareGPT
 conversation per session that `config.json` allowlists and that has a
 training turn. A session with no training turn, and a session that is

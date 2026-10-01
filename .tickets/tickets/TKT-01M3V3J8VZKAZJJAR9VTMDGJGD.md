@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V3J8VZKAZJJAR9VTMDGJGD
 title: "Export: filter normalized events and select their fields"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/dae09bda
+  branch: t3code/simplify-agent-data-export
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
+  commit: 315d497b6aecbbf0a4c7c5b9e1e4392ebb1655be
+  session: null
+  claimed_at: 2026-10-01T06:49:40Z
+  expires_at: null
 archive: null
 created_at: 2026-10-01T06:48:54Z
-updated_at: 2026-10-01T06:49:12Z
+updated_at: 2026-10-01T06:56:13Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -84,8 +91,26 @@ per session, not events.
 
 ## Acceptance criteria
 
-- [ ] Each filter works alone and combined with the others on synthetic data, and an invalid value fails before any output, naming the flag.
-- [ ] --fields writes only the listed paths, with null for a missing value, and refuses an unknown path before any output.
-- [ ] Filters and --fields are refused with --format sharegpt and trajectory.
-- [ ] The matching and projection are one type in internal/recall, tested there, and export calls it.
-- [ ] docs/cli.md documents the flags and replaces the jq pipeline with the equivalent export command.
+- [x] Each filter works alone and combined with the others on synthetic data, and an invalid value fails before any output, naming the flag.
+- [x] --fields writes only the listed paths, with null for a missing value, and refuses an unknown path before any output.
+- [x] Filters and --fields are refused with --format sharegpt and trajectory.
+- [x] The matching and projection are one type in internal/recall, tested there, and export calls it.
+- [x] docs/cli.md documents the flags and replaces the jq pipeline with the equivalent export command.
+
+## Implementation plan
+
+Add recall.EventFilter (Validate, Session, Line) and recall.Fields (ParseFields, Project) in internal/recall/filter.go. Line reuses docRow.fill, the index's own line reader, so harness/project come from the session and type, actor, tool, tool_error, raw_type and recorded time (excluding recorded_at == ingested_at) are read exactly as search reads them. SearchRequest.Filter() hands its structured part over, and Search validates through EventFilter.Validate so both share one vocabulary. web's parseWhen moves to recall.ParseWhen for the CLI. export gains eventFlags (shared with the coming query events command), skips sessions by Session before reading them, and splits JSONL lines only when a filter or --fields is set; otherwise sessions are written as stored.
+
+## Notes
+
+**agent:claude-code/dae09bda** at 2026-10-01T06:56:13Z
+
+### Evidence
+- TestEventFilterAgreesWithSearch runs 14 filter combinations through the index and through EventFilter over the published files and requires identical (session, position) sets; 11 of them must be non-empty.
+- TestExportFiltersAndFields covers each flag, combinations, a date-only until, whole events without --fields, and nine refusals, each checked to write no --out file.
+- `GOFLAGS=-mod=mod just ci` passes with XDG dirs in scratch.
+
+### Decisions
+- A line over recall.MaxLine (16 MiB) is unreadable for filtering and projection, as the index treats it, so export and search agree on it too.
+- Session filters alone (--harness, --project) are allowed in export, unlike search. Export already reads the whole lake; the guard in search exists to stop paging the corpus through the index.
+- Not run against the live lake: it needs sudo to the service user. The owner can check it with the docs/cli.md example.
