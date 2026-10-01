@@ -214,6 +214,58 @@ session cookie does not reach them, a read token does not reach any other
 route, including `/api/web/v1` and `/v1`, and a device token does not
 reach them.
 
+### Event stream
+
+An agent with no browser session reads normalized events with a read
+token holding `events:read`:
+
+```sh
+curl -fsS -H "Authorization: Bearer $(cat token-file)" \
+  'https://lake.example/api/read/v1/events?event_type=tool_call&fields=harness,session_id,tool.name,content_text'
+```
+
+`GET /api/read/v1/events` answers NDJSON, one line per matching event,
+from every published session in the token's scope. The parameters are
+the [search](#search) filters under the same names (`harness`,
+`project`, `event_type`, `actor`, `tool`, `tool_error`, `raw_type`,
+`since`, `until`), plus `fields`. They select what
+[`terva-lampi export`](cli.md#select-events-and-fields) selects for the
+same flags, and `fields` takes the paths `--fields` takes.
+
+- A request needs at least one filter. Without one it is
+  `400 filter_required`, so one call cannot dump a token's whole scope by
+  accident; `fields` alone does not count.
+- An unknown or repeated parameter, an empty value, or a value the
+  filter refuses is `400 invalid_request`.
+- A session outside the token's scope is skipped, as are sessions with
+  no published generation. Each session is read from one pinned
+  generation, so its lines never mix generations.
+- The stream reads only published normalized files. It never starts
+  normalization and never reads raw blobs.
+
+The last line is the only one with the key `lampi:end`:
+
+```json
+{"lampi:end":{"complete":true,"rows":3,"sessions":2,"skipped":0,"oversized":0}}
+```
+
+A stream that ends without that line was cut short. `complete` is false,
+with `error` set, when the lake stopped reading partway: the rows before
+it are real but are not all of them. `skipped` counts sessions left out
+because their generation changed or went away while they were opened.
+`oversized` counts matching lines over 16 MiB, which are left out of
+whole-event output and written with every field null under `fields`.
+
+Each request is written to `audit.jsonl` as one `events.read` event before
+any line is sent, naming the token as actor and the query as detail:
+filters and paths, never content. A request whose event cannot be queued
+is `500 audit_failed` and sends nothing.
+
+The token errors are those of the raw route: a missing, unknown, expired
+or revoked token is `401 not_authenticated` with a
+`WWW-Authenticate: Bearer realm="lampi-events"` header, and a token
+without `events:read` is `404 not_found`.
+
 ## Transcript events
 
 `/sessions/{uid}/events` reads the published normalized JSONL of one session.

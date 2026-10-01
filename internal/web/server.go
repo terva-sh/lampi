@@ -83,6 +83,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/review", s.review)
 	s.pageRoutes(m)
 	s.registrationRoutes(m)
+	s.readEventRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }
 
