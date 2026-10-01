@@ -45,6 +45,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | Command | What it does |
 |---------|--------------|
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT dataset. See [Export](#export). |
+| `terva-lampi query events` | Read normalized events from a lake with a read token, with export's filters and `--fields`. See [Query a lake](#query-a-lake). |
 | `terva-lampi conflicts` | List unresolved `divergent_copy` artifacts from the catalog: session, digests, and machines. `--resolved` adds resolved ones with their resolution. |
 
 ## Export
@@ -107,6 +108,27 @@ not permitted, are named on stderr and left out.
 While `serve` runs on the same `--data`, export reads the catalog
 read-only and starts no normalize worker. A session that `serve` has
 not normalized yet is named on stderr and left out.
+
+## Query a lake
+
+`terva-lampi query events` reads the lake's
+[event stream](web-api.md#event-stream) from any machine. It needs a read
+token that holds `events:read`. The filters and `--fields` are export's
+(see [Select events and fields](#select-events-and-fields)), and they
+select the same events. At least one filter is required.
+
+| Flag | Meaning |
+|------|---------|
+| `--token-file FILE` | The read token. Without it, the file that `LAMPI_READ_TOKEN_FILE` names. There is no default path. |
+| `--server URL` | The lake. Without it, the server of the `config.json` lake that `--lake NAME` names, or of the only lake that `config.json` lists. |
+| `--out FILE` | Write here, mode 0600, and only when the stream is complete. The default is stdout. |
+
+The command exits nonzero when the stream ends early, when the lake
+reports that it stopped partway, or when the row count does not match.
+Without `--out`, the rows that arrived are already on stdout. A summary
+goes to stderr. The token is never printed.
+[Read the lake from an agent](reading-the-lake.md) shows how to mint
+the token and run a query.
 
 ## Where a setting comes from
 

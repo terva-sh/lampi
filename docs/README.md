@@ -12,6 +12,7 @@ first run. The pages below are grouped by what you are trying to do.
 | [Allowlist and redaction](allowlist-and-redaction.md) | You are about to allow a project, or a file was quarantined |
 | [The agent](agent.md) | You want to know when the agent pushes, how it retries, or which signals it answers |
 | [Registration and lakes](registration-and-lakes.md) | You are adding a machine, or sending sessions to more than one lake |
+| [Read the lake from an agent](reading-the-lake.md) | An agent needs past sessions' events, such as every tool call, from its own machine |
 
 ## Run a lake
 
@@ -29,7 +30,7 @@ first run. The pages below are grouped by what you are trying to do.
 |------|----------------|
 | [Command reference](cli.md) | Every command, export formats, and setting precedence |
 | [Capture protocol 1](protocol.md) | The wire protocol between the agent and the lake |
-| [Browser API](web-api.md) | The dashboard's metadata, transcript, search, and excerpt routes |
+| [Browser API](web-api.md) | The dashboard's metadata, transcript, search, and excerpt routes, and the read-token routes |
 | [Architecture](architecture.md) | What each package does, the data flow, and what is not built |
 
 ## Work on lampi
