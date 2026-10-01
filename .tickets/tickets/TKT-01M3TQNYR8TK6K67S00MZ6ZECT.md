@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T03:21:12Z
-updated_at: 2026-10-01T05:07:43Z
+updated_at: 2026-10-01T05:17:46Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -69,7 +69,7 @@ The owner ran `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow-
 ## Acceptance criteria
 
 - [x] A lake at v0.5.0 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck
-- [ ] The owner confirmed the version and the cut
+- [x] The owner confirmed the version and the cut
 - [ ] The release is tagged on both forges and its archives and image name the tag
 - [ ] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the run folding
 
@@ -124,3 +124,7 @@ This supersedes the 2026-09-30 rehearsal and its fsck caveat. The build was 74eb
 - **Checks.** Counts are unchanged (1, 1, 1), integrity is ok, and `serve fsck` reports 1 entry, 0 bad.
 
 `GOFLAGS=-mod=mod just ci` passed on #170's head, and Forgejo CI and terva-review passed on 3c40344.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T05:17:46Z
+
+Owner confirmed the cut as v0.5.1 and asked for a deploy afterwards (2026-10-01). Tagged 4ef0c50 (annotated), main on both forges; main CI passed on 4ef0c50, and GitHub main was fast-forwarded to it. Pushed to origin and github. Review record for #171: review 1638 on c8d1001 found the stale scope description (medium). It was fixed in 3bdcd7e with disposition finding-1 accepted, and the scope-fix review of 3bdcd7e found nothing. #170 had clean reviews of 5cf2215 and 3c40344.
