@@ -64,6 +64,17 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
+	var counter *recall.Counter
+	if by := q.Get("count_by"); by != "" {
+		if fields != nil {
+			apiError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		if counter, err = recall.NewCounter(by); err != nil {
+			apiError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+	}
 	// One call must not dump the token's whole scope by accident.
 	if f.IsZero() {
 		apiError(w, http.StatusBadRequest, "filter_required")
@@ -95,14 +106,31 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	out := newKeepaliveWriter(w, ReadEventsKeepalive)
-	st, err := s.events.Select(ctx, f, fields, reaches, out.line)
+	emit := out.line
+	if counter != nil {
+		emit = counter.Add
+	}
+	st, err := s.events.Select(ctx, f, fields, reaches, emit)
+	if counter != nil && err == nil {
+		// The rows are the counts, so rows says how many lines were sent.
+		rows := counter.Rows()
+		st.Rows = int64(len(rows))
+		for _, row := range rows {
+			if err = out.line(row); err != nil {
+				break
+			}
+		}
+	}
 	out.stop()
 	if ctx.Err() != nil {
 		// The client went away; there is nobody to tell.
 		return
 	}
 	end := ReadEventsEnd{Complete: err == nil, SelectStats: st}
-	if err != nil {
+	switch {
+	case errors.Is(err, recall.ErrTooManyValues):
+		end.Error, end.Rows = "too_many_values", 0
+	case err != nil:
 		s.logError(r, "streaming events stopped", err)
 		end.Error = "read_failed"
 	}
@@ -198,7 +226,7 @@ func parseReadEvents(q url.Values) (recall.EventFilter, recall.Fields, error) {
 			return f, nil, bad
 		}
 		switch k {
-		case "harness", "project", "event_type", "actor", "tool", "tool_error", "raw_type", "since", "until", "fields":
+		case "harness", "project", "event_type", "actor", "tool", "tool_error", "raw_type", "since", "until", "fields", "count_by":
 		default:
 			return f, nil, bad
 		}

@@ -79,9 +79,17 @@ those paths, keyed by the path. A path is an event field
 or a key of `extra` (`extra.KEY`). A path the event lacks is `null`, so
 every row has the same keys.
 
+`--count-by PATH` writes counts instead of events: one
+`{"value":V,"count":N}` line per distinct value at that path, by count
+descending and then by value. It takes the paths `--fields` takes,
+except the ones that hold free text, because a count of free text would
+hand back the text itself: `content_text`, `content_ref`, `extra` and any
+`extra.KEY`. It cannot be combined with `--fields`. A line over 16 MiB is
+left out of a count.
+
 An invalid value or an unknown path is refused before anything is
-written, and the error names the flag. Filters and `--fields` work only
-with `--format events`.
+written, and the error names the flag. Filters, `--fields` and
+`--count-by` work only with `--format events`.
 
 Every tool call, with its harness, session and input:
 
@@ -115,7 +123,9 @@ not normalized yet is named on stderr and left out.
 [event stream](web-api.md#event-stream) from any machine. It needs a read
 token that holds `events:read`. The filters and `--fields` are export's
 (see [Select events and fields](#select-events-and-fields)), and they
-select the same events. At least one filter is required.
+select the same events. `--count-by` counts on the lake, so only the
+counts cross the network; a count past 100,000 distinct values is
+refused. At least one filter is required.
 
 | Flag | Meaning |
 |------|---------|

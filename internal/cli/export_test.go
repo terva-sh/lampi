@@ -715,6 +715,9 @@ func TestExportFiltersAndFields(t *testing.T) {
 			t.Errorf("%s: %q", name, got)
 		}
 	}
+	if got := export("--event-type", "tool_call", "--count-by", "tool.name"); !slices.Equal(got, []string{`{"value":"Bash","count":2}`, `{"value":"Read","count":1}`}) {
+		t.Errorf("count by tool: %q", got)
+	}
 	whole := export("--tool-error", "true")
 	var e normalize.Event
 	if len(whole) != 1 || json.Unmarshal([]byte(whole[0]), &e) != nil || e.EventType != normalize.EventToolResult || e.Harness != "codex" {
@@ -737,6 +740,10 @@ func TestExportFiltersAndFields(t *testing.T) {
 		{[]string{"--format", "sharegpt", "--fields", ""}, "-fields: empty value"},
 		{[]string{"--fields", ""}, "-fields: empty value"},
 		{[]string{"--tool", ""}, "-tool: empty value"},
+		{[]string{"--count-by", "content_text"}, "free text"},
+		{[]string{"--count-by", "extra.cmd"}, "free text"},
+		{[]string{"--count-by", "tool.name", "--fields", "harness"}, "leave out --fields"},
+		{[]string{"--format", "sharegpt", "--count-by", "tool.name"}, "--format events only"},
 	} {
 		out := filepath.Join(t.TempDir(), "out.jsonl")
 		err := Run(append([]string{"export", "--data", dir, "--out", out}, c.args...), Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})

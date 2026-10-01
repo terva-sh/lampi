@@ -83,6 +83,8 @@ func TestQueryEventsMatchesExport(t *testing.T) {
 		{"--event-type", "tool_call", "--fields", "harness,tool.name,content_text"},
 		{"--tool", "Bash"},
 		{"--harness", "codex", "--until", "2026-09-02", "--fields", "content_text"},
+		{"--event-type", "tool_call", "--count-by", "tool.name"},
+		{"--harness", "codex", "--count-by", "event_type"},
 	} {
 		var exported bytes.Buffer
 		if err := Run(append([]string{"export", "--data", dir}, flags...), Env{Stdout: &exported, Stderr: &bytes.Buffer{}}); err != nil {
@@ -218,6 +220,8 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		{[]string{"query", "events", "--server", srv.URL, "--token-file", filepath.Join(t.TempDir(), "none"), "--tool", "x"}, "read token"},
 		{[]string{"query", "events", "--lake", "a", "--server", srv.URL, "--tool", "x"}, "pass one"},
 		{[]string{"query", "sessions"}, `unknown query "sessions"`},
+		{[]string{"query", "events", "--server", srv.URL, "--token-file", token, "--tool", "x", "--count-by", "content_text"}, "free text"},
+		{[]string{"query", "events", "--server", srv.URL, "--token-file", token, "--tool", "x", "--count-by", "tool.name", "--fields", "harness"}, "leave out --fields"},
 	} {
 		err := Run(c.args, Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }})
 		if err == nil || !strings.Contains(err.Error(), c.says) {

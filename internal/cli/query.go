@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/upload"
 	"terva.sh/lampi/internal/web"
 )
@@ -26,10 +27,12 @@ const queryUsage = `terva-lampi query events — read normalized events from a l
 
 usage:
   terva-lampi query events [--lake NAME | --server URL] [--token-file FILE]
-                           [event filters] [--fields PATH,...] [--out FILE]
+                           [event filters] [--fields PATH,... | --count-by PATH]
+                           [--out FILE]
 
 Reads the events a lake's event stream (/api/read/v1/events) selects,
-and writes them as JSONL: whole events, or the --fields paths. The
+and writes them as JSONL: whole events, the --fields paths, or with
+--count-by one {"value":V,"count":N} line per value. The
 filters and --fields are export's, with the same names and values, and
 select the same events (terva-lampi export --help lists them). At least
 one filter is required; --fields alone selects everything.
@@ -98,6 +101,9 @@ func runQuery(env Env, args []string) error {
 	}
 	filter, _, err := ef.parse()
 	if err != nil {
+		return err
+	}
+	if _, err := ef.counter(); err != nil {
 		return err
 	}
 	if filter.IsZero() {
@@ -197,7 +203,7 @@ func (e *eventFlags) query() url.Values {
 	q := url.Values{}
 	for k, v := range map[string]string{
 		"harness": e.harness, "project": e.project, "event_type": e.eventType, "actor": e.actor, "tool": e.tool,
-		"tool_error": e.toolError, "raw_type": e.rawType, "since": e.since, "until": e.until, "fields": e.fields,
+		"tool_error": e.toolError, "raw_type": e.rawType, "since": e.since, "until": e.until, "fields": e.fields, "count_by": e.countBy,
 	} {
 		if v != "" {
 			q.Set(k, v)
@@ -283,6 +289,8 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 	switch {
 	case !ended:
 		return end, fmt.Errorf("query: the stream ended early, after %d events, with no end line", rows)
+	case end.Error == "too_many_values":
+		return end, fmt.Errorf("query: more than %d distinct values to count; narrow the filters or count by another path", recall.CountMaxValues)
 	case !end.Complete:
 		return end, fmt.Errorf("query: the lake stopped partway (%s), after %d events", end.Error, rows)
 	case end.Rows != rows:
