@@ -54,6 +54,7 @@ func TestPragmasSurviveNewConnection(t *testing.T) {
 		{"busy_timeout", "5000"},
 		{"foreign_keys", "1"},
 		{"journal_mode", "wal"},
+		{"journal_size_limit", "67108864"},
 		{"synchronous", "2"},
 	} {
 		var got string

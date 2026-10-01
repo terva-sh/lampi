@@ -166,6 +166,10 @@ func (c *Catalog) VacuumInto(ctx context.Context, dest string) error {
 // driver runs them on every connection it opens, so a reopened
 // connection keeps busy_timeout. synchronous is FULL because the
 // manifest ACK follows the commit.
+// walLimit is the size SQLite cuts catalog.db-wal back to when it
+// resets it.
+const walLimit = 64 << 20
+
 func dataSource(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -176,6 +180,10 @@ func dataSource(path string) (string, error) {
 		"busy_timeout(5000)",
 		"foreign_keys(1)",
 		"journal_mode(WAL)",
+		// search.db's WAL kept a peak of 1.5 GiB with no limit
+		// (TKT-01M3NPFNJA). The catalog writes far less, but its WAL
+		// keeps its peak the same way, so it is bounded the same way.
+		fmt.Sprintf("journal_size_limit(%d)", walLimit),
 		"synchronous(FULL)",
 	} {
 		q.Add("_pragma", p)
