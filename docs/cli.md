@@ -125,7 +125,8 @@ token that holds `events:read`. The filters and `--fields` are export's
 (see [Select events and fields](#select-events-and-fields)), and they
 select the same events. `--count-by` counts on the lake, so only the
 counts cross the network; a count past 100,000 distinct values is
-refused. At least one filter is required.
+refused, as is one whose distinct values total more than 32 MiB. At
+least one filter is required.
 
 | Flag | Meaning |
 |------|---------|

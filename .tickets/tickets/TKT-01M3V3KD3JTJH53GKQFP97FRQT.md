@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T06:49:32Z
-updated_at: 2026-10-01T08:08:18Z
+updated_at: 2026-10-01T08:35:36Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -85,3 +85,7 @@ recall.Counter (internal/recall/count.go) counts selected lines by the compact J
 - cli TestQueryEventsMatchesExport: --count-by tool.name and event_type give identical output from export and from query events against a real lake (so the stream's count_by agrees too). Export and query refusals: free-text paths, --fields together, non-events formats.
 - web TestReadEventsStream: count_by rows and end line; free text, with fields, and empty refused.
 - `GOFLAGS=-mod=mod just ci` passes.
+
+**agent:claude-code/dae09bda** at 2026-10-01T08:35:36Z
+
+Review 1706: finding-1 (high) accepted, the counter also stops when its distinct values' JSON text totals more than CountMaxBytes (32 MiB), since lines up to 16 MiB make 100,000 values unbounded in bytes; it fails without partial counts, as at the value cap. finding-2 (low) accepted, the stream's end-line rows counts the count rows actually written.

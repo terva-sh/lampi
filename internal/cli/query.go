@@ -290,7 +290,7 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 	case !ended:
 		return end, fmt.Errorf("query: the stream ended early, after %d events, with no end line", rows)
 	case end.Error == "too_many_values":
-		return end, fmt.Errorf("query: more than %d distinct values to count; narrow the filters or count by another path", recall.CountMaxValues)
+		return end, fmt.Errorf("query: more than %d distinct values, or %d MiB of them, to count; narrow the filters or count by another path", recall.CountMaxValues, recall.CountMaxBytes>>20)
 	case !end.Complete:
 		return end, fmt.Errorf("query: the lake stopped partway (%s), after %d events", end.Error, rows)
 	case end.Rows != rows:

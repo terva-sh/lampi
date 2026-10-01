@@ -11,11 +11,16 @@ import (
 	"strings"
 )
 
-// CountMaxValues bounds the distinct values one count holds, so a count
-// by a path with a value per event cannot grow without end.
-const CountMaxValues = 100_000
+// CountMaxValues and CountMaxBytes bound what one count holds: the
+// distinct values, and their JSON text together, so a count by a path
+// with a large value per event cannot grow without end (review 1706).
+const (
+	CountMaxValues = 100_000
+	CountMaxBytes  = 32 << 20
+)
 
-// ErrTooManyValues is a count that reached CountMaxValues.
+// ErrTooManyValues is a count that reached CountMaxValues or
+// CountMaxBytes.
 var ErrTooManyValues = errors.New("recall: too many distinct values to count")
 
 // Counter counts the selected events by the value at one path, so an
@@ -23,6 +28,7 @@ var ErrTooManyValues = errors.New("recall: too many distinct values to count")
 type Counter struct {
 	path   string
 	counts map[string]int64
+	bytes  int
 }
 
 // NewCounter counts by path, any path ParseFields accepts except a
@@ -57,8 +63,11 @@ func (c *Counter) Add(line []byte) error {
 			key = b.String()
 		}
 	}
-	if _, ok := c.counts[key]; !ok && len(c.counts) >= CountMaxValues {
-		return ErrTooManyValues
+	if _, ok := c.counts[key]; !ok {
+		if len(c.counts) >= CountMaxValues || c.bytes+len(key) > CountMaxBytes {
+			return ErrTooManyValues
+		}
+		c.bytes += len(key)
 	}
 	c.counts[key]++
 	return nil

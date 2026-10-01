@@ -113,12 +113,12 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 	st, err := s.events.Select(ctx, f, fields, reaches, emit)
 	if counter != nil && err == nil {
 		// The rows are the counts, so rows says how many lines were sent.
-		rows := counter.Rows()
-		st.Rows = int64(len(rows))
-		for _, row := range rows {
+		st.Rows = 0
+		for _, row := range counter.Rows() {
 			if err = out.line(row); err != nil {
 				break
 			}
+			st.Rows++
 		}
 	}
 	out.stop()

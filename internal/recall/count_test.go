@@ -46,4 +46,16 @@ func TestCounter(t *testing.T) {
 	if err := ids.Add([]byte(`{"event_id":"one too many"}`)); !errors.Is(err, ErrTooManyValues) {
 		t.Fatalf("past the cap: %v", err)
 	}
+
+	// Few values, but large ones, stop at the byte budget.
+	big, _ := NewCounter("tool.name")
+	value := strings.Repeat("x", 1<<20)
+	var err2 error
+	n := 0
+	for ; n < 64 && err2 == nil; n++ {
+		err2 = big.Add(fmt.Appendf(nil, `{"tool":{"name":"%d%s"}}`, n, value))
+	}
+	if !errors.Is(err2, ErrTooManyValues) || n > CountMaxBytes>>20+1 || big.bytes > CountMaxBytes {
+		t.Fatalf("byte budget: %v after %d values, %d bytes", err2, n, big.bytes)
+	}
 }
