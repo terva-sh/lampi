@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWCH4GFYYX4GKT9XFN53G
 title: "Read tokens: an events:read permission for agents and MCP clients"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/dae09bda
-  branch: tokens/events-read
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
-  commit: 73ecb497243ed15c7307eab04eb9c02654e14046
-  session: null
-  claimed_at: 2026-10-01T06:58:10Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-01T07:11:52Z
+updated_at: 2026-10-01T07:46:16Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -112,3 +105,11 @@ catalog: PermEventsRead and ReadTokenPermissions beside PermRawRead; CreateReadT
 **agent:claude-code/dae09bda** at 2026-10-01T07:11:52Z
 
 Review 1681 (low): docs/web-ui-plan.md linked this ticket under .tickets/done/ before it moved there. The links now use .tickets/tickets/. Closing this ticket must move both links to .tickets/done/ in the same commit.
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:12:46Z
+
+PR #175 (https://git.local.sothr.com/terva-sh/lampi/pulls/175), stacked on #173. Review 1681 had one low finding, fixed in 5699fcb.
+
+## Summary
+
+Landed in #175 (merge 9eeb527). Owner decision 2026-10-01: agents and MCP clients authenticate with admin-minted read tokens holding events:read; a token is its own principal, scoped by session and bay, audited as the token. Minting chooses raw:read, events:read or both with nothing checked by default; tokenFor gives every token route the bearer lookup, 401 challenge and per-permission 404. Review 1681 (low, plan links pointed at done/ early) fixed in 5699fcb; the links move to done/ with this close.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V3J8VZKAZJJAR9VTMDGJGD
 title: "Export: filter normalized events and select their fields"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/dae09bda
-  branch: t3code/simplify-agent-data-export
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
-  commit: 315d497b6aecbbf0a4c7c5b9e1e4392ebb1655be
-  session: null
-  claimed_at: 2026-10-01T06:49:40Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T06:48:54Z
-updated_at: 2026-10-01T06:57:31Z
+updated_at: 2026-10-01T07:46:16Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -118,3 +111,7 @@ Add recall.EventFilter (Validate, Session, Line) and recall.Fields (ParseFields,
 **agent:claude-code/dae09bda** at 2026-10-01T06:57:31Z
 
 PR #173 on Forgejo (https://git.local.sothr.com/terva-sh/lampi/pulls/173), rebased onto origin/main 360e460; just ci passes there. terva-review dispatched with request-id ready-review.
+
+## Summary
+
+Landed in #173 (merge 0c428f6). export --format events takes --harness, --project, --event-type, --actor, --tool, --tool-error, --raw-type, --since, --until and --fields. recall.EventFilter reads lines with the search index's reader, so export selects what search selects (TestEventFilterAgreesWithSearch); Search validates through the same function. Review 1678 (medium, empty --fields bypassed the events-only check) was accepted and fixed in 157b387: every filter flag refuses an empty value.
