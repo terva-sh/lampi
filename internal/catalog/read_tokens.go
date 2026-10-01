@@ -36,8 +36,20 @@ func migrateReadTokens(tx *sql.Tx) error {
 	return err
 }
 
-// PermRawRead lets a read token fetch raw session artifacts.
-const PermRawRead = "raw:read"
+// Read token permissions. A token holds one or both, and each route
+// checks its own. A read token is its own principal: it reads what its
+// permissions and scope allow, not what the admin who minted it reads
+// (TKT-01M3FPWCH).
+const (
+	// PermRawRead lets a read token fetch raw session artifacts.
+	PermRawRead = "raw:read"
+	// PermEventsRead lets a read token read normalized events, for
+	// agents and MCP clients.
+	PermEventsRead = "events:read"
+)
+
+// ReadTokenPermissions is every permission a read token can hold.
+var ReadTokenPermissions = []string{PermRawRead, PermEventsRead}
 
 // MaxReadTokenSessions bounds a token's session list.
 const MaxReadTokenSessions = 100
@@ -114,6 +126,11 @@ func scanReadToken(row interface{ Scan(...any) error }) (ReadToken, error) {
 func (c *Catalog) CreateReadToken(ctx context.Context, t ReadToken, secretSHA256 string, now time.Time) (ReadToken, error) {
 	if len(t.Permissions) == 0 {
 		return ReadToken{}, errors.New("catalog: a read token needs a permission")
+	}
+	for i, p := range t.Permissions {
+		if !slices.Contains(ReadTokenPermissions, p) || slices.Contains(t.Permissions[:i], p) {
+			return ReadToken{}, fmt.Errorf("catalog: read token permission %q is unknown or repeated", p)
+		}
 	}
 	if len(t.Sessions) > MaxReadTokenSessions {
 		return ReadToken{}, fmt.Errorf("catalog: a read token names at most %d sessions", MaxReadTokenSessions)

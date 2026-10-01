@@ -1,0 +1,84 @@
+# Read the lake from an agent
+
+An agent that wants to know what past sessions did can read the lake's
+normalized events from its own machine. It needs no shell on the lake
+host. This page shows the owner how to give an agent that access, and
+shows the agent how to use it. Back to the
+[documentation index](README.md).
+
+The examples read every tool call. That data is useful when you decide
+which tools a port or an emulation has to support.
+
+## Before you start
+
+- The lake serves the [dashboard](web-dashboard.md), and you are its
+  admin.
+- The agent's machine has `terva-lampi` installed, and can reach the
+  lake over https.
+
+## Give an agent a read token
+
+1. On the dashboard, open **Read tokens**.
+2. Mint a token:
+   - **Label**: what it is for, such as `agent recall on laptop`.
+   - **Reads**: select **normalized events** (`events:read`) only.
+   - **Sessions** or **Bays**: limit the token to the sessions the agent
+     needs. Leave both empty only when it needs the whole lake.
+   - **Expires after**: the shortest time that covers the work.
+3. Copy the token. The dashboard shows it once.
+4. On the agent's machine, write the token to a file that only you can
+   read:
+
+   ```sh
+   umask 077
+   cat > ~/.config/terva-lampi/read-token    # paste the token, then Ctrl-D
+   ```
+
+5. Tell the agent where the file is. Do not paste the token into the
+   agent's conversation or into a command line.
+
+To stop the access, revoke the token on the same page.
+
+## Read events
+
+```sh
+terva-lampi query events --token-file ~/.config/terva-lampi/read-token \
+  --event-type tool_call --fields harness,session_id,tool.name,content_text \
+  --out tool-calls.jsonl
+```
+
+- `--event-type tool_call` keeps tool calls. The other filters are listed
+  in [Select events and fields](cli.md#select-events-and-fields).
+- `--fields` writes only those paths, one JSON object per event.
+- `--out` writes the file with mode 0600, and only when the whole stream
+  arrived. Without `--out`, the events go to stdout.
+- The command reads the lake named in `config.json` when there is only
+  one. Otherwise, pass `--lake NAME` or `--server URL`.
+
+A summary goes to stderr:
+
+```text
+terva-lampi: 4182 events from 311 sessions
+```
+
+The command exits nonzero if the stream stopped early. Do not use a
+partial result as if it were complete.
+
+## Count instead of copying
+
+A tool call's `content_text` holds its full input, which can include
+paths and other details from the session. When the question is which
+tools are called and how often, select only the names, and count them on
+your machine:
+
+```sh
+terva-lampi query events --token-file ~/.config/terva-lampi/read-token \
+  --event-type tool_call --fields harness,tool.name \
+  | jq -r '[."harness", ."tool.name"] | @tsv' | sort | uniq -c | sort -rn
+```
+
+## On the lake host
+
+An operator on the lake host can read the same events with
+[`terva-lampi export`](cli.md#select-events-and-fields). It takes the
+same filters and `--fields`, and selects the same events.
