@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T07:15:12Z
-updated_at: 2026-10-01T07:16:47Z
+updated_at: 2026-10-01T07:32:21Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -48,9 +48,9 @@ The point of the deploy is the search index WAL. On 2026-10-01 `search.db-wal` h
 
 ## Acceptance criteria
 
-- [ ] The lake runs v0.5.2 with schema 21, integrity ok and counts preserved
+- [x] The lake runs v0.5.2 with schema 21, integrity ok and counts preserved
 - [ ] search.db-wal is at most 64 MiB after the first index pass
-- [ ] The workstation agent runs v0.5.2 and its next sync uploads nothing new
+- [x] The workstation agent runs v0.5.2 and its next sync uploads nothing new
 
 ## Implementation plan
 
@@ -63,3 +63,22 @@ Alternatives considered:
 - Reusing the v0.5.1 script unchanged. It would refuse, because its role_map precondition expects the pre-v0.5.1 map, and it would re-run the normalize retry with nothing to retry.
 - Skipping the backup for a binary-only change. The backup is the same cost as v0.5.1's and covers a mistake in the install itself.
 - Waiting for the WAL to shrink inside the script. A clean stop deletes the WAL, which was checked on the scratch lake, so it is small after any restart and the wait would prove nothing. The real check is step 4.
+
+## Notes
+
+**agent:claude-code/27b21f4b** at 2026-10-01T07:32:21Z
+
+### Deployed, 2026-10-01
+
+**Lake.** The owner ran `operator-deploy.sh`, and it ended `UPGRADE COMPLETE: terva-lampi v0.5.2 (360e46007ca2)`.
+- **Checkpoint:** `/var/lib/terva-lampi-pre-v0.5.2-3gCC9co7`, verified with 692 sessions, 20391 artifacts and 20390 provenance rows at schema 21. The counts were preserved after the install, and integrity was ok.
+- **Admin group:** serve logged `web admin groups groups="Brokkr Lampi Admin"`.
+- **Lake id:** unchanged, `lake_u3cpc5lo4dwujlk5il3mpjepai`, and the public URL answered.
+- **Search index:** under v0.5.1, `search.db` was 2879 MiB and `search.db-wal` 1617 MiB. A minute after the start the WAL was 0 MiB. Right after the script, the owner's `sudo stat` showed `search.db` at 3019833344 bytes and the WAL at 0.
+- **Agent:** it resumed, still on v0.5.1, and synced with uploaded 0 and refused 1. The refusal is not from the deploy. It is `upload: refused off-box raw`, and every sync since at least 2026-09-30 18:00 CDT shows refused 1.
+
+**Workstation agent.** The old binary and config.json are kept in `~/.local/state/agent-handoffs/lampi/agent-rollback-v0.5.2-P89B/`. The new binary prints `terva-lampi v0.5.2 (360e46007ca2)`, and the service restarted active.
+- **Config:** `agent config` shows the default lake pinned (lake_u3cpc5lo4dwujlk5il3mpjepai) with `allow_source=lake:default` and profile version `sha256:eb5436a95cc6a4ca`.
+- **Syncs:** the first after the restart uploaded 0, with 194 unchanged. The next uploaded 2 files that live sessions were still writing.
+
+**Criterion 2 is open.** A WAL of 0 bytes right after a restart is expected under either version, because a clean stop deletes the WAL. It closes when the owner's `sudo stat` after hours of uploads shows `search.db-wal` at most 64 MiB.
