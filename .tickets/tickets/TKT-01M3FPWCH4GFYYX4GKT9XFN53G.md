@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWCH4GFYYX4GKT9XFN53G
 title: "Read tokens: an events:read permission for agents and MCP clients"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/dae09bda
+  branch: tokens/events-read
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
+  commit: 73ecb497243ed15c7307eab04eb9c02654e14046
+  session: null
+  claimed_at: 2026-10-01T06:58:10Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-01T06:49:12Z
+updated_at: 2026-10-01T07:06:00Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -79,6 +86,25 @@ path: the event stream, the `query` CLI and MCP.
 ## Acceptance criteria
 
 - [x] The chosen mechanism is recorded with the rejected alternative and why.
-- [ ] Minting chooses raw:read, events:read or both; existing tokens keep raw:read only; tests cover each.
-- [ ] A route requiring events:read refuses a token without it, a device token and a browser cookie, each with a test.
-- [ ] docs/web-dashboard.md, docs/web-api.md and decision 4 in docs/web-ui-plan.md state the choice.
+- [x] Minting chooses raw:read, events:read or both; existing tokens keep raw:read only; tests cover each.
+- [x] A route requiring events:read refuses a token without it, a device token and a browser cookie, each with a test.
+- [x] docs/web-dashboard.md, docs/web-api.md and decision 4 in docs/web-ui-plan.md state the choice.
+
+## Implementation plan
+
+catalog: PermEventsRead and ReadTokenPermissions beside PermRawRead; CreateReadToken refuses an unknown or repeated permission. No migration: the permissions column already holds a space-separated set, and existing rows keep raw:read. web: the mint form gets a Reads fieldset with one checkbox per permission, none checked to start with, and readTokenRequest refuses a form naming none or an unknown one (checked last, so older forms hear about their other problems first). tokenFor(w, r, perm, realm, now) does the bearer lookup, the 401 challenge and the per-permission 404 that every token route shares; rawByToken uses it, and the event stream and MCP will. Views name what a token reads; the raw curl example shows only for raw:read. Docs: web-dashboard.md, web-api.md, and decision 3 of the recall list in web-ui-plan.md (the epic's decision 4).
+
+## Notes
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:06:00Z
+
+### Evidence
+- catalog TestReadTokenPermissions: unknown, repeated and missing permissions are refused; raw:read and events:read are checked one by one.
+- web TestReadTokenPermissions: no box checked to start with; an events-only token's panel says normalized events and shows no raw example; an events-only token gets 404 on the raw route; a probe route behind tokenFor(events:read) answers 204 to events and two-permission tokens, 404 to a raw-only token, 401 to a device token, no token, and a browser session (realm lampi-events); mints with no permission or an unknown one are 400; the audit line names permissions=events:read.
+- Existing read token tests pass with the permission added to their mint posts.
+- `GOFLAGS=-mod=mod just ci` passes.
+
+### Decisions
+- A token without the route's permission gets 404, as the ticket said: the same answer as a session outside its scope, so a raw-only token learns nothing about the events routes.
+- The read token page still registers only when raw reads are on (reg.Blobs). The event stream ticket (TKT-01M3V3JS) decides whether an events-only lake needs the page without raw.
+- No route needs events:read yet. The probe test pins the helper those routes will call.

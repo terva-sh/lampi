@@ -185,7 +185,8 @@ nothing.
 ### Read tokens
 
 A tool with no browser session reads the same artifacts with a read token
-an admin minted (see [web-dashboard.md](web-dashboard.md#read-tokens)):
+holding `raw:read` that an admin minted (see
+[web-dashboard.md](web-dashboard.md#read-tokens)):
 
 ```sh
 curl -fsS -H "Authorization: Bearer $(cat token-file)" -o artifact \
@@ -202,10 +203,16 @@ header. A session outside the token's scope is `404 not_found`, the same as
 a session that is not there. A lake that cannot look the token up answers
 `500 read_failed`, so a tool does not drop a token that is still good. The audit event's actor is `token:ID (LABEL)`.
 
-A read token authenticates this route and nothing else. A browser
-session cookie does not reach it, a read token does not reach any other
+A token without `raw:read`, such as one holding only `events:read`, is
+`404 not_found` here, the same answer as a session outside its scope.
+Every route a read token reaches checks its own permission this way:
+`raw:read` for this route, and `events:read` for the routes that serve
+normalized events to agents.
+
+A read token authenticates those routes and nothing else. A browser
+session cookie does not reach them, a read token does not reach any other
 route, including `/api/web/v1` and `/v1`, and a device token does not
-reach this one.
+reach them.
 
 ## Transcript events
 
