@@ -120,8 +120,12 @@ func runExport(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	if (!filter.IsZero() || fields != nil) && format != "" && format != "events" {
-		return fmt.Errorf("event filters and --fields apply to --format events only")
+	counter, err := ef.counter()
+	if err != nil {
+		return err
+	}
+	if (!filter.IsZero() || fields != nil || counter != nil) && format != "" && format != "events" {
+		return fmt.Errorf("event filters, --fields and --count-by apply to --format events only")
 	}
 	if data == "" {
 		data, err = config.StateDir(env.getenv)
@@ -134,7 +138,7 @@ func runExport(env Env, args []string) error {
 		return err
 	}
 	defer closeLake()
-	x := exporter{env: env, lake: lake, live: live, scope: catalog.AllBays(), filter: filter, fields: fields}
+	x := exporter{env: env, lake: lake, live: live, scope: catalog.AllBays(), filter: filter, fields: fields, counter: counter}
 	if len(bays) > 0 {
 		var ids []string
 		for _, ref := range bays {
@@ -176,6 +180,9 @@ type exporter struct {
 	// events. The zero filter and nil fields write sessions as stored.
 	filter recall.EventFilter
 	fields recall.Fields
+	// counter, when set, counts the selected events instead of writing
+	// them.
+	counter *recall.Counter
 }
 
 // inScope reports whether a session is in the bays being exported.
@@ -240,7 +247,7 @@ func (x exporter) writeEvents(out io.Writer) error {
 		if !ok {
 			continue
 		}
-		if x.filter.IsZero() && x.fields == nil {
+		if x.filter.IsZero() && x.fields == nil && x.counter == nil {
 			_, err = out.Write(body)
 		} else {
 			err = x.writeSelected(out, body)
@@ -249,7 +256,16 @@ func (x exporter) writeEvents(out io.Writer) error {
 			return err
 		}
 	}
-	return nil
+	if x.counter == nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	for _, row := range x.counter.Rows() {
+		buf.Write(row)
+		buf.WriteByte('\n')
+	}
+	_, err = out.Write(buf.Bytes())
+	return err
 }
 
 // writeSelected writes the lines of one session's JSONL that the filter
@@ -268,6 +284,16 @@ func (x exporter) writeSelected(out io.Writer, body []byte) error {
 		if !x.filter.Line(read) {
 			continue
 		}
+		if x.counter != nil {
+			// An oversized line is left out of a count, as the event
+			// stream leaves it out of whole-event output.
+			if read != nil {
+				if err := x.counter.Add(read); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if x.fields != nil {
 			buf.Write(x.fields.Project(read))
 		} else {
@@ -282,7 +308,7 @@ func (x exporter) writeSelected(out io.Writer, body []byte) error {
 // eventFlags are the event filter and --fields flags, shared by every
 // command that reads normalized events.
 type eventFlags struct {
-	harness, project, eventType, actor, tool, toolError, rawType, since, until, fields string
+	harness, project, eventType, actor, tool, toolError, rawType, since, until, fields, countBy string
 }
 
 func (e *eventFlags) register(fs *flag.FlagSet) {
@@ -301,6 +327,7 @@ func (e *eventFlags) register(fs *flag.FlagSet) {
 		{"since", &e.since, "keep events recorded at or after this time"},
 		{"until", &e.until, "keep events recorded before this time"},
 		{"fields", &e.fields, "write only these comma-separated event paths"},
+		{"count-by", &e.countBy, "count the events by the value at this path instead of writing them"},
 	} {
 		// An empty value is refused, not read as the flag left out: an
 		// empty --fields would otherwise write whole events, and pass
@@ -359,6 +386,22 @@ func (e *eventFlags) parse() (recall.EventFilter, recall.Fields, error) {
 		return f, nil, fmt.Errorf("--fields: %w", err)
 	}
 	return f, fields, nil
+}
+
+// counter is the --count-by count, or nil without the flag. --fields
+// and --count-by are refused together: a count writes no events.
+func (e *eventFlags) counter() (*recall.Counter, error) {
+	if e.countBy == "" {
+		return nil, nil
+	}
+	if e.fields != "" {
+		return nil, errors.New("--count-by writes counts, not events; leave out --fields")
+	}
+	c, err := recall.NewCounter(e.countBy)
+	if err != nil {
+		return nil, fmt.Errorf("--count-by: %w", err)
+	}
+	return c, nil
 }
 
 func (x exporter) writeShareGPT(out io.Writer) error {

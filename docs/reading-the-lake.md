@@ -68,14 +68,21 @@ partial result as if it were complete.
 
 A tool call's `content_text` holds its full input, which can include
 paths and other details from the session. When the question is which
-tools are called and how often, select only the names, and count them on
-your machine:
+tools are called and how often, ask the lake to count. Only the counts
+cross the network:
 
 ```sh
 terva-lampi query events --token-file ~/.config/terva-lampi/read-token \
-  --event-type tool_call --fields harness,tool.name \
-  | jq -r '[."harness", ."tool.name"] | @tsv' | sort | uniq -c | sort -rn
+  --event-type tool_call --count-by tool.name
 ```
+
+```text
+{"value":"Bash","count":2210}
+{"value":"Read","count":1388}
+```
+
+Run it once per harness with `--harness` to split the counts. Free-text
+paths such as `content_text` cannot be counted.
 
 ## On the lake host
 

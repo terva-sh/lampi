@@ -129,6 +129,9 @@ func TestReadEventsStream(t *testing.T) {
 		}
 	}
 
+	if rows, end := stream(t, bearer(h, "GET", readEventsPath+"?event_type=tool_call&count_by=tool.name", events)); !slices.Equal(rows, []string{`{"value":"Bash","count":2}`, `{"value":"Read","count":1}`}) || end.Rows != 2 || !end.Complete {
+		t.Errorf("count by tool: %q %+v", rows, end)
+	}
 	if rows, end := stream(t, bearer(h, "GET", q, onlyA)); len(rows) != 2 || end.Sessions != 1 || strings.Contains(strings.Join(rows, ""), "claude") {
 		t.Errorf("session-scoped token: %q %+v", rows, end)
 	}
@@ -150,7 +153,7 @@ func TestReadEventsStream(t *testing.T) {
 	if w := bearer(h, "GET", readEventsPath+"?fields=harness", events); w.Code != 400 || !strings.Contains(w.Body.String(), "filter_required") {
 		t.Errorf("fields alone: %d %s", w.Code, w.Body.String())
 	}
-	for _, bad := range []string{"?q=push", "?tool=Bash&tool=Read", "?tool=", "?event_type=nonsense", "?tool=Bash&fields=nope", "?tool_error=maybe", "?since=yesterday", "?tool=Bash&fields=", "?tool=Bash&%XX=1", "?tool=Bash;x=1"} {
+	for _, bad := range []string{"?q=push", "?tool=Bash&tool=Read", "?tool=", "?event_type=nonsense", "?tool=Bash&fields=nope", "?tool_error=maybe", "?since=yesterday", "?tool=Bash&fields=", "?tool=Bash&%XX=1", "?tool=Bash;x=1", "?tool=Bash&count_by=content_text", "?tool=Bash&count_by=tool.name&fields=harness", "?tool=Bash&count_by="} {
 		if w := bearer(h, "GET", readEventsPath+bad, events); w.Code != 400 || !strings.Contains(w.Body.String(), "invalid_request") {
 			t.Errorf("%s: %d %s", bad, w.Code, w.Body.String())
 		}

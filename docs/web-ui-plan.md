@@ -402,8 +402,8 @@ Epic: [TKT-01M3FPP3H592T31Y2M3N347CPB — Session recall: one query surface for 
 | [TKT-01M3FPWCFSFK9572R9MCFPCK60](../.tickets/draft/TKT-01M3FPWCFSFK9572R9MCFPCK60.md) | MCP: serve recall tools over the shared query layer |
 | [TKT-01M3FPWCH4GFYYX4GKT9XFN53G](../.tickets/done/TKT-01M3FPWCH4GFYYX4GKT9XFN53G.md) | Read tokens: an events:read permission for agents and MCP clients |
 | [TKT-01M3V3J8VZKAZJJAR9VTMDGJGD](../.tickets/done/TKT-01M3V3J8VZKAZJJAR9VTMDGJGD.md) | Export: filter normalized events and select their fields |
-| [TKT-01M3V3JSQXA831MB02BRWW6NHE](../.tickets/tickets/TKT-01M3V3JSQXA831MB02BRWW6NHE.md) | Read API: stream filtered normalized events to read tokens |
-| [TKT-01M3V3KCRA78QSQTY4SV0JVRAJ](../.tickets/tickets/TKT-01M3V3KCRA78QSQTY4SV0JVRAJ.md) | CLI: query events from a remote lake with a read token |
+| [TKT-01M3V3JSQXA831MB02BRWW6NHE](../.tickets/done/TKT-01M3V3JSQXA831MB02BRWW6NHE.md) | Read API: stream filtered normalized events to read tokens |
+| [TKT-01M3V3KCRA78QSQTY4SV0JVRAJ](../.tickets/done/TKT-01M3V3KCRA78QSQTY4SV0JVRAJ.md) | CLI: query events from a remote lake with a read token |
 | [TKT-01M3V3KD3JTJH53GKQFP97FRQT](../.tickets/tickets/TKT-01M3V3KD3JTJH53GKQFP97FRQT.md) | Count matching events by field in export and query |
 
 ### Release C

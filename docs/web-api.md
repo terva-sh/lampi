@@ -228,10 +228,15 @@ curl -fsS -H "Authorization: Bearer $(cat token-file)" \
 from every published session in the token's scope. The parameters are
 the [search](#search) filters under the same names (`harness`,
 `project`, `event_type`, `actor`, `tool`, `tool_error`, `raw_type`,
-`since`, `until`), plus `fields`. They select what
+`since`, `until`), plus `fields` or `count_by`. They select what
 [`terva-lampi export`](cli.md#select-events-and-fields) selects for the
 same flags, and `fields` takes the paths `--fields` takes.
 
+- `count_by` sends counts instead of events, as
+  [`--count-by`](cli.md#select-events-and-fields) writes them, and refuses
+  the same free-text paths. It cannot be combined with `fields`. Past
+  100,000 distinct values, or 32 MiB of them, the stream ends with
+  `complete` false and `error` `too_many_values`, and no counts.
 - A request needs at least one filter. Without one it is
   `400 filter_required`, so one call cannot dump a token's whole scope by
   accident; `fields` alone does not count.
