@@ -756,6 +756,9 @@ func OptimizeIndex(ctx context.Context, path string) (before, after int64, err e
 		return before, before, err
 	}
 	defer db.Close()
+	// incremental_vacuum frees one page per step. ExecContext steps it to
+	// the end, which TestOptimizeFreesTheEntriesOfRemovedRows checks by
+	// the freelist.
 	for _, q := range []string{`INSERT INTO fts(fts) VALUES('optimize')`, `PRAGMA incremental_vacuum`, `PRAGMA wal_checkpoint(TRUNCATE)`} {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			return before, indexSize(path), fmt.Errorf("search: optimize: %w", err)

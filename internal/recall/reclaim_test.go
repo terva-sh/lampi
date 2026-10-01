@@ -210,6 +210,21 @@ func TestAReaderOnTheWALLeavesTheReclaimPending(t *testing.T) {
 	}
 }
 
+// freePages is the index's freelist length.
+func freePages(t *testing.T, path string) int64 {
+	t.Helper()
+	db, err := openIndexDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int64
+	if err := db.QueryRow(`PRAGMA freelist_count`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 // ftsBytes is the payload of the index's full-text segments.
 func ftsBytes(t *testing.T, path string) int64 {
 	t.Helper()
@@ -258,6 +273,11 @@ func TestOptimizeFreesTheEntriesOfRemovedRows(t *testing.T) {
 	}
 	if after >= before {
 		t.Fatalf("the index is %d bytes after optimize, %d before", after, before)
+	}
+	// incremental_vacuum frees one page per step, so a vacuum not run to
+	// the end leaves pages on the freelist.
+	if n := freePages(t, path); n != 0 {
+		t.Fatalf("%d pages are still on the freelist after optimize", n)
 	}
 	if st, err := os.Stat(path + "-wal"); err == nil && st.Size() != 0 {
 		t.Fatalf("the WAL is %d bytes after optimize", st.Size())
