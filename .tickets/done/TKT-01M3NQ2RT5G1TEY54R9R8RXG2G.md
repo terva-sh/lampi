@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:34:31Z
-updated_at: 2026-10-01T04:58:39Z
+updated_at: 2026-10-01T05:33:07Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -55,7 +55,7 @@ Decide first whether the strict rule still serves a purpose. It may exist to cat
 - [x] A line that is not a JSON object, in a Claude, Codex or terva JSONL file with other good lines, becomes an error event naming the line and its length, and the session normalizes
 - [x] Neither the events nor normalize_error contain the unreadable line's bytes
 - [x] A file in which no line is a JSON object still fails
-- [ ] Both failed sessions on the internal lake normalize after the fixed release is deployed
+- [x] Both failed sessions on the internal lake normalize after the fixed release is deployed
 
 ## Implementation plan
 
@@ -105,6 +105,10 @@ PR #170's CI run 1652 timed out (`panic: test timed out after 10m0s` in `TestGro
 That is a real input shape too: a file that is binary or garbage would have become a session of markers.
 
 Fix: past `maxUnreadable` (64) unreadable lines, a file fails with the first bad line's error plus "more than 64 lines are not JSON objects", and it fails as soon as it passes the cap. `TestUnreadableLinesAreCapped` checks that 64 bad lines among good ones project with 64 markers in Claude, Codex and terva, and that 65 fail without quoting the line. The growth test now takes 1.6s, `internal/api` takes 7.9s against about 16s before, and `GOFLAGS=-mod=mod just ci` passes.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T05:33:07Z
+
+Criterion 4 met: the v0.5.1 deploy (TKT-01M3TYFVD9) re-normalized 01M3NK7HRF and 01M3NNF6B0, and the lake reports failed=0.
 
 ## Summary
 
