@@ -27,12 +27,12 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-09-29T02:15:39Z
+updated_at: 2026-10-01T06:09:45Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/fbqx
+  id: agent:claude-code/27b21f4b
   name: ""
 extensions: {}
 ---
@@ -164,3 +164,30 @@ Owner decision 2026-09-29, for the hosted lake's upgrade to the release with zst
 2. Upgrade.
 3. Run serve normalize --all as part of the upgrade, which rewrites every session's events file compressed.
 4. With TKT-01M3NENNN8 in the release, search.db is rebuilt once on start (index version 4). That reclaims the 4.9 GB index.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T06:09:45Z
+
+### Search index measured on the internal lake, 2026-10-01
+
+Measured on a copy (`storage-v0.5.1-BKPCeV5d/measure.sh`): **516 MiB** of indexed text in 903,407 rows (445,210 with content). The text by event type:
+
+| event_type | text |
+|---|---|
+| tool_result | 321 MiB |
+| tool_call | 131 MiB |
+| message | 47 MiB |
+| compaction | 12 MiB |
+
+The index took 2958 MiB on disk: `fts_data` 2102 MiB, `docs` 751 MiB, the rest in indexes.
+
+| layout | fts_data | build time |
+|---|---|---|
+| trigram, detail=full (now), as found | 2102 MiB | |
+| trigram, detail=full, after a full `optimize` | **1263 MiB** | 52 s |
+| trigram, **detail=column**, rebuilt and optimized | **581 MiB** | 109 s rebuild, 11 s optimize |
+
+`detail=column` would cut the optimized trigram index by more than half. Whether substring search, phrase queries and snippets still behave was **not** tested: with less than full detail, FTS5 has no term positions, so a substring longer than three characters may have to be checked against the row's content. Measure that before choosing it.
+
+**Dead rows:** deleted rows left in unmerged segments are their own ticket, TKT-01M3V1AJJ5C69T9R3CRQQ06PB6 (Search index: reclaim deleted FTS5 rows with a scheduled optimize).
+
+**WAL:** the 1.5 GiB write-ahead log is TKT-01M3V1AJGSZB7C2C52JCA2SF88 (search.db WAL is never capped or truncated).
