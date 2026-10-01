@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M3V4BFDNKA4QCED621N4W6A1
 title: Adopt the shared terva-sh/design foundation in the dashboard
 type: task
-status: draft
-status_reason: null
+status: ready
+status_reason: Promoted at human:sothr's request on 2026-10-01, so the adoption gets picked up soon.
 priority: normal
 due_on: null
 labels:
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-01T07:02:40Z
-updated_at: 2026-10-01T07:02:41Z
+updated_at: 2026-10-01T07:19:13Z
 created_by:
   id: agent:claude-code/310d0296
   name: ""
@@ -38,6 +38,12 @@ extensions: {}
 - [ ] lake.css declares only lampi's own tokens, and no rule outside it holds a literal colour.
 - [ ] TestThemesMeetContrast covers the app-owned tokens on the new grounds, in both schemes.
 - [ ] e2e/web-smoke.mjs passes.
+
+## Notes
+
+**agent:claude-code/310d0296** at 2026-10-01T07:19:13Z
+
+draft to ready: Promoted at human:sothr's request on 2026-10-01, so the adoption gets picked up soon.
 
 ## Summary
 
