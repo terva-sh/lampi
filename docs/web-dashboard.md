@@ -739,10 +739,18 @@ neither builds nor updates it.
   on disk. Only the first 256 KiB of one event's text is indexed; the full text
   stays in the transcript. At each new generation of a session the index
   compares every event with the row at its position and writes only the rows
-  that changed, so a session that grew by a few events costs those events. Rows
-  it replaces stay in the full-text segments until they merge; after a pass
-  that replaced or removed rows the index merges a bounded amount and returns
-  the freed pages to the filesystem, which keeps the file near its live size.
+  that changed, so a session that grew by a few events costs those events.
+  Rows it removes, as a purge or `serve normalize --stale` does, stay in the
+  full-text segments until a merge meets them. After a pass that removed rows
+  the index merges a bounded amount and returns the freed pages to the
+  filesystem, but that does not reach every old segment. `serve compact`
+  merges the whole index with serve stopped and frees them all.
+- **WAL.** `search.db-wal` grows while a pass writes and is cut back to zero at
+  the end of the pass. Indexing a whole session writes roughly ten to fifteen
+  times its text there, because the index merges older segments in the same
+  transaction, so leave room for that beside the largest session you expect. A
+  reader that holds the WAL at the end of a pass defers the truncate to the
+  next pass.
 - **Rebuild.** Stop serve, delete `search.db`, `search.db-wal` and
   `search.db-shm`, and start serve. The index is rebuilt in the background while
   the lake keeps serving. A file with an unknown schema version is rebuilt the
