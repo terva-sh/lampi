@@ -24,13 +24,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-26T20:32:10Z
-updated_at: 2026-09-26T22:10:05Z
+updated_at: 2026-10-01T06:49:32Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/cd41c9ac
-  name: Claude Code local agent
+  id: agent:claude-code/dae09bda
+  name: ""
 extensions: {}
 ---
 
@@ -126,3 +126,11 @@ PR #12 merged on Forgejo as fcaec88; GitHub main fast-forwarded (just sync-githu
 **agent:claude-code/cd41c9ac** at 2026-09-26T22:10:05Z
 
 Corrects the terva-review part of the merge note above. PR #12's review (run 119) did not fail on the runner. It stopped with reason=context_limit before any model call, because the PR was too large: the preflight listed page.html at 21 KiB, search_test.go at 18 KiB and index.go at 16 KiB as largest. The model_unavailable failures seen around then belong to other PRs (#10, #11). The onboarding session found both by reading the job logs. PR #12 merged without an automated model review. The only review it had is the pre-PR second-model read recorded above. Lesson for the MCP child and later work: land in PRs small enough for the reviewer.
+
+**agent:claude-code/dae09bda** at 2026-10-01T06:49:12Z
+
+Owner decision 2026-10-01 amends decision 4: agents and MCP clients authenticate with admin-minted read tokens holding an events:read permission, scoped by session and bay, audited as the token, not acting as the minting user. Recorded with the rejected alternatives in TKT-01M3FPWCH4GFYYX4GKT9XFN53G. New children for agent bulk reads: TKT-01M3V3J8VZKAZJJAR9VTMDGJGD (export filters and fields), null (read API event stream), null (query events CLI), null (count-by). Prompted by an agent that needed every tool call and had the owner run sudo export | jq on the lake host.
+
+**agent:claude-code/dae09bda** at 2026-10-01T06:49:32Z
+
+Supersedes the previous note's child list, which printed null for three IDs: the new children are TKT-01M3V3J8VZKAZJJAR9VTMDGJGD Export: filter normalized events and select their fields; TKT-01M3V3JSQXA831MB02BRWW6NHE Read API: stream filtered normalized events to read tokens; TKT-01M3V3KCRA78QSQTY4SV0JVRAJ CLI: query events from a remote lake with a read token; TKT-01M3V3KD3JTJH53GKQFP97FRQT Count matching events by field in export and query. TKT-01M3FPWCH4GFYYX4GKT9XFN53G holds the auth decision.

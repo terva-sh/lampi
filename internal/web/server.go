@@ -478,27 +478,13 @@ func parseSearch(q url.Values) (recall.SearchRequest, error) {
 		if raw == "" {
 			continue
 		}
-		t, err := parseWhen(raw, f.end)
+		t, err := recall.ParseWhen(raw, f.end)
 		if err != nil {
 			return req, recall.ErrInvalid
 		}
 		*f.dest = &t
 	}
 	return req, nil
-}
-
-func parseWhen(raw string, end bool) (time.Time, error) {
-	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-		return t.UTC(), nil
-	}
-	t, err := time.Parse("2006-01-02", raw)
-	if err != nil {
-		return t, err
-	}
-	if end {
-		t = t.AddDate(0, 0, 1)
-	}
-	return t, nil
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
