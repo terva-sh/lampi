@@ -1,7 +1,7 @@
 ---
 schema: 3
 id: TKT-01M3TQNYR8TK6K67S00MZ6ZECT
-title: "Release v0.5.1: transcript run folding; notes, tag, archives and image"
+title: "Release v0.5.1: transcript run folding, torn-line fix; tag and notes"
 type: task
 status: in-progress
 status_reason: null
@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T03:21:12Z
-updated_at: 2026-10-01T03:21:29Z
+updated_at: 2026-10-01T04:59:05Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -60,26 +60,34 @@ The owner runs `diagnose-v0.5.0-gH1zgIyY/diagnose.sh` (read-only) for two follow
 
 ## Acceptance criteria
 
-- [x] A lake at v0.5.0 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck
+- [ ] A lake at v0.5.0 (schema 21) starts on a build of the final main with nothing to migrate, passes health and fsck
 - [ ] The owner confirmed the version and the cut
 - [ ] The release is tagged on both forges and its archives and image name the tag
 - [ ] Release notes say there is no migration, rollback is a binary swap, agents need no upgrade, and describe the run folding
 
 ## Implementation plan
 
-1. Wait for the diagnosis. Fold in any fix it calls for, then re-run CI and the rehearsal on the final main.
+1. Merge #170 (TKT-01M3NQ2R, Normalize: a torn line mid-file fails the whole session). Then re-run CI and the rehearsal on the final main.
 2. Get the owner's confirmation of the version and the cut.
 3. Tag at a commit on both mains, push to origin and github, check the archives and the image's `--version` on both forges, and prepend these notes to both release bodies (with `####` headings, as v0.4.0 and v0.5.0 did).
-4. Deploy to the internal lake as a separate ticket, when the owner asks. It is a binary swap with no migration.
+4. Deploy to the internal lake as a separate ticket, when the owner asks. It is a binary swap with no migration, plus three steps:
+   - **role_map:** `Brokkr Lampi Admin` goes from operator to admin and `GROUP` is removed. The owner chose this on 2026-10-01.
+   - **Retry:** `serve normalize --failed` with a SIGHUP, to re-project the two sessions TKT-01M3NQ2R left failed.
+   - **Restart:** the restart picks up the role_map change.
 
 #### Upgrading from v0.5.0
 
-- **Nothing to migrate.** The catalog stays at schema 21, and blobs, events files, the search index and the protocol are unchanged. To roll back, install v0.5.0 again. Agents need no upgrade: only the lake's dashboard changed.
+- **Nothing to migrate.** The catalog stays at schema 21, and blobs, the search index and the protocol are unchanged. To roll back, install v0.5.0 again. Agents need no upgrade: only the lake changed.
+- **Sessions that failed on a torn line can be recovered.** After upgrading, run `terva-lampi serve normalize --failed` and send serve a SIGHUP (or restart it). Sessions that failed with `line N is not a JSON object` because of one or a few bad lines then normalize.
 
 #### New
 
 - **The transcript page folds bookkeeping.** Three or more unknown events with no text in a row, such as Claude Code's `file-history-snapshot` and `queue-operation` records, collapse into one row that names the range and each record type, for example `4 unknown events #10–#13 file-history-snapshot ×3, queue-operation ×1`. Expanding it shows the original cards, so links, event ids and copy-out selection work as before. A link to an event inside a run opens it, and an opened run stays open across Refresh now.
 - **Unknown events name their type.** Each `unknown` card shows the harness's own record type, such as `ai-title` or `system/local_command`.
+
+#### Fixed
+
+- **One torn line no longer fails a whole session.** A line in a Claude Code, Codex or terva transcript that is not a JSON object becomes an error event in its place. The event names the line number and its length, never its bytes. A harness can write such a line itself: Claude Code once cut a record off mid-string and wrote the next record on the same line. The record joined to a torn line is skipped with it. A file with no JSON object line, or with more than 64 bad ones, still fails as not JSONL.
 
 ## Notes
 
@@ -90,3 +98,7 @@ Rehearsal, 2026-09-30: a scratch lake created by v0.4.0 and upgraded by v0.5.0 (
 **agent:claude-code/27b21f4b** at 2026-10-01T03:21:29Z
 
 Correction to the rehearsal note: serve fsck with the 996b664 build exited 0 ('checked 0 entries, 0 bad'), but the scratch lake holds no blobs, so fsck had nothing to check. That is acceptable here only because nothing since v0.5.0 touches storage, the catalog or the normalizer.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T04:59:05Z
+
+Scope grew on 2026-10-01: the release now carries TKT-01M3NQ2R (torn line becomes a marker, capped at 64) from #170, which changes internal/normalize. Criterion 1 is unticked until the rehearsal is re-run on the final main. Normalize output changes only for sessions that previously failed, so ready sessions need no re-projection.
