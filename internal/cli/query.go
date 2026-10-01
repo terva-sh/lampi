@@ -261,6 +261,9 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 		return end, fmt.Errorf("query: the lake sent %d events but counted %d", rows, end.Rows)
 	}
 	fmt.Fprintf(env.stderr(), "terva-lampi: %d events from %d sessions\n", end.Rows, end.Sessions)
+	if end.Oversized > 0 {
+		fmt.Fprintf(env.stderr(), "terva-lampi: %d events were over 16 MiB and could not be checked against the filters; the result may be missing some\n", end.Oversized)
+	}
 	if end.Skipped > 0 {
 		fmt.Fprintf(env.stderr(), "terva-lampi: %d sessions changed while being read and were left out; run again to include them\n", end.Skipped)
 	}

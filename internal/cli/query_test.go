@@ -130,6 +130,7 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		"short":   `{"a":1}` + "\n" + `{"lampi:end":{"complete":true,"rows":2,"sessions":1,"skipped":0,"oversized":0}}` + "\n",
 		"after":   `{"lampi:end":{"complete":true,"rows":0,"sessions":0,"skipped":0,"oversized":0}}` + "\n" + `{"a":1}` + "\n",
 		"ok":      `{"a":1}` + "\n" + `{"lampi:end":{"complete":true,"rows":1,"sessions":1,"skipped":0,"oversized":0}}` + "\n",
+		"big":     `{"lampi:end":{"complete":true,"rows":0,"sessions":1,"skipped":0,"oversized":2}}` + "\n",
 	}
 	var seenAuth, seenQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -172,6 +173,10 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		t.Fatalf("request %q %q", seenAuth, seenQuery)
 	}
 
+	var warned bytes.Buffer
+	if err := Run([]string{"query", "events", "--server", srv.URL, "--token-file", token, "--tool", "big"}, Env{Stdout: &bytes.Buffer{}, Stderr: &warned, Getenv: func(string) string { return "" }}); err != nil || !strings.Contains(warned.String(), "2 events were over 16 MiB") {
+		t.Fatalf("oversized warning: %v %q", err, warned.String())
+	}
 	for _, c := range []struct {
 		args []string
 		says string
