@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V7ZNT0TTQV363HZ0VJ738E
 title: "Search index: automerge rewrites old segments inside large transactions"
 type: spike
-status: draft
+status: in-progress
 status_reason: null
 priority: low
 due_on: null
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/27b21f4b
+  branch: search/automerge
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
+  commit: f8aebee6492c65e2714a06bf08feb84ae6d5a5f4
+  session: null
+  claimed_at: 2026-10-01T14:32:05Z
+  expires_at: null
 archive: null
 created_at: 2026-10-01T08:06:08Z
-updated_at: 2026-10-01T08:06:08Z
+updated_at: 2026-10-01T14:32:05Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
