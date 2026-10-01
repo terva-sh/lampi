@@ -49,6 +49,13 @@ const indexVersion = 4
 // each time, about 8 MiB, even when a pass appended a few events.
 const mergePages = 2000
 
+// walLimit is the size SQLite truncates search.db-wal to when it
+// resets it. Without a limit the WAL keeps the size of its largest
+// stretch between resets, and a rebuild left it at 845 MiB
+// (TKT-01M3NPFNJA). reclaim truncates it to nothing when no reader is
+// using it; the limit covers a reclaim that found a reader.
+const walLimit = 64 << 20
+
 // IndexContentMax is how much of one event's content_text is indexed
 // and searchable. Text past it is still in the transcript.
 const IndexContentMax = 256 << 10
@@ -155,7 +162,7 @@ func indexDSN(path string) (string, error) {
 		return "", err
 	}
 	q := url.Values{}
-	for _, p := range []string{"auto_vacuum(INCREMENTAL)", "busy_timeout(5000)", "journal_mode(WAL)", "synchronous(NORMAL)"} {
+	for _, p := range []string{"auto_vacuum(INCREMENTAL)", "busy_timeout(5000)", "journal_mode(WAL)", fmt.Sprintf("journal_size_limit(%d)", walLimit), "synchronous(NORMAL)"} {
 		q.Add("_pragma", p)
 	}
 	q.Set("_txlock", "immediate")
@@ -568,9 +575,10 @@ func (x *Index) rowSigs(ctx context.Context, uid string) (map[int64]rowSig, erro
 }
 
 // reclaim merges up to mergePages of the full-text index, forced when
-// rows were deleted, and returns the pages that frees to the
-// filesystem. more is true when the merge did work, so there may be
-// more to merge, and when reclaim failed, so the next pass tries again.
+// rows were deleted, returns the pages that frees to the filesystem,
+// and truncates the WAL. more is true when the merge did work, so there may be
+// more to merge, when a reader kept the WAL from being truncated, and
+// when reclaim failed, so the next pass tries again.
 // FTS5 documents a merge that did work as raising total_changes() by
 // two or more on its connection.
 func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error) {
@@ -596,7 +604,14 @@ func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error)
 	if _, err := conn.ExecContext(ctx, `PRAGMA incremental_vacuum`); err != nil {
 		return true, err
 	}
-	return after-before >= 2, nil
+	// A reader still on the WAL makes the checkpoint report busy rather
+	// than fail. The next pass tries again, and walLimit truncates the
+	// WAL at a later reset meanwhile.
+	var busy, logPages, done int64
+	if err := conn.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &done); err != nil {
+		return true, fmt.Errorf("checkpoint: %w", err)
+	}
+	return after-before >= 2 || busy != 0, nil
 }
 
 // remove drops every row of uid.
