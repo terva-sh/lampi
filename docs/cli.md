@@ -124,7 +124,10 @@ select the same events. At least one filter is required.
 | `--out FILE` | Write here, mode 0600, and only when the stream is complete. The default is stdout. |
 
 The command exits nonzero when the stream ends early, when the lake
-reports that it stopped partway, or when the row count does not match.
+reports that it stopped partway, when the row count does not match, or
+when the lake sends nothing for two minutes. The lake sends a keepalive
+at least every 15 seconds. The command follows no redirect, so the token
+goes only to the server it was given.
 Without `--out`, the rows that arrived are already on stdout. A summary
 goes to stderr. The token is never printed.
 [Read the lake from an agent](reading-the-lake.md) shows how to mint

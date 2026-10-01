@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T06:49:31Z
-updated_at: 2026-10-01T07:17:23Z
+updated_at: 2026-10-01T07:50:45Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -91,3 +91,7 @@ internal/cli/query.go: 'terva-lampi query events' reuses export's eventFlags (va
 - TestQueryEventsRefusesAShortStream: a cut stream, a partway end, a count mismatch, and lines after the end each fail and leave no --out file; a complete stream passes and sends the bearer header and the query as typed; no filter, fields alone, no token, plain http, a missing token file, --lake with --server, an unknown query and a device-token file are refused, the last without echoing its contents.
 - `GOFLAGS=-mod=mod just ci` passes.
 - Not run against the live lake: it needs a minted token, which only the owner can mint.
+
+**agent:claude-code/dae09bda** at 2026-10-01T07:50:45Z
+
+Review 1686 on #178: finding-1 (high) accepted, the client follows no redirect, since CheckToken vetted only the given server and a redirect would carry the token elsewhere; a 3xx is an error naming the Location. finding-2 (medium) accepted, the client cancels after two minutes with no bytes (idleReader resets a timer per read), and the stream (#177, ed68aff) now flushes or sends a blank keepalive line every 15 s so a slow selective scan is not mistaken for a dead connection; the client skips blank lines. CI flakes seen on unrelated tests during this stack: internal/web TestAllowSelectedIsAllOrNothing (503 after 38 s, run 1719) and internal/upload TestAttemptRecordsTheLastError (no bytes moved for 1s, run 1723).

@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -53,13 +54,22 @@ Every tool call, with its harness, session and input:
 
 // queryClient has no overall timeout: a stream over a large lake runs
 // as long as it has events to send. Connecting and the first byte of
-// the answer are bounded.
-var queryClient = &http.Client{Transport: &http.Transport{
-	Proxy:                 http.ProxyFromEnvironment,
-	DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
-	TLSHandshakeTimeout:   30 * time.Second,
-	ResponseHeaderTimeout: 2 * time.Minute,
-}}
+// the answer are bounded, and streamEvents bounds silence after that.
+// It follows no redirect: CheckToken vetted the server, not wherever it
+// points, and a redirect would carry the token there (review 1686).
+var queryClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 2 * time.Minute,
+	},
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+// queryIdle is the longest silence streamEvents waits through. The lake
+// sends at least a blank line every web.ReadEventsKeepalive.
+var queryIdle = 2 * time.Minute
 
 func runQuery(env Env, args []string) error {
 	if len(args) == 0 || isHelp(args[0]) {
@@ -200,7 +210,9 @@ func (e *eventFlags) query() url.Values {
 // fails unless the stream ended with one saying it is complete.
 func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (web.ReadEventsEnd, error) {
 	var end web.ReadEventsEnd
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(server, "/")+"/api/read/v1/events?"+q.Encode(), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(server, "/")+"/api/read/v1/events?"+q.Encode(), nil)
 	if err != nil {
 		return end, err
 	}
@@ -210,6 +222,9 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 		return end, fmt.Errorf("query: lake unreachable: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return end, fmt.Errorf("query: lake answered %d, a redirect to %s; pass that URL as --server if it is the lake", resp.StatusCode, resp.Header.Get("Location"))
+	}
 	if resp.StatusCode != http.StatusOK {
 		var body struct {
 			Error string `json:"error"`
@@ -217,13 +232,21 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body)
 		return end, fmt.Errorf("query: lake answered %d %s%s", resp.StatusCode, body.Error, queryHint(resp.StatusCode, body.Error))
 	}
-	br := bufio.NewReaderSize(resp.Body, 64<<10)
+	// A silence longer than queryIdle cancels the request, which ends
+	// the read below with an error.
+	idle := time.AfterFunc(queryIdle, cancel)
+	defer idle.Stop()
+	br := bufio.NewReaderSize(idleReader{resp.Body, idle}, 64<<10)
 	bw := bufio.NewWriterSize(out, 64<<10)
 	var rows int64
 	ended := false
 	endPrefix := []byte(`{"` + web.ReadEventsEndKey + `":`)
 	for {
 		line, rerr := br.ReadBytes('\n')
+		if len(bytes.TrimSpace(line)) == 0 {
+			// A keepalive, or the empty tail of the body.
+			line = nil
+		}
 		if len(line) > 0 {
 			if ended {
 				return end, errors.New("query: the lake sent events after the end of the stream")
@@ -246,6 +269,9 @@ func streamEvents(env Env, server, token string, q url.Values, out io.Writer) (w
 		}
 		if rerr != nil {
 			bw.Flush()
+			if ctx.Err() != nil {
+				return end, fmt.Errorf("query: the lake sent nothing for %s, after %d events", queryIdle, rows)
+			}
 			return end, fmt.Errorf("query: the stream stopped after %d events: %w", rows, rerr)
 		}
 	}
@@ -281,4 +307,18 @@ func queryHint(status int, code string) string {
 		return ": the lake refused a filter value"
 	}
 	return ""
+}
+
+// idleReader restarts its timer whenever a read returns bytes.
+type idleReader struct {
+	r     io.Reader
+	timer *time.Timer
+}
+
+func (i idleReader) Read(p []byte) (int, error) {
+	n, err := i.r.Read(p)
+	if n > 0 {
+		i.timer.Reset(queryIdle)
+	}
+	return n, err
 }

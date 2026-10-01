@@ -129,7 +129,7 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		"partway": `{"a":1}` + "\n" + `{"lampi:end":{"complete":false,"error":"read_failed","rows":1,"sessions":1,"skipped":0,"oversized":0}}` + "\n",
 		"short":   `{"a":1}` + "\n" + `{"lampi:end":{"complete":true,"rows":2,"sessions":1,"skipped":0,"oversized":0}}` + "\n",
 		"after":   `{"lampi:end":{"complete":true,"rows":0,"sessions":0,"skipped":0,"oversized":0}}` + "\n" + `{"a":1}` + "\n",
-		"ok":      `{"a":1}` + "\n" + `{"lampi:end":{"complete":true,"rows":1,"sessions":1,"skipped":0,"oversized":0}}` + "\n",
+		"ok":      "\n" + `{"a":1}` + "\n\n" + `{"lampi:end":{"complete":true,"rows":1,"sessions":1,"skipped":0,"oversized":0}}` + "\n",
 		"big":     `{"lampi:end":{"complete":true,"rows":0,"sessions":1,"skipped":0,"oversized":2}}` + "\n",
 	}
 	var seenAuth, seenQuery string
@@ -137,6 +137,18 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		seenAuth, seenQuery = r.Header.Get("Authorization"), r.URL.RawQuery
 		if r.URL.Path != "/api/read/v1/events" {
 			http.NotFound(w, r)
+			return
+		}
+		switch r.URL.Query().Get("tool") {
+		case "redirect":
+			// To plain http on a host that is not loopback: following
+			// it would send the token in the clear.
+			http.Redirect(w, r, "http://lake.example/api/read/v1/events", http.StatusFound)
+			return
+		case "silent":
+			w.Write([]byte(`{"a":1}` + "\n"))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
 			return
 		}
 		w.Write([]byte(body[r.URL.Query().Get("tool")]))
@@ -173,6 +185,14 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		t.Fatalf("request %q %q", seenAuth, seenQuery)
 	}
 
+	if _, err := run("redirect"); err == nil || !strings.Contains(err.Error(), "302") || !strings.Contains(err.Error(), "redirect") {
+		t.Errorf("redirect: %v", err)
+	}
+	defer func(d time.Duration) { queryIdle = d }(queryIdle)
+	queryIdle = 200 * time.Millisecond
+	if _, err := run("silent"); err == nil || !strings.Contains(err.Error(), "sent nothing for 200ms, after 1 events") {
+		t.Errorf("silent lake: %v", err)
+	}
 	var warned bytes.Buffer
 	if err := Run([]string{"query", "events", "--server", srv.URL, "--token-file", token, "--tool", "big"}, Env{Stdout: &bytes.Buffer{}, Stderr: &warned, Getenv: func(string) string { return "" }}); err != nil || !strings.Contains(warned.String(), "2 events were over 16 MiB") {
 		t.Fatalf("oversized warning: %v %q", err, warned.String())
