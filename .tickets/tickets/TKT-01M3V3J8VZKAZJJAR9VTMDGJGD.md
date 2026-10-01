@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-01T06:48:54Z
-updated_at: 2026-10-01T06:56:13Z
+updated_at: 2026-10-01T06:57:31Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -114,3 +114,7 @@ Add recall.EventFilter (Validate, Session, Line) and recall.Fields (ParseFields,
 - A line over recall.MaxLine (16 MiB) is unreadable for filtering and projection, as the index treats it, so export and search agree on it too.
 - Session filters alone (--harness, --project) are allowed in export, unlike search. Export already reads the whole lake; the guard in search exists to stop paging the corpus through the index.
 - Not run against the live lake: it needs sudo to the service user. The owner can check it with the docs/cli.md example.
+
+**agent:claude-code/dae09bda** at 2026-10-01T06:57:31Z
+
+PR #173 on Forgejo (https://git.local.sothr.com/terva-sh/lampi/pulls/173), rebased onto origin/main 360e460; just ci passes there. terva-review dispatched with request-id ready-review.
