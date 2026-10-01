@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NQ2RT5G1TEY54R9R8RXG2G
 title: "Normalize: a torn line mid-file fails the whole session"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/27b21f4b
-  branch: normalize/torn-line
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: 57f2200b1301809bd8ac52626eeef238c76d4b2e
-  session: null
-  claimed_at: 2026-10-01T03:35:04Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T04:34:31Z
-updated_at: 2026-10-01T04:42:12Z
+updated_at: 2026-10-01T04:42:31Z
 created_by:
   id: agent:claude-code/16ebd168
   name: ""
@@ -56,6 +49,13 @@ TKT-01M38RJT92 (Claude Code normalize projector) specified that "a line that is 
 A line in the middle of a file that is not a JSON object becomes a marker event, and the session keeps going. The marker carries the line number and byte offset, but not the line's content, keeping the rule that the error text does not include the line. The session could be flagged as normalized with warnings. A torn *last* line in a file still being written is a different case, and waiting for the next sync may be right there.
 
 Decide first whether the strict rule still serves a purpose. It may exist to catch a projector bug early rather than paper over it, and a marker event would need to keep that visible.
+
+## Acceptance criteria
+
+- [x] A line that is not a JSON object, in a Claude, Codex or terva JSONL file with other good lines, becomes an error event naming the line and its length, and the session normalizes
+- [x] Neither the events nor normalize_error contain the unreadable line's bytes
+- [x] A file in which no line is a JSON object still fails
+- [ ] Both failed sessions on the internal lake normalize after the fixed release is deployed
 
 ## Implementation plan
 
@@ -91,3 +91,7 @@ OpenCode, Cursor and Cursor CLI take one JSON document per blob, so they are una
 - `GOFLAGS=-mod=mod just ci` passes.
 
 **On the internal lake**, after the release with this fix is deployed, `serve normalize --failed` and a SIGHUP should bring both sessions to ready.
+
+## Summary
+
+A line in a Claude, Codex or terva JSONL file that is not a JSON object now becomes an error event at its position, naming the line number and its byte length but not its bytes, and the session normalizes. A file with no JSON object line still fails. Verified on a reproduction of the torn line 691. The internal lake's two sessions get re-normalized at the next deploy, which is tracked as criterion 4 and on the deploy ticket.
