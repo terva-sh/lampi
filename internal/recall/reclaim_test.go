@@ -2,6 +2,7 @@ package recall
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -151,5 +152,60 @@ func TestAReclaimTruncatesTheWAL(t *testing.T) {
 	}
 	if st.Size() != 0 {
 		t.Fatalf("the WAL is %d bytes after a pass that reclaimed", st.Size())
+	}
+}
+
+// A reader still on the WAL keeps the checkpoint from truncating it,
+// which leaves the reclaim pending until a pass truncates it.
+func TestAReaderOnTheWALLeavesTheReclaimPending(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "busy")
+	path := filepath.Join(t.TempDir(), IndexFile)
+	x, err := OpenIndex(path, NewReader(s.Catalog, s.Normalized))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { x.Close() })
+	// On one connection with no busy timeout, the checkpoint reports busy
+	// at once rather than after the DSN's five seconds.
+	x.db.SetMaxOpenConns(1)
+	if _, err := x.db.Exec(`PRAGMA busy_timeout=0`); err != nil {
+		t.Fatal(err)
+	}
+	// indexDSN begins every transaction immediate, which takes the write
+	// lock, so the reader opens the file with a deferred one.
+	r, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close() })
+	var tx *sql.Tx
+	x.beforeReclaim = func() {
+		// The pass has written, so the reader's snapshot is on the WAL.
+		if tx, err = r.Begin(); err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		if err := tx.QueryRow(`SELECT count(*) FROM docs`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish(t, s, uid, events(20, func(i int) string { return fmt.Sprint("busy text ", i) }))
+	pass(t, x)
+	x.beforeReclaim = nil
+	if !x.merging {
+		t.Fatal("a reclaim a reader kept from truncating the WAL is not pending")
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; x.merging; i++ {
+		if i > 50 {
+			t.Fatal("passes never finished the reclaim")
+		}
+		pass(t, x)
+	}
+	if st, err := os.Stat(path + "-wal"); err != nil || st.Size() != 0 {
+		t.Fatalf("the WAL is not empty once the reader left: %v %v", st, err)
 	}
 }

@@ -577,7 +577,8 @@ func (x *Index) rowSigs(ctx context.Context, uid string) (map[int64]rowSig, erro
 // reclaim merges up to mergePages of the full-text index, forced when
 // rows were deleted, returns the pages that frees to the filesystem,
 // and truncates the WAL. more is true when the merge did work, so there may be
-// more to merge, and when reclaim failed, so the next pass tries again.
+// more to merge, when a reader kept the WAL from being truncated, and
+// when reclaim failed, so the next pass tries again.
 // FTS5 documents a merge that did work as raising total_changes() by
 // two or more on its connection.
 func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error) {
@@ -604,11 +605,13 @@ func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error)
 		return true, err
 	}
 	// A reader still on the WAL makes the checkpoint report busy rather
-	// than fail, and walLimit truncates it at a later reset.
-	if _, err := conn.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		return true, err
+	// than fail. The next pass tries again, and walLimit truncates the
+	// WAL at a later reset meanwhile.
+	var busy, logPages, done int64
+	if err := conn.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &done); err != nil {
+		return true, fmt.Errorf("checkpoint: %w", err)
 	}
-	return after-before >= 2, nil
+	return after-before >= 2 || busy != 0, nil
 }
 
 // remove drops every row of uid.
