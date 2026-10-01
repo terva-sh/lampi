@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-01T07:15:12Z
-updated_at: 2026-10-01T07:35:32Z
+updated_at: 2026-10-01T08:05:24Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -37,13 +37,13 @@ The owner asked on 2026-10-01 for a deploy bundle for v0.5.2 (TKT-01M3V3QR0Y, Re
 
 The installed lake and agent run v0.5.1 (4ef0c50) at catalog schema 21. v0.5.2 adds no migration, and the unit and web drop-in match the v0.5.1 bundle's copies. Only the binary changes.
 
-The point of the deploy is the search index WAL. On 2026-10-01 `search.db-wal` had regrown to 1.5 GiB under v0.5.1 (TKT-01M3K45MX). A clean stop of serve already deletes the WAL, so the stop is not the fix. What v0.5.2 changes is that the WAL is cut back after every index pass, and stays under 64 MiB between them.
+The point of the deploy is the search index WAL. On 2026-10-01 `search.db-wal` had regrown to 1.5 GiB under v0.5.1 (TKT-01M3K45MX). A clean stop of serve already deletes the WAL, so the stop is not the fix. What v0.5.2 changes is that each index pass ends with a truncating checkpoint, which cuts the WAL back to 0 unless a reader holds it busy. A busy checkpoint is retried at the next pass. The 64 MiB `journal_size_limit` applies only when the WAL resets. It does not bound growth during a pass, which reached 297 MiB on this lake (see the notes).
 
 ## Acceptance criteria
 
 - [x] The lake runs v0.5.2 with schema 21, integrity ok and counts preserved
-- [x] search.db-wal is at most 64 MiB after the first index pass
 - [x] The workstation agent runs v0.5.2 and its next sync uploads nothing new
+- [x] search.db-wal returns to 0 after an index pass whose truncating checkpoint no reader holds busy; a busy one is retried at the next pass
 
 ## Implementation plan
 
@@ -91,6 +91,10 @@ The owner ran `sudo stat` on the lake twice after the deploy. serve started at a
 The truncating checkpoint works on the live lake: the WAL went from 297 MiB back to 0 when the pass ended. That fixes the problem in this ticket's title. Under v0.5.1 the WAL stayed at 1617 MiB.
 
 **Correction to the deploy bundle's README.** It said `search.db-wal` should stay at most 64 MiB. That was wrong. `journal_size_limit` only limits what is left after the WAL resets. It does not limit growth within a pass, and one pass here wrote about 300 MiB. Criterion 2 says "after the first index pass", and that holds. The transient peak is the size of one pass's writes, which belongs to TKT-01M3NPFNMH (Search index: FTS segments hold 0.5 GiB over live size after rebuild).
+
+**agent:claude-code/27b21f4b** at 2026-10-01T08:05:24Z
+
+Review 1685 (and 1683/1684) finding: the description claimed the WAL stays under 64 MiB between passes, and criterion 2 required at most 64 MiB with no allowance for a busy checkpoint. Both were wrong: journal_size_limit applies at a reset only, and a reader can hold the truncate busy until the next pass. The description now says so, and criterion 2 is replaced by one that checks truncation after an unblocked checkpoint. That is met by the owner's measurements: 297 MiB during a pass, then 0. The busy retry is covered by TestAReaderOnTheWALLeavesTheReclaimPending, not observed live.
 
 ## Summary
 
