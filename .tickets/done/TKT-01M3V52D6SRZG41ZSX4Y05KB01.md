@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-01T07:15:12Z
-updated_at: 2026-10-01T08:05:24Z
+updated_at: 2026-10-01T08:05:36Z
 created_by:
   id: agent:claude-code/27b21f4b
   name: ""
@@ -50,7 +50,7 @@ The point of the deploy is the search index WAL. On 2026-10-01 `search.db-wal` h
 1. Bundle `~/.local/state/agent-handoffs/lampi/deploy-v0.5.2-cILnCBtq/` (outside the repository): the GitHub release's linux_amd64 binary checked against `release-checksums.txt`, `operator-deploy.sh`, and the README.
 2. The owner runs `operator-deploy.sh` as root. It checks preconditions (versions, unit and drop-in, schema 21, the v0.5.1 role_map, space, lake id), prints `search.db-wal`'s size, pauses the agent, stops the lake, and backs it up with the installed v0.5.1. It then verifies the copy, installs v0.5.2, checks health, auth, the admin group, schema, counts, lake id and the public URL, reports the WAL a minute in, and resumes the agent with a forced sync.
 3. The agent upgrades `~/.local/bin/terva-lampi` after keeping copies of the binary and config.json, restarts the agent service, and checks `agent config` and the next sync.
-4. After hours of uploads the owner runs `sudo stat` on `search.db-wal`. At most 64 MiB satisfies criterion 2.
+4. After uploads the owner runs `sudo stat` on `search.db-wal`. The WAL grows during a pass, so one reading can be large. The criterion is met when a later reading shows the WAL back at 0 after a pass.
 
 Alternatives considered:
 - Reusing the v0.5.1 script unchanged. It would refuse, because its role_map precondition expects the pre-v0.5.1 map, and it would re-run the normalize retry with nothing to retry.
