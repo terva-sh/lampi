@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/audit"
@@ -34,6 +35,9 @@ type Lake struct {
 type Actor struct {
 	Catalog string
 	Audit   string
+	// Minter is what bays the actor may add a device to. It is checked
+	// when the code is stored; the zero value may add to none.
+	Minter catalog.Minter
 }
 
 // Minted is a code as it is shown once.
@@ -71,7 +75,9 @@ func (e *URLError) Unwrap() error { return e.Err }
 // pending code for a device called name, and audits the mint before it
 // returns the code. A code whose mint the audit log does not hold is
 // revoked and not returned. An empty or default profile is stored as "".
-func Mint(ctx context.Context, l Lake, name, profile string, lifetime time.Duration, by Actor, now time.Time) (Minted, error) {
+// bays are the bays the device may write, by id, name or alias; none is
+// the default bay. The caller checks that by may grant them.
+func Mint(ctx context.Context, l Lake, name, profile string, bays []string, lifetime time.Duration, by Actor, now time.Time) (Minted, error) {
 	if lifetime <= 0 || lifetime > MaxLifetime {
 		return Minted{}, fmt.Errorf("%w: %s", ErrLifetime, lifetime)
 	}
@@ -104,7 +110,7 @@ func Mint(ctx context.Context, l Lake, name, profile string, lifetime time.Durat
 		return Minted{}, err
 	}
 	cur, _ := l.Identity.Current(now)
-	reg, err := l.Catalog.CreateRegistration(ctx, name, regcode.HashSecret(secret), profile, cur.ID, by.Catalog, now, now.Add(lifetime))
+	reg, err := l.Catalog.CreateRegistrationInBays(ctx, name, regcode.HashSecret(secret), profile, cur.ID, by.Catalog, bays, by.Minter, now, now.Add(lifetime))
 	if err != nil {
 		return Minted{}, err
 	}
@@ -117,7 +123,7 @@ func Mint(ctx context.Context, l Lake, name, profile string, lifetime time.Durat
 		prof = config.DefaultProfile
 	}
 	if err := audit.Append(l.Dir, audit.Event{Time: now, Kind: audit.RegistrationCreated, Device: reg.Name, Actor: by.Audit,
-		Detail: fmt.Sprintf("registration=%s profile=%s expires=%s", reg.ID, prof, reg.Expires.Format(time.RFC3339))}); err != nil {
+		Detail: fmt.Sprintf("registration=%s profile=%s bays=%s expires=%s", reg.ID, prof, codeBays(reg.Bays), reg.Expires.Format(time.RFC3339))}); err != nil {
 		if _, rerr := l.Catalog.RevokeRegistration(ctx, reg.ID, by.Catalog, by.Audit, now); rerr != nil {
 			return Minted{}, fmt.Errorf("writing the mint of %s to %s failed: %w; the code was not printed, but revoking it also failed: %v; run serve register --revoke %s", reg.ID, audit.FileName, err, rerr, reg.ID)
 		}
@@ -252,4 +258,12 @@ func Fingerprint(id *identity.Identity, now time.Time) string {
 		return "(no active key)"
 	}
 	return identity.Fingerprint(k.Pub)
+}
+
+// codeBays names a code's bays for the audit line.
+func codeBays(ids []string) string {
+	if len(ids) == 0 {
+		return catalog.DefaultBayID
+	}
+	return strings.Join(ids, ",")
 }

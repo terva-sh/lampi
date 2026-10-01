@@ -172,7 +172,7 @@ func TestCounts(t *testing.T) {
 	}
 	t.Cleanup(func() { c.Close() })
 	ctx := context.Background()
-	n, err := c.Counts(ctx)
+	n, err := c.Counts(ctx, AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestCounts(t *testing.T) {
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	n, err = c.Counts(ctx)
+	n, err = c.Counts(ctx, AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestCounts(t *testing.T) {
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	n, err = c.Counts(ctx)
+	n, err = c.Counts(ctx, AllBays())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestDivergentCopies(t *testing.T) {
 	t.Cleanup(func() { c.Close() })
 	ctx := context.Background()
 	now := time.Date(2026, 9, 22, 16, 0, 0, 0, time.UTC)
-	empty, err := c.DivergentCopies(ctx)
+	empty, err := c.DivergentCopies(ctx, AllBays(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestDivergentCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := c.DivergentCopies(ctx)
+	got, err := c.DivergentCopies(ctx, AllBays(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

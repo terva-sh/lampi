@@ -36,11 +36,18 @@ The repository does not name or provision a live deployment.
    `scopes` when your provider uses different scopes. `openid` is always included.
 4. Map the actual group claim and exact group names. A successful IdP login grants
    no access unless a configured group maps to `viewer`, `operator` or `admin`.
-   A viewer reads metadata for the whole lake; this release has no per-project
-   viewer isolation. An `operator` is also a viewer and can manage registration
+   A viewer reads the [bays](policy.md#bays) its groups are granted, and
+   nothing else: pages, search, transcripts and counts all leave out the
+   rest. The first start with a web config after bays grants every
+   viewer and operator group the default bay, so an upgrade changes
+   nothing; a group added later reads nothing until
+   `serve bays grant BAY --group G --read` gives it a bay, and startup
+   warns about such a group. Search coverage and other counts of the
+   whole lake are shown only to an admin. An `operator` is also a viewer and can manage registration
    codes, which adds machines to the lake. Map it to a small group. An `admin`
-   is also an operator and can download a session's
-   [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded. Map
+   is also an operator, reads every bay, can download a session's
+   [raw artifacts](#raw-artifacts), the unredacted bytes an agent uploaded,
+   and can [sort sessions into bays](#bays). Map
    it to the smallest group you have, or to none. No group becomes admin on
    upgrade, and a lake with no admin group starts, logs a warning, and offers
    no raw reads. Operator routes answer 404 to a viewer, and admin routes
@@ -193,6 +200,52 @@ harness, project and recorded date. Each result names its session and event and
 links straight to that event in the transcript. The page states how many ready
 sessions the index covers. Raw blobs and export are absent.
 
+### Conflicts
+
+A conflict is a copy of a session file whose bytes neither continue the
+copy the lake holds nor are continued by it. The lake keeps both, leaves
+the session's head where it was, and merges nothing. `/conflicts` lists
+the open ones across the lake, and each session's Conflicts tab lists
+its own. The page opens with what a conflict is and what to check. Each
+row gives both sides' size, the machines that posted each (by device
+name when a device is bound to the machine), and both digests.
+
+- A copy from a different machine than the head means two machines wrote
+  the same session.
+- A copy marked *shorter* was rewritten or truncated, for example when a
+  harness compacted the conversation.
+- *N open copies at this path* means the harness rewrote the file and
+  kept appending: every post is another copy, and the session in the
+  lake has stopped moving.
+
+A resolved conflict leaves the list and the overview count. Open and
+resolved lists both, each with its resolution. Resolving never deletes
+bytes.
+
+Details on a row opens `/conflicts/{artifact}`: both sides, the devices
+that sent each, and where they part, as a byte offset and line number
+(the lake reads up to 64 MiB of each to find it). An admin also gets a
+raw download of each side. An operator settles it there:
+
+- **Keep the head** resolves it: the session goes on showing the head it
+  has, and the copy's bytes stay. A one-line note goes to the audit log
+  with the resolution.
+- **Make this the head** is for a harness that rewrote the file and
+  kept writing to it, so every upload is another copy and the session in
+  the lake has stopped moving. The copy becomes the session's head, its
+  transcript is normalized again, and the next upload that continues it
+  moves the head as usual. Older open copies at the path that it
+  continues are resolved as superseded. The replaced head stays stored.
+  The form carries the head the page showed, so a head that moved since
+  is refused rather than replaced unseen. A companion file, such as a
+  subagent transcript, cannot be made the head.
+- **Reopen** puts a resolved conflict back on the list. It does not move
+  the head, so a copy that is the head now cannot be reopened.
+
+Each writes `conflict.resolved`, `conflict.reopened`, or for a new head
+also `conflict.head_changed`, to `audit.jsonl` with the operator as
+actor.
+
 ### Theme
 
 The dashboard follows the system's light or dark setting. The theme button
@@ -225,6 +278,66 @@ A download stops at 8 MiB. A cut-short response is a `206` with a
 HTTP `Range` requests; the routes are in
 [web-api.md](web-api.md#raw-artifacts).
 
+### Read tokens
+
+An admin gets a **Read tokens** link, `/admin/read-tokens`, for tools that
+fetch raw artifacts without a browser session. The API is in
+[web-api.md](web-api.md#read-tokens).
+
+- **Minting** takes a label, an optional list of session UIDs, an
+  optional list of [bays](policy.md#bays), and an expiry of up to 90
+  days. An empty session list reads every session. A bay list limits the
+  token to sessions in those bays at the time of each read, so a session
+  sorted out of them is out of reach; `serve bays grant --read-token`
+  and `revoke` change the list later. A token whose last bay is revoked
+  reads nothing. A token minted without bays is not limited by bay. Minting
+  needs a sign-in in the last 10 minutes, as minting a registration code
+  does.
+- **The token is shown once.** The lake keeps only its SHA-256. A token
+  starts with `lrt_`, so a leaked one is easy to find in a log or with a
+  secret scanner.
+- **Revoke** stops a token on its next request. The list shows each
+  token's scope, expiry, who minted it, and when it was last used.
+
+Minting and revoking are written to `audit.jsonl` as `read_token.created`
+and `read_token.revoked`, naming the token by id and label and never by
+its value. Each read is an `artifact.read` event with the token as actor.
+A mint whose line cannot be written to `audit.jsonl` is revoked at once and
+its token is never shown. A revoke whose line cannot be written still
+stands: the page says so, and the line is written at the next flush.
+
+## Bays
+
+A session's page names its [bays](policy.md#bays), limited to the ones
+the reader reads: a viewer is not told the name of a bay it cannot
+read, since a bay's name can name a client.
+
+An admin gets a **Bays** link, `/admin/bays`. It lists each bay with its
+session count and aliases, and the inbox: the sessions in the default
+bay that nothing placed, the sessions a hold rule holds or flagged, and
+the sessions that asked for a bay and were refused, each with why. The
+reasons are the ones `serve bays inbox` prints; [bays-inbox.md](bays-inbox.md)
+says what to do about each.
+
+Two changes can be made from the inbox:
+
+- **Move** takes one session out of a bay it is in and puts it in
+  another. A session taken out of its last bay goes to the default.
+- **Release** ends a hold: the bays the session asked for while held are
+  placed as routing would have placed them, and a held session leaves
+  the hold bay.
+
+Both add a session to a bay, which widens who reads it, so each needs a
+sign-in at the IdP in the last 10 minutes, as minting does, and a form
+with the session's CSRF token. Without a recent sign-in the page offers
+a link to sign in again instead of the forms. Each change is written to
+`audit.jsonl` as `bay.member.added`, `bay.member.removed` or
+`bay.hold.released`, with the admin as actor and `via web` in `detail`.
+
+Bulk moves, applying rules to stored sessions, and editing bays, grants
+and rules stay on the lake host: `terva-lampi serve bays`. Operators and
+viewers get no link, and the routes answer them 404.
+
 ## Registration codes
 
 An operator sees a Registrations link. `/admin/registrations` lists every
@@ -233,8 +346,10 @@ it and, for a used code, the device it made. A viewer gets 404 there, as on
 every operator route. Listing writes the expiries since the last look to
 `audit.jsonl`, as `serve register --list` does.
 
-To add a machine, give it a device name, a profile and an expiry, and press
-Mint code. Minting needs a sign-in at the IdP in the last 10 minutes; without
+To add a machine, give it a device name, a profile, the bays it uploads
+to and an expiry, and press Mint code. The form lists the bays you may add
+a machine to: every bay for an admin, and for an operator the bays its
+groups hold write on. None chosen is the default bay. Minting needs a sign-in at the IdP in the last 10 minutes; without
 one the form is replaced by Sign in again to mint, which goes through the IdP
 and comes back. The mint is the same one `serve register` does on the lake
 host: the lake checks its public URL reaches it, stores only the code's hash,
@@ -370,7 +485,10 @@ it made.
 - **Profile** is the profile the device uses and whether the agent applied the
   version the lake serves now. A *stale* profile catches up within a minute
   once the agent is running. When the allow rules come from the machine's own
-  `config.json`, the row says that the profile's allow rules do not apply.
+  `config.json`, the row says that the profile's allow rules do not apply. A
+  `token-file` device that reports no profile at all says it fetches no
+  profile. Its agent has no pinned lake key, and `terva-lampi lakes adopt` on
+  that machine fixes that.
 - **Last sync** is the outcome of the agent's last finished sync, including
   how many sessions the allowlist refused, and its newest error.
 
@@ -413,6 +531,15 @@ when a rule in the profile already covers it, such as a `cwd_prefix` above it:
 the device picks that rule up with its next profile fetch. Allowing for one
 device alone waits for per-device overrides.
 
+A repository under an owner also gets **Allow OWNER/…**, which adds one
+`git_remote_prefix` for the owner instead. For example, `git.example/team`
+covers `git.example/team/app` and every other repository under
+`git.example/team`, on every machine, including repositories nobody has
+reviewed. The editor's preview lists the projects the prefix admits. It is not
+offered when the owner would be the bare host, such as `github.com`. Type a
+host-wide rule in the editor if you mean it. Either Allow also drops the rules
+the new one covers and says how many.
+
 ## Review
 
 `/review` lists every project your devices hold that no one has decided about
@@ -429,7 +556,11 @@ and checkouts.
 - **Allow pending** holds projects a rule now allows whose device has not sent
   a new inventory yet. They leave once it does.
   A device whose `config.json` sets its own allow rules takes none from its
-  profile, so its copies stay in Needs review, marked, with no Allow. A copy
+  profile, so its copies stay in Needs review, marked, with no Allow. A
+  `token-file` device whose agent reports no profile has not pinned the lake
+  and fetches no profile at all. Its copies are marked "Fetches no profile",
+  with the same fix on every device page: run `terva-lampi lakes adopt` on that
+  machine ([Adopting a lake](registration-and-lakes.md#adopting-a-lake-a-machine-already-syncs-to)). A copy
   from a device that applied the profile allowing it and still refused it
   afterwards returns to Needs review, marked, since waiting will not help.
 - **Denied** holds projects a deny rule refuses, or sessions with no working
@@ -447,10 +578,21 @@ To allow several at once, tick them and press **Allow selected…**. The lake
 checks each against the newest inventories again and builds the rule Allow
 would add for every device copy the page showed: a `git_remote` rule for a
 repository, which covers every checkout, or a `cwd_prefix` rule for a folder.
+**Rules for** picks the width. *Each repository* is the default and builds
+those rules. *Each repository's owner* builds one `git_remote_prefix` per
+owner, as **Allow OWNER/…** does, so ten repositories under one owner become
+one rule. A repository whose owner would be the bare host, and a folder, keep
+their exact rule.
 It then shows a short confirmation instead of the profile editor. For each
-profile that gains rules, the page lists the rules and the devices each is
-for, the devices the profile reaches, and those whose `config.json` sets their
-own allow rules, with the change under a disclosure. One note, filled in for
+profile that gains rules, the page lists:
+
+- the rules, and the devices each is for;
+- the rules they cover, which the save drops;
+- the projects the change admits, as the editor's preview lists them;
+- the devices the profile reaches, and those whose `config.json` sets their
+  own allow rules.
+
+The change itself is under a disclosure. One note, filled in for
 you, goes on every revision. **Save** writes every profile, each against the
 revision the page read. If someone changed one of them first, nothing is
 saved and the page shows the plan again against what is stored. Both Save and
@@ -510,7 +652,43 @@ preview to get more. Clearing every field of a rule removes it.
 - which parts change;
 - the devices it reaches;
 - how many of those devices set their own allow rules, which the new allow
-  rules will not reach.
+  rules will not reach;
+- when the allow or deny rules change, the projects the change admits and the
+  projects it stops, each with its devices and session count.
+
+The project list reads the newest inventory of each device on the profile
+under the saved rules and the edited ones. Check it before you save a wider
+rule, such as a `git_remote_prefix`, because a wider rule can admit projects
+nobody has reviewed. The list has these limits:
+
+- A device that sets its own allow rules is left out.
+- A strict device lists only what it uploads, and a device that has sent no
+  inventory lists nothing. The preview names both, since it cannot say what
+  the change admits on them.
+- The lake cannot see a device's own deny rules. A project refused under a
+  deny rule is left out only when all of these hold:
+  - the device reports deny rules of its own;
+  - it reported applying the saved profile;
+  - its inventory arrived after both that report and the save;
+  - the saved profile's deny rules do not match the project.
+
+  Otherwise the refusal may come from an older profile, so the project is
+  listed, even though the device may still deny it.
+
+Under **Fewer rules**, the editor offers two ways to shorten the allow list:
+
+- **Remove covered rules.** A rule adds nothing when another rule matches every
+  project it matches. For example, `git_remote_prefix github.com/acme` covers
+  `git_remote github.com/acme/app`, and `cwd_prefix /work` covers
+  `cwd_prefix /work/app`. When two rules are the same, the first one stays.
+- **Replace with a git_remote_prefix.** When three or more rules that set only
+  `git_remote` name repositories under one owner, one `git_remote_prefix` for
+  the owner can replace them. It also admits every other repository under that
+  owner. The offer is never made for a bare host.
+
+Both change the form, fill an empty note with what they did, and preview.
+Nothing is saved until you save. Deny rules are not offered, since a
+redundant deny rule is harmless.
 
 `git_remote` and `git_remote_prefix` are stored in the form the agent compares,
 so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.

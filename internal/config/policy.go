@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -38,11 +39,41 @@ type ProjectMatch struct {
 	CWDHash   string `json:"cwd_hash,omitempty"`
 	// GitRemotePrefix is TKT-01M3HKYFE: one rule for an owner or host.
 	GitRemotePrefix string `json:"git_remote_prefix,omitempty"`
+	// CWDGlob is a directory layout, such as /home/*/notes, matched as
+	// glob.go describes: one rule for a path that differs per machine.
+	CWDGlob string `json:"cwd_glob,omitempty"`
 }
+
+// Empty reports whether no field is set, so the rule matches nothing.
+func (r ProjectMatch) Empty() bool { return r.empty() }
+
+// Matches reports whether id meets the rule the way an allow rule is
+// read: exactly, with an unknown remote matching no git_remote. A bay
+// rule on the lake is read this way (TKT-01M3NNF29W).
+func (r ProjectMatch) Matches(id ProjectID) bool { return r.matches(id) }
 
 // empty is a rule with no field set, which matches nothing.
 func (r ProjectMatch) empty() bool {
-	return r.CWDPrefix == "" && r.GitRemote == "" && r.CWDHash == "" && r.GitRemotePrefix == ""
+	return r.CWDPrefix == "" && r.GitRemote == "" && r.CWDHash == "" && r.GitRemotePrefix == "" && r.CWDGlob == ""
+}
+
+// Validate refuses a rule field no rule may hold: a cwd_glob checkGlob
+// refuses. The other fields match nothing when they cannot match.
+func (p Projects) Validate() error {
+	for _, l := range []struct {
+		name  string
+		rules []ProjectMatch
+	}{{"allow", p.Allow}, {"deny", p.Deny}} {
+		for i, r := range l.rules {
+			if r.CWDGlob == "" {
+				continue
+			}
+			if err := checkGlob(r.CWDGlob); err != nil {
+				return fmt.Errorf("projects.%s[%d].cwd_glob %q: %w", l.name, i, r.CWDGlob, err)
+			}
+		}
+	}
+	return nil
 }
 
 // ProjectID is the project a session belongs to, taken from the harness
@@ -122,6 +153,11 @@ func (r ProjectMatch) denies(id ProjectID, cwd string) bool {
 	if r.CWDPrefix != "" && !denyPrefix(cwd, r.CWDPrefix) {
 		return false
 	}
+	// A pattern no rule may hold is a doubt, and a deny rule reads a
+	// doubt as a match; Validate keeps one from loading at all.
+	if r.CWDGlob != "" && checkGlob(r.CWDGlob) == nil && !globHasPrefix(cwd, r.CWDGlob, true) {
+		return false
+	}
 	if r.CWDHash != "" {
 		want := strings.TrimSpace(r.CWDHash)
 		if !strings.EqualFold(want, strings.TrimSpace(id.CWDHash)) && !strings.EqualFold(want, cwdHash(cwd)) {
@@ -198,6 +234,9 @@ func (r ProjectMatch) matches(id ProjectID) bool {
 	if r.CWDPrefix != "" && !cwdHasPrefix(id.CWD, r.CWDPrefix) {
 		return false
 	}
+	if r.CWDGlob != "" && !globHasPrefix(id.CWD, r.CWDGlob, false) {
+		return false
+	}
 	if r.CWDHash != "" && !strings.EqualFold(strings.TrimSpace(r.CWDHash), strings.TrimSpace(id.CWDHash)) {
 		return false
 	}
@@ -205,6 +244,45 @@ func (r ProjectMatch) matches(id ProjectID) bool {
 		return false
 	}
 	if r.GitRemotePrefix != "" && !remoteHasPrefix(id.GitRemote, r.GitRemotePrefix) {
+		return false
+	}
+	return true
+}
+
+// Covers reports whether allow rule a matches every project allow rule
+// b matches, so b adds nothing beside a. It decides field by field and
+// answers false when it cannot tell: every field set on a must follow
+// from a field set on b. A cwd_prefix follows from a cwd_prefix at or
+// under it, a git_remote from the same remote, a git_remote_prefix from
+// a remote or a prefix at or under it, a cwd_hash from the same hash,
+// and a cwd_glob only from the same pattern. An empty rule matches
+// nothing, so it neither covers nor is covered.
+//
+// It reads rules the way an allow rule compares. A deny rule reads a
+// doubt as a match, and Covers says nothing about deny rules.
+func Covers(a, b ProjectMatch) bool {
+	if a.empty() || b.empty() {
+		return false
+	}
+	if a.CWDPrefix != "" && (b.CWDPrefix == "" || !cwdHasPrefix(b.CWDPrefix, a.CWDPrefix)) {
+		return false
+	}
+	if a.GitRemote != "" {
+		want := NormalizeRemote(a.GitRemote)
+		if want == "" || b.GitRemote == "" || NormalizeRemote(b.GitRemote) != want {
+			return false
+		}
+	}
+	if a.GitRemotePrefix != "" {
+		under := func(s string) bool { return s != "" && remoteHasPrefix(s, a.GitRemotePrefix) }
+		if !under(b.GitRemote) && !under(b.GitRemotePrefix) {
+			return false
+		}
+	}
+	if a.CWDHash != "" && (b.CWDHash == "" || !strings.EqualFold(strings.TrimSpace(a.CWDHash), strings.TrimSpace(b.CWDHash))) {
+		return false
+	}
+	if a.CWDGlob != "" && (checkGlob(a.CWDGlob) != nil || a.CWDGlob != b.CWDGlob) {
 		return false
 	}
 	return true

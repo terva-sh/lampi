@@ -57,6 +57,11 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 		auth.Logger = loggers[0]
 	}
 	s := &Server{catalog: cat, events: reader, index: index, auth: auth, origin: cfg.BaseURL, reg: reg, ops: ops, log: auth.Logger}
+	if cat != nil {
+		if err := SeedBayGrants(s.log, cat, cfg); err != nil {
+			return nil, err
+		}
+	}
 	m := http.NewServeMux()
 	auth.Routes(m)
 	get := func(path string, h http.HandlerFunc) { m.Handle("GET "+path, s.guardRead(h)) }
@@ -67,6 +72,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/sessions/{uid}/events", s.sessionEvents)
 	get("/api/web/v1/sessions/{uid}/excerpt", s.sessionExcerpt)
 	get("/api/web/v1/conflicts", s.conflicts)
+	get("/api/web/v1/conflicts/{id}", s.conflictAPI)
 	get("/api/web/v1/search", s.search)
 	get("/api/web/v1/activity", s.activity)
 	get("/api/web/v1/operations", s.operations)
@@ -131,7 +137,11 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	body["error"] = code
 	_ = json.NewEncoder(w).Encode(body)
 }
-func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageRequest, error) {
+
+// parsePage reads a list request. collection is the records collection
+// asked for, or empty for sessions: current is for artifacts and
+// resolved for conflicts.
+func parsePage(q url.Values, sessionFilters bool, collection string) (catalog.PageRequest, error) {
 	var p catalog.PageRequest
 	for k, v := range q {
 		if len(v) != 1 {
@@ -144,7 +154,11 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 				return p, catalog.ErrPage
 			}
 		case "current":
-			if !artifacts {
+			if collection != "artifacts" {
+				return p, catalog.ErrPage
+			}
+		case "resolved":
+			if collection != "conflicts" {
 				return p, catalog.ErrPage
 			}
 		default:
@@ -165,7 +179,7 @@ func parsePage(q url.Values, sessionFilters bool, artifacts bool) (catalog.PageR
 	for _, entry := range []struct {
 		key  string
 		dest *bool
-	}{{"unlinked", &p.Unlinked}, {"current", &p.Current}} {
+	}{{"unlinked", &p.Unlinked}, {"current", &p.Current}, {"resolved", &p.Resolved}} {
 		if !q.Has(entry.key) {
 			continue
 		}
@@ -185,7 +199,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.DashboardOverview(ctx)
+	v, err := s.catalog.DashboardOverview(ctx, scopeOf(r))
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -193,14 +207,14 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v)
 }
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePage(r.URL.Query(), true, false)
+	p, err := parsePage(r.URL.Query(), true, "")
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.DashboardSessions(ctx, p)
+	v, err := s.catalog.DashboardSessions(ctx, scopeOf(r), p)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -214,7 +228,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.DashboardSession(ctx, r.PathValue("uid"))
+	v, err := s.catalog.DashboardSession(ctx, scopeOf(r), r.PathValue("uid"))
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -223,7 +237,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("collection")
-	p, err := parsePage(r.URL.Query(), false, kind == "artifacts")
+	p, err := parsePage(r.URL.Query(), false, kind)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -231,11 +245,11 @@ func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	uid := r.PathValue("uid")
-	if _, err := s.catalog.DashboardSession(ctx, uid); err != nil {
+	if _, err := s.catalog.DashboardSession(ctx, scopeOf(r), uid); err != nil {
 		fail(w, r, err)
 		return
 	}
-	v, err := s.catalog.DashboardRecords(ctx, uid, kind, p)
+	v, err := s.catalog.DashboardRecords(ctx, scopeOf(r), uid, kind, p)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -243,14 +257,14 @@ func (s *Server) records(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v)
 }
 func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
-	p, err := parsePage(r.URL.Query(), false, false)
+	p, err := parsePage(r.URL.Query(), false, "conflicts")
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.DashboardRecords(ctx, "", "conflicts", p)
+	v, err := s.catalog.DashboardRecords(ctx, scopeOf(r), "", "conflicts", p)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -301,7 +315,7 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.catalog.Activity(ctx, req, time.Now())
+	v, err := s.catalog.Activity(ctx, scopeOf(r), req, time.Now())
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -316,8 +330,28 @@ func (s *Server) guardRead(next http.HandlerFunc) http.Handler {
 			fail(w, r, catalog.ErrPage)
 			return
 		}
-		next(w, r)
+		id, _ := webauth.Current(r)
+		scope, err := s.catalog.ScopeFor(r.Context(), id.Admin, id.Groups)
+		if err != nil {
+			fail(w, r, err)
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), scopeKey{}, scope)))
 	}))
+}
+
+type scopeKey struct{}
+
+// scopeOf is the bays the signed-in user reads, set by guardRead: every
+// bay for an admin, and otherwise the bays its IdP groups hold read on
+// (TKT-01M3N8KHW5). A request that did not pass guardRead gets the zero
+// Scope, which reads nothing.
+func scopeOf(r *http.Request) catalog.Scope { return scopeIn(r.Context()) }
+
+// scopeIn is scopeOf for a context derived from the request's.
+func scopeIn(ctx context.Context) catalog.Scope {
+	scope, _ := ctx.Value(scopeKey{}).(catalog.Scope)
+	return scope
 }
 
 // parseEvents reads from, limit, cursor and gen. Every key appears at
@@ -376,7 +410,7 @@ func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.events.Events(ctx, r.PathValue("uid"), req)
+	v, err := s.events.Events(ctx, scopeOf(r), r.PathValue("uid"), req)
 	if err != nil {
 		fail(w, r, err)
 		return
@@ -479,6 +513,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := readContext(r)
 	defer cancel()
+	req.Scope = scopeOf(r)
 	v, err := s.index.Search(ctx, req)
 	if err != nil {
 		fail(w, r, err)
@@ -535,10 +570,41 @@ func (s *Server) sessionExcerpt(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	req.Origin = s.origin
-	v, err := s.events.Excerpt(ctx, r.PathValue("uid"), req)
+	v, err := s.events.Excerpt(ctx, scopeOf(r), r.PathValue("uid"), req)
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
+}
+
+// SeedBayGrants gives the groups the web config maps to viewer or
+// operator the default bay, once per lake, so upgrading to bays changes
+// nothing a signed-in user reads (TKT-01M3N8KHW5). No group is made
+// admin. It logs what it granted, and warns about any viewer or
+// operator group that holds no bay, since such a group signs in to an
+// empty dashboard. The audit lines stay queued for the next flush.
+func SeedBayGrants(log *slog.Logger, cat *catalog.Catalog, cfg webconfig.Config) error {
+	ctx := context.Background()
+	viewers, operators := cfg.GroupsWithRole(webconfig.RoleViewer), cfg.GroupsWithRole(webconfig.RoleOperator)
+	made, _, err := cat.SeedRoleGrants(ctx, viewers, operators, time.Now())
+	if err != nil {
+		return err
+	}
+	if log == nil {
+		return nil
+	}
+	for _, g := range made {
+		log.Info("bays: granted a web group the default bay on upgrade", "group", g.Principal, "permission", g.Permission)
+	}
+	for _, g := range append(viewers, operators...) {
+		bays, err := cat.GroupBays(ctx, []string{g}, catalog.PermRead)
+		if err != nil {
+			return err
+		}
+		if len(bays) == 0 {
+			log.Warn("bays: a web group holds no bay and reads no sessions; grant it one with terva-lampi serve bays grant", "group", g, "role", cfg.OIDC.RoleMap[g])
+		}
+	}
+	return nil
 }

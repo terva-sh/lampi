@@ -358,28 +358,25 @@ func TestClaudeWorkerProjectsTranscript(t *testing.T) {
 	if err := s.WaitNormalized(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	// A torn tail no longer fails the session (TKT-01M3NQ2R): the grown
+	// head publishes, with an error event in place of the line that
+	// names it without quoting it.
 	msg, ok, err = s.Catalog.NormalizeError(t.Context(), ack.SessionUID)
-	if err != nil || !ok || !strings.Contains(msg, "not a JSON object") {
+	if err != nil || !ok || msg != "" {
 		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
 	}
-	if strings.Contains(msg, "sk-live-secret") || strings.Contains(msg, "not-json") {
-		t.Fatalf("normalize_error includes the raw line: %s", msg)
+	derived = readDerived(t, s, ack.SessionUID)
+	if !bytes.Contains(derived, []byte("of the raw file is not a JSON record and was skipped")) {
+		t.Fatal("no marker for the unreadable line")
 	}
-	if _, err := os.Stat(filepath.Join(s.Normalized, ack.SessionUID+normalize.EventsExt)); !os.IsNotExist(err) {
-		t.Fatalf("derived file after failure: %v", err)
-	}
-	parts, err := normalize.SessionParquet(s.Parquet, ack.SessionUID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(parts) != 0 {
-		t.Fatalf("parquet after failure: %v", parts)
+	if bytes.Contains(derived, []byte("sk-live-secret")) || bytes.Contains(derived, []byte("not-json")) {
+		t.Fatal("derived events include the unreadable line")
 	}
 	if got := readBlobBytes(t, s, goodSHA); !bytes.Equal(got, good) {
 		t.Fatal("raw prefix changed")
 	}
 	if got := readBlobBytes(t, s, fullSHA); !bytes.Equal(got, full) {
-		t.Fatal("failed head changed")
+		t.Fatal("grown head changed")
 	}
 }
 

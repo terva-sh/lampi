@@ -74,7 +74,8 @@ func TestOperationsFromIngestToPage(t *testing.T) {
 	if got.Growth.Range != "7d" || got.Growth.Bucket != "hour" || len(got.Growth.Points) != 7*24 || got.Growth.Points[len(got.Growth.Points)-1].Total == nil {
 		t.Errorf("growth %s/%s with %d points", got.Growth.Range, got.Growth.Bucket, len(got.Growth.Points))
 	}
-	if got.Queues.Search == nil || got.Queues.UploadFiles == nil {
+	// Search coverage counts the whole lake, so a viewer is not told it.
+	if got.Queues.Search != nil || got.Queues.UploadFiles == nil {
 		t.Errorf("queues %+v", got.Queues)
 	}
 	// The token Allow enrolled made the upload: its device has a

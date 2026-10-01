@@ -52,6 +52,8 @@ usage:
                                  or set the URL agents reach the lake at
   terva-lampi serve devices [list|revoke NAME|unbind NAME|set-profile NAME P] [--data DIR]
                                  list devices, or change one
+  terva-lampi serve bays [list|create|rename|alias|delete|default|grants|grant|revoke]
+                                 manage bays and who reads or writes them
   terva-lampi serve profiles [list|show NAME|set NAME FILE|delete NAME|import FILE]
                                  manage the profiles agents fetch
   terva-lampi serve register --name NAME [--expires 24h] [--profile P]
@@ -179,6 +181,8 @@ func runServe(env Env, args []string) error {
 			return runServeIdentity(env, args[1:])
 		case "devices":
 			return runServeDevices(env, args[1:])
+		case "bays":
+			return runServeBays(env, args[1:])
 		case "profiles":
 			return runServeProfiles(env, args[1:])
 		case "register":
@@ -690,8 +694,9 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 		Lake: func() registrar.Lake {
 			return registrar.Lake{Catalog: lake.Catalog, Identity: lake.Identity(), Dir: data}
 		},
-		Release: lakeRelease(),
-		Blobs:   lake.CAS,
+		Release:   lakeRelease(),
+		Blobs:     lake.CAS,
+		Normalize: lake.ReloadNormalizeJobs,
 	}
 	ops := &web.Operations{
 		Version: strings.TrimPrefix(versionLine(), "terva-lampi "),
@@ -710,7 +715,15 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 	}
 	logAdmins(lake.Log, cfg)
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
-	return err
+	if err != nil {
+		return err
+	}
+	// web.New may have granted the role groups the default bay; write
+	// those audit lines now rather than at the next audited change.
+	if err := lake.Catalog.FlushAudit(context.Background(), data); err != nil && lake.Log != nil {
+		lake.Log.Warn("bay grants: audit lines stay queued", "err", err)
+	}
+	return nil
 }
 
 // logAdmins says at startup which groups hold admin. A lake with none

@@ -78,7 +78,7 @@ func TestSearchIsLiteralAndCaseInsensitive(t *testing.T) {
 	for q, want := range map[string]int64{
 		"git push --force": 0, "push --for": 0, `"hello" OR`: 1, "NEAR(x)": 1, "col:value": 1, "* AND": 1, "ünïCODE": 2, "straße": 2,
 	} {
-		p := search(t, x, SearchRequest{Query: q})
+		p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: q})
 		if len(p.Items) != 1 || p.Items[0].Position != want {
 			t.Fatalf("%q: %+v", q, p.Items)
 		}
@@ -91,12 +91,12 @@ func TestSearchIsLiteralAndCaseInsensitive(t *testing.T) {
 		}
 	}
 	for _, q := range []string{"hello OR goodbye", "git AND push", "gi*"} {
-		if p := search(t, x, SearchRequest{Query: q}); len(p.Items) != 0 {
+		if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: q}); len(p.Items) != 0 {
 			t.Fatalf("%q parsed as syntax: %+v", q, p.Items)
 		}
 	}
 	for _, q := range []string{"", "ab", "  ab  ", strings.Repeat("x", QueryMaxBytes+1), "abc\x00", "\xff\xfe\xfd"} {
-		if _, err := x.Search(t.Context(), SearchRequest{Query: q}); !errors.Is(err, ErrInvalid) {
+		if _, err := x.Search(t.Context(), SearchRequest{Scope: catalog.AllBays(), Query: q}); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("query %q accepted: %v", q, err)
 		}
 	}
@@ -115,12 +115,12 @@ func TestSearchShowsOnlyCurrentGenerations(t *testing.T) {
 	publish(t, s, other, events(1, func(int) string { return "alpha-old in another session" }))
 	x := openIndex(t, s)
 	pass(t, x)
-	if p := search(t, x, SearchRequest{Query: "alpha-old"}); len(p.Items) != 4 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "alpha-old"}); len(p.Items) != 4 {
 		t.Fatal("before", len(p.Items))
 	}
 	// A new generation hides the old rows before the index catches up.
 	publish(t, s, uid, events(2, func(int) string { return "beta-new text" }))
-	p := search(t, x, SearchRequest{Query: "alpha-old"})
+	p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "alpha-old"})
 	if len(p.Items) != 1 || p.Items[0].SessionUID != other {
 		t.Fatal("stale generation searchable", p.Items)
 	}
@@ -131,7 +131,7 @@ func TestSearchShowsOnlyCurrentGenerations(t *testing.T) {
 	if cov := x.Coverage(); cov.Ready != 2 || cov.Indexed != 2 || cov.Behind != 0 {
 		t.Fatal("coverage after pass", cov)
 	}
-	if p := search(t, x, SearchRequest{Query: "beta-new"}); len(p.Items) != 2 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "beta-new"}); len(p.Items) != 2 {
 		t.Fatal("new generation", len(p.Items))
 	}
 	var rows int
@@ -142,7 +142,7 @@ func TestSearchShowsOnlyCurrentGenerations(t *testing.T) {
 	if _, err := s.Catalog.EnqueueNormalize(t.Context(), uid, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if p := search(t, x, SearchRequest{Query: "beta-new"}); len(p.Items) != 0 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "beta-new"}); len(p.Items) != 0 {
 		t.Fatal("pending session searchable")
 	}
 	// Failed: hidden, then removed by a pass. The worker clears the job
@@ -171,7 +171,7 @@ func TestSearchShowsOnlyCurrentGenerations(t *testing.T) {
 	}
 	y, _ = OpenIndex(path, NewReader(s.Catalog, s.Normalized))
 	defer y.Close()
-	if p := search(t, y, SearchRequest{Query: "alpha-old"}); len(p.Items) != 0 {
+	if p := search(t, y, SearchRequest{Scope: catalog.AllBays(), Query: "alpha-old"}); len(p.Items) != 0 {
 		t.Fatal("purged session searchable")
 	}
 	if err := RemoveFromIndex(t.Context(), filepath.Join(t.TempDir(), "absent.db"), other); err != nil {
@@ -199,11 +199,11 @@ func TestIndexRecoversFromPartialWritesAndBadFiles(t *testing.T) {
 	if err := x.Pass(ctx); err == nil {
 		t.Fatal("a stopped pass reported no error")
 	}
-	if p := search(t, x, SearchRequest{Query: "recover me"}); len(p.Items) != 0 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "recover me"}); len(p.Items) != 0 {
 		t.Fatal("rows of a stopped pass visible")
 	}
 	pass(t, x)
-	if p := search(t, x, SearchRequest{Query: "recover me"}); len(p.Items) != 5 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "recover me"}); len(p.Items) != 5 {
 		t.Fatal("after recovery", len(p.Items))
 	}
 	// A ready session whose file is gone is reported and not retried.
@@ -296,30 +296,30 @@ func TestSearchFiltersAndPaging(t *testing.T) {
 		req  SearchRequest
 		want int
 	}{
-		"all":        {SearchRequest{Query: "needle", Limit: 7}, 150},
-		"harness":    {SearchRequest{Query: "needle", Harness: "claude"}, 30},
-		"project":    {SearchRequest{Query: "needle", Project: project}, 120},
-		"unlinked":   {SearchRequest{Query: "needle", Unlinked: true}, 30},
-		"since":      {SearchRequest{Query: "needle", Since: &since}, 15},
-		"until":      {SearchRequest{Query: "needle", Until: &until}, 60},
-		"no project": {SearchRequest{Query: "needle", Project: "missing"}, 0},
+		"all":        {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Limit: 7}, 150},
+		"harness":    {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Harness: "claude"}, 30},
+		"project":    {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Project: project}, 120},
+		"unlinked":   {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Unlinked: true}, 30},
+		"since":      {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Since: &since}, 15},
+		"until":      {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Until: &until}, 60},
+		"no project": {SearchRequest{Scope: catalog.AllBays(), Query: "needle", Project: "missing"}, 0},
 	} {
 		if got := count(c.req); got != c.want {
 			t.Errorf("%s: %d hits, want %d", name, got, c.want)
 		}
 	}
-	p := search(t, x, SearchRequest{Query: "needle", Limit: 5})
-	if _, err := x.Search(t.Context(), SearchRequest{Query: "needle", Limit: 5, Harness: "codex", Cursor: p.NextCursor}); !errors.Is(err, ErrInvalid) {
+	p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "needle", Limit: 5})
+	if _, err := x.Search(t.Context(), SearchRequest{Scope: catalog.AllBays(), Query: "needle", Limit: 5, Harness: "codex", Cursor: p.NextCursor}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("cursor reused with other filters", err)
 	}
-	if _, err := x.Search(t.Context(), SearchRequest{Query: "needle", Limit: 5, Cursor: p.NextCursor + "x"}); !errors.Is(err, ErrInvalid) {
+	if _, err := x.Search(t.Context(), SearchRequest{Scope: catalog.AllBays(), Query: "needle", Limit: 5, Cursor: p.NextCursor + "x"}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("tampered cursor", err)
 	}
 	backwards := until.Add(-time.Hour)
-	if _, err := x.Search(t.Context(), SearchRequest{Query: "needle", Since: &until, Until: &backwards}); !errors.Is(err, ErrInvalid) {
+	if _, err := x.Search(t.Context(), SearchRequest{Scope: catalog.AllBays(), Query: "needle", Since: &until, Until: &backwards}); !errors.Is(err, ErrInvalid) {
 		t.Fatal("empty range accepted", err)
 	}
-	if plan := queryPlan(t, x, SearchRequest{Query: "needle", Limit: 5}); strings.Contains(plan, "TEMP B-TREE") {
+	if plan := queryPlan(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "needle", Limit: 5}); strings.Contains(plan, "TEMP B-TREE") {
 		t.Fatal("search sorts in a temp b-tree:", plan)
 	}
 }
@@ -360,7 +360,7 @@ func TestRunNotifiesAndStops(t *testing.T) {
 	publish(t, s, uid, events(1, func(int) string { return "arrives later" }))
 	x.Notify(uid)
 	x.waitPasses(2)
-	if p := search(t, x, SearchRequest{Query: "arrives"}); len(p.Items) != 1 {
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "arrives"}); len(p.Items) != 1 {
 		t.Fatal("notify did not index")
 	}
 	cancel()
@@ -427,23 +427,23 @@ func TestStructuredFilters(t *testing.T) {
 		req  SearchRequest
 		want int
 	}{
-		"type only":           {SearchRequest{EventType: "tool_call", Limit: 3}, 20},
-		"usage has no text":   {SearchRequest{EventType: "usage"}, 20},
-		"actor":               {SearchRequest{Actor: "user"}, 20},
-		"tool":                {SearchRequest{ToolName: "Bash"}, 40},
-		"tool is exact":       {SearchRequest{ToolName: "bash"}, 0},
-		"errors":              {SearchRequest{ToolError: &yesErr}, 10},
-		"errors in project":   {SearchRequest{ToolError: &yesErr, Project: project}, 5},
-		"raw type":            {SearchRequest{RawType: "function_call", Harness: "claude"}, 10},
-		"text and type":       {SearchRequest{Query: "git push", EventType: "tool_call"}, 10},
-		"text, type, project": {SearchRequest{Query: "event", ToolError: &yesErr, Unlinked: true}, 5},
-		"combined none":       {SearchRequest{Query: "beta", Project: project}, 0},
+		"type only":           {SearchRequest{Scope: catalog.AllBays(), EventType: "tool_call", Limit: 3}, 20},
+		"usage has no text":   {SearchRequest{Scope: catalog.AllBays(), EventType: "usage"}, 20},
+		"actor":               {SearchRequest{Scope: catalog.AllBays(), Actor: "user"}, 20},
+		"tool":                {SearchRequest{Scope: catalog.AllBays(), ToolName: "Bash"}, 40},
+		"tool is exact":       {SearchRequest{Scope: catalog.AllBays(), ToolName: "bash"}, 0},
+		"errors":              {SearchRequest{Scope: catalog.AllBays(), ToolError: &yesErr}, 10},
+		"errors in project":   {SearchRequest{Scope: catalog.AllBays(), ToolError: &yesErr, Project: project}, 5},
+		"raw type":            {SearchRequest{Scope: catalog.AllBays(), RawType: "function_call", Harness: "claude"}, 10},
+		"text and type":       {SearchRequest{Scope: catalog.AllBays(), Query: "git push", EventType: "tool_call"}, 10},
+		"text, type, project": {SearchRequest{Scope: catalog.AllBays(), Query: "event", ToolError: &yesErr, Unlinked: true}, 5},
+		"combined none":       {SearchRequest{Scope: catalog.AllBays(), Query: "beta", Project: project}, 0},
 	} {
 		if got := count(c.req); got != c.want {
 			t.Errorf("%s: %d hits, want %d", name, got, c.want)
 		}
 	}
-	p := search(t, x, SearchRequest{EventType: "tool_call", Limit: 1})
+	p := search(t, x, SearchRequest{Scope: catalog.AllBays(), EventType: "tool_call", Limit: 1})
 	if h := p.Items[0]; h.MatchLen != 0 || !strings.Contains(h.Snippet, "event") || h.ToolName == nil || *h.ToolName != "Bash" {
 		t.Fatalf("structured hit %+v", h)
 	}

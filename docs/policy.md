@@ -212,6 +212,110 @@ upgrade it.
 Windows has no SIGHUP. On Windows, adding or removing a lake takes
 effect when the agent restarts.
 
+## Bays
+
+The registration epic ruled out multi-tenant lakes. On 2026-09-29 Drew
+reopened that for access inside one lake and decided the model in this
+section. The work is tracked under TKT-01M3N8KHW5 (Bays: segment one
+lake and route sessions to a bay). Every read path honours bays
+(TKT-01M3NNF27A): a signed-in viewer or operator reads only the bays its
+IdP groups are granted, an admin reads all of them, and a device's
+`/v1/stats` and `/v1/conflicts` cover only the bays it writes.
+
+### The model
+
+- **A bay is an access boundary.** A lake can be split into named bays.
+  A dashboard user, a read token, or later an MCP client is granted some
+  bays and not others, and reads only the sessions in them. Filtering
+  search, export and views by bay comes with it. Separate retention,
+  backup or encryption per bay is not part of the model: a separate lake
+  gives that ([Registration and many lakes](#registration-and-many-lakes)).
+- **A session can be in several bays.** Membership is a catalog row and
+  never copies data. The blob store stays shared, with dedup across
+  bays, and the derived views are not split by bay. Every read path
+  checks membership in the catalog.
+- **The default bay is an inbox.** Every lake has one. Data from before
+  bays is in it, and a session that nothing places lands in it. It
+  cannot be deleted and can have an alias. Only admins, and principals
+  granted it by name, read it, because it holds sessions nobody has
+  sorted. The aim is to keep it empty. An admin can turn it off. That
+  applies at ingest only: a new session that nothing places is then
+  refused and stays on its machine. The bay itself stays, keeps what is
+  in it, and still takes a stored session that loses its last other bay,
+  so no stored session is ever left in no bay.
+- **The agent asks and the lake decides.** An agent requests bays with
+  rules that match the way `projects` rules do. The lake records the
+  request, then applies its own rules: hold a session for review, add a
+  bay, or keep it out of one. A request for a bay the device may not
+  write is recorded as refused and does not place the session. A session
+  that its requests and the lake's rules leave with no bay lands in the
+  default bay, or, when the default is off, is refused like any other
+  unplaced session. A device is told only the bays it may write, because
+  bay names can name clients.
+- **Roles.** An admin reads every bay and manages bays, rules and
+  grants. An operator adds machines and can be limited to some bays; it
+  reads session content only in bays it is granted. A viewer reads only
+  the bays it is granted. A registration code grants its device write
+  bays within the minting operator's scope. Upgrading promotes no group
+  to admin: existing viewers and operators are granted the default bay,
+  so they read what they read before.
+- **Every change is audited.** Membership changes, holds, releases,
+  grants and bay changes go to the audit log through the same queue as
+  the events in [Audit](#audit). A dashboard action that adds access
+  needs a fresh IdP sign-in, as minting a code does.
+
+### Routing
+
+The lake routes every manifest (TKT-01M3NNF29W). It reads the bays the
+manifest asks for, then its own rules, and only ever adds: nothing in
+routing takes a session out of a bay.
+
+- **Requests.** Each bay the manifest names, by id, name or alias, is
+  recorded against the session with its outcome. One the device may not
+  write, or one that does not exist, is refused and places nothing. The
+  ACK lists the refused names without saying which reason applied, so a
+  device learns no bay it was not given.
+- **Rules.** A rule matches the fields a `projects` rule has, read the
+  way an allow rule is, exactly, and can also name a harness. A rule on
+  a harness alone is allowed. `cwd_prefix` covers the folder and
+  everything under it, the problem TKT-01M3NQ83 records for allow, so a
+  rule meant for one folder is a `cwd_hash`. A remote the agent could
+  not read matches no `git_remote` rule. The actions are:
+  - `add`: also put the session in the bay.
+  - `deny`: keep the session out of the bay, whether it was asked for
+    or another rule adds it. A request it matches is recorded as refused
+    and named in `refused_bays`, as a bay the device may not write is. A
+    deny does not remove a session already there, and it does not keep a
+    session out of the default bay when nothing else places it.
+  - `hold`: put a new session in the rule's bay and nowhere else, and
+    record every bay it asks for as held. A stored session that a hold
+    rule starts matching keeps its bays and is flagged for review; its
+    later requests are held too. Hold wins over add and over requests.
+- **Release.** An admin releases a held or flagged session in one step.
+  Its held requests are resolved again against the device's grants as
+  they are then, placed with the rules as they are then, and a held
+  session leaves the hold bay unless it asked for it or a rule adds it,
+  and no deny rule names it.
+  One left in no bay goes to the default. A hold released once does not
+  return for the same bay.
+- **Nothing places it.** A new session with no accepted request and no
+  rule lands in the default bay. With the default off it is refused and
+  nothing is stored. A manifest that sets `bay_aware` gets `409` with
+  code `no_bay`. Any other gets `403`, which an agent from before bays
+  already waits the full backoff on.
+
+Sorting the default bay, and keeping it empty, is in
+[bays-inbox.md](bays-inbox.md).
+
+### Known limits
+
+- `blobs/check` tells a device whether the lake holds a digest. A device
+  that can guess a file's bytes can learn that some session in another
+  bay holds them. Devices are the owner's machines, so this is recorded
+  and not fixed.
+- Reading the lake directory is reading every bay. Shell access to the
+  lake host, a backup, or DuckDB pointed at `parquet/` is admin access.
+
 ## Retention
 
 No TTL. Session bytes, catalog rows, and normalized projections stay
@@ -219,6 +323,13 @@ until `terva-lampi serve purge --session <uid> --yes` removes that
 session, with `serve` stopped. Purge keeps a blob another session
 names. A backup taken earlier still holds the bytes. This tree does
 not delete by age.
+Deleting a [bay](#bays) deletes no data. It removes the bay from each
+session's membership, and only a session left in no bay moves to the
+default bay; a session still in another bay stays there and does not
+enter the inbox. A bay that holds sessions is not deleted until an
+admin releases them, so no held request is left with nothing to
+release it. Per-bay retention is a separate decision, not yet
+made.
 
 ## Encryption at rest
 
@@ -233,12 +344,15 @@ implemented in `internal/config`. This policy confirms that surface.
 
 - Default deny. An empty `projects.allow` refuses every project.
 - `projects.deny` wins over allow.
-- A rule matches a cwd prefix on a path boundary, a git remote, a git
-  remote prefix on a `/` boundary, or terva's cwd hash
+- A rule matches a cwd prefix on a path boundary, a cwd glob, a git
+  remote, a git remote prefix on a `/` boundary, or terva's cwd hash
   (`hex(sha256(cwd)[:8])`). Every field set on the rule has to match.
-  A rule with no fields matches nothing.
-- A deny rule reads a doubt as a match. `cwd_prefix` ignores case
-  and is checked with and without symlinks resolved. `cwd_hash` also
+  A rule with no fields matches nothing. A cwd glob that could match
+  every directory is refused where rules load, in a profile or in
+  `config.json`.
+- A deny rule reads a doubt as a match. `cwd_prefix` and `cwd_glob`
+  ignore case and are checked against the cwd with and without symlinks
+  resolved; `cwd_prefix` is also tried with its own symlinks resolved. `cwd_hash` also
   matches the resolved cwd. `git_remote` and `git_remote_prefix` also
   match a session whose remote cannot be read. A cwd outside any repository has no remote
   and does not match it. Allow rules compare exactly.

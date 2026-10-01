@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T03:40:29Z
-updated_at: 2026-09-29T04:06:53Z
+updated_at: 2026-09-29T05:05:00Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -97,6 +97,12 @@ Bay grants, per-principal permissions, and changes to OIDC group sync.
 ## Implementation plan
 
 Add RoleAdmin to webconfig (accepted by Validate, AdminGroups for logging). Identity.Admin set by the provider, implying Operator and Viewer. webauth.AdminOnly shares the 404 gate with OperatorOnly. startWeb logs admin groups, or warns when none. Docs: web-dashboard.md step 4 and the example config. Nothing uses AdminOnly yet; TKT-01M3NKY2V3 is the first route behind it.
+
+## Notes
+
+**agent:claude-code/cd41c9ac** at 2026-09-29T05:05:00Z
+
+Owner confirmed on 2026-09-29: keep it as shipped. Existing operator groups are not promoted to admin on upgrade, and nobody reads raw artifacts until an admin group is added to role_map by hand. The alternatives offered were promoting every operator group (the Bays epic's proposal) and refusing to start without an admin group; the owner chose neither. This supersedes the 'Review it before Bays builds on it' line in the description. If Bays moves powers from operator to admin, its own migration decides whether to promote then.
 
 ## Summary
 

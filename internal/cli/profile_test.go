@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakeprofile"
@@ -80,7 +81,7 @@ func TestAgentFetchesThePinnedProfileAndUploadsWhatItAllows(t *testing.T) {
 	waitOut(t, &buf, func(s string) bool {
 		return strings.Contains(s, "profile default version sha256:") && strings.Contains(s, "uploaded 1")
 	})
-	if n, _ := lake.Catalog.Counts(t.Context()); n.Sessions != 1 {
+	if n, _ := lake.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 1 {
 		t.Fatalf("sessions %d\n%s", n.Sessions, buf.String())
 	}
 	cancel()
@@ -311,7 +312,7 @@ func TestAgentHoldsUploadsUntilTheFirstProfileFetchAnswers(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := lake.Catalog.Counts(t.Context()); n.Sessions != 0 {
+	if n, _ := lake.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 0 {
 		t.Fatalf("uploaded %d sessions before the profile's deny rule arrived:\n%s", n.Sessions, buf.String())
 	}
 }

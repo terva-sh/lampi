@@ -116,6 +116,11 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			}
 			continue
 		}
+		// Asked for on every post: the lake routes each one again and
+		// only adds, so a rule added since the last post applies from
+		// the session's next change.
+		next.Bays = opt.Bays.For(next.Harness, projectID(next)).Bays
+		next.BayAware = true
 		item := prepared{root: bundle.Root, manifest: next, bodies: bodies, full: full}
 		if err := enqueue(ctx, opt, q, item); err != nil {
 			return nil, res, err

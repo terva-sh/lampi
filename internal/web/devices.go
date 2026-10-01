@@ -10,6 +10,7 @@ import (
 	"terva.sh/lampi/internal/advisory"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/release"
 	"terva.sh/lampi/internal/webauth"
 )
@@ -47,8 +48,13 @@ type deviceRow struct {
 	ProfileState   string `json:"profile_state"`
 	// AllowSource is where the agent's allow rules come from. A local
 	// source means the lake's profile does not decide what it uploads.
-	AllowSource string            `json:"allow_source,omitempty"`
-	DenySource  string            `json:"deny_source,omitempty"`
+	AllowSource string `json:"allow_source,omitempty"`
+	DenySource  string `json:"deny_source,omitempty"`
+	// NoProfile is a token-file device whose agent reports no applied
+	// profile: it has not pinned this lake, so no profile reaches it,
+	// whatever the device is set to. terva-lampi lakes adopt on that
+	// machine pins it. A registered agent always pins its lake.
+	NoProfile   bool              `json:"no_profile,omitempty"`
 	LastSync    *deviceSyncCounts `json:"last_sync,omitempty"`
 	LastError   string            `json:"last_error,omitempty"`
 	LastErrorAt string            `json:"last_error_at,omitempty"`
@@ -169,7 +175,7 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 	for _, rep := range reports {
 		byDevice[rep.DeviceID] = rep
 	}
-	activity, err := s.catalog.MachinesActivity(ctx, now.Add(-24*time.Hour))
+	activity, err := s.catalog.MachinesActivity(ctx, scopeIn(ctx), now.Add(-24*time.Hour))
 	if err != nil {
 		return v, err
 	}
@@ -226,7 +232,7 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 			if row.VersionState == "behind" {
 				v.Behind++
 			}
-			if row.AllowSource == config.OriginLocal {
+			if row.AllowSource == config.OriginLocal || row.NoProfile {
 				v.LocalRules++
 			}
 			if row.Advisory != nil && row.Advisory.Severity == advisory.Urgent {
@@ -246,6 +252,20 @@ func (s *Server) readDevices(ctx context.Context, now time.Time) (devicesView, e
 	return v, nil
 }
 
+// noProfile reports whether an agent fetches no profile because it has
+// not pinned the lake. An agent that says whether it pinned is taken at
+// its word, so one whose first fetch is pending is not flagged. For one
+// from before the field, a token-file device that names no applied
+// profile is taken as unpinned: registration always pins, and a
+// token-file machine pins only through lakes adopt, which ships with
+// the field.
+func noProfile(source string, r protocol.AgentReport) bool {
+	if r.Pinned != nil {
+		return !*r.Pinned
+	}
+	return source == catalog.DeviceFromTokenFile && r.Profile == "" && r.ProfileVersion == ""
+}
+
 // addReport fills the row's agent fields from its newest report.
 func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, lakeKnown bool) {
 	r := rep.Report
@@ -261,6 +281,7 @@ func addReport(row *deviceRow, rep catalog.DeviceReport, lakeV release.Version, 
 	row.AgentVersion = r.AgentVersion
 	row.Inventory = r.Inventory
 	row.AllowSource, row.DenySource = r.AllowSource, r.DenySource
+	row.NoProfile = noProfile(row.Source, r)
 	row.AppliedVersion = r.ProfileVersion
 	row.VersionState = versionState(r.AgentVersion, lakeV, lakeKnown)
 	if a, ok := agentAdvisories.Match(r.AgentVersion); ok {

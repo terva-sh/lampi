@@ -50,6 +50,39 @@ const (
 	// ArtifactRead is an admin reading a session's raw bytes. Detail
 	// names the session, the digest and the byte range, never content.
 	ArtifactRead = "artifact.read"
+
+	// ReadTokenCreated and ReadTokenRevoked record an admin minting and
+	// revoking a read token. Detail names the token, never its secret.
+	ReadTokenCreated = "read_token.created"
+	ReadTokenRevoked = "read_token.revoked"
+
+	// ConflictResolved and ConflictReopened record a divergent copy
+	// being resolved, by an operator or a catalog migration, and a
+	// resolution being removed. Detail names the artifact and session.
+	ConflictResolved = "conflict.resolved"
+	ConflictReopened = "conflict.reopened"
+
+	// Bay events (TKT-01M3N8KHW5). Detail names the session, bay and
+	// principal by id, and how and why a membership changed.
+	BayCreated       = "bay.created"
+	BayMemberAdded   = "bay.member.added"
+	BayMemberRemoved = "bay.member.removed"
+	BayGrantAdded    = "bay.grant.added"
+	BayGrantRemoved  = "bay.grant.removed"
+	BayRenamed       = "bay.renamed"
+	BayAliasAdded    = "bay.alias.added"
+	BayAliasRemoved  = "bay.alias.removed"
+	BayDeleted       = "bay.deleted"
+	BayDefault       = "bay.default"
+	BayRuleAdded     = "bay.rule.added"
+	BayRuleRemoved   = "bay.rule.removed"
+	BayHold          = "bay.hold"
+	BayHoldReleased  = "bay.hold.released"
+
+	// ConflictHeadChanged records an operator making a divergent copy
+	// the session's head. Detail names the copy and the head it
+	// replaced, whose bytes stay stored.
+	ConflictHeadChanged = "conflict.head_changed"
 )
 
 // Event is one line. Device is the device name. Actor is where the

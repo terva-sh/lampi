@@ -38,6 +38,10 @@ web requires device tokens even on loopback; no capture response schema changes.
 
 Catalog counts for an operator. This is not healthz. It uses the same
 bearer check as the other `/v1` routes, and it returns no session bodies.
+The counts cover the sessions in the [bays](policy.md#bays) the device
+may write. The normalization backlog is the lake's queue depth, and
+`last_failure` names its session only when that session is in those
+bays.
 
 ```json
 {
@@ -83,10 +87,28 @@ failure, `lake_normalize_last_failure`.
 
 ## GET /v1/conflicts
 
-Catalog artifacts whose `relation` is `divergent_copy`. Same bearer
-check as the other `/v1` routes. The list is the stored rows. It does
-not merge the copies or move `head_sha256`. `conflicts` is `[]` when
-there are none. `terva-lampi conflicts` prints this list.
+Catalog artifacts whose `relation` is `divergent_copy` and that are not
+resolved, in the sessions of the [bays](policy.md#bays) the device may
+write. Same bearer check as the other `/v1` routes. The list is the
+stored rows. It does not merge the copies or move `head_sha256`.
+`conflicts` is `[]` when there are none. `terva-lampi conflicts` prints
+this list.
+
+`?resolved=true` lists resolved conflicts too; `false`, or no query, is
+the default, and any other value is `400`. A lake from before
+resolutions ignores the query and lists every copy. A resolved row
+carries `resolution`, which is absent on an open one:
+
+| `resolution.resolution` | Meaning |
+|-------------------------|---------|
+| `kept_head` | An operator kept the session's head. |
+| `made_head` | An operator made this copy the session's head. |
+| `superseded` | A later copy that extends this one was made the head. |
+| `not_a_conflict` | The lake compared the copy with another file, as before TKT-01M3M5VEQ a Claude subagent transcript was compared with the session's own. |
+
+`resolved_at`, `resolved_by` and an optional `note` go with it. A
+resolution keeps the bytes and does not change `relation`, so the copy
+still says how its bytes compared.
 
 `sha256` is the divergent artifact. `head_sha256` is the session head
 that stayed. `machines` posted the divergent digest. `head_machines`
@@ -211,14 +233,23 @@ because earlier releases ignored the body. A nonce that is not valid is
   "lake_id": "lake_…",
   "proof": {"payload": {"lake_id": "lake_…", "nonce": "…", "server_time": "…"}, "signatures": ["…"]},
   "release": "v0.1.3",
-  "features": ["large_tails"]
+  "features": ["large_tails", "bays"],
+  "bays": ["default", "client-x"]
 }
 ```
 
 `features` names what the lake accepts beyond `protocol_versions`. A
 client uses a feature only when its lake lists it, and an older lake
 lists none. `large_tails` is a lake that grows a file past
-`max_blob_bytes` from a tail; see the artifact fields below.
+`max_blob_bytes` from a tail; see the artifact fields below. `bays` is
+a lake that routes a manifest by its `bays` field
+([Routing](policy.md#routing)).
+
+`bays` names the bays the calling device may write, by name, and no
+other bay. A lake that lists the `bays` feature sends it; it is left
+out when the device may write none. An agent compares the bays its
+config asks for against it and warns about the rest; the lake refuses
+them either way.
 
 `release` is the lake's terva-lampi release, and is missing from a
 build that is not a release. It is not signed and is advice only.
@@ -393,24 +424,31 @@ and asked again at each interval.
   "machine_id": "01M3…",
   "profile": "default",
   "profile_version": "sha256:8427…",
+  "pinned": true,
   "allow_source": "lake default",
   "deny_source": "none",
   "last_sync": {
     "at": "2026-09-28T15:00:00Z",
     "checked": 221, "missing": 0, "uploaded": 12, "manifests": 4,
-    "refused": 3, "quarantined": 0, "unchanged": 202
+    "refused": 3, "quarantined": 0, "unchanged": 202, "no_bay": 1
   },
   "last_error": "",
   "last_error_at": "0001-01-01T00:00:00Z"
 }
 ```
 
-Every field is optional. `inventory` is the agent's inventory mode,
+Every field is optional. `last_sync.no_bay` counts the sessions the
+lake refused with `no_bay` on that sync; they wait on the machine.
+`inventory` is the agent's inventory mode,
 `sociable` or `strict`, and is empty from an agent without the inventory
 report. `allow_source` and `deny_source` say where the project rules
 came from: `local`, `lake NAME`, both joined by `+`, or `none`; `agent
 config` prints them with a colon for the space. A lake's allow rules do not apply to a device whose
-`allow_source` is `local`. `last_error` is the newest failed sync's
+`allow_source` is `local`. `pinned` says whether the agent pinned this lake's
+key, which it needs before it accepts a profile. A pinned agent whose first
+profile fetch is still pending sends `true` with no `profile`. Agents from
+before the field leave it out, and the dashboard then takes a `token-file`
+device with no profile as unpinned. `last_error` is the newest failed sync's
 error and is empty after a sync succeeds.
 
 The body cap is 64 KiB. The lake cuts each string to 256 bytes, and
@@ -572,9 +610,18 @@ own deadline passes first; send it again.
       "redaction": {"status": "scanned", "ruleset": "v2", "hits": 0}
     }
   ],
-  "lineage": {"parent_native_id": null, "fork_point": null}
+  "lineage": {"parent_native_id": null, "fork_point": null},
+  "bays": ["client-x"],
+  "bay_aware": true
 }
 ```
+
+`bays` and `bay_aware` are optional. `bays` asks for the session to be
+in those bays, by id, name or alias: at most 16, each at most 128
+bytes. The lake places it only in those the device may write, then
+applies its own rules ([Bays](policy.md#routing)). `bay_aware` says the
+agent reads `code` `no_bay` on a refusal. A lake from before bays
+ignores both.
 
 `harness` is `terva`, `claude`, `codex`, `opencode`, `cursor`, or
 `cursor-cli`. Any other harness is `400`. For terva, `harness_version` is the producer version
@@ -752,9 +799,16 @@ send the missing suffix back.
   "artifact_ids": ["01ARZ3NDEKTSV4RRFFQ69G5FAW"],
   "head_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "head_size": 120400,
-  "relation": "grown_from"
+  "relation": "grown_from",
+  "refused_bays": ["team-y"]
 }
 ```
+
+`refused_bays` lists each bay in the manifest's `bays` that did not
+place the session: one the device may not write, one that does not
+exist, or one a lake rule denies. It does not say which. A session the lake
+holds for review refuses nothing yet: each bay it asks for waits for
+the release. It is left out when nothing was refused.
 
 `relation` is `head`, `grown_from`, `divergent_copy`, `unchanged`, or
 `stale`. It is the transcript artifact's relation when one is present.
@@ -788,17 +842,18 @@ in a manifest. `unscanned` is what a client sends when it did not scan.
 ## Errors
 
 Failures are JSON: `{"error":"..."}`. A missing-blob conflict adds
-`"missing": ["<sha256>", ...]`. A 5xx body is a fixed message. The
+`"missing": ["<sha256>", ...]`. A refusal a client acts on adds `code`;
+`no_bay` is the only one. A 5xx body is a fixed message. The
 detail, which can name a lake path, is in the server log.
 
 | Status | When |
 |--------|------|
 | 400 | Bad JSON, bad digest, bad content-range, assembled hash mismatch, size mismatch, unsupported protocol, harness, or kind, tail combined with chunks, missing manifest fields, a request body that stopped short |
 | 401 | Bearer token missing or wrong, or its device revoked |
-| 403 | A manifest's `machine_id` is not the one its device is bound to, or belongs to another device |
+| 403 | A manifest's `machine_id` is not the one its device is bound to, or belongs to another device; a manifest nothing places while the default bay is off, when it does not set `bay_aware` |
 | 404 | The key list, on a lake with no identity |
 | 408 | The request body did not arrive before its deadline |
-| 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension |
+| 409 | Manifest or chunk list names a digest that is not in the CAS, or a tail is not a prefix extension; `no_bay`: a manifest that sets `bay_aware` and that nothing places while the default bay is off |
 | 413 | A JSON body over its cap: 8 MiB or 100000 digests for `blobs/check`, 4 KiB for `hello`, 1 MiB for the others |
 | 429 | Too many requests to a route that needs no token |
 | 500 | Storage or catalog failure on the lake |

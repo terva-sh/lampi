@@ -1,0 +1,573 @@
+package catalog
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/protocol"
+)
+
+// Keeping the default bay empty (TKT-01M3NNF2FE). The default bay is an
+// inbox: a session in it is one nobody has sorted. These are what an
+// admin sorts it with on the lake host.
+
+// InboxEntry is one session that needs an admin: in the default bay,
+// held or flagged, or with a request the lake refused. Reasons says why,
+// one line each.
+type InboxEntry struct {
+	SessionUID string
+	Harness    string
+	NativeID   string
+	CWD        string
+	GitRemote  string
+	Bays       []string // bay ids
+	Reasons    []string
+	manifest   protocol.Manifest
+}
+
+// The reason a session in the default bay has when nothing else
+// explains it.
+const ReasonNothingPlaced = "no bay asked for and no rule added one"
+
+// The reason a session in the default bay and another has: something
+// placed it, and the default membership stayed.
+const ReasonAlsoInDefault = "placed in another bay and still in the default; serve bays move BAY --from default with a filter takes it out"
+
+// Inbox lists the sessions that need an admin, oldest first.
+func (c *Catalog) Inbox(ctx context.Context) ([]InboxEntry, error) {
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT s.session_uid, s.harness, s.native_session_id, s.manifest_json,
+			(SELECT group_concat(bay_id, ',') FROM (SELECT bay_id FROM session_bays WHERE session_uid = s.session_uid ORDER BY bay_id))
+		FROM sessions s
+		WHERE EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid AND m.bay_id = ?)
+			OR EXISTS (SELECT 1 FROM session_holds h WHERE h.session_uid = s.session_uid AND h.state IN (?, ?))
+			OR EXISTS (SELECT 1 FROM session_bay_requests r WHERE r.session_uid = s.session_uid AND r.outcome = ?)
+			OR NOT EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid)
+		ORDER BY s.ingested_at, s.session_uid`, DefaultBayID, HoldHeld, HoldFlagged, RequestRefused)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	var out []InboxEntry
+	for rows.Next() {
+		var e InboxEntry
+		var raw string
+		var bays sql.NullString
+		if err := rows.Scan(&e.SessionUID, &e.Harness, &e.NativeID, &raw, &bays); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if json.Unmarshal([]byte(raw), &e.manifest) == nil {
+			e.CWD, e.GitRemote = e.manifest.Project.CWD, e.manifest.Project.GitRemote
+		}
+		if bays.String != "" {
+			e.Bays = strings.Split(bays.String, ",")
+		}
+		out = append(out, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	names, err := c.bayNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := loadRules(ctx, c.db)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if out[i].Reasons, err = c.inboxReasons(ctx, out[i], names, rules); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (c *Catalog) bayNames(ctx context.Context) (map[string]string, error) {
+	bays, err := c.Bays(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, b := range bays {
+		names[b.ID] = b.Name
+	}
+	return names, nil
+}
+
+func (c *Catalog) inboxReasons(ctx context.Context, e InboxEntry, names map[string]string, rules []BayRule) ([]string, error) {
+	var out []string
+	rows, err := c.db.QueryContext(ctx, `SELECT bay_id, rule_id, state FROM session_holds WHERE session_uid=? AND state IN (?,?) ORDER BY created_at`, e.SessionUID, HoldHeld, HoldFlagged)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	for rows.Next() {
+		var bay, state string
+		var rule int64
+		if err := rows.Scan(&bay, &rule, &state); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, fmt.Sprintf("%s by hold rule %d into bay %s", state, rule, nameOr(names, bay)))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	rows, err = c.db.QueryContext(ctx, `SELECT bay_ref, reason FROM session_bay_requests WHERE session_uid=? AND outcome=? ORDER BY bay_ref`, e.SessionUID, RequestRefused)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	for rows.Next() {
+		var ref, reason string
+		if err := rows.Scan(&ref, &reason); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, fmt.Sprintf("asked for bay %s: refused, %s", ref, reason))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	switch {
+	case len(e.Bays) == 0:
+		out = append(out, "in no bay, which no write leaves; serve bays move BAY with a filter places it, as from the default bay")
+	case len(out) > 0 || !slices.Contains(e.Bays, DefaultBayID):
+	case len(e.Bays) == 1:
+		placed, err := c.placedInDefault(ctx, e, rules)
+		if err != nil {
+			return nil, err
+		}
+		if len(placed) == 0 {
+			placed = []string{ReasonNothingPlaced}
+		}
+		out = append(out, placed...)
+	default:
+		// A rule or a move put it in another bay and left the default
+		// membership, since both only add (review 1461).
+		out = append(out, ReasonAlsoInDefault)
+	}
+	return out, nil
+}
+
+// placedInDefault says what put a session in the default bay on
+// purpose: a request for it the lake accepted, or an add rule naming it
+// (review 1467). A rule is named as one the session matches now, which
+// need not be the one that placed it (review 1468). It stays in the inbox, which is the default bay, with
+// that reason rather than one saying nothing placed it.
+func (c *Catalog) placedInDefault(ctx context.Context, e InboxEntry, rules []BayRule) ([]string, error) {
+	var out []string
+	rows, err := c.db.QueryContext(ctx, `SELECT bay_ref FROM session_bay_requests WHERE session_uid=? AND outcome=? ORDER BY bay_ref`, e.SessionUID, RequestAccepted)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		refs = append(refs, ref)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	for _, ref := range refs {
+		id, err := resolveBayID(ctx, c.db, ref)
+		if errors.Is(err, ErrNoBay) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if id == DefaultBayID {
+			out = append(out, fmt.Sprintf("asked for the default bay, as %s", ref))
+		}
+	}
+	id := projectOf(e.manifest)
+	for _, r := range rules {
+		if r.Action == RuleAdd && r.BayID == DefaultBayID && r.matches(id, e.manifest.Harness) {
+			out = append(out, fmt.Sprintf("matches add rule %d, which names the default bay", r.ID))
+		}
+	}
+	return out, nil
+}
+
+func nameOr(names map[string]string, id string) string {
+	if n := names[id]; n != "" {
+		return n
+	}
+	return id
+}
+
+// SessionFilter picks stored sessions for a bulk change. Every field
+// set must match. Project is the lake's project id. GitRemote and
+// GitRemotePrefix are compared as a projects rule compares them, and
+// CWDPrefix on a path boundary. Device is a device id: a session any of
+// whose copies came from the machine that device is bound to.
+type SessionFilter struct {
+	Project         string
+	GitRemote       string
+	GitRemotePrefix string
+	CWDPrefix       string
+	CWDGlob         string
+	CWDHash         string
+	Device          string
+	Harness         string
+}
+
+func (f SessionFilter) empty() bool { return f == SessionFilter{} }
+
+// ErrNoFilter is a bulk change with no filter: it would touch every
+// session in the bay, and that is asked for by name, not by leaving a
+// filter out.
+var ErrNoFilter = errors.New("catalog: name at least one filter")
+
+// ErrSessionHeld is a membership change to a session a hold rule holds
+// for review. Only a release places it, so readers of another bay do
+// not see it before an admin has (review 1468).
+var ErrSessionHeld = errors.New("catalog: the session is held for review; serve bays release UID places it")
+
+// refuseHeld returns ErrSessionHeld when any of uids is held.
+func refuseHeld(ctx context.Context, tx *sql.Tx, uids []string) error {
+	var held []string
+	for _, uid := range uids {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM session_holds WHERE session_uid=? AND state=?`, uid, HoldHeld).Scan(&n); err != nil {
+			return fmt.Errorf("catalog: %w", err)
+		}
+		if n > 0 {
+			held = append(held, uid)
+		}
+	}
+	if len(held) > 0 {
+		return fmt.Errorf("%w: %d matching sessions are held, first %s; release them or narrow the filter", ErrSessionHeld, len(held), held[0])
+	}
+	return nil
+}
+
+// ErrSameBay is a move whose bays are one bay.
+var ErrSameBay = errors.New("catalog: a move needs two different bays")
+
+// ErrNoSession is a session uid the lake does not hold.
+var ErrNoSession = errors.New("catalog: no such session")
+
+// Move is one bulk move: the sessions in From that f matches are added
+// to To and taken out of From. Moved lists them. With DryRun nothing is
+// written.
+type Move struct {
+	From, To string // bay id, name or alias
+	Filter   SessionFilter
+	Actor    string
+	DryRun   bool
+}
+
+// MoveSessions runs m in one transaction, auditing each membership
+// change. A session taken out of its last bay goes to the default, so
+// moving out of the default is the one move that never strands one.
+func (c *Catalog) MoveSessions(ctx context.Context, m Move, now time.Time) ([]string, error) {
+	if m.Filter.empty() {
+		return nil, ErrNoFilter
+	}
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	from, err := resolveBayID(ctx, tx, m.From)
+	if err != nil {
+		return nil, err
+	}
+	to, err := resolveBayID(ctx, tx, m.To)
+	if err != nil {
+		return nil, err
+	}
+	if from == to {
+		return nil, fmt.Errorf("%w: %s", ErrSameBay, m.From)
+	}
+	uids, err := matchSessions(ctx, tx, from, m.Filter)
+	if err != nil {
+		return nil, err
+	}
+	if err := refuseHeld(ctx, tx, uids); err != nil {
+		return nil, err
+	}
+	for _, uid := range uids {
+		ms := Membership{SessionUID: uid, Bay: to, Actor: m.Actor, Via: ViaCLI, Reason: "bulk move from " + from}
+		if _, err := addToBay(ctx, tx, ms, now); err != nil {
+			return nil, err
+		}
+		ms.Bay, ms.Reason = from, "bulk move to "+to
+		// A session in no bay was picked up from the default and has
+		// nothing to leave.
+		if err := removeFromBay(ctx, tx, ms, now); err != nil && !errors.Is(err, ErrNotAMember) {
+			return nil, err
+		}
+	}
+	if m.DryRun {
+		return uids, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return uids, nil
+}
+
+// MoveSession moves one session from one bay to another in one
+// transaction, auditing both changes with via. A session taken out of
+// its last bay goes to the default.
+func (c *Catalog) MoveSession(ctx context.Context, uid, from, to, actor, via string, now time.Time) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	fromID, err := resolveBayID(ctx, tx, from)
+	if err != nil {
+		return err
+	}
+	toID, err := resolveBayID(ctx, tx, to)
+	if err != nil {
+		return err
+	}
+	if fromID == toID {
+		return fmt.Errorf("%w: %s", ErrSameBay, from)
+	}
+	if err := refuseHeld(ctx, tx, []string{uid}); err != nil {
+		return err
+	}
+	// From the default, a session in no bay is placed, as a bulk move
+	// places one (review 1469).
+	var in int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM session_bays WHERE session_uid=?`, uid).Scan(&in); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	ms := Membership{SessionUID: uid, Bay: toID, Actor: actor, Via: via, Reason: "moved from " + fromID}
+	if _, err := addToBay(ctx, tx, ms, now); err != nil {
+		return err
+	}
+	ms.Bay, ms.Reason = fromID, "moved to "+toID
+	if err := removeFromBay(ctx, tx, ms, now); err != nil && !(in == 0 && fromID == DefaultBayID && errors.Is(err, ErrNotAMember)) {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+	return nil
+}
+
+// matchSessions is the sessions in bay that f matches, oldest first.
+// From the default bay it takes a session in no bay too: no write
+// leaves one there, and the default is where one left in no bay goes,
+// so this is how an admin places it (review 1461).
+func matchSessions(ctx context.Context, tx *sql.Tx, bay string, f SessionFilter) ([]string, error) {
+	var machine string
+	if f.Device != "" {
+		var m sql.NullString
+		err := tx.QueryRowContext(ctx, `SELECT machine_id FROM devices WHERE id=?`, f.Device).Scan(&m)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %s", ErrNoDevice, f.Device)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if !m.Valid || m.String == "" {
+			// A device that never uploaded has no sessions.
+			return nil, nil
+		}
+		machine = m.String
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT s.session_uid, s.harness, COALESCE(s.project_id, ''), s.manifest_json
+		FROM sessions s
+		WHERE (EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid AND m.bay_id = ?)
+				OR (? AND NOT EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid)))
+			AND (? = '' OR EXISTS (SELECT 1 FROM provenance p WHERE p.session_uid = s.session_uid AND p.machine_id = ?))
+		ORDER BY s.ingested_at, s.session_uid`, bay, bay == DefaultBayID, machine, machine)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	rule := config.ProjectMatch{CWDPrefix: f.CWDPrefix, CWDGlob: f.CWDGlob, CWDHash: f.CWDHash, GitRemote: f.GitRemote, GitRemotePrefix: f.GitRemotePrefix}
+	var out []string
+	for rows.Next() {
+		var uid, harness, project, raw string
+		if err := rows.Scan(&uid, &harness, &project, &raw); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if f.Harness != "" && harness != f.Harness || f.Project != "" && project != f.Project {
+			continue
+		}
+		if !rule.Empty() {
+			var m protocol.Manifest
+			if json.Unmarshal([]byte(raw), &m) != nil || !rule.Matches(projectOf(m)) {
+				continue
+			}
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
+}
+
+// Applied is one change ApplyRules made or would make: a session added
+// to a bay by an add rule, or flagged by a hold rule.
+type Applied struct {
+	SessionUID string
+	BayID      string
+	RuleID     int64
+	Action     string
+}
+
+// ApplyRules routes every stored session again by the lake's rules as
+// they are now, the way a manifest routes it: add-only, a hold flags,
+// and requests are not replayed. With dryRun nothing is written.
+func (c *Catalog) ApplyRules(ctx context.Context, actor string, dryRun bool, now time.Time) ([]Applied, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer tx.Rollback()
+	rules, err := loadRules(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT session_uid, manifest_json FROM sessions ORDER BY ingested_at, session_uid`)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	type stored struct {
+		uid string
+		m   protocol.Manifest
+	}
+	var all []stored
+	for rows.Next() {
+		var s stored
+		var raw string
+		if err := rows.Scan(&s.uid, &raw); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		if json.Unmarshal([]byte(raw), &s.m) != nil {
+			continue
+		}
+		all = append(all, s)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	var out []Applied
+	for _, s := range all {
+		held, err := activeHold(ctx, tx, s.uid)
+		if err != nil {
+			return nil, err
+		}
+		if held != "" {
+			continue
+		}
+		hold, err := newHold(ctx, tx, s.uid, s.m, rules)
+		if err != nil {
+			return nil, err
+		}
+		if hold != nil {
+			if err := placeHold(ctx, tx, s.uid, false, *hold, s.m, now); err != nil {
+				return nil, err
+			}
+			out = append(out, Applied{SessionUID: s.uid, BayID: hold.BayID, RuleID: hold.ID, Action: RuleHold})
+			continue
+		}
+		before, err := bayRows(ctx, tx, s.uid)
+		if err != nil {
+			return nil, err
+		}
+		if err := place(ctx, tx, s.uid, s.m, rules, nil, actor, now); err != nil {
+			return nil, err
+		}
+		after, err := bayRows(ctx, tx, s.uid)
+		if err != nil {
+			return nil, err
+		}
+		for _, bay := range after {
+			if !slices.Contains(before, bay) {
+				out = append(out, Applied{SessionUID: s.uid, BayID: bay, RuleID: addingRule(rules, s.m, bay), Action: RuleAdd})
+			}
+		}
+	}
+	if dryRun {
+		return out, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	return out, nil
+}
+
+func bayRows(ctx context.Context, tx *sql.Tx, uid string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT bay_id FROM session_bays WHERE session_uid=? ORDER BY bay_id`, uid)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var b string
+		if err := rows.Scan(&b); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func addingRule(rules []BayRule, m protocol.Manifest, bay string) int64 {
+	id := projectOf(m)
+	for _, r := range rules {
+		if r.Action == RuleAdd && r.BayID == bay && r.matches(id, m.Harness) {
+			return r.ID
+		}
+	}
+	return 0
+}
+
+// BayProblem is a membership fact no write should leave: a session in
+// no bay, or a membership, grant, rule, alias or hold naming a bay
+// that is gone. serve fsck reports them.
+type BayProblem struct {
+	What  string
+	Count int
+}
+
+// BayProblems checks the bay tables against each other.
+func (c *Catalog) BayProblems(ctx context.Context) ([]BayProblem, error) {
+	var out []BayProblem
+	for _, q := range []struct{ what, sql string }{
+		{"sessions in no bay", `SELECT count(*) FROM sessions s WHERE NOT EXISTS (SELECT 1 FROM session_bays m WHERE m.session_uid = s.session_uid)`},
+		{"memberships naming a bay that is gone", `SELECT count(*) FROM session_bays m WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = m.bay_id)`},
+		{"memberships of a session that is gone", `SELECT count(*) FROM session_bays m WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_uid = m.session_uid)`},
+		{"grants naming a bay that is gone", `SELECT count(*) FROM bay_grants g WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = g.bay_id)`},
+		{"rules naming a bay that is gone", `SELECT count(*) FROM bay_rules r WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = r.bay_id)`},
+		{"aliases naming a bay that is gone", `SELECT count(*) FROM bay_aliases a WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = a.bay_id)`},
+		{"holds naming a bay that is gone", `SELECT count(*) FROM session_holds h WHERE NOT EXISTS (SELECT 1 FROM bays b WHERE b.id = h.bay_id)`},
+		{"lakes with no default bay", `SELECT 1 - count(*) FROM bays WHERE id = '` + DefaultBayID + `' AND is_default = 1`},
+	} {
+		var n int
+		if err := c.db.QueryRowContext(ctx, q.sql).Scan(&n); err != nil {
+			return nil, fmt.Errorf("catalog: %s: %w", q.what, err)
+		}
+		if n > 0 {
+			out = append(out, BayProblem{What: q.what, Count: n})
+		}
+	}
+	return out, nil
+}

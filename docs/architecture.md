@@ -58,7 +58,7 @@ packed-refs, or config changes. A strict append uploads only the new tail;
 `byte_watermark_prev` is the previous length and `tail_sha256` is the
 hash of those bytes. The lake assembles the tail onto the stored prefix
 and moves the head. Bytes that are not a prefix either way are stored
-as `divergent_copy` and the previous head stays. `terva-lampi conflicts` lists those rows, and `GET /v1/conflicts` returns the same list. A failed push is tried
+as `divergent_copy` and the previous head stays. `terva-lampi conflicts` lists those rows that no one has resolved, and `GET /v1/conflicts` returns the same list. A resolution, in `conflict_resolutions`, records what was decided and keeps the bytes. A failed push is tried
 again after a jittered wait that starts at 2s and backs off to 5 minutes;
 a 401 or 403 waits the 5 minutes and is logged once. `hello` runs
 before the files are read and scanned, so a lake that is down costs
@@ -143,6 +143,12 @@ JSONL line.
 
 A failure sets `sessions.normalize_error` and deletes that session's
 JSONL and parquet files. The CAS object is not opened for write.
+A line of a JSONL transcript that is not a JSON object, such as one a
+harness tore mid-write, does not fail the session. It becomes an
+`error` event in its place that names the line number and its length
+but not its bytes. A file in which no line is a JSON object still
+fails, and so does one with more than 64 such lines, as soon as it
+passes that: it is not JSONL.
 Unknown harness fields are kept on the event. `encrypted_content` is
 copied through as an opaque string and is not written into
 `content_text`. Image bytes stay in the raw blob. Pre-compaction rows
@@ -546,6 +552,18 @@ Registration codes, named devices, a lake signing key and agents that
 report to several lakes replace the manual copy. They are planned under
 TKT-01M3FHHB, and [policy.md](policy.md#registration-and-many-lakes)
 records the model. The manual copy stays as the fallback.
+
+Bays are planned under TKT-01M3N8KHW5, and
+[policy.md](policy.md#bays) records the model. A bay is an access
+boundary inside one lake, and a session can be in several. The design
+keeps the storage as it is: one CAS with dedup across bays, derived
+files keyed by session uid and not split by bay, and bay membership as
+catalog rows only. Moving a session between bays is then one catalog
+write, and no file is rewritten. The cost is that every read path must
+join against membership, and a test lists every catalog query that
+returns session data so that a new one without a bay scope fails the
+build. The lake directory holds every bay, so reading it directly is
+admin access.
 
 Default bind is `127.0.0.1:8787`. A non-loopback `--addr` without
 `--token-file` is an error. The data directory is the XDG state dir

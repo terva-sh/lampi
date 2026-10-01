@@ -64,7 +64,7 @@ func TestOpenCodeReexportMovesHead(t *testing.T) {
 	if !bytes.Contains(derived, []byte("later pond")) || bytes.Count(derived, []byte("first pond")) != 1 {
 		t.Fatalf("re-export:\n%s", derived)
 	}
-	copies, err := s.Catalog.DivergentCopies(t.Context())
+	copies, err := s.Catalog.DivergentCopies(t.Context(), catalog.AllBays(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestOpenCodeDatabaseKindIsRefused(t *testing.T) {
 	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), opencode.KindDatabase) {
 		t.Fatalf("database kind: %d %s", rr.Code, rr.Body)
 	}
-	n, err := s.Catalog.Counts(t.Context())
+	n, err := s.Catalog.Counts(t.Context(), catalog.AllBays())
 	if err != nil || n.Sessions != 0 {
 		t.Fatalf("counts %+v err=%v", n, err)
 	}

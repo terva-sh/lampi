@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/upload"
 )
 
@@ -48,7 +49,7 @@ func TestAnInterruptedSyncFailsNamingTheLakesItDidNotReach(t *testing.T) {
 	if !strings.Contains(f.stderr.String(), "lake work: not attempted: context canceled") {
 		t.Fatalf("the skipped lake is not named:\n%s", f.stderr)
 	}
-	if n, _ := f.work.Catalog.Counts(t.Context()); n.Sessions != 0 {
+	if n, _ := f.work.Catalog.Counts(t.Context(), catalog.AllBays()); n.Sessions != 0 {
 		t.Fatalf("work sessions %d", n.Sessions)
 	}
 }

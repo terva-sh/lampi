@@ -5,7 +5,8 @@
       "projects": {
         "allow": [
           {"git_remote_prefix": "git@git.example:team"},
-          {"git_remote": "git@git.example:other/app.git"}
+          {"git_remote": "git@git.example:other/app.git"},
+          {"cwd_glob": "/home/*/notes"}
         ],
         "deny": [{"cwd_prefix": "/home/you/private"}]
       }

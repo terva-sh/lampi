@@ -23,7 +23,7 @@ import (
 const exportUsage = `terva-lampi export — write normalized events or a training trajectory
 
 usage:
-  terva-lampi export [--data DIR] [--out FILE] [--format events|sharegpt|trajectory]
+  terva-lampi export [--data DIR] [--out FILE] [--format events|sharegpt|trajectory] [--bay BAY]...
 
 --format events (the default) writes schema_version 1 events, one JSON
 object per line. FILE defaults to stdout. A session whose last
@@ -47,6 +47,10 @@ and is not written into the turn value. Ruleset v2 strips matches
 from the plaintext training fields (value, tool name, and call id).
 The CAS and the normalized events are not rewritten.
 
+--bay, repeated, limits either format to the sessions in those bays,
+by id, name or alias (see serve bays). Without it every bay is
+exported: export reads the lake directory, which holds them all.
+
 DuckDB, events:
   SELECT content_text FROM read_ndjson('events.jsonl')
 sqlite3, after loading each line into a table:
@@ -59,7 +63,9 @@ func runExport(env Env, args []string) error {
 		return nil
 	}
 	var data, outPath, format string
+	var bays bayList
 	rest, err := parseFlags(env, args, exportUsage, func(fs *flag.FlagSet) {
+		fs.Var(&bays, "bay", "export only sessions in this bay (repeatable)")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&outPath, "out", "", "JSONL path (default: stdout)")
 		fs.StringVar(&format, "format", "events", "events, sharegpt, or trajectory")
@@ -88,7 +94,18 @@ func runExport(env Env, args []string) error {
 		return err
 	}
 	defer closeLake()
-	x := exporter{env: env, lake: lake, live: live}
+	x := exporter{env: env, lake: lake, live: live, scope: catalog.AllBays()}
+	if len(bays) > 0 {
+		var ids []string
+		for _, ref := range bays {
+			b, err := lake.Catalog.ResolveBay(context.Background(), ref)
+			if err != nil {
+				return err
+			}
+			ids = append(ids, b.ID)
+		}
+		x.scope = catalog.InBays(ids)
+	}
 
 	out := env.stdout()
 	if outPath != "" && outPath != "-" {
@@ -113,6 +130,16 @@ type exporter struct {
 	env  Env
 	lake *api.Server
 	live bool
+	// scope is the bays --bay chose, or every bay.
+	scope catalog.Scope
+}
+
+// inScope reports whether a session is in the bays being exported.
+func (x exporter) inScope(ctx context.Context, uid string) (bool, error) {
+	if x.scope.All() {
+		return true, nil
+	}
+	return x.lake.Catalog.SessionInScope(ctx, x.scope, uid)
 }
 
 // openForExport takes the lake lock and opens the lake with its
@@ -153,6 +180,12 @@ func (x exporter) writeEvents(out io.Writer) error {
 		return err
 	}
 	for _, sess := range sessions {
+		if in, err := x.inScope(ctx, sess.UID); err != nil || !in {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		body, ok, err := x.sessionJSONL(sess)
 		if err != nil {
 			return err
@@ -184,6 +217,12 @@ func (x exporter) writeShareGPT(out io.Writer) error {
 	enc := json.NewEncoder(out)
 	enc.SetEscapeHTML(false)
 	for _, sess := range sessions {
+		if in, err := x.inScope(ctx, sess.UID); err != nil || !in {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if sess.NormalizeError != "" {
 			fmt.Fprintf(env.stderr(), "terva-lampi: session %s normalize_error: %s\n", sess.UID, sess.NormalizeError)
 			continue

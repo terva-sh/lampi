@@ -1,0 +1,27 @@
+ts	phase	decision	why	evidence	result
+2026-09-29T03:43:37Z	groom	filed admin role as its own ticket, raw access depends on it	Bays epic and lake-sessions epic both need admin; one role, built once	TKT-01M3NKZT6N, 94ef10a	open
+2026-09-29T03:44:53Z	groom	epic NM61CZ with three children, tokens split out of raw view	terva-review fails on big PRs; one ticket per PR	d0ceeeb	promoted to ready
+2026-09-29T03:44:53Z	groom	operators not promoted to admin on upgrade	admin adds only new raw powers; promotion would hand raw read to every operator silently	TKT-01M3NKZT6N description	decided, flagged for owner review
+2026-09-29T03:47:54Z	admin-role	PR 132 opened, review dispatched	one ticket per PR	PR 132, 94243cc	CI pending
+2026-09-29T03:47:54Z	admin-role	filed flaky agent test instead of chasing it	fails once under full load, passes 5x alone; unrelated to auth	TKT-01M3NMCJV3	filed draft
+2026-09-29T03:56:58Z	admin-role	accepted review 1319 finding-1, reworded docs so admin promises nothing yet	no route behind AdminOnly in that PR	6b2437c, PR 132	disposition posted
+2026-09-29T03:56:58Z	raw-view	Blobs on Registrations rather than a new web.New param	Registrations is already the writable-lake handle; avoids touching 7 call sites	internal/web/registrations.go Registrations	done
+2026-09-29T03:56:58Z	raw-view	audit: QueueAudit must succeed before bytes; FlushAudit failure only logged	outbox is durable; matches device actions where a queued line counts	internal/web/raw.go serveRaw	tests + mutation check fail without it
+2026-09-29T03:56:58Z	raw-view	no-Range read over 8 MiB is 206 + Content-Range + Lampi-Raw-Truncated	never report a partial read as complete	TestRawCapAndRange	green
+2026-09-29T03:56:58Z	raw-view	visual check via preview failed, used smoketest -admin + curl instead	preview browser cannot reach this host's ports or trust the fixture IdP	smoketest -admin, audit.jsonl artifact.read line	text checked; unit labels fixed
+2026-09-29T03:56:58Z	raw-view	PR 134 stacked on web/admin-role	keep the diff to one ticket for review	PR 134, 0aec195	review dispatched
+2026-09-29T03:59:36Z	raw-view	accepted review 1323 both findings: refuse repeated Range, read bytes before auditing	old code sent 200 with a short body and logged it as read	e7ed2db, TestRawAuditsOnlyBytesRead	fails on old code, passes on new
+2026-09-29T03:59:36Z	raw-view	tested damage with a logical object missing a chunk	compressed objects fail at Size, before ordering matters; only logical sizes survive damage	TestRawAuditsOnlyBytesRead	test proven meaningful
+2026-09-29T04:06:05Z	tokens	separate read_tokens table with a permission set, route under /api/raw/v1 outside Guard and /v1	device tokens must never read; set lets TKT-01M3KAMD1Z add perms	TKT-01M3NM6FW7 note, PR 135	mutation checks catch scope, expiry, fresh
+2026-09-29T04:06:05Z	tokens	pinned review_test rewind to version 15 instead of len(migrations)-1	it assumed project review was the newest migration and broke when one was appended	internal/catalog/review_test.go projectReviewFrom	catalog tests green
+2026-09-29T04:15:36Z	admin-role	merged PR 132 after clean re-review and green CI on current main	all gates green; main had not moved	dde83a3	merged
+2026-09-29T04:15:36Z	raw-view	merged PR 134 after carried review and green CI	only ticket files changed after the clean review	93998cb	merged
+2026-09-29T04:15:36Z	tokens	merged raw-view into read-tokens instead of rebasing	rebasing a published PR branch needs a force-push, which no ticket authorizes	99440af	no force-push
+2026-09-29T04:15:36Z	tokens	accepted review 1330: revoke an unaudited mint, answer a queued revoke as 200	follows registrar.Mint precedent; a shown token must have its audit line written	32a5921, TestUnauditedMintIsRevokedAndNotShown	fails on old code
+2026-09-29T04:17:41Z	tokens	accepted review 1331: separator-only scope refused, failed session check is 500	a typo must not widen a token to the whole lake	27b64880757a0530fc358855a0eb588888d18a0e	tests fail on old code
+2026-09-29T04:17:41Z	tokens	reworked the 500 test to close only the session-check handle	first version passed on old code because the list failure also gave 500	TestMintSessionCheckFailureIsAServerError	now discriminates
+2026-09-29T04:22:25Z	tokens	accepted review 1332: token lookup failure is 500, not 401	a 401 tells a tool to drop a good token	e95285aa04b0650d1f419d4b24f09bcbd492f647, TestTokenLookupFailureIsAServerError	fails on old code
+2026-09-29T04:32:35Z	groom	superseded the first draft's operator gate with a new admin role, and added raw-read tokens	owner asked for an admin role and tokens after the first ticket was filed	94ef10a	first draft superseded
+2026-09-29T04:32:35Z	groom	wrote one temp file into another session's scratch dir by a bad glob; deleted only that file	own mistake; the other session's files were not touched	~/.cache/agent-scratch/lampi/profile-rules.Vypf	cleaned
+2026-09-29T04:32:35Z	tokens	tea said no available login once; retried and posted the disposition	transient lock on the tea config shared with other sessions	PR 135 comment 18088	posted on retry
+2026-09-29T04:37:38Z	close	committed this trail and linked it from the epic	the run merged three PRs unattended; the trail is the evidence for them	.audit/raw-access.tsv	committed

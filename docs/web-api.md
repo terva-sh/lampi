@@ -13,18 +13,23 @@ All reads are GET, return JSON and `Cache-Control: no-store`, and have a five-se
 catalog-query budget. Unauthenticated reads return `401 not_authenticated`,
 unmapped session identities `403 not_authorized`, unknown sessions `404 not_found`,
 bad input `400 invalid_filters_or_cursor`, and unavailable reads `503 read_unavailable`.
+Every read is limited to the [bays](policy.md#bays) the signed-in user reads:
+every bay for an admin, and otherwise the bays its IdP groups are granted. A
+session outside them is `404 not_found`, the same answer as one that is not
+stored, and lists, counts and search hits leave it out. The search `coverage`
+object counts the whole lake, so it is zero for anyone but an admin.
 Other catalog failures are `500 read_failed`. Detailed normalization errors and
 raw manifests never appear in these responses.
 
 | Route under `/api/web/v1` | Result |
 |---|---|
-| `/overview` | Sessions, artifact rows, contributing machines, divergent artifacts, harness counts, normalization counts, `as_of` |
+| `/overview` | Sessions, artifact rows, contributing machines, unresolved divergent artifacts, harness counts, normalization counts, `as_of` |
 | `/sessions` | Session summary page |
 | `/sessions/{uid}` | One session summary |
 | `/sessions/{uid}/artifacts` | Artifact metadata page; `current=true` selects current artifacts |
 | `/sessions/{uid}/provenance` | Machine/digest/path observation page |
-| `/sessions/{uid}/conflicts` | Divergent artifact page |
-| `/conflicts` | Divergent artifacts across sessions |
+| `/sessions/{uid}/conflicts` | Unresolved divergent artifact page; `resolved=true` adds resolved ones |
+| `/conflicts` | Unresolved divergent artifacts across sessions; `resolved=true` adds resolved ones |
 | `/sessions/{uid}/events` | One page of the session's published normalized events; see below |
 | `/search` | Literal text search over indexed events; see below |
 | `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
@@ -41,8 +46,11 @@ can move rows, so restart pagination to refresh the list.
 Session filters are exact `harness`, exact `project`, `unlinked=true` (mutually
 exclusive with project), and `state=pending|failed|ready|unknown`. Unknown or
 repeated parameters, invalid limits/cursors and unsupported filter values are
-refused. Other collections accept only limit/cursor and the artifact current
-selector. Detail and overview accept no query parameters.
+refused. Other collections accept only limit/cursor, the artifact current
+selector and the conflict resolved selector. Detail and overview accept no
+query parameters. A resolved conflict carries `resolution`: `kept_head`,
+`made_head`, `superseded` or `not_a_conflict`. Resolving keeps the bytes and
+leaves `relation` as it was.
 
 A session summary contains `session_uid`, `native_session_id`, `harness`,
 `project_id`, `project_label`, `head_sha256`, `last_head_update`,
@@ -90,10 +98,15 @@ minted before it was recorded. The list never holds a code's secret.
 Listing writes the expiries since the last look to `audit.jsonl`, as
 `serve register --list` does.
 
-A mint takes a JSON body `{name, profile, expires}`. `name` is the
+A mint takes a JSON body `{name, profile, expires, bays}`. `name` is the
 device name: lowercase letters, digits, `.`, `-` and `_`. `profile`
 defaults to `default`. `expires` is a duration such as `1h` or `72h`,
-default `1h`, at most 30 days. Minting also needs a sign-in at the IdP
+default `1h`, at most 30 days. `bays` lists the
+[bays](policy.md#bays) the device may upload into, by id, name or
+alias; empty is the default bay. An operator may name only bays its
+groups hold write on, and an empty list needs the default bay in that
+scope; otherwise the mint is `403 bay_not_allowed`. An admin may name
+any bay. A bay that does not exist is `400 unknown_bay`. Minting also needs a sign-in at the IdP
 in the last 10 minutes; otherwise it is `403 fresh_login_required` with
 a `login` URL that signs in again. The response holds the code in
 `code`, the lake's `lake_id` and key `fingerprint`, and
@@ -121,7 +134,7 @@ public URL check does, whether or not it ends in a code.
 | A name that is not a device name | `400 invalid_name` |
 | An expiry that does not parse, or is over 30 days | `400 invalid_expiry` |
 | A profile the lake does not hold | `400 unknown_profile` |
-| A body that is not one JSON object of these fields | `400 invalid_request` |
+| A body that is not one JSON object of these fields, `make-head` without a 64-character `head`, or `head` on another action | `400 invalid_request` |
 | A device, or a pending code, already has the name | `409 name_taken` |
 | No identity, no public URL, or a public URL that does not reach this lake | `503 lake_not_ready` |
 | Cancelling a code that does not exist | `404 not_found` |
@@ -135,8 +148,8 @@ code.
 
 ## Raw artifacts
 
-Admins can download the bytes an agent uploaded for a session. These
-routes need the `admin` role (see [web-dashboard.md](web-dashboard.md)).
+Admins can download the bytes an agent uploaded for a session. The
+browser routes need the `admin` role (see [web-dashboard.md](web-dashboard.md)).
 Operators and viewers get `404`. They are browser routes, not under
 `/api/web/v1`, and they exist only when serve wires in the blob store.
 
@@ -168,6 +181,31 @@ and the byte range, then sends it. A read that fails is
 `500 read_failed` and records nothing. A read whose event cannot be queued
 is `500 audit_failed` and sends nothing. `HEAD` sends no bytes and records
 nothing.
+
+### Read tokens
+
+A tool with no browser session reads the same artifacts with a read token
+an admin minted (see [web-dashboard.md](web-dashboard.md#read-tokens)):
+
+```sh
+curl -fsS -H "Authorization: Bearer $(cat token-file)" -o artifact \
+  https://lake.example/api/raw/v1/sessions/SESSION_UID/artifacts/SHA256
+```
+
+| Route | Result |
+|---|---|
+| `GET /api/raw/v1/sessions/{uid}/artifacts/{sha256}` | One artifact's bytes, exactly as the browser route above answers, cap, `Range` and `HEAD` included. |
+
+The token goes in `Authorization: Bearer`. A missing, unknown, expired or
+revoked token is `401 not_authenticated` with a `WWW-Authenticate: Bearer`
+header. A session outside the token's scope is `404 not_found`, the same as
+a session that is not there. A lake that cannot look the token up answers
+`500 read_failed`, so a tool does not drop a token that is still good. The audit event's actor is `token:ID (LABEL)`.
+
+A read token authenticates this route and nothing else. A browser
+session cookie does not reach it, a read token does not reach any other
+route, including `/api/web/v1` and `/v1`, and a device token does not
+reach this one.
 
 ## Transcript events
 
@@ -479,6 +517,9 @@ sent, compared with the lake. It takes no parameters; any parameter is
 - `allow_source` is where the agent's allow rules come from. `local` means the
   machine's `config.json` sets them and the lake's profile does not decide what
   it uploads. `local_rules` counts active devices like that.
+- `no_profile` is true for a `token-file` device whose agent reports no
+  profile: it has not pinned the lake, so no profile reaches it.
+  `terva-lampi lakes adopt` on that machine pins it.
 - `last_sync`, `last_error` and the agent fields are absent until the device
   sends a report. `last_contact` is the newest request, or the newest report
   from before serve started.
@@ -544,6 +585,72 @@ Each change goes to `audit.jsonl` with the operator as actor. A change whose
 audit line fails still stands, and answers `500 audit_failed` with the device;
 the line stays queued and is written at the next flush.
 
+## Conflicts
+
+`GET /api/web/v1/conflicts/{artifact_id}` is one divergent copy, open or
+resolved, for any viewer. `404 not_found` when the id is not a divergent copy.
+
+```json
+{"conflict": {
+  "session_uid": "01M…", "artifact_id": "01M…", "harness": "claude",
+  "kind": "transcript_jsonl", "relpath": "projects/p/s.jsonl",
+  "sha256": "…", "size": 1200, "head_sha256": "…", "head_size": 5400,
+  "machines": ["m-b"], "head_machines": ["m-a"],
+  "resolution": {"resolution": "kept_head", "resolved_at": "2026-09-29T15:00:00Z",
+                 "resolved_by": "web:…", "note": "same session, other laptop"},
+  "part": {"offset": 1180, "line": 12}
+}}
+```
+
+`part` says where the copy and the head part: the first byte that differs, and
+the line it is on, counted from 1. `ends` is `copy` or `head` when that file
+ends first with every byte before equal. `same` is set when the copy is now the
+head. `beyond` is set when no difference turned up in the first 64 MiB of each,
+which is as far as the lake reads for this. `part` is absent when the lake could
+not read both files, or when the server has no blob store to read. It names
+offsets, never content.
+
+### Conflict actions
+
+The rules of [registration codes](#registration-codes) hold: the `operator`
+role, `404 not_found` for anyone else, POST with the `X-Lampi-CSRF` header, and
+`403 csrf_failed` without it.
+
+| Route under `/api/web/v1` | Result |
+|---|---|
+| `POST /conflicts/{id}/keep-head` | Resolves the conflict as `kept_head`. Takes no body or `{"note": TEXT}`: one line, at most 500 characters, with no control characters, checked as sent; surrounding spaces are then dropped. |
+| `POST /conflicts/{id}/make-head` | Makes the copy the session's head. Takes `{"head": DIGEST}`, the session head the caller saw, and an optional `note`. See below. |
+| `POST /conflicts/{id}/reopen` | Removes the resolution. Takes no body, or an empty object. It does not move the head. |
+
+Each answers `200` with `{conflict}` as above.
+
+| Refusal | Status and `error` |
+|---|---|
+| No divergent copy has the id, or the action is not one of these | `404 not_found` |
+| A body that is not one JSON object of these fields | `400 invalid_request` |
+| A note over 500 characters or on more than one line, or a `note` field on reopen, even empty or null | `400 invalid_note` |
+| Keeping the head of a resolved conflict | `409 already_resolved`, with the conflict |
+| Reopening an open conflict | `409 not_resolved`, with the conflict |
+| Reopening a copy that is its session's head now | `409 is_head`, with the conflict |
+| `make-head` when the session's head is not `head` | `409 head_moved`, with the conflict |
+| `make-head` on a server that has no blob store to read | `503 make_head_unavailable` |
+| `make-head` committed but normalizing again could not be started; it runs at the next start or SIGHUP | `500 normalize_failed`, with the conflict |
+| `make-head` on a companion of the head, such as a subagent transcript, or another kind of file | `409 not_head_candidate`, with the conflict |
+
+`make-head` makes the copy the current artifact at its path and the session's
+head. The row that held the head, at that path or another, stops being current.
+The copy is resolved as `made_head` and keeps its `divergent_copy` relation.
+Every other open copy at its path whose bytes it continues is resolved as
+`superseded`. A `head_updates` row with relation `made_head` records the change,
+attributed to a machine that posted the copy at its path, and the session is
+normalized again. The replaced head's bytes stay stored. The next upload that continues the
+copy moves the head as any append does.
+
+Each change goes to `audit.jsonl` as `conflict.resolved` or
+`conflict.reopened`, and `make-head` adds `conflict.head_changed` naming the head
+it replaced, with the operator as actor. A change whose audit line fails
+still stands, and answers `500 audit_failed`; the line stays queued.
+
 ## Review queue
 
 `GET /api/web/v1/review` is the review queue: every refused project in the
@@ -593,7 +700,8 @@ narrow the queue; an empty value means all. Anything else is
     it through.
 - `profile` is the profile the device fetches. `local_allow` marks a device
   whose `config.json` sets its own allow rules, which a profile rule does not
-  reach.
+  reach. `no_profile` marks one that fetches no profile at all, as on the
+  devices route; it is also `local_allow`.
 - `first_seen` is when the lake first saw the project on the device.
   `first_seen_at_or_before` marks a project first seen when the lake began
   recording sightings, at `sightings_since`: it may have been there before.
@@ -635,16 +743,27 @@ whose audit line fails still stands, and answers `500 audit_failed` with
 Allow selected, as the browser API. The same operator and CSRF rules hold.
 
 `POST /api/web/v1/review/allow` plans. It takes
-`{"keys": [KEY, ...], "device": "dev_..."}`, where `device` is optional and
-narrows the plan to that device's copies. It saves nothing and answers `200`:
+`{"keys": [KEY, ...], "device": "dev_...", "width": "repository"}`:
+
+- `device` is optional and narrows the plan to that device's copies.
+- `width` is optional. `repository`, the default, adds a `git_remote` rule per
+  repository. `owner` adds one `git_remote_prefix` per owner instead, except
+  where the owner would be the bare host. A folder always gets `cwd_prefix`.
+  Any other value is `400 invalid_request`.
+
+It saves nothing and answers `200`:
 
 ```json
 {
   "profiles": [
     {"name": "default", "base_revision": 7, "stored": true,
-     "rules": [{"rule": {"git_remote": "github.com/acme/app"},
+     "rules": [{"rule": {"git_remote_prefix": "github.com/acme"},
                 "key": {"kind": "git_remote", "key": "github.com/acme/app"},
                 "for_devices": ["laptop"]}],
+     "removed": [{"git_remote": "github.com/acme/lib"}],
+     "reach": {"admits": [{"key": {"kind": "git_remote", "key": "github.com/acme/app"},
+                           "devices": ["laptop"], "sessions": 12}],
+               "drops": [], "unlisted": []},
      "document": {"projects": {"allow": ["..."]}},
      "devices": [{"id": "dev_...", "name": "laptop"}], "local_allow": 0}
   ],
@@ -652,7 +771,13 @@ narrows the plan to that device's copies. It saves nothing and answers `200`:
 }
 ```
 
-`skipped` lists keys that no longer need review. `POST
+`skipped` lists keys that no longer need review. `key` on a rule is the first
+selected project it is for. At owner width, one rule can be for several.
+`removed` lists the allow rules the profile had that the new rules cover,
+which the document leaves out. `reach` lists the projects in the devices'
+newest inventories that the change admits and drops. `unlisted` names the
+devices that send no list of refused projects. See
+[Editing a profile](web-dashboard.md#editing-a-profile). `POST
 /api/web/v1/review/allow/save` saves the plan with
 `{"profiles": [{"name", "base_revision", "document"}], "note": "..."}`. It
 saves every profile or none, and answers `200` with

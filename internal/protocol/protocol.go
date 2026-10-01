@@ -156,6 +156,10 @@ type HelloResponse struct {
 	// Features names what this lake accepts beyond protocol_versions. A
 	// client uses a feature only when its lake lists it.
 	Features []string `json:"features,omitempty"`
+	// Bays names the bays the calling device may write, and only
+	// those, when the lake lists FeatureBays. An agent checks the bays
+	// its config asks for against it and warns about the rest.
+	Bays []string `json:"bays,omitempty"`
 }
 
 // FeatureLargeTails is a lake that grows a file past max_blob_bytes from
@@ -163,6 +167,10 @@ type HelloResponse struct {
 // blob stays under it. A lake without it answers such a manifest 400,
 // so a client sends a file past the cap whole, as chunks.
 const FeatureLargeTails = "large_tails"
+
+// FeatureBays is a lake that routes a manifest by its bays and lists a
+// device's writable bays in hello (docs/policy.md#routing).
+const FeatureBays = "bays"
 
 // HelloProof is the signed payload of HelloResponse.Proof.
 type HelloProof struct {
@@ -236,6 +244,11 @@ type AgentReport struct {
 	// applied, from its verified cache; empty when it has none.
 	Profile        string `json:"profile,omitempty"`
 	ProfileVersion string `json:"profile_version,omitempty"`
+	// Pinned says whether the agent pinned this lake's key, which it needs
+	// to accept a profile. A pinned agent whose first fetch is still
+	// pending reports true and no profile. Agents from before the field
+	// leave it out.
+	Pinned *bool `json:"pinned,omitempty"`
 	// AllowSource and DenySource say where the agent's project rules
 	// for this lake came from: "local", "lake NAME", both joined by
 	// "+", or "none". A lake's allow rules do not apply while
@@ -331,6 +344,10 @@ type AgentSyncReport struct {
 	Refused     int       `json:"refused"`
 	Quarantined int       `json:"quarantined"`
 	Unchanged   int       `json:"unchanged"`
+	// NoBay counts sessions the lake refused because nothing places
+	// them (CodeNoBay). They wait on the machine. Agents from before
+	// bays leave it out.
+	NoBay int `json:"no_bay,omitempty"`
 }
 
 // RegisterPath redeems a registration code. It needs no token.
@@ -412,7 +429,21 @@ type Manifest struct {
 	Project         Project    `json:"project"`
 	Artifacts       []Artifact `json:"artifacts"`
 	Lineage         Lineage    `json:"lineage"`
+	// Bays names the bays the agent asks for the session to be in, by
+	// id, name or alias. A lake that does not list FeatureBays ignores
+	// it. The lake places the session only in those the device may
+	// write, and every request is recorded. Omitted, the lake's rules
+	// alone place the session.
+	Bays []string `json:"bays,omitempty"`
+	// BayAware says the agent understands CodeNoBay. A lake refuses a
+	// session nothing places with 409 and that code to an agent that
+	// sets it, and with a plain 403 to one that does not, which an old
+	// agent already backs off on.
+	BayAware bool `json:"bay_aware,omitempty"`
 }
+
+// MaxManifestBays is how many bays one manifest may ask for.
+const MaxManifestBays = 16
 
 // Project is where the session was recorded. CWDHash is a property of the
 // absolute path string on that machine. It is not a project id across hosts.
@@ -477,6 +508,11 @@ type ManifestAck struct {
 	HeadSHA256  string   `json:"head_sha256"`
 	HeadSize    int64    `json:"head_size"`
 	Relation    string   `json:"relation"`
+	// RefusedBays is each bay in the manifest's bays the lake did not
+	// place the session in: one the device may not write, or one that
+	// does not exist. The lake does not say which, so a device learns
+	// no bay it was not given.
+	RefusedBays []string `json:"refused_bays,omitempty"`
 }
 
 // StatsResponse is the body of GET /v1/stats.
@@ -539,10 +575,23 @@ type DivergentCopy struct {
 	HeadSize        int64    `json:"head_size"`
 	Machines        []string `json:"machines"`
 	HeadMachines    []string `json:"head_machines"`
+	// Resolution is set on a resolved conflict, which is listed only
+	// when the request asks for resolved ones.
+	Resolution *ConflictResolution `json:"resolution,omitempty"`
+}
+
+// ConflictResolution is what was decided about a divergent copy:
+// kept_head, made_head, superseded or not_a_conflict, when, by whom.
+type ConflictResolution struct {
+	Resolution string `json:"resolution"`
+	ResolvedAt string `json:"resolved_at"`
+	ResolvedBy string `json:"resolved_by"`
+	Note       string `json:"note,omitempty"`
 }
 
 // ConflictsResponse is the body of GET /v1/conflicts.
-// Conflicts is empty when the catalog has no divergent_copy rows.
+// Conflicts is empty when the catalog has no unresolved divergent_copy
+// rows. ?resolved=true lists resolved ones too.
 // The route uses the same bearer check as the other /v1 routes.
 // Listing does not merge the copies or move the head.
 type ConflictsResponse struct {
@@ -553,7 +602,16 @@ type ConflictsResponse struct {
 type ErrorBody struct {
 	Error   string   `json:"error"`
 	Missing []string `json:"missing,omitempty"`
+	// Code names a refusal a client acts on, where the status alone is
+	// not enough. Empty for most errors.
+	Code string `json:"code,omitempty"`
 }
+
+// CodeNoBay is a manifest refused because nothing places its session:
+// no bay it asked for accepted it, no rule added it, and the lake's
+// default bay is off. Retrying the same manifest is refused again
+// until an admin changes a grant, a rule, or the default.
+const CodeNoBay = "no_bay"
 
 // ValidDigest reports whether s is a lowercase sha256 hex digest.
 func ValidDigest(s string) bool {

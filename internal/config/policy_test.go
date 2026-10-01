@@ -265,3 +265,82 @@ func TestGitRemotePrefixLoadsFromJSON(t *testing.T) {
 		t.Fatalf("decoded %+v", p.Allow)
 	}
 }
+
+// TKT-01M3NM01N: Covers says a rule adds nothing beside another only
+// when every field of the wider rule follows from the narrower one.
+func TestCovers(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		a, b ProjectMatch
+		want bool
+	}{
+		{"prefix covers a repository under it", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemote: "git@github.com:acme/app.git"}, true},
+		{"prefix covers a deeper prefix", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemotePrefix: "https://github.com/acme/group"}, true},
+		{"prefix covers itself", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemotePrefix: "github.com/acme"}, true},
+		{"prefix does not cover a sibling owner", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemote: "github.com/acme-fork/app"}, false},
+		{"prefix does not cover a remote with ..", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemote: "github.com/acme/../evil"}, false},
+		{"prefix that folds to nothing covers nothing", ProjectMatch{GitRemotePrefix: "https://"}, ProjectMatch{GitRemote: "github.com/acme/app"}, false},
+		{"repository covers its other spelling", ProjectMatch{GitRemote: "github.com/acme/app"}, ProjectMatch{GitRemote: "https://GitHub.com/acme/app.git"}, true},
+		{"repository does not cover a prefix of the same name", ProjectMatch{GitRemote: "github.com/acme/app"}, ProjectMatch{GitRemotePrefix: "github.com/acme/app"}, false},
+		{"folder covers a folder under it", ProjectMatch{CWDPrefix: "/work"}, ProjectMatch{CWDPrefix: "/work/app/"}, true},
+		{"folder does not cover a sibling", ProjectMatch{CWDPrefix: "/work"}, ProjectMatch{CWDPrefix: "/workshop"}, false},
+		{"folder does not cover a remote rule", ProjectMatch{CWDPrefix: "/work"}, ProjectMatch{GitRemote: "github.com/acme/app"}, false},
+		{"narrower rule with an extra field is covered", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemote: "github.com/acme/app", CWDPrefix: "/work"}, true},
+		{"wider rule with an extra field covers only what implies it", ProjectMatch{GitRemotePrefix: "github.com/acme", CWDPrefix: "/work"}, ProjectMatch{GitRemote: "github.com/acme/app"}, false},
+		{"hash covers the same hash", ProjectMatch{CWDHash: "A1B2C3D4E5F60708"}, ProjectMatch{CWDHash: " a1b2c3d4e5f60708"}, true},
+		{"hash does not cover a folder", ProjectMatch{CWDHash: "a1b2c3d4e5f60708"}, ProjectMatch{CWDPrefix: "/work"}, false},
+		{"empty covers nothing", ProjectMatch{}, ProjectMatch{GitRemote: "github.com/acme/app"}, false},
+		{"nothing covers empty", ProjectMatch{GitRemotePrefix: "github.com"}, ProjectMatch{}, false},
+		{"a glob covers the same glob", ProjectMatch{CWDGlob: "/home/*/notes"}, ProjectMatch{CWDGlob: "/home/*/notes", GitRemote: "github.com/acme/app"}, true},
+		{"a glob does not cover what it happens to match", ProjectMatch{CWDGlob: "/home/*/notes"}, ProjectMatch{CWDPrefix: "/home/me/notes"}, false},
+		{"a glob that cannot be used covers nothing", ProjectMatch{CWDGlob: "/**"}, ProjectMatch{CWDGlob: "/**"}, false},
+		{"a prefix covers a rule that also sets a glob", ProjectMatch{GitRemotePrefix: "github.com/acme"}, ProjectMatch{GitRemote: "github.com/acme/app", CWDGlob: "/home/*/notes"}, true},
+	} {
+		if got := Covers(c.a, c.b); got != c.want {
+			t.Errorf("%s: Covers(%+v, %+v) = %v, want %v", c.name, c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// Covers is sound on a grid of rules and projects: whenever it says a
+// covers b, every project b matches, a matches too.
+func TestCoversIsSound(t *testing.T) {
+	remotes := []string{"", "github.com/acme", "github.com/acme/app", "git@github.com:acme/lib.git", "github.com/acme/group/app", "github.com/acme-fork/app", "gitlab.com/acme/app"}
+	cwds := []string{"", "/work", "/work/app", "/work/app/sub", "/workshop", "/home/me"}
+	hashes := []string{"", cwdHash("/work/app"), cwdHash("/work")}
+	var rules []ProjectMatch
+	for _, r := range remotes {
+		for _, c := range cwds {
+			rules = append(rules, ProjectMatch{GitRemote: r, CWDPrefix: c}, ProjectMatch{GitRemotePrefix: r, CWDPrefix: c})
+		}
+	}
+	for _, h := range hashes {
+		rules = append(rules, ProjectMatch{CWDHash: h}, ProjectMatch{CWDHash: h, GitRemotePrefix: "github.com/acme"})
+	}
+	for _, g := range []string{"/work/*", "/work/**/sub", "/*/app", "/**"} {
+		rules = append(rules, ProjectMatch{CWDGlob: g}, ProjectMatch{CWDGlob: g, GitRemotePrefix: "github.com/acme"}, ProjectMatch{CWDGlob: g, CWDPrefix: "/work"})
+	}
+	var ids []ProjectID
+	for _, r := range remotes {
+		for _, c := range cwds {
+			ids = append(ids, ProjectID{CWD: c, CWDHash: cwdHash(c), GitRemote: r})
+		}
+	}
+	covered := 0
+	for _, a := range rules {
+		for _, b := range rules {
+			if !Covers(a, b) {
+				continue
+			}
+			covered++
+			for _, id := range ids {
+				if b.matches(id) && !a.matches(id) {
+					t.Fatalf("Covers(%+v, %+v), but b matches %+v and a does not", a, b, id)
+				}
+			}
+		}
+	}
+	if covered < 50 {
+		t.Fatalf("only %d pairs covered: the grid tests little", covered)
+	}
+}

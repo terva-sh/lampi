@@ -46,15 +46,20 @@ func (c *Catalog) SchemaVersion(ctx context.Context) (int, error) {
 
 // MachinesActivity returns every machine that has posted to the lake or
 // is bound to a device, ordered by machine id. RecentUpdates counts
-// head updates at or after since.
-func (c *Catalog) MachinesActivity(ctx context.Context, since time.Time) ([]MachineActivity, error) {
+// head updates at or after since. Uploads, session counts and updates
+// count only sessions in scope; a machine is listed either way, since
+// the machine list is device metadata, not session data.
+func (c *Catalog) MachinesActivity(ctx context.Context, scope Scope, since time.Time) ([]MachineActivity, error) {
+	inP, pArgs := scope.where("p.session_uid")
+	inH, hArgs := scope.where("h.session_uid")
+	args := append(append(append([]any{}, pArgs...), since.UnixNano()), hArgs...)
 	rows, err := c.db.QueryContext(ctx, `
 		WITH prov AS (
 			SELECT machine_id, MAX(ingested_at) AS last_upload, COUNT(DISTINCT session_uid) AS sessions
-			FROM provenance GROUP BY machine_id
+			FROM provenance p WHERE `+inP+` GROUP BY machine_id
 		), upd AS (
 			SELECT machine_id, MAX(received_ns) AS last_ns, SUM(received_ns >= ?) AS recent
-			FROM head_updates GROUP BY machine_id
+			FROM head_updates h WHERE `+inH+` GROUP BY machine_id
 		), machines AS (
 			SELECT machine_id FROM prov
 			UNION SELECT machine_id FROM upd
@@ -65,7 +70,7 @@ func (c *Catalog) MachinesActivity(ctx context.Context, since time.Time) ([]Mach
 		FROM machines m
 		LEFT JOIN prov ON prov.machine_id = m.machine_id
 		LEFT JOIN upd ON upd.machine_id = m.machine_id
-		ORDER BY m.machine_id`, since.UnixNano())
+		ORDER BY m.machine_id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/cas"
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -186,6 +187,42 @@ func TestConflictsEndpoint(t *testing.T) {
 	}
 	if len(got.Machines) != 1 || got.Machines[0] != "machine-b" || len(got.HeadMachines) != 1 || got.HeadMachines[0] != "machine-a" {
 		t.Fatalf("machines %+v head %+v", got.Machines, got.HeadMachines)
+	}
+	if got.Resolution != nil {
+		t.Fatalf("open conflict has a resolution %+v", got.Resolution)
+	}
+
+	// A resolved conflict is listed only with ?resolved=true.
+	if err := s.Catalog.ResolveConflict(t.Context(), got.ArtifactID, catalog.ResolutionKeptHead, "user:ada", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	list := func(query string) (int, protocol.ConflictsResponse) {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v1/conflicts"+query, nil)
+		req.Header.Set("Authorization", "Bearer sekret")
+		h.ServeHTTP(rr, req)
+		var body protocol.ConflictsResponse
+		if rr.Code == http.StatusOK {
+			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rr.Code, body
+	}
+	for _, q := range []string{"", "?resolved=false"} {
+		if code, body := list(q); code != http.StatusOK || len(body.Conflicts) != 0 {
+			t.Fatalf("%q: %d %+v", q, code, body)
+		}
+	}
+	code, body := list("?resolved=true")
+	if code != http.StatusOK || len(body.Conflicts) != 1 || body.Conflicts[0].Resolution == nil || body.Conflicts[0].Resolution.Resolution != catalog.ResolutionKeptHead || body.Conflicts[0].Resolution.ResolvedBy != "user:ada" {
+		t.Fatalf("resolved: %d %+v", code, body)
+	}
+	for _, q := range []string{"?resolved=yes", "?resolved=true&resolved=false"} {
+		if code, _ := list(q); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", q, code)
+		}
 	}
 }
 

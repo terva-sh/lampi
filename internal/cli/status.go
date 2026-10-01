@@ -169,6 +169,7 @@ func writeLakeStatus(env Env, state string, lake config.Lake) error {
 	fmt.Fprintf(w, "health: %s\n", probeHealth(lake.Server.Value))
 	fmt.Fprint(w, probeCatalog(lake.Server.Value, token))
 	fmt.Fprint(w, probeRelease(lake.Server.Value, token))
+	fmt.Fprint(w, probeBays("", lake.Server.Value, token, lake.Bays))
 	return nil
 }
 
@@ -249,6 +250,12 @@ func lastAttemptLines(stateDir string) string {
 	out += fmt.Sprintf("last_skipped: %d\n", a.Skipped)
 	for _, line := range a.SkippedLines {
 		out += "  " + line + "\n"
+	}
+	if a.NoBay > 0 {
+		out += fmt.Sprintf("no_bay: %d waiting; nothing places them and the lake's default bay is off: ask its admin for a bay, or see terva-lampi bays which\n", a.NoBay)
+		for _, line := range a.NoBayLines {
+			out += "  " + line + "\n"
+		}
 	}
 	return out
 }

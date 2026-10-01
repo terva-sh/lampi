@@ -39,6 +39,12 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 	env := Env{Stdout: &buf, Stderr: &buf, Getenv: agentGetenv(home, cfg, state)}
 	go func() { done <- runAgentLoop(ctx, env, "", "") }()
 
+	// The lake keeps only the newest report, and a report carries only
+	// the newest sync. A profile reload can land before the watch starts
+	// and leave a second pass right after the upload, which finds the
+	// session unchanged and replaces the upload's report before a poll
+	// sees it (TKT-01M3MJDS). So wait for the session in the lake and a
+	// report whose sync saw it, uploaded or already there.
 	var got catalog.DeviceReport
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -46,7 +52,11 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(all) == 1 && all[0].Report.LastSync != nil && all[0].Report.LastSync.Uploaded == 1 {
+		n, err := lake.Catalog.Counts(t.Context(), catalog.AllBays())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) == 1 && n.Sessions == 1 && all[0].Report.LastSync != nil && all[0].Report.LastSync.Uploaded+all[0].Report.LastSync.Unchanged == 1 {
 			got = all[0]
 			break
 		}
@@ -83,7 +93,7 @@ func TestAgentReportsItsSyncAndProfileToTheLake(t *testing.T) {
 	if r.Inventory != "sociable" {
 		t.Fatalf("report inventory mode %q", r.Inventory)
 	}
-	if r.AgentVersion != agentVersion() || r.MachineID == "" || r.Profile != "default" || !strings.HasPrefix(r.ProfileVersion, "sha256:") {
+	if r.AgentVersion != agentVersion() || r.MachineID == "" || r.Profile != "default" || !strings.HasPrefix(r.ProfileVersion, "sha256:") || r.Pinned == nil || !*r.Pinned {
 		t.Fatalf("report %+v", r)
 	}
 	// work has no allow rule of its own, so the lake's rules are in force.
@@ -105,8 +115,12 @@ func TestReportKeepsTheLastFinishedSyncThroughAnError(t *testing.T) {
 		t.Fatalf("error %q at %v", rep.LastError, rep.LastErrorAt)
 	}
 	r.noteSync(upload.Result{Checked: 3, Unchanged: 3}, nil, t0.Add(2*time.Minute))
-	if rep := r.report(); rep.LastError != "" || rep.LastSync.Unchanged != 3 || rep.AllowSource != "local" {
+	if rep := r.report(); rep.LastError != "" || rep.LastSync.Unchanged != 3 || rep.AllowSource != "local" || rep.Pinned == nil || *rep.Pinned {
 		t.Fatalf("after success %+v", rep)
+	}
+	r.noteSync(upload.Result{Checked: 2, NoBay: []string{"terva a", "terva b"}}, nil, t0.Add(3*time.Minute))
+	if rep := r.report(); rep.LastSync.NoBay != 2 {
+		t.Fatalf("no_bay %+v", rep.LastSync)
 	}
 }
 

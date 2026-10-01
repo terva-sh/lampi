@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/protocol"
@@ -21,14 +22,16 @@ import (
 const conflictsUsage = `terva-lampi conflicts — list divergent_copy artifacts
 
 usage:
-  terva-lampi conflicts [--data DIR]
-  terva-lampi conflicts --server URL [--token-file PATH]
-  terva-lampi conflicts --lake NAME [--server URL] [--token-file PATH]
+  terva-lampi conflicts [--resolved] [--data DIR]
+  terva-lampi conflicts [--resolved] --server URL [--token-file PATH]
+  terva-lampi conflicts [--resolved] --lake NAME [--server URL] [--token-file PATH]
 
-Lists catalog artifacts whose relation is divergent_copy. The head
-that stayed is named beside the divergent digest. Provenance supplies
-the machines that posted each digest. Nothing is merged and the head
-does not move.
+Lists catalog artifacts whose relation is divergent_copy and that no
+one has resolved. The head that stayed is named beside the divergent
+digest. Provenance supplies the machines that posted each digest.
+Nothing is merged and the head does not move. --resolved lists the
+resolved ones too, each with a resolution line: kept_head, made_head,
+superseded or not_a_conflict, then when and by whom.
 
 With no --server, the command reads catalog.db in the lake directory.
 That is the directory serve uses. A missing catalog file is an empty
@@ -52,7 +55,9 @@ func runConflicts(env Env, args []string) error {
 		return nil
 	}
 	var data, serverFlag, tokenFlag, lakeFlag string
+	var resolved bool
 	rest, err := parseFlags(env, args, conflictsUsage, func(fs *flag.FlagSet) {
+		fs.BoolVar(&resolved, "resolved", false, "list resolved conflicts too")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&lakeFlag, "lake", "", "lake name from config.json")
 		fs.StringVar(&serverFlag, "server", "", "lake base URL")
@@ -85,7 +90,7 @@ func runConflicts(env Env, args []string) error {
 		if err != nil {
 			return err
 		}
-		body, err := fetchConflicts(lakes[0].Server.Value, token)
+		body, err := fetchConflicts(lakes[0].Server.Value, token, resolved)
 		if err != nil {
 			return err
 		}
@@ -97,10 +102,10 @@ func runConflicts(env Env, args []string) error {
 			return err
 		}
 	}
-	return writeLocalConflicts(env.stdout(), data)
+	return writeLocalConflicts(env.stdout(), data, resolved)
 }
 
-func writeLocalConflicts(w io.Writer, data string) error {
+func writeLocalConflicts(w io.Writer, data string, resolved bool) error {
 	path := filepath.Join(data, "catalog.db")
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -113,19 +118,26 @@ func writeLocalConflicts(w io.Writer, data string) error {
 		return err
 	}
 	defer cat.Close()
-	rows, err := cat.DivergentCopies(context.Background())
+	rows, err := cat.DivergentCopies(context.Background(), catalog.AllBays(), resolved)
 	if err != nil {
 		return err
 	}
-	return writeConflicts(w, asProtocolConflicts(rows))
+	return writeConflicts(w, api.WireConflicts(rows))
 }
 
-func fetchConflicts(server, token string) (protocol.ConflictsResponse, error) {
+// fetchConflicts asks for resolved conflicts only when resolved is set,
+// so a lake from before resolutions, which ignores the query, answers
+// the same request it always did.
+func fetchConflicts(server, token string, resolved bool) (protocol.ConflictsResponse, error) {
 	if err := upload.CheckToken(server, token); err != nil {
 		return protocol.ConflictsResponse{}, err
 	}
 	client := http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(server, "/")+"/v1/conflicts", nil)
+	u := strings.TrimRight(server, "/") + "/v1/conflicts"
+	if resolved {
+		u += "?resolved=true"
+	}
+	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return protocol.ConflictsResponse{}, err
 	}
@@ -157,27 +169,6 @@ func fetchConflicts(server, token string) (protocol.ConflictsResponse, error) {
 	return out, nil
 }
 
-func asProtocolConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
-	out := make([]protocol.DivergentCopy, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, protocol.DivergentCopy{
-			SessionUID:      row.SessionUID,
-			ArtifactID:      row.ArtifactID,
-			Harness:         row.Harness,
-			NativeSessionID: row.NativeID,
-			Kind:            row.Kind,
-			RelPath:         row.RelPath,
-			SHA256:          row.SHA256,
-			Size:            row.Size,
-			HeadSHA256:      row.HeadSHA256,
-			HeadSize:        row.HeadSize,
-			Machines:        row.Machines,
-			HeadMachines:    row.HeadMachines,
-		})
-	}
-	return out
-}
-
 func writeConflicts(w io.Writer, rows []protocol.DivergentCopy) error {
 	if rows == nil {
 		rows = []protocol.DivergentCopy{}
@@ -197,6 +188,9 @@ func writeConflicts(w io.Writer, rows []protocol.DivergentCopy) error {
 		fmt.Fprintf(w, "head_size: %d\n", row.HeadSize)
 		fmt.Fprintf(w, "machines: %s\n", strings.Join(row.Machines, ", "))
 		fmt.Fprintf(w, "head_machines: %s\n", strings.Join(row.HeadMachines, ", "))
+		if res := row.Resolution; res != nil {
+			fmt.Fprintf(w, "resolution: %s at %s by %s\n", res.Resolution, res.ResolvedAt, res.ResolvedBy)
+		}
 	}
 	return nil
 }

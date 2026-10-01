@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -87,6 +88,9 @@ type profilePreview struct {
 	// LocalAllow counts the devices the allow rules do not reach, shown
 	// when the allow rules change.
 	LocalAllow int
+	// Reach is what the change does to the devices' projects, set when
+	// the project rules change.
+	Reach *profileReach
 }
 
 type profileEditView struct {
@@ -104,6 +108,10 @@ type profileEditView struct {
 	ReturnLabel string
 	Form        profileForm
 	Preview     *profilePreview
+	// Covered and Folds are the editor's offers to shorten the allow
+	// list, from the rules the form holds.
+	Covered []coveredRule
+	Folds   []ownerFold
 }
 
 // setReturn takes the form's return field, when it names a page the
@@ -124,6 +132,7 @@ func normalizeRules(in []config.ProjectMatch) []config.ProjectMatch {
 			GitRemote:       config.NormalizeRemote(r.GitRemote),
 			GitRemotePrefix: config.NormalizeRemote(r.GitRemotePrefix),
 			CWDHash:         strings.ToLower(strings.TrimSpace(r.CWDHash)),
+			CWDGlob:         strings.TrimSpace(r.CWDGlob),
 		}
 		if r != (config.ProjectMatch{}) {
 			out = append(out, r)
@@ -199,7 +208,7 @@ func readRules(v url.Values, list string) ([]config.ProjectMatch, error) {
 	for i := range rows {
 		p := list + "." + strconv.Itoa(i) + "."
 		rows[i] = config.ProjectMatch{CWDPrefix: v.Get(p + "cwd_prefix"), GitRemote: v.Get(p + "git_remote"),
-			GitRemotePrefix: v.Get(p + "git_remote_prefix"), CWDHash: v.Get(p + "cwd_hash")}
+			GitRemotePrefix: v.Get(p + "git_remote_prefix"), CWDHash: v.Get(p + "cwd_hash"), CWDGlob: v.Get(p + "cwd_glob")}
 	}
 	return rows, nil
 }
@@ -325,6 +334,8 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
+	allow := normalizeRules(v.Form.Allow)
+	v.Covered, v.Folds = coveredRules(allow), ownerFolds(allow)
 	title := "Edit profile " + v.Name
 	if v.New {
 		title = "New profile " + v.Name
@@ -395,6 +406,21 @@ func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profi
 			}
 		}
 	}
+	if slices.ContainsFunc(pv.Changed, func(c string) bool { return c == "projects.allow" || c == "projects.deny" }) {
+		st := storedProfile{Version: cur.Version()}
+		if stored {
+			sp, err := s.catalog.ProfileByName(r.Context(), name)
+			if err != nil {
+				return nil, err
+			}
+			st.Saved = sp.Updated
+		}
+		reach, err := s.reach(r.Context(), cur.Projects, p.Projects, st, pv.Devices)
+		if err != nil {
+			return nil, err
+		}
+		pv.Reach = &reach
+	}
 	return pv, nil
 }
 
@@ -415,6 +441,9 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 	v := profileEditView{Name: name, Stored: stored, New: !stored && name != config.DefaultProfile}
 	s.setReturn(r, &v, r.PostForm.Get("return"))
 	f, p, err := readProfileForm(r.PostForm)
+	if err == nil {
+		tidyForm(r.PostForm, &f, &p)
+	}
 	v.Form = f
 	if err == nil {
 		raw, _ := json.Marshal(p)

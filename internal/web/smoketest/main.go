@@ -74,11 +74,7 @@ func run() error {
 				return err
 			}
 			m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: fmt.Sprintf("synthetic-machine-%d", i%3), Harness: harness, NativeSessionID: native, Project: protocol.Project{CWD: fmt.Sprintf("/synthetic/project-%d", i%4)}, Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "session.jsonl", SHA256: sha, Size: int64(len(body))}}}
-			relation := protocol.RelationHead
-			if i%17 == 0 {
-				relation = protocol.RelationDivergentCopy
-			}
-			ack, err := lake.Catalog.Ingest(ctx, m, time.Now().Add(time.Duration(-i)*time.Minute), []catalog.Decision{{Relation: relation, Record: true, Head: true}}, nil)
+			ack, err := lake.Catalog.Ingest(ctx, m, time.Now().Add(time.Duration(-i)*time.Minute), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
 			if err != nil {
 				return err
 			}
@@ -148,6 +144,9 @@ func run() error {
 		if err := seedDevices(ctx, lake, time.Now()); err != nil {
 			return err
 		}
+		if err := seedConflicts(ctx, lake, time.Now()); err != nil {
+			return err
+		}
 	}
 	started := time.Now().Add(-26 * time.Hour)
 	ops := &web.Operations{Version: "v0.0.0-smoke", Release: "v0.2.0", Started: started, LakeID: func() string { return "lake_synthetic_smoke" }, Contacts: lake.Contacts}
@@ -208,6 +207,22 @@ func transcript(n int, native, harness string) []normalize.Event {
 		add(normalize.ActorHarness, normalize.EventUsage, "", func(e *normalize.Event) {
 			e.Usage = normalize.Usage{Input: num(1200 + turn), Output: num(300), CacheRead: num(0)}
 		})
+		// Bookkeeping records with nothing to read: four in a row fold
+		// into one run, two stay as cards, and a titled one is shown.
+		quiet := func(raw string) {
+			add(normalize.ActorHarness, normalize.EventUnknown, "", func(e *normalize.Event) { e.RawType = raw })
+		}
+		switch turn {
+		case 1:
+			quiet("file-history-snapshot")
+			quiet("queue-operation")
+			quiet("file-history-snapshot")
+			quiet("file-history-snapshot")
+			add(normalize.ActorHarness, normalize.EventUnknown, "Synthetic session title", func(e *normalize.Event) { e.RawType = "ai-title" })
+		case 2:
+			quiet("file-history-snapshot")
+			quiet("file-history-snapshot")
+		}
 		if turn == 5 {
 			add(normalize.ActorAssistant, normalize.EventMessage, strings.Repeat("A very long synthetic answer line. ", 2000), nil)
 			add(normalize.ActorAssistant, normalize.EventMessage, "Reasoning is stored encrypted.", func(e *normalize.Event) {
@@ -316,6 +331,13 @@ func seedDevices(ctx context.Context, lake *api.Server, now time.Time) error {
 		{AgentVersion: "0.0.0", ProfileVersion: "sha256:0000000000000000", AllowSource: "local", DenySource: "local",
 			LastError: "upload: POST /v1/hello: 503 Service Unavailable", LastErrorAt: now.Add(-2 * time.Hour)},
 	}
+	// The laptop and desktop post as the first two synthetic machines,
+	// so the pages that name machines show device names.
+	for i := range 2 {
+		if _, err := lake.Catalog.BindMachine(ctx, created[i].ID, fmt.Sprintf("synthetic-machine-%d", i), now); err != nil {
+			return err
+		}
+	}
 	for i, rep := range reports {
 		if err := lake.Catalog.PutDeviceReport(ctx, created[i].ID, rep, now.Add(-time.Duration(i)*time.Minute)); err != nil {
 			return err
@@ -339,4 +361,46 @@ func seedDevices(ctx context.Context, lake *api.Server, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// seedConflicts forks four of the Claude sessions above into the
+// conflicts the Conflicts page explains: a session a second machine
+// wrote, a file rewritten shorter, a path the harness kept appending to
+// after a rewrite, and one already resolved. Each head is "synthetic
+// session N" from machine N%3 at session.jsonl.
+func seedConflicts(ctx context.Context, lake *api.Server, now time.Time) error {
+	post := func(n, machine int, rel, body string) (string, error) {
+		sum := sha256.Sum256([]byte(body))
+		sha := hex.EncodeToString(sum[:])
+		if _, err := lake.CAS.Put(sha, strings.NewReader(body), int64(len(body))); err != nil {
+			return "", err
+		}
+		m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: fmt.Sprintf("synthetic-machine-%d", machine), Harness: "claude", NativeSessionID: fmt.Sprintf("Session %03d · synthetic claude", n),
+			Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: rel, SHA256: sha, Size: int64(len(body))}}}
+		ack, err := lake.Catalog.Ingest(ctx, m, now, []catalog.Decision{{Relation: protocol.RelationDivergentCopy, Record: true}}, nil)
+		if err != nil {
+			return "", err
+		}
+		return ack.ArtifactIDs[0], nil
+	}
+	forks := []struct {
+		n, machine int
+		rel, body  string
+	}{
+		{1, 0, "desktop-home/session.jsonl", "synthetic session 1, resumed on another machine"},
+		{7, 1, "session.jsonl", "{}\n"},
+		{13, 1, "session.jsonl", "{\"type\":\"summary\"}\n"},
+		{13, 1, "session.jsonl", "{\"type\":\"summary\"}\n{\"turn\":1}\n"},
+		{13, 1, "session.jsonl", "{\"type\":\"summary\"}\n{\"turn\":1}\n{\"turn\":2}\n"},
+		{19, 1, "session.jsonl", "{\"old\":1}\n"},
+	}
+	var settled string
+	for _, f := range forks {
+		id, err := post(f.n, f.machine, f.rel, f.body)
+		if err != nil {
+			return err
+		}
+		settled = id
+	}
+	return lake.Catalog.ResolveConflict(ctx, settled, catalog.ResolutionKeptHead, "synthetic operator", "", now)
 }

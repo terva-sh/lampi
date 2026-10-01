@@ -53,6 +53,7 @@ func (r *lakeRunner) noteSync(res upload.Result, err error, now time.Time) {
 			Refused:     res.Refused,
 			Quarantined: res.Quarantined,
 			Unchanged:   res.Unchanged,
+			NoBay:       len(res.NoBay),
 		}
 		s.err, s.errAt = "", time.Time{}
 	} else {
@@ -89,7 +90,9 @@ func (r *lakeRunner) report() protocol.AgentReport {
 	if rep.AllowSource == "" {
 		rep.AllowSource = config.OriginLocal
 	}
-	if lakeprofile.Pinned(l.cfg) {
+	pinned := lakeprofile.Pinned(l.cfg)
+	rep.Pinned = &pinned
+	if pinned {
 		if d, ok, err := lakeprofile.Load(l.opt.LakeStateDir, l.cfg); err == nil && ok {
 			rep.Profile, rep.ProfileVersion = d.Payload.Profile, d.Payload.Version
 		}

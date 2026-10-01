@@ -14,8 +14,9 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi serve` | Lake. `GET /healthz`, `GET /v1/stats`, `GET /v1/conflicts`, blob check and put, manifests, and the dashboard when `--web-config` is set. `--metrics-addr` adds a loopback Prometheus listener. `--behind-proxy` says TLS terminates in a proxy in front, as in a container on a private network: a non-loopback `--addr` then logs one line instead of the plaintext warning. It needs `--token-file` with at least one token. |
 | `terva-lampi serve backup` | Copy the catalog (`VACUUM INTO`), the CAS, `identity.json`, and the token file to `--out`. Runs while `serve` runs. With `--archive FILE --recipient age1…` (or `--recipients-file`), write the same set to one age-encrypted archive instead. |
 | `terva-lampi serve restore` | Decrypt an archive from `serve backup --archive` with `--identity-file` into a new or empty `--data` directory, then check it as `serve fsck` does. Removes what it wrote on failure. |
-| `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones. `--repair` removes them, with `serve` stopped. |
+| `terva-lampi serve fsck` | Re-hash every CAS object and name the bad ones, and check that every session is in a bay and every bay reference names a bay that exists. `--repair` removes bad objects, with `serve` stopped; it does not change bays. |
 | `terva-lampi serve devices` | List the lake's devices, or `revoke`, `unbind`, or `set-profile` one by name. Runs while `serve` runs. A revoke takes effect on the next request. |
+| `terva-lampi serve bays` | List bays, or `create`, `rename`, `alias`, `unalias`, `delete` one, turn the default bay `on` or `off`, `grants`, `grant` or `revoke` read and write on a bay for an IdP group, a device or a read token, list, add (`rule`) or remove (`unrule`) the lake's hold, add and deny routing `rules`, list `holds` or `release` a held session, list the `inbox` with a reason for each session, `move` sessions between bays by filter, and `apply-rules` to stored sessions; `move` and `apply-rules` take `--dry-run`. Runs while `serve` runs. A rename keeps the old name as an alias. A delete moves sessions left in no other bay to the default and deletes no data. See [policy.md](policy.md#bays) and [bays-inbox.md](bays-inbox.md). |
 | `terva-lampi serve identity` | Print the lake id, public URL, and each signing key's fingerprint. `set-url URL` records the URL agents reach the lake at. `rotate` adds a key and `retire KEY-ID` ends one; see [Rotating and retiring keys](policy.md#rotating-and-retiring-keys). Runs while `serve` runs. |
 | `terva-lampi serve register` | Mint a one-time registration code for a new machine (`--name`, `--expires`, `--profile`), or `--list` and `--revoke` them. |
 | `terva-lampi serve normalize` | Queue sessions to be normalized again: `--all`, `--stale` (the dashboard's unknown), `--failed`, or `--session UID`. `--all` rewrites every derived file after an upgrade changes how they are written. `--status` queues nothing and prints sessions by state, the jobs outstanding (queued or running) and how long ago the oldest was queued, and each failed session with its message, from the catalog, with or without `serve` running; `--json` prints the `/v1/stats` normalization object. `--dry-run` lists them. Runs while `serve` runs; serve starts the jobs on SIGHUP or at its next start. |
@@ -32,7 +33,9 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi sync` | One pass: allowlist, ruleset v2, watermark, outbox, then PUT missing blobs and POST manifests. |
 | `terva-lampi status` | Machine id, harnesses, outbox, watermarks, last sync and attempt, skipped files, server and token file, lake health, and catalog counts. See [What status prints](agent.md#what-status-prints). |
 | `terva-lampi register` | Join a lake with a registration code, read from stdin, a prompt, or `--code-file`. See [Registering a machine](registration-and-lakes.md#registering-a-machine). `--install-service` enables the user unit. |
-| `terva-lampi lakes` | List the lakes this machine reports to, or `remove` one. |
+| `terva-lampi bays` | For each lake, the bays this device may write, and any bay config.json asks for that is not among them. |
+| `terva-lampi bays which [PATH]` | For each lake, whether a session started at PATH (default: the current directory) uploads there, the bays it asks for, and the rule or `default` that named each. `--harness H` matches rules that name a harness. See [Asking for bays](registration-and-lakes.md#asking-for-bays). |
+| `terva-lampi lakes` | List the lakes this machine reports to, `remove` one, or `adopt` one it already syncs to with a device token: pin its key and take its profile, keeping the device, machine id and sync state. `--allow-from profile` hands the allow rules to the profile after listing what that would stop uploading. See [Adopting a lake](registration-and-lakes.md#adopting-a-lake-a-machine-already-syncs-to). |
 | `terva-lampi login` | Write `~/.config/terva-lampi/token` (mode 0600). |
 | `terva-lampi quarantine` | `list` the redaction hits held on this machine, or `allow` one digest to upload with an `override` stamp. See [Quarantine](allowlist-and-redaction.md#quarantine). |
 | `terva-lampi self-update` | Install the release the lake runs, capped at the newest release, checked against `checksums.txt`, and restart the agent service. `--check` exits 10, 11 or 12 when a patch, minor or major update is available. See [Upgrading an agent](../deploy/README.md#upgrading-an-agent). |
@@ -42,12 +45,14 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | Command | What it does |
 |---------|--------------|
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT dataset. See [Export](#export). |
-| `terva-lampi conflicts` | List `divergent_copy` artifacts from the catalog: session, digests, and machines. |
+| `terva-lampi conflicts` | List unresolved `divergent_copy` artifacts from the catalog: session, digests, and machines. `--resolved` adds resolved ones with their resolution. |
 
 ## Export
 
 `terva-lampi export --format events`, the default, writes one
-normalized event per line.
+normalized event per line. `--bay`, repeated, limits either format to
+the sessions in those [bays](policy.md#bays); without it export reads
+every bay, as anything that reads the lake directory does.
 
 `--format sharegpt` and `--format trajectory` write one ShareGPT
 conversation per session that `config.json` allowlists and that has a

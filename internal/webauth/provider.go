@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,10 @@ import (
 	"golang.org/x/oauth2"
 	"terva.sh/lampi/internal/webconfig"
 )
+
+// maxGroups bounds the groups one identity keeps, so a token naming
+// thousands cannot grow a session without limit.
+const maxGroups = 256
 
 var ErrProvider = errors.New("identity provider unavailable")
 var ErrIdentity = errors.New("identity response did not verify")
@@ -35,6 +40,13 @@ type Identity struct {
 	Operator bool
 	Admin    bool
 	AuthTime time.Time
+	// Groups are the IdP groups the ID token named, sorted, at most
+	// maxGroups: those role_map names first, then the rest in claim
+	// order. role_map decides the role, from these groups only; bay grants are held by
+	// group, so these decide which bays a viewer or operator reads
+	// (TKT-01M3N8KHW5), including groups that map to no role. They are
+	// a snapshot taken at sign-in.
+	Groups []string
 }
 type discovered struct {
 	oauth    oauth2.Config
@@ -232,7 +244,20 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 			break
 		}
 	}
-	for _, g := range groups(claims[p.cfg.OIDC.GroupsClaim]) {
+	claimed := groups(claims[p.cfg.OIDC.GroupsClaim])
+	// A group that gives a role is kept before the cap applies, and the
+	// role comes only from a group that was kept, so a role and the bay
+	// grants of the group that gave it never part (reviews 1401, 1402).
+	// Other groups fill the rest in claim order.
+	for _, roles := range []bool{true, false} {
+		for _, g := range claimed {
+			_, role := p.cfg.OIDC.RoleMap[g]
+			if role == roles && len(out.Groups) < maxGroups && !slices.Contains(out.Groups, g) {
+				out.Groups = append(out.Groups, g)
+			}
+		}
+	}
+	for _, g := range out.Groups {
 		switch p.cfg.OIDC.RoleMap[g] {
 		case webconfig.RoleViewer:
 			out.Viewer = true
@@ -242,6 +267,7 @@ func (p *Provider) Exchange(ctx context.Context, code, nonce, verifier string) (
 			out.Viewer, out.Operator, out.Admin = true, true, true
 		}
 	}
+	slices.Sort(out.Groups)
 	var authTime json.Number
 	if raw, ok := claims["auth_time"]; ok && json.Unmarshal(raw, &authTime) == nil {
 		if sec, err := authTime.Int64(); err == nil && sec > 0 {

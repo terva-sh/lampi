@@ -239,7 +239,7 @@ func TestProjectReviewMigrationSeedsSightings(t *testing.T) {
 	t1 := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	laptop := reviewDevices(t, c, t1, "laptop")[0]
 	putInventory(t, c, laptop.ID, t1, protocol.InventorySociable, appRemote, scratch)
-	if _, err := c.db.Exec(`DROP TABLE project_sightings; DROP TABLE hidden_projects; DELETE FROM lake_meta WHERE key='sightings_since'; PRAGMA user_version = ` + strconv.Itoa(len(migrations)-1)); err != nil {
+	if _, err := c.db.Exec(`DROP TABLE project_sightings; DROP TABLE hidden_projects; DROP TABLE read_tokens; DROP TABLE conflict_resolutions; DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; DROP TABLE bay_rules; DROP TABLE session_holds; ALTER TABLE registrations DROP COLUMN bays; DELETE FROM lake_meta WHERE key='sightings_since'; PRAGMA user_version = ` + strconv.Itoa(projectReviewFrom)); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Close(); err != nil {
@@ -259,3 +259,7 @@ func TestProjectReviewMigrationSeedsSightings(t *testing.T) {
 		t.Fatalf("sightings since %v %v", since, err)
 	}
 }
+
+// projectReviewFrom is the schema version just before migrateProjectReview,
+// migration 16. Later migrations are appended after it, so this stays put.
+const projectReviewFrom = 15

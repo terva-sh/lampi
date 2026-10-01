@@ -23,6 +23,9 @@ type PageRequest struct {
 	Limit    int
 	Cursor   string
 	Current  bool
+	// Resolved includes resolved conflicts. Only the conflicts
+	// collection takes it.
+	Resolved bool
 }
 type Page[T any] struct {
 	Items      []T    `json:"items"`
@@ -65,7 +68,17 @@ type Record struct {
 	Current    bool   `json:"current"`
 	MachineID  string `json:"machine_id,omitempty"`
 	HeadSHA256 string `json:"head_sha256,omitempty"`
-	row        int64
+	// Resolution names what was decided about a conflict, when it was
+	// resolved.
+	Resolution string `json:"resolution,omitempty"`
+	// A conflict also carries the head's size, the machines that posted
+	// each side, and how many copies sit at its path. Other collections
+	// leave these empty.
+	HeadSize     int64    `json:"head_size,omitempty"`
+	Machines     []string `json:"machines,omitempty"`
+	HeadMachines []string `json:"head_machines,omitempty"`
+	CopiesAtPath int      `json:"copies_at_path,omitempty"`
+	row          int64
 }
 type pageCursor struct {
 	Version int    `json:"v"`
@@ -202,22 +215,29 @@ func migrateDashboard(tx *sql.Tx) error {
 	return err
 }
 
-func (c *Catalog) DashboardOverview(ctx context.Context) (Overview, error) {
+// DashboardOverview counts what scope reads: sessions, their artifacts,
+// the machines that uploaded them, conflicts, and the split by harness
+// and normalization state.
+func (c *Catalog) DashboardOverview(ctx context.Context, scope Scope) (Overview, error) {
 	out := Overview{Harnesses: map[string]int64{}, Normalization: map[string]int64{"pending": 0, "failed": 0, "ready": 0, "unknown": 0}, AsOf: time.Now().UTC().Format(time.RFC3339Nano)}
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return out, err
 	}
 	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM sessions),(SELECT COUNT(*) FROM artifacts),(SELECT COUNT(DISTINCT machine_id) FROM provenance),(SELECT COUNT(*) FROM artifacts WHERE relation='divergent_copy')`).Scan(&out.Sessions, &out.Artifacts, &out.Machines, &out.Conflicts)
+	inS, sArgs := scope.where("s.session_uid")
+	inA, aArgs := scope.where("a.session_uid")
+	inP, pArgs := scope.where("p.session_uid")
+	args := append(append(append(append([]any{}, sArgs...), aArgs...), pArgs...), aArgs...)
+	err = tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM sessions s WHERE `+inS+`),(SELECT COUNT(*) FROM artifacts a WHERE `+inA+`),(SELECT COUNT(DISTINCT machine_id) FROM provenance p WHERE `+inP+`),(SELECT COUNT(*) FROM artifacts a WHERE a.relation='divergent_copy' AND `+unresolvedSQL+` AND `+inA+`)`, args...).Scan(&out.Sessions, &out.Artifacts, &out.Machines, &out.Conflicts)
 	if err != nil {
 		return out, err
 	}
 	for _, q := range []struct {
 		sql  string
 		dest map[string]int64
-	}{{`SELECT harness,COUNT(*) FROM sessions GROUP BY harness`, out.Harnesses}, {`SELECT ` + normalizationStateSQL + `,COUNT(*) FROM sessions s GROUP BY 1`, out.Normalization}} {
-		rows, err := tx.QueryContext(ctx, q.sql)
+	}{{`SELECT s.harness,COUNT(*) FROM sessions s WHERE ` + inS + ` GROUP BY s.harness`, out.Harnesses}, {`SELECT ` + normalizationStateSQL + `,COUNT(*) FROM sessions s WHERE ` + inS + ` GROUP BY 1`, out.Normalization}} {
+		rows, err := tx.QueryContext(ctx, q.sql, sArgs...)
 		if err != nil {
 			return out, err
 		}
@@ -245,9 +265,9 @@ const sessionColumns = `s.session_uid,substr(s.native_session_id,1,512),s.harnes
  (SELECT COUNT(DISTINCT p.machine_id) FROM provenance p WHERE p.session_uid=s.session_uid),
  (SELECT json_group_array(machine) FROM (SELECT DISTINCT substr(p.machine_id,1,128) machine FROM provenance p WHERE p.session_uid=s.session_uid ORDER BY machine LIMIT 5))`
 
-func sessionFilters(r PageRequest) ([]string, []any) {
-	where := []string{"1=1"}
-	args := []any{}
+func sessionFilters(scope Scope, r PageRequest) ([]string, []any) {
+	cond, args := scope.where("s.session_uid")
+	where := []string{cond}
 	if r.Harness != "" {
 		where = append(where, "s.harness=?")
 		args = append(args, r.Harness)
@@ -264,8 +284,8 @@ func sessionFilters(r PageRequest) ([]string, []any) {
 	}
 	return where, args
 }
-func sessionSQL(r PageRequest, cur pageCursor, uid string) (string, []any) {
-	where, args := sessionFilters(r)
+func sessionSQL(scope Scope, r PageRequest, cur pageCursor, uid string) (string, []any) {
+	where, args := sessionFilters(scope, r)
 	if uid != "" {
 		where = append(where, "s.session_uid=?")
 		args = append(args, uid)
@@ -277,16 +297,21 @@ func sessionSQL(r PageRequest, cur pageCursor, uid string) (string, []any) {
 	args = append(args, r.Limit+1)
 	return `SELECT ` + sessionColumns + ` FROM sessions s WHERE ` + strings.Join(where, " AND ") + ` ORDER BY s.web_updated_ns DESC,s.session_uid DESC LIMIT ?`, args
 }
-func (c *Catalog) DashboardSessions(ctx context.Context, r PageRequest) (Page[SessionSummary], error) {
-	return c.dashboardSessions(ctx, r, "")
+
+// DashboardSessions pages the sessions scope reads.
+func (c *Catalog) DashboardSessions(ctx context.Context, scope Scope, r PageRequest) (Page[SessionSummary], error) {
+	return c.dashboardSessions(ctx, scope, r, "")
 }
-func (c *Catalog) dashboardSessions(ctx context.Context, r PageRequest, uid string) (Page[SessionSummary], error) {
+func (c *Catalog) dashboardSessions(ctx context.Context, scope Scope, r PageRequest, uid string) (Page[SessionSummary], error) {
 	out := emptyPage[SessionSummary]()
+	if r.Resolved {
+		return out, ErrPage
+	}
 	cur, err := r.validate("sessions")
 	if err != nil {
 		return out, err
 	}
-	query, args := sessionSQL(r, cur, uid)
+	query, args := sessionSQL(scope, r, cur, uid)
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return out, err
@@ -311,11 +336,14 @@ func (c *Catalog) dashboardSessions(ctx context.Context, r PageRequest, uid stri
 	}
 	return out, rows.Err()
 }
-func (c *Catalog) DashboardSession(ctx context.Context, uid string) (SessionSummary, error) {
+
+// DashboardSession is one session, or sql.ErrNoRows when it is not
+// stored or not in scope: the two look the same to the caller.
+func (c *Catalog) DashboardSession(ctx context.Context, scope Scope, uid string) (SessionSummary, error) {
 	if uid == "" || len(uid) > 128 {
 		return SessionSummary{}, ErrPage
 	}
-	p, err := c.dashboardSessions(ctx, PageRequest{Limit: 1}, uid)
+	p, err := c.dashboardSessions(ctx, scope, PageRequest{Limit: 1}, uid)
 	if err != nil {
 		return SessionSummary{}, err
 	}
@@ -325,9 +353,10 @@ func (c *Catalog) DashboardSession(ctx context.Context, uid string) (SessionSumm
 	return p.Items[0], nil
 }
 
-// DashboardRecords paginates every child collection as well as the global
-// conflict list. Session identity is bound into the cursor, not trusted from it.
-func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r PageRequest) (Page[Record], error) {
+// DashboardRecords paginates every child collection as well as the
+// conflict list, both limited to scope. Session identity is bound into
+// the cursor, not trusted from it.
+func (c *Catalog) DashboardRecords(ctx context.Context, scope Scope, uid, kind string, r PageRequest) (Page[Record], error) {
 	out := emptyPage[Record]()
 	if len(uid) > 128 {
 		return out, ErrPage
@@ -335,7 +364,7 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 	if kind != "artifacts" && kind != "provenance" && kind != "conflicts" {
 		return out, ErrPage
 	}
-	if uid == "" && kind != "conflicts" {
+	if uid == "" && kind != "conflicts" || r.Resolved && kind != "conflicts" {
 		return out, ErrPage
 	}
 	cur, err := r.validate(kind + ":" + uid)
@@ -348,22 +377,27 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 	var query string
 	var args []any
 	if kind == "provenance" {
-		query = `SELECT p.rowid,p.session_uid,substr(p.machine_id,1,128),p.sha256,substr(p.relpath,1,512) FROM provenance p WHERE p.session_uid=? AND p.rowid>? ORDER BY p.rowid LIMIT ?`
-		args = []any{uid, cur.When, r.Limit + 1}
+		inP, pArgs := scope.where("p.session_uid")
+		query = `SELECT p.rowid,p.session_uid,substr(p.machine_id,1,128),p.sha256,substr(p.relpath,1,512) FROM provenance p WHERE p.session_uid=? AND p.rowid>? AND ` + inP + ` ORDER BY p.rowid LIMIT ?`
+		args = append(append([]any{uid, cur.When}, pArgs...), r.Limit+1)
 	} else {
-		where := []string{"a.artifact_id>?"}
-		args = []any{cur.After}
+		inA, aArgs := scope.where("a.session_uid")
+		where := []string{"a.artifact_id>?", inA}
+		args = append([]any{cur.After}, aArgs...)
 		if uid != "" {
 			where = append(where, "a.session_uid=?")
 			args = append(args, uid)
 		}
 		if kind == "conflicts" {
 			where = append(where, "a.relation='divergent_copy'")
+			if !r.Resolved {
+				where = append(where, unresolvedSQL)
+			}
 		}
 		if r.Current {
 			where = append(where, "a.current=1")
 		}
-		query = `SELECT a.artifact_id,a.session_uid,a.kind,substr(a.relpath,1,512),a.sha256,a.size,a.relation,a.current,s.head_sha256 FROM artifacts a JOIN sessions s ON s.session_uid=a.session_uid WHERE ` + strings.Join(where, " AND ") + ` ORDER BY a.artifact_id LIMIT ?`
+		query = `SELECT a.artifact_id,a.session_uid,a.kind,substr(a.relpath,1,512),a.sha256,a.size,a.relation,a.current,s.head_sha256,COALESCE((SELECT r.resolution FROM conflict_resolutions r WHERE r.artifact_id=a.artifact_id),'') FROM artifacts a JOIN sessions s ON s.session_uid=a.session_uid WHERE ` + strings.Join(where, " AND ") + ` ORDER BY a.artifact_id LIMIT ?`
 		args = append(args, r.Limit+1)
 	}
 	rows, err := c.db.QueryContext(ctx, query, args...)
@@ -377,17 +411,52 @@ func (c *Catalog) DashboardRecords(ctx context.Context, uid, kind string, r Page
 			err = rows.Scan(&a.row, &a.SessionUID, &a.MachineID, &a.SHA256, &a.RelPath)
 			a.ID = fmt.Sprint(a.row)
 		} else {
-			err = rows.Scan(&a.ID, &a.SessionUID, &a.Kind, &a.RelPath, &a.SHA256, &a.Size, &a.Relation, &a.Current, &a.HeadSHA256)
+			err = rows.Scan(&a.ID, &a.SessionUID, &a.Kind, &a.RelPath, &a.SHA256, &a.Size, &a.Relation, &a.Current, &a.HeadSHA256, &a.Resolution)
 		}
 		if err != nil {
 			return out, err
 		}
 		out.Items = append(out.Items, a)
 	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	// One connection: the page query is closed before the reads below.
+	rows.Close()
 	if len(out.Items) > r.Limit {
 		out.Items = out.Items[:r.Limit]
 		last := out.Items[len(out.Items)-1]
 		out.NextCursor = cur.encode(last.ID, last.row)
 	}
-	return out, rows.Err()
+	if kind == "conflicts" {
+		for i := range out.Items {
+			if err := c.describeConflict(ctx, &out.Items[i]); err != nil {
+				return out, err
+			}
+		}
+	}
+	return out, nil
+}
+
+// describeConflict adds what a reader needs to judge a conflict: the
+// head's size, the machines behind each side, and how many open copies
+// share its path, so a session that stopped moving stands out.
+func (c *Catalog) describeConflict(ctx context.Context, a *Record) error {
+	err := c.db.QueryRowContext(ctx, `SELECT
+		COALESCE((SELECT size FROM artifacts WHERE session_uid=? AND sha256=? ORDER BY current DESC, size DESC LIMIT 1), 0),
+		(SELECT COUNT(*) FROM artifacts a WHERE a.session_uid=? AND a.relpath=(SELECT relpath FROM artifacts WHERE artifact_id=?) AND a.relation='divergent_copy' AND `+unresolvedSQL+`)`,
+		a.SessionUID, a.HeadSHA256, a.SessionUID, a.ID).Scan(&a.HeadSize, &a.CopiesAtPath)
+	if err != nil {
+		return err
+	}
+	// RelPath is a display preview, so the full path is read back by id.
+	var rel string
+	if err := c.db.QueryRowContext(ctx, `SELECT relpath FROM artifacts WHERE artifact_id=?`, a.ID).Scan(&rel); err != nil {
+		return err
+	}
+	if a.Machines, err = c.digestMachines(ctx, a.SessionUID, rel, a.SHA256); err != nil {
+		return err
+	}
+	a.HeadMachines, err = c.digestMachines(ctx, a.SessionUID, "", a.HeadSHA256)
+	return err
 }

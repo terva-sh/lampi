@@ -42,8 +42,9 @@ func rawLake(t *testing.T, auditCat func(dir string) *catalog.Catalog) (*api.Ser
 		cat = auditCat(dir)
 	}
 	reg := &Registrations{
-		Lake:  func() registrar.Lake { return registrar.Lake{Catalog: cat, Dir: dir} },
-		Blobs: lake.CAS,
+		Lake:      func() registrar.Lake { return registrar.Lake{Catalog: cat, Dir: dir} },
+		Blobs:     lake.CAS,
+		Normalize: lake.ReloadNormalizeJobs,
 	}
 	lake.Web, err = New(cfg, lake.Catalog, recall.NewReader(lake.Catalog, lake.Normalized), nil, reg, nil, idp.Client())
 	if err != nil {
@@ -52,9 +53,14 @@ func rawLake(t *testing.T, auditCat func(dir string) *catalog.Catalog) (*api.Ser
 	return lake, idp, lake.Handler(), dir
 }
 
+// signInAs signs in as a member of group. The sign-in is fresh unless
+// the test set an older idp.AuthTime.
 func signInAs(t *testing.T, idp *testidp.Server, h http.Handler, group string) *http.Cookie {
 	t.Helper()
 	idp.Groups = []string{group}
+	if idp.AuthTime.IsZero() {
+		idp.AuthTime = time.Now()
+	}
 	c, _ := signIn(t, idp, h)
 	return c
 }
@@ -367,4 +373,17 @@ func TestParseRange(t *testing.T) {
 			t.Errorf("%q/%d: %d %d %v %v", c.h, c.size, s, e, r, ok)
 		}
 	}
+}
+
+// ingestHeld ingests a session recorded under /held, which a hold rule
+// in the test catches.
+func ingestHeld(t *testing.T, lake *api.Server, native string) string {
+	t.Helper()
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: "codex", NativeSessionID: native, Project: protocol.Project{CWD: "/held/app"},
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + "/rollout.jsonl", SHA256: strings.Repeat("cd", 32), Size: 4}}}
+	ack, err := lake.Catalog.Ingest(t.Context(), m, time.Now(), []catalog.Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ack.SessionUID
 }

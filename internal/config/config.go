@@ -143,6 +143,19 @@ func LoadFile(getenv func(string) string) (File, error) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		return File{}, fmt.Errorf("config: %s: %w", path, err)
 	}
+	// A rule that cannot match is refused here, as a profile's is, so a
+	// mistyped deny pattern stops the agent instead of denying nothing.
+	if err := f.Projects.Validate(); err != nil {
+		return File{}, fmt.Errorf("config: %s: %w", path, err)
+	}
+	for name, l := range f.Lakes {
+		if err := l.Projects.Validate(); err != nil {
+			return File{}, fmt.Errorf("config: %s: lakes.%s.%w", path, name, err)
+		}
+		if err := l.Bays.Validate(); err != nil {
+			return File{}, fmt.Errorf("config: %s: lakes.%s.%w", path, name, err)
+		}
+	}
 	return f, nil
 }
 

@@ -210,6 +210,11 @@ var migrations = []func(*sql.Tx) error{
 	migrateProfiles,
 	migrateDeviceInventories,
 	migrateProjectReview,
+	migrateReadTokens,
+	migrateConflictResolutions,
+	migrateBays,
+	migrateBayScopes,
+	migrateBayRules,
 }
 
 // upgrade runs each step above the file's user_version, one
@@ -418,14 +423,18 @@ type Counts struct {
 	Machines  int
 }
 
-// Counts reads how many sessions, artifacts, and machines are stored.
-func (c *Catalog) Counts(ctx context.Context) (Counts, error) {
+// Counts reads how many sessions scope reads, their artifacts, and the
+// machines that uploaded them.
+func (c *Catalog) Counts(ctx context.Context, scope Scope) (Counts, error) {
 	var n Counts
+	inS, sArgs := scope.where("s.session_uid")
+	inA, aArgs := scope.where("a.session_uid")
+	inP, pArgs := scope.where("p.session_uid")
 	err := c.db.QueryRowContext(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM sessions),
-			(SELECT COUNT(*) FROM artifacts),
-			(SELECT COUNT(DISTINCT machine_id) FROM provenance)`).Scan(&n.Sessions, &n.Artifacts, &n.Machines)
+			(SELECT COUNT(*) FROM sessions s WHERE `+inS+`),
+			(SELECT COUNT(*) FROM artifacts a WHERE `+inA+`),
+			(SELECT COUNT(DISTINCT machine_id) FROM provenance p WHERE `+inP+`)`, append(append(append([]any{}, sArgs...), aArgs...), pArgs...)...).Scan(&n.Sessions, &n.Artifacts, &n.Machines)
 	if err != nil {
 		return Counts{}, fmt.Errorf("catalog: %w", err)
 	}
@@ -451,7 +460,11 @@ func (c *Catalog) Ingest(ctx context.Context, m protocol.Manifest, now time.Time
 // artifact, a head that moved, a project id the session did not have,
 // or a session whose last projection failed. A post whose every
 // artifact is unchanged or stale changes none of those.
-func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (ack protocol.ManifestAck, changed bool, err error) {
+func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now time.Time, decisions []Decision, blobs BlobReader) (protocol.ManifestAck, bool, error) {
+	return c.ingest(ctx, m, Route{}, now, decisions, blobs)
+}
+
+func (c *Catalog) ingest(ctx context.Context, m protocol.Manifest, route Route, now time.Time, decisions []Decision, blobs BlobReader) (ack protocol.ManifestAck, changed bool, err error) {
 	if m.CaptureProtocol != protocol.Version {
 		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: capture_protocol %d", m.CaptureProtocol)
 	}
@@ -561,6 +574,10 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 	if err := insertAlias(ctx, tx, m, uid); err != nil {
 		return protocol.ManifestAck{}, false, err
 	}
+	refused, err := routeSession(ctx, tx, uid, !exists, m, route, now)
+	if err != nil {
+		return protocol.ManifestAck{}, false, err
+	}
 	for _, a := range m.Artifacts {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO provenance (session_uid, machine_id, sha256, relpath, ingested_at)
@@ -576,6 +593,7 @@ func (c *Catalog) IngestChanged(ctx context.Context, m protocol.Manifest, now ti
 		HeadSHA256:  newHead,
 		Relation:    ackRelation(m.Artifacts, decisions),
 		ArtifactIDs: make([]string, 0, len(m.Artifacts)),
+		RefusedBays: refused,
 	}
 	for i, a := range m.Artifacts {
 		got, err := applyArtifact(ctx, tx, now, uid, a, decisions[i])
@@ -1149,13 +1167,41 @@ type DivergentCopy struct {
 	HeadSize     int64
 	Machines     []string
 	HeadMachines []string
+	// Resolution is set when the conflict was resolved.
+	Resolution *Resolution
+	// IsHead is set when this artifact is its session's current head,
+	// as after an operator made it the head.
+	IsHead bool
 }
 
-// DivergentCopies lists every divergent_copy artifact, oldest first.
+// DivergentCopies lists the divergent_copy artifacts, oldest first:
+// the unresolved ones, or with resolved every one.
 // The rows are the ones Ingest stored. This does not read the CAS.
 // Machine lists come from provenance for that session, path, and digest.
-// An empty catalog returns an empty slice.
-func (c *Catalog) DivergentCopies(ctx context.Context) ([]DivergentCopy, error) {
+// An empty catalog returns an empty slice. Only sessions in scope are
+// listed.
+func (c *Catalog) DivergentCopies(ctx context.Context, scope Scope, resolved bool) ([]DivergentCopy, error) {
+	return c.divergentCopies(ctx, scope, resolved, "")
+}
+
+// Conflict is the divergent copy artifactID, resolved or not. ok is
+// false when there is no such artifact, it is not a divergent copy, or
+// its session is out of scope.
+func (c *Catalog) Conflict(ctx context.Context, scope Scope, artifactID string) (DivergentCopy, bool, error) {
+	if artifactID == "" {
+		return DivergentCopy{}, false, nil
+	}
+	out, err := c.divergentCopies(ctx, scope, true, artifactID)
+	if err != nil || len(out) == 0 {
+		return DivergentCopy{}, false, err
+	}
+	return out[0], true, nil
+}
+
+// divergentCopies lists the copies in scope, or the one copy artifactID
+// when it is set.
+func (c *Catalog) divergentCopies(ctx context.Context, scope Scope, resolved bool, artifactID string) ([]DivergentCopy, error) {
+	inA, aArgs := scope.where("a.session_uid")
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT
 			a.session_uid,
@@ -1171,11 +1217,17 @@ func (c *Catalog) DivergentCopies(ctx context.Context) ([]DivergentCopy, error) 
 				SELECT size FROM artifacts
 				WHERE session_uid = a.session_uid AND sha256 = s.head_sha256
 				ORDER BY current DESC, size DESC LIMIT 1
-			), 0)
+			), 0),
+			COALESCE(r.resolution, ''),
+			COALESCE(r.resolved_at, ''),
+			COALESCE(r.resolved_by, ''),
+			COALESCE(r.note, ''),
+			a.current = 1 AND a.sha256 = s.head_sha256
 		FROM artifacts a
 		JOIN sessions s ON s.session_uid = a.session_uid
-		WHERE a.relation = ?
-		ORDER BY a.rowid`, protocol.RelationDivergentCopy)
+		LEFT JOIN conflict_resolutions r ON r.artifact_id = a.artifact_id
+		WHERE a.relation = ? AND (? OR r.artifact_id IS NULL) AND (? = '' OR a.artifact_id = ?) AND `+inA+`
+		ORDER BY a.rowid`, append([]any{protocol.RelationDivergentCopy, resolved, artifactID, artifactID}, aArgs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
 	}
@@ -1208,11 +1260,18 @@ func scanDivergentCopies(rows *sql.Rows) ([]DivergentCopy, error) {
 	out := []DivergentCopy{}
 	for rows.Next() {
 		var d DivergentCopy
+		var r Resolution
+		var at string
 		if err := rows.Scan(
 			&d.SessionUID, &d.ArtifactID, &d.Harness, &d.NativeID,
 			&d.Kind, &d.RelPath, &d.SHA256, &d.Size, &d.HeadSHA256, &d.HeadSize,
+			&r.Resolution, &at, &r.By, &r.Note, &d.IsHead,
 		); err != nil {
 			return nil, fmt.Errorf("catalog: divergent_copy: %w", err)
+		}
+		if r.Resolution != "" {
+			r.At = parseStamp(at)
+			d.Resolution = &r
 		}
 		d.Machines = []string{}
 		d.HeadMachines = []string{}

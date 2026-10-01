@@ -105,7 +105,11 @@ type Options struct {
 	LakeStateDir string
 	Client       *http.Client
 	Projects     config.Projects
-	UploadHits   bool
+	// Bays is which bays of this lake each session asks to be in. The
+	// lake ignores it before bays, and places a session only in the bays
+	// this device may write.
+	Bays       config.BayRequests
+	UploadHits bool
 	// ProfileVersion, when set, is called with the lake's
 	// protocol.ProfileVersionHeader from each answer that carries one.
 	ProfileVersion func(string)
@@ -155,6 +159,11 @@ type Result struct {
 	// Skipped names each file or harness left out of this run because
 	// it could not be read. The rest of the run went ahead.
 	Skipped []string
+	// NoBay names each session the lake refused with protocol.CodeNoBay:
+	// nothing placed it and the lake's default bay is off. It stays in
+	// the outbox and is posted again on the next pass, so it uploads
+	// once the lake grants a bay, adds a rule, or turns the default on.
+	NoBay []string
 	// Inventory is every project the run read, allowed or refused, as
 	// Refusals groups them. It is nil when the run failed before it read
 	// the harness homes.
@@ -186,7 +195,7 @@ func (e *Rejected) Error() string {
 func Sync(ctx context.Context, opt Options) (Result, error) {
 	res, err := syncOnce(ctx, opt)
 	if err == nil || ctx.Err() == nil {
-		recordAttempt(opt.lakeState(), opt.now(), res.Skipped, err)
+		recordAttempt(opt.lakeState(), opt.now(), res.Skipped, res.NoBay, err)
 	}
 	return res, err
 }
@@ -322,6 +331,11 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 			}
 			applyChunkLists(&w.manifest, lists)
 			ack, err = postManifest(ctx, client, opt, w.manifest)
+		}
+		if noBay(err) {
+			// Pending, not failed: the other sessions still go.
+			res.NoBay = append(res.NoBay, noBayLine(w.manifest))
+			continue
 		}
 		if err != nil {
 			return res, err
@@ -463,6 +477,28 @@ func clockWarning(client, server time.Time) string {
 		return ""
 	}
 	return fmt.Sprintf("upload: clock skew %s from server_time %s", skew.Truncate(time.Second), server.UTC().Format(time.RFC3339))
+}
+
+// noBay reports whether err is the lake refusing a manifest because
+// nothing places its session (protocol.CodeNoBay).
+func noBay(err error) bool {
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusConflict {
+		return false
+	}
+	var body protocol.ErrorBody
+	return json.Unmarshal([]byte(se.Body), &body) == nil && body.Code == protocol.CodeNoBay
+}
+
+func noBayLine(m protocol.Manifest) string {
+	line := m.Harness + " " + m.NativeSessionID
+	if m.Project.CWD != "" {
+		line += " in " + m.Project.CWD
+	}
+	if len(m.Bays) > 0 {
+		line += " (asked for " + strings.Join(m.Bays, ", ") + ")"
+	}
+	return line
 }
 
 func prefixMismatch(err error) bool {
@@ -916,6 +952,20 @@ func postHello(ctx context.Context, client *http.Client, opt Options) (protocol.
 		}
 	}
 	return out, nil
+}
+
+// HelloPinned is hello with opt.Pin checked: the lake must prove the
+// pinned key over a fresh nonce. lakes adopt uses it to tie a key to the
+// lake that accepts this machine's token.
+func HelloPinned(ctx context.Context, opt Options) (protocol.HelloResponse, error) {
+	if opt.Pin == nil {
+		return protocol.HelloResponse{}, errors.New("upload: HelloPinned needs a pin")
+	}
+	client := opt.Client
+	if client == nil {
+		client = NewClient()
+	}
+	return postHello(ctx, client, opt)
 }
 
 // Pin is the lake identity a registered client checks on every hello:

@@ -137,7 +137,7 @@ func (p Profile) Validate() error {
 	if _, _, err := p.Agent.Windows(); err != nil {
 		return err
 	}
-	return nil
+	return p.Projects.Validate()
 }
 
 // Version names the profile's content: the same fields give the same

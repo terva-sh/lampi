@@ -139,20 +139,8 @@ func runRegister(env Env, args []string) error {
 		return fmt.Errorf("check 3, the lake's keys at %s: %w", c.URL, err)
 	}
 	// 4. A person says it is the lake they meant.
-	fmt.Fprintf(env.stderr(), "lake:        %s\nlake_id:     %s\nfingerprint: %s\n", c.URL, c.LakeID, c.Fingerprint())
-	switch {
-	case fingerprint != "":
-		if !sameFingerprint(fingerprint, c.Fingerprint()) {
-			return fmt.Errorf("check 4, the fingerprint: the lake's key is %s, not %s", c.Fingerprint(), fingerprint)
-		}
-	case interactive:
-		fmt.Fprint(env.stderr(), "Compare the fingerprint with serve identity on the lake host. Register this machine with that lake? [y/N] ")
-		answer, _ := in.ReadString('\n')
-		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
-			return errors.New("check 4, confirmation: not confirmed; nothing was registered")
-		}
-	default:
-		return errors.New("check 4, confirmation: stdin is not a terminal, so pass --fingerprint with the value serve identity prints on the lake host")
+	if err := confirmLake(env, in, interactive, fingerprint, c.URL, c.LakeID, c.Fingerprint(), "check 4, ", "Register this machine with that lake?", "registered"); err != nil {
+		return err
 	}
 
 	file, err := config.LoadFile(env.getenv)
@@ -270,6 +258,29 @@ func runRegister(env Env, args []string) error {
 	fmt.Fprintln(env.stdout(), reloadAgent(state))
 	if install {
 		return installService(env, state)
+	}
+	return nil
+}
+
+// confirmLake shows a lake's URL, id and key fingerprint and has a
+// person confirm it: given must match when it is set, or they answer
+// question on a terminal. With neither it refuses. prefix starts each
+// error, and done names what did not happen.
+func confirmLake(env Env, in *bufio.Reader, interactive bool, given, url, lakeID, fp, prefix, question, done string) error {
+	fmt.Fprintf(env.stderr(), "lake:        %s\nlake_id:     %s\nfingerprint: %s\n", url, lakeID, fp)
+	switch {
+	case given != "":
+		if !sameFingerprint(given, fp) {
+			return fmt.Errorf("%sthe fingerprint: the lake's key is %s, not %s", prefix, fp, given)
+		}
+	case interactive:
+		fmt.Fprintf(env.stderr(), "Compare the fingerprint with serve identity on the lake host. %s [y/N] ", question)
+		answer, _ := in.ReadString('\n')
+		if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+			return fmt.Errorf("%sconfirmation: not confirmed; nothing was %s", prefix, done)
+		}
+	default:
+		return fmt.Errorf("%sconfirmation: stdin is not a terminal, so pass --fingerprint with the value serve identity prints on the lake host", prefix)
 	}
 	return nil
 }

@@ -161,6 +161,9 @@ func (c *Catalog) syncTokens(ctx context.Context, entries []TokenEntry, source s
 			d.ID, d.Name, d.TokenSHA256, d.Source, stamp(d.Created)); err != nil {
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
+		if err := grantDefaultWrite(ctx, tx, d.ID, now); err != nil {
+			return nil, err
+		}
 		created = append(created, d)
 		if source == DeviceFromTokenFile {
 			if err := queueAudit(ctx, tx, now, audit.Event{Kind: audit.DeviceCreated, Device: d.Name, DeviceID: d.ID, Actor: "serve", Detail: "from the token file"}); err != nil {

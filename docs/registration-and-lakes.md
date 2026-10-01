@@ -34,6 +34,9 @@ terva-lampi serve register --name laptop > laptop.code
 terva-lampi serve identity          # note the key fingerprint
 ```
 
+The device uploads into the default [bay](policy.md#bays), the inbox. To
+let it upload into named bays instead, add `--bay NAME` once per bay.
+
 On the machine, fresh or already running an agent:
 
 ```bash
@@ -105,7 +108,90 @@ the original as the client's secret. The token file format, the
 `<name>.token` directory layout, SIGHUP reload, and device binding are
 in [A token file by hand](vps-bringup.md#a-token-file-by-hand-the-fallback).
 A machine added this way has no pinned lake key and gets no base
-configuration.
+configuration until you [adopt the lake](#adopting-a-lake-a-machine-already-syncs-to).
+
+### Adopting a lake a machine already syncs to
+
+A machine that syncs with a device token but was never registered has
+no pinned lake key. This covers a machine set up with `login` and a
+token file, or one on the loopback lake beside it. The dashboard lists
+such a machine as a `token-file` device that "fetches no profile".
+Its agent never fetches the lake's profile, so the dashboard's Allow
+cannot reach it.
+
+`lakes adopt` pins that lake in place, without registering again:
+
+```bash
+terva-lampi lakes adopt --fingerprint SHA256:…   # the value serve identity prints
+```
+
+- The machine keeps its token, its machine id and its sync state. The
+  lake lists the same device, and the next sync sends nothing again.
+  Registering instead would make a second device and a second lake
+  entry for one lake, and post every session again under a new machine
+  id.
+- A default lake set by the top-level `server` and `token_file` moves
+  into `lakes.default`, with the top-level `projects.allow` that
+  belongs to it. Top-level `projects.deny` stays, because it applies to
+  every lake. Other keys in `config.json` are kept.
+- NAME defaults to `default`. Name another lake to adopt a `lakes`
+  entry that has no `lake_id`.
+
+**What adopt checks.** Each check stops the command before it writes
+anything:
+
+1. The key list at the lake's URL, fetched over a fresh nonce, is
+   signed by an active key. The URL must be https, or http to loopback.
+2. The lake that accepts this machine's token proves that key in
+   `hello`, over a fresh nonce.
+3. You confirm the URL, lake id and key fingerprint. It asks on a
+   terminal. Otherwise pass `--fingerprint` with the value that
+   `terva-lampi serve identity` prints on the lake host. Take that value
+   from the lake host, not from the machine being adopted: this check is
+   the only defense against a server that impersonates the lake.
+4. The profile the lake signs for this device verifies under that key.
+   Its payload names the device, and adopt records that id, so only a
+   profile signed for this device is accepted afterwards.
+
+**Local allow rules.** A lake whose entry has its own allow rules takes
+none from its profile.
+- `--allow-from keep` is the default. It leaves the local rules in
+  force; the profile's deny rules and harness settings still apply.
+- `--allow-from profile` removes the local allow rules, so the
+  profile's allow rules decide what uploads. On a lake that is already
+  pinned it does only that.
+
+**What adopt lists before it writes.** Adopt reads every session the
+agent would read and lists what the change would stop uploading and
+what it would start uploading:
+- each harness the profile turns off or on, with the projects that go
+  with it. Harness settings are machine-wide, so this counts every lake's
+  projects. A harness set in `config.json` wins over a profile.
+- each project the lake's new rules refuse, or allow, that the current
+  rules do not.
+
+Then:
+- **If anything would stop,** adopt refuses. Add rules for those
+  projects to the profile on the dashboard and run adopt again, or pass
+  `--force` to stop uploading them. `--allow-from profile` also refuses
+  a profile that allows nothing.
+- **If anything would start,** adopt asks on a terminal. Without one it
+  refuses unless you pass `--yes`. A profile written for other machines
+  can allow more on this one than anyone meant. A folder rule for a
+  home directory, for example, allows every project under it.
+
+A typical move to dashboard-managed rules:
+
+```bash
+terva-lampi lakes adopt --fingerprint SHA256:…     # pin; local rules stay
+terva-lampi lakes adopt --allow-from profile       # lists what the profile misses
+# add those projects to the profile on the dashboard, then:
+terva-lampi lakes adopt --allow-from profile       # switch
+terva-lampi agent config                           # allow_source=lake:default
+```
+
+A running agent is told to reload, and it fetches the profile from
+then on. On Windows, restart the agent.
 
 ### Tokens and plain HTTP
 
@@ -162,6 +248,51 @@ also writes the lake's pinned `lake_id`, `key_id`, and `public_key`.
   more than one lake they need `--lake`.
 - `terva-lampi agent config` prints one `lake` line per lake, with the
   source of its server and token file.
+
+### Asking for bays
+
+A lake can be split into bays, and a session can ask to be in some of
+them ([Bays](policy.md#bays)). A lake entry's `bays` says which:
+
+```json
+"work": {
+  "server": "https://work.example",
+  "projects": {"allow": [{"cwd_prefix": "/home/you/work"}]},
+  "bays": {
+    "rules": [
+      {"cwd_prefix": "/home/you/work/client-x", "bays": ["client-x", "billing"]},
+      {"harness": "codex", "bays": ["agents"]}
+    ],
+    "default": ["team"]
+  }
+}
+```
+
+- A rule has the fields of a `projects` rule, read the way an allow rule
+  is, and an optional `harness`. Every field set must match. A rule
+  needs at least one field, and names one or more bays.
+- A session asks for every bay any matching rule names. One no rule
+  matches asks for `default`. With neither, it asks for nothing.
+- A bay is named by the name the lake gave it or its id.
+- The lake decides. It places a session only in the bays this device may
+  write, records the rest as refused, and applies its own rules. A
+  session nothing places lands in the lake's default bay, or, when the
+  lake has turned its default off, stays on this machine.
+- A changed rule applies to a session the next time the session changes.
+  The lake only ever adds a session to a bay, so a rule taken away does
+  not take a session out of one.
+- `bays` is set on an entry of `lakes`. The legacy top-level lake has
+  none; move it into the map as `default` to ask for bays.
+- An agent that asks for bays sets `bay_aware`, so the lake answers a
+  session nothing places with `no_bay`. The session waits in the outbox
+  and `status` lists it under `no_bay`.
+- `terva-lampi bays` lists, for each lake, the bays this device may
+  write, and names any bay asked for that is not among them.
+- `terva-lampi bays which [PATH]` prints, for each lake, whether a
+  session started at PATH uploads there, the bays it asks for, and the
+  rule or default that named each. For a project the lake refuses it
+  still names the bays it would ask for, so a rule can be checked
+  before the project is allowed.
 
 ### A machine with no lake
 

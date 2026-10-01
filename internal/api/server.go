@@ -378,8 +378,17 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// stats counts what the device may see: the sessions in the bays it
+// writes (TKT-01M3N8KHW5). The normalization backlog stays lake-wide,
+// as a queue depth, and the last failure names its session only when
+// that session is in scope.
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
-	n, err := s.Catalog.Counts(r.Context())
+	scope, err := s.deviceScope(r)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	n, err := s.Catalog.Counts(r.Context(), scope)
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
@@ -389,6 +398,18 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
+	if f := norm.LastFailure; f != nil && f.SessionUID != "" {
+		in, err := s.Catalog.SessionInScope(r.Context(), scope, f.SessionUID)
+		if err != nil {
+			s.fail(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		if !in {
+			failure := *f
+			failure.SessionUID = ""
+			norm.LastFailure = &failure
+		}
+	}
 	writeJSON(w, http.StatusOK, protocol.StatsResponse{
 		Sessions:      n.Sessions,
 		Artifacts:     n.Artifacts,
@@ -397,19 +418,42 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// conflicts lists the divergent copies in the bays the device writes.
 func (s *Server) conflicts(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.Catalog.DivergentCopies(r.Context())
+	// ?resolved=true adds the resolved conflicts. Without it, or with
+	// false, the list is the open ones.
+	var resolved bool
+	if len(r.URL.Query()["resolved"]) > 1 {
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "resolved is true or false"})
+		return
+	}
+	switch r.URL.Query().Get("resolved") {
+	case "", "false":
+	case "true":
+		resolved = true
+	default:
+		writeJSON(w, http.StatusBadRequest, protocol.ErrorBody{Error: "resolved is true or false"})
+		return
+	}
+	scope, err := s.deviceScope(r)
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.ConflictsResponse{Conflicts: wireConflicts(rows)})
+	rows, err := s.Catalog.DivergentCopies(r.Context(), scope, resolved)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.ConflictsResponse{Conflicts: WireConflicts(rows)})
 }
 
-func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
+// WireConflicts is the catalog's divergent copies as GET /v1/conflicts
+// sends them. terva-lampi conflicts prints a local catalog the same way.
+func WireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 	out := make([]protocol.DivergentCopy, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, protocol.DivergentCopy{
+		d := protocol.DivergentCopy{
 			SessionUID:      row.SessionUID,
 			ArtifactID:      row.ArtifactID,
 			Harness:         row.Harness,
@@ -422,7 +466,16 @@ func wireConflicts(rows []catalog.DivergentCopy) []protocol.DivergentCopy {
 			HeadSize:        row.HeadSize,
 			Machines:        row.Machines,
 			HeadMachines:    row.HeadMachines,
-		})
+		}
+		if res := row.Resolution; res != nil {
+			d.Resolution = &protocol.ConflictResolution{
+				Resolution: res.Resolution,
+				ResolvedAt: res.At.UTC().Format(time.RFC3339Nano),
+				ResolvedBy: res.By,
+				Note:       res.Note,
+			}
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -468,6 +521,17 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
 	}
+	// A lake with no tokens has no device, and every bay is writable.
+	deviceID, ok := s.requestDevice(r)
+	if !ok {
+		s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this request has no device"))
+		return
+	}
+	bays, err := s.Catalog.WritableBays(r.Context(), deviceID)
+	if err != nil {
+		s.fail(w, r, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, protocol.HelloResponse{
 		ServerTime:       now,
 		ProtocolVersions: []int{protocol.Version},
@@ -475,7 +539,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		LakeID:           lakeID,
 		Proof:            proof,
 		Release:          s.Release,
-		Features:         []string{protocol.FeatureLargeTails},
+		Features:         []string{protocol.FeatureLargeTails, protocol.FeatureBays},
+		Bays:             bays,
 	})
 }
 
@@ -643,7 +708,19 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 	}
 	// validateManifest has checked what the client controls. An ingest
 	// error here is the catalog's: a busy or full disk, not a bad post.
-	ack, changed, err := s.Catalog.IngestChanged(r.Context(), m, s.now(), decisions, s.CAS)
+	// The device's write grants decide which requested bays it gets.
+	// A lake with no tokens has no device and every bay is accepted,
+	// as every bay is read there.
+	deviceID, ok := s.requestDevice(r)
+	if !ok {
+		s.fail(w, r, http.StatusUnauthorized, errors.New("unauthorized: this request has no device"))
+		return
+	}
+	ack, changed, err := s.Catalog.IngestRouted(r.Context(), m, catalog.Route{DeviceID: deviceID}, s.now(), decisions, s.CAS)
+	if errors.Is(err, catalog.ErrNoBayForSession) {
+		s.refuseUnplaced(w, r, m.BayAware)
+		return
+	}
 	if err != nil {
 		s.fail(w, r, http.StatusInternalServerError, err)
 		return
@@ -661,6 +738,20 @@ func (s *Server) manifest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, ack)
+}
+
+// refuseUnplaced answers a manifest whose session nothing places while
+// the default bay is off: 409 with CodeNoBay to an agent that knows the
+// code, and 403 to one that does not, which it backs off on for the
+// full wait rather than retrying at once.
+func (s *Server) refuseUnplaced(w http.ResponseWriter, r *http.Request, bayAware bool) {
+	msg := "no bay accepts this session and the lake's default bay is off"
+	note(r, errors.New(msg))
+	if bayAware {
+		writeJSON(w, http.StatusConflict, protocol.ErrorBody{Error: msg, Code: protocol.CodeNoBay})
+		return
+	}
+	writeJSON(w, http.StatusForbidden, protocol.ErrorBody{Error: msg})
 }
 
 // decodeJSON reads one JSON value of at most limit bytes into dest. On
@@ -786,4 +877,33 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
+}
+
+// deviceScope is what the requesting device reads: the bays it may
+// write. A lake served without tokens has no device to ask and already
+// answers every request for the whole lake, ingest and raw reads
+// included, so it reads every bay. Any other request that reached here
+// without a device reads nothing.
+func (s *Server) deviceScope(r *http.Request) (catalog.Scope, error) {
+	id, ok := s.requestDevice(r)
+	switch {
+	case !ok:
+		return catalog.Scope{}, nil
+	case id == "":
+		return catalog.AllBays(), nil
+	default:
+		return s.Catalog.DeviceScope(r.Context(), id)
+	}
+}
+
+// requestDevice is the device a request acts as. id is empty on a lake
+// served without tokens, which has no device to ask. ok is false when a
+// lake with tokens let a request through without a device, which authed
+// never does; the caller refuses it rather than treat it as the
+// tokenless lake.
+func (s *Server) requestDevice(r *http.Request) (id string, ok bool) {
+	if d, found := deviceOf(r); found {
+		return d.ID, true
+	}
+	return "", s.Devices == nil || s.Devices.Empty()
 }

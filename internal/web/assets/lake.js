@@ -60,7 +60,12 @@ showLatest(document);
 // the scroll position, so the next Tab continues from it.
 (() => {
   const target = document.querySelector('.event.target') || (location.hash.startsWith('#e-') && document.getElementById(location.hash.slice(1)));
-  if (target) target.focus({preventScroll: false});
+  if (!target) return;
+  // A link into a folded run of quiet events unfolds it first; the
+  // server does this for ?at=, but not for a bare #e-N.
+  const run = target.closest('details');
+  if (run) run.open = true;
+  target.focus({preventScroll: false});
 })();
 // Copy-out: select events on a transcript page and copy the span as
 // plain text. Without JavaScript the page links its own plain text.
