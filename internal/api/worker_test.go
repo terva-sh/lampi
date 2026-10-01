@@ -185,7 +185,9 @@ func TestNormalizeFailureRemovesParquet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tail := []byte("not-json\n")
+	// A message line whose message is not an object fails a terva
+	// projection. (A line that is not JSON at all no longer does.)
+	tail := []byte(`{"type":"message","message":"not an object"}` + "\n")
 	full := append(append([]byte{}, good...), tail...)
 	tailSHA := putBlob(t, h, "", tail)
 	fullSHA := shaOf(t, full)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -48,8 +49,9 @@ type codexState struct {
 }
 
 // Normalize projects raw. raw is not modified. A line that is not a
-// JSON object fails the whole blob; the error text does not include
-// the line, which may hold a secret.
+// JSON object becomes an error event that names the line but not its
+// bytes, which may hold a secret; a blob with no JSON object line fails
+// (unreadable.go).
 func (c Codex) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -63,6 +65,10 @@ func (c Codex) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 	var st codexState
 	rest := raw
 	lineNo := 0
+	// objects and unreadable count the lines that are and are not JSON
+	// objects; firstBad is the first that is not. See unreadable.go.
+	objects, unreadable := 0, 0
+	var firstBad error
 	for len(rest) > 0 {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -87,10 +93,29 @@ func (c Codex) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 			continue
 		}
 		evs, err := c.line(lineNo, offset, line, &st)
+		var bad unreadableLine
+		if errors.As(err, &bad) {
+			if firstBad == nil {
+				firstBad = err
+			}
+			if unreadable++; unreadable > maxUnreadable {
+				return nil, tooUnreadable(firstBad)
+			}
+			ev, err := c.emit(&st, "", EventError, "", time.Time{}, offset, unreadableText(lineNo, len(line)), Tool{}, Usage{}, unreadableExtra(lineNo, len(line)))
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, ev)
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
+		objects++
 		events = append(events, evs...)
+	}
+	if objects == 0 && firstBad != nil {
+		return nil, firstBad
 	}
 	return events, nil
 }
@@ -98,7 +123,7 @@ func (c Codex) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 func (c Codex) line(lineNo, offset int, line []byte, st *codexState) ([]Event, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(line, &obj); err != nil || obj == nil {
-		return nil, fmt.Errorf("normalize: line %d is not a JSON object", lineNo)
+		return nil, unreadableLine{lineNo}
 	}
 	rawType, when, payload, lineExtra, err := splitCodexLine(obj)
 	if err != nil {
