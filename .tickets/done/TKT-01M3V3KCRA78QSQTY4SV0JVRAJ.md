@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V3KCRA78QSQTY4SV0JVRAJ
 title: "CLI: query events from a remote lake with a read token"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3V3JSQXA831MB02BRWW6NHE
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/dae09bda
-  branch: cli/query-events
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
-  commit: 316009f50860d5210f20bc92dab054c501e69aaf
-  session: null
-  claimed_at: 2026-10-01T07:13:01Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T06:49:31Z
-updated_at: 2026-10-01T07:50:45Z
+updated_at: 2026-10-01T08:21:03Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -95,3 +88,7 @@ internal/cli/query.go: 'terva-lampi query events' reuses export's eventFlags (va
 **agent:claude-code/dae09bda** at 2026-10-01T07:50:45Z
 
 Review 1686 on #178: finding-1 (high) accepted, the client follows no redirect, since CheckToken vetted only the given server and a redirect would carry the token elsewhere; a 3xx is an error naming the Location. finding-2 (medium) accepted, the client cancels after two minutes with no bytes (idleReader resets a timer per read), and the stream (#177, ed68aff) now flushes or sends a blank keepalive line every 15 s so a slow selective scan is not mistaken for a dead connection; the client skips blank lines. CI flakes seen on unrelated tests during this stack: internal/web TestAllowSelectedIsAllOrNothing (503 after 38 s, run 1719) and internal/upload TestAttemptRecordsTheLastError (no bytes moved for 1s, run 1723).
+
+## Summary
+
+Landed in #178 (merge 0fbc0a0). terva-lampi query events takes export's filters and --fields, reads the event stream with a read token from --token-file or LAMPI_READ_TOKEN_FILE, and fails on a stream that ends early, stops partway, miscounts, or goes silent for two minutes. --out is written 0600 and only when complete. It follows no redirect. docs/reading-the-lake.md is the agent-facing how-to. Reviews 1686 (redirects; idle reads) and 1688 (idle timeout on error bodies) were accepted and fixed.

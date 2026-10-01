@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3V3JSQXA831MB02BRWW6NHE
 title: "Read API: stream filtered normalized events to read tokens"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M3FPWCH4GFYYX4GKT9XFN53G
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/dae09bda
-  branch: read/events-stream
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-dae09bda
-  commit: d2b04b9a6d487763ed852c34203643c6b081a1db
-  session: null
-  claimed_at: 2026-10-01T07:07:51Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-01T06:49:12Z
-updated_at: 2026-10-01T07:33:53Z
+updated_at: 2026-10-01T08:21:03Z
 created_by:
   id: agent:claude-code/dae09bda
   name: ""
@@ -104,3 +97,7 @@ PR #177 (https://git.local.sothr.com/terva-sh/lampi/pulls/177), stacked on #175 
 **agent:claude-code/dae09bda** at 2026-10-01T07:33:53Z
 
 Review 1682: finding-1 (medium) accepted. Select now counts every line over MaxLine in the sessions it reads, whatever the filter, so a nonzero oversized in the end line says how many events could not be checked; they still match only what search matches them by. finding-2 (low) accepted: the handler parses RawQuery with url.ParseQuery and refuses what URL.Query would have dropped. Tests: TestSelectCountsOversizedLines; two malformed queries added to TestReadEventsStream.
+
+## Summary
+
+Landed in #177 (merge 47137a5). GET /api/read/v1/events streams, as NDJSON, every event in a read token's scope that the export filters keep, cut to fields when asked. It needs events:read and at least one filter, audits the query before any line leaves, and ends with a lampi:end line (complete, error, rows, sessions, skipped, oversized). Review 1682: oversized lines are counted whatever the filter, and malformed queries are refused (64abac7). Review 1686 on #178: the stream flushes or sends a blank keepalive line every 15 s (ed68aff). AC 4 was amended: the audit event carries the query, and the row count is in the end line.
