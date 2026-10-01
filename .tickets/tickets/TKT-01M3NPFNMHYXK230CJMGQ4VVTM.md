@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NPFNMHYXK230CJMGQ4VVTM
 title: "Search index: FTS segments hold 0.5 GiB over live size after rebuild"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/27b21f4b
+  branch: search/pass-writes
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
+  commit: af10f1578763f89faedb517c6eb35733c02b4a04
+  session: null
+  claimed_at: 2026-10-01T07:40:04Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-10-01T07:35:32Z
+updated_at: 2026-10-01T07:40:04Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
