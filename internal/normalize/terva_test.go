@@ -195,20 +195,37 @@ func TestTervaSchemaAndOpaqueFields(t *testing.T) {
 }
 
 func TestNormalizeErrorOmitsLine(t *testing.T) {
+	// A line that is not a JSON object, among lines that are, becomes an
+	// error event naming the line and its length, never its bytes
+	// (TKT-01M3NQ2R).
 	raw := []byte("not-json sk-live-secret\n{\"type\":\"meta\"}\n")
 	before := append([]byte(nil), raw...)
-	_, err := (Terva{}).Normalize(context.Background(), raw)
-	if err == nil {
-		t.Fatal("expected an error")
-	}
-	if !strings.Contains(err.Error(), "line 1 is not a JSON object") {
+	events, err := (Terva{}).Normalize(context.Background(), raw)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "not-json") {
-		t.Fatalf("error includes the raw line: %s", err)
-	}
 	if !bytes.Equal(raw, before) {
-		t.Fatal("failed normalize changed the raw bytes")
+		t.Fatal("normalize changed the raw bytes")
+	}
+	encoded, err := json.Marshal(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("sk-live-secret")) || bytes.Contains(encoded, []byte("not-json")) {
+		t.Fatalf("events include the unreadable line: %s", encoded)
+	}
+	marker := events[0]
+	if marker.EventType != EventError || marker.ContentText == nil || !strings.Contains(*marker.ContentText, "Line 1 of the raw file is not a JSON record") || marker.Extra["unreadable_line"] != 1 || marker.Extra["line_bytes"] != 23 {
+		t.Fatalf("marker %+v", marker)
+	}
+
+	// A file in which no line is a JSON object is not this format: it
+	// fails, and the error does not quote the line either.
+	for _, bad := range []string{"not-json sk-live-secret\n", "[]\n", "[]\n\"text\"\n"} {
+		_, err = (Terva{}).Normalize(context.Background(), []byte(bad))
+		if err == nil || !strings.Contains(err.Error(), "line 1 is not a JSON object") || strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "[]") {
+			t.Fatalf("%q: %v", bad, err)
+		}
 	}
 }
 
