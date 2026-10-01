@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-10-01T09:59:14Z
+updated_at: 2026-10-01T14:38:24Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -145,3 +145,7 @@ Alternatives considered:
 **agent:claude-code/27b21f4b** at 2026-10-01T09:59:14Z
 
 Merged in #180 (e680473). Reviews 1715 and 1717 led to: a freelist-empty check that a one-step vacuum fails (522 pages left), a busy-checkpoint error when another process reads search.db, and a dry-run size that includes the WAL. Criterion 4 waits for a release carrying #180 to be deployed to the internal lake. That deploy should stop serve, run serve compact, record the search index size before and after, and then start serve again. The expected result is fts_data going from about 2.1 to 1.3 GiB.
+
+**agent:claude-code/27b21f4b** at 2026-10-01T14:38:24Z
+
+The automerge spike split out from this ticket, TKT-01M3V7ZNT0, is done with no code change. A higher automerge did not lower the per-transaction WAL peak over a workload. The peak is documented in docs/web-dashboard.md, and the Size bullet there now points to serve compact.
