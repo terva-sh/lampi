@@ -1,8 +1,9 @@
 # lampi
 
 **A self-hosted lake for your AI agent transcripts.** `terva-lampi`
-copies the session files that terva, Claude Code, Codex, OpenCode, and
-Cursor write on each of your machines to one lake that you host. From
+copies the session files that terva, Claude Code, Codex, OpenCode,
+Cursor, and Grok Build write on each of your machines to one lake that
+you host. From
 there you browse and search them in a dashboard, or export them.
 
 lampi is Finnish for a pond, a small lake. One static Go binary is both
@@ -16,7 +17,7 @@ the lake (`terva-lampi serve`) and the agent on each machine
 ```mermaid
 flowchart LR
   subgraph machine["Each of your machines"]
-    H["Harness transcripts<br/>terva, Claude Code, Codex,<br/>OpenCode, Cursor"] --> A["terva-lampi agent<br/>allowlist and secret scan"]
+    H["Harness transcripts<br/>terva, Claude Code, Codex,<br/>OpenCode, Cursor, Grok Build"] --> A["terva-lampi agent<br/>allowlist and secret scan"]
   end
   A -- "uploads only missing bytes" --> L[("terva-lampi serve<br/>blob store and SQLite catalog")]
   L --> D["Browser dashboard<br/>(OIDC sign-in)"]
@@ -43,6 +44,7 @@ Agents dial the lake. Nothing dials into your laptop.
 | Codex CLI | `~/.codex/sessions/**/rollout-*.jsonl` |
 | OpenCode | `opencode export` JSON, or its database |
 | Cursor IDE and Cursor CLI | Read-only snapshots of their SQLite stores |
+| Grok Build | `$GROK_HOME/sessions/<encoded-cwd>/<uuid>/updates.jsonl`, with `summary.json` beside it |
 
 Each path moves with the harness's own environment variable, and you
 can turn a harness off. See [Harnesses](docs/harnesses.md).
@@ -177,7 +179,7 @@ how to add a `lampi` shortcut safely.
 
 ## Status
 
-lampi works end to end today for all six harnesses against a local or
+lampi works end to end today for all seven harnesses against a local or
 hosted lake. It has registration, many lakes, the ruleset v2 scan,
 normalized events, ShareGPT export, backup and restore, and the OIDC
 dashboard. There is no tagged release yet, so build from a checkout.

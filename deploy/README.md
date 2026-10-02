@@ -84,7 +84,7 @@ loopback lake URL. Do not put a production hostname or a device token
 in it. The token stays in the token file.
 
 Keys are the protocol harness ids: `terva`, `claude`, `codex`,
-`opencode`, `cursor`, `cursor-cli`. An unknown key fails the load.
+`opencode`, `cursor`, `cursor-cli`, `grok`. An unknown key fails the load.
 Each entry accepts `enabled` and `root` only. Allowlist rules and
 secrets are not fields of a harness entry. `projects` and `redaction`
 stay beside `harnesses`; see [Allowlist and redaction](../docs/allowlist-and-redaction.md).
@@ -106,7 +106,7 @@ environment variable, then the adapter default. No per-harness root
 flag exists. The environment variable is a debug override. A config
 `root` wins over it. The variables that count are `TERVA_HOME`
 or `ZOT_HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`
-(OpenCode), and `CURSOR_CONFIG_DIR`. Cursor IDE has none:
+(OpenCode), `CURSOR_CONFIG_DIR`, and `GROK_HOME`. Cursor IDE has none:
 `XDG_CONFIG_HOME` and `APPDATA` select the platform directory, which
 is the default. `XDG_STATE_HOME` is that kind of input for terva.
 

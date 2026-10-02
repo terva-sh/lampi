@@ -623,12 +623,12 @@ applies its own rules ([Bays](policy.md#routing)). `bay_aware` says the
 agent reads `code` `no_bay` on a refusal. A lake from before bays
 ignores both.
 
-`harness` is `terva`, `claude`, `codex`, `opencode`, `cursor`, or
-`cursor-cli`. Any other harness is `400`. For terva, `harness_version` is the producer version
+`harness` is `terva`, `claude`, `codex`, `opencode`, `cursor`,
+`cursor-cli`, or `grok`. Any other harness is `400`. For terva, `harness_version` is the producer version
 from the meta line when that line has one. For Claude Code, Codex,
-OpenCode, the Cursor IDE, and the Cursor CLI, `harness_version` is
+OpenCode, the Cursor IDE, the Cursor CLI, and Grok Build, `harness_version` is
 the adapter's pinned reader version. The on-disk object for those
-five is internal to the adapter and is not part of this protocol.
+adapters is internal to the adapter and is not part of this protocol.
 `history.jsonl` under a Codex home is not a session. An OpenCode
 session is one `opencode export` document under `export/`. The WAL
 sidecar next to `opencode.db` is not a session. A Cursor IDE session
@@ -637,12 +637,21 @@ session is one filtered JSON export of a `store.db` snapshot, and its
 harness is `cursor-cli`, not `cursor`. The live database is not the
 artifact. Keys under `cursorAuth/` are not in the export. The CLI
 reader also drops credential field names such as `accessToken`. The
-two Cursor corpora do not share sessions or watermarks.
+two Cursor corpora do not share sessions or watermarks. A Grok
+Build session is harness `grok`. Sync uploads
+`sessions/<encoded-cwd>/<uuid>/updates.jsonl` as `transcript_jsonl`
+and the sibling `summary.json` as `summary_json`.
+`chat_history.jsonl` is not an artifact. The native session id is
+the UUID directory. Workers project `updates.jsonl` onto
+schema_version 1, and `session_id` is `grok:` plus that UUID. The
+pinned reader version is `1`. The home and the cwd encoding are in
+[Harnesses](harnesses.md). A Cursor session that used a Grok model
+stays `cursor` or `cursor-cli`.
 
 `cwd_hash` is terva's `hex(sha256(cwd)[:8])`. It buckets a path on one
 machine. It is not a project id across machines. Claude, Codex,
-OpenCode, and both Cursor readers use the same function so an allow
-rule written against that hash still matches. OpenCode takes the cwd
+OpenCode, both Cursor readers, and Grok Build use the same function
+so an allow rule written against that hash still matches. OpenCode takes the cwd
 from `info.directory` on the export. A discovered database file has
 no directory, so the allowlist refuses that blob. A Cursor IDE
 workspace takes its cwd from `workspace.json`. The global IDE

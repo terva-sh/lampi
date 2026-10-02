@@ -64,7 +64,7 @@ project come from the session, and the rest from the event.
 
 | Flag | Keeps |
 |------|-------|
-| `--harness H` | Sessions from `terva`, `claude`, `codex`, `opencode`, `cursor` or `cursor-cli`. |
+| `--harness H` | Sessions from `terva`, `claude`, `codex`, `opencode`, `cursor`, `cursor-cli`, or `grok`. |
 | `--project ID` | Sessions with this project id. |
 | `--event-type T` | `message`, `tool_call`, `tool_result`, `usage`, `compaction`, `meta`, `error`, `unknown`, or `unreadable` for a line that is not an event. |
 | `--actor A` | `user`, `assistant`, `system`, `tool` or `harness`. |
