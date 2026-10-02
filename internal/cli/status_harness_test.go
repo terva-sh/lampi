@@ -10,6 +10,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/adapter/cursorcli"
+	"terva.sh/lampi/internal/adapter/grok"
 )
 
 func TestStatusPrintsHarnessLines(t *testing.T) {
@@ -88,6 +89,10 @@ func TestStatusPrintsHarnessLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	grokHome, err := grok.Adapter{}.Home(getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{
 		fmt.Sprintf("harness terva enabled=true root=%s source=env", tervaHome),
 		fmt.Sprintf("harness claude enabled=false root=%s source=env", claudeHome),
@@ -95,6 +100,7 @@ func TestStatusPrintsHarnessLines(t *testing.T) {
 		fmt.Sprintf("harness opencode enabled=true root=%s source=env", filepath.Join(xdgData, "opencode")),
 		fmt.Sprintf("harness cursor enabled=true root=%s source=default", cursorHome),
 		fmt.Sprintf("harness cursor-cli enabled=true root=%s source=default", cliHome),
+		fmt.Sprintf("harness grok enabled=true root=%s source=default", grokHome),
 	}
 	lines := harnessLines(text)
 	if strings.Join(lines, "\n") != strings.Join(want, "\n") {

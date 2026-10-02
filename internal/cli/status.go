@@ -41,7 +41,7 @@ read, followed by up to five of them, one per indented line. Those live under th
 files the agent and sync already use.
 
 Each harness line has this spelling, in order terva, claude, codex,
-opencode, cursor, cursor-cli:
+opencode, cursor, cursor-cli, grok:
 
   harness <id> enabled=<true|false> root=<absolute path or empty> source=<config|env|default>
 

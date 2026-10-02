@@ -27,6 +27,7 @@ type IgnoredProfiles struct {
 var profileHarnessIDs = []string{
 	protocol.HarnessClaude, protocol.HarnessCodex, protocol.HarnessOpenCode,
 	protocol.HarnessCursor, protocol.HarnessCursorCLI, protocol.HarnessTerva,
+	protocol.HarnessGrok,
 }
 
 // maxProfileRevisions is how many revisions the profile page lists,

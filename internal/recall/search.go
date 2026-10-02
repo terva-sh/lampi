@@ -333,7 +333,7 @@ func searchSQL(req SearchRequest, before int64) (string, []any) {
 
 func validHarness(h string) bool {
 	switch h {
-	case "", "terva", "claude", "codex", "opencode", "cursor", "cursor-cli":
+	case "", "terva", "claude", "codex", "opencode", "cursor", "cursor-cli", "grok":
 		return true
 	}
 	return false

@@ -91,6 +91,10 @@ const (
 	// replaces the current artifact and moves the session head. The
 	// OpenCode database file is not this kind.
 	KindOpenCodeExportJSON = "opencode_export_json"
+	// KindSummaryJSON is a Grok Build summary.json companion beside
+	// updates.jsonl. It is a snapshot. It carries cwd, title, and
+	// model. It is not the session head and it is not a transcript.
+	KindSummaryJSON = "summary_json"
 
 	// HarnessTerva is the reference producer. Its JSONL has a versioned
 	// meta line. Normalize workers project it.
@@ -123,6 +127,11 @@ const (
 	// onto schema_version 1. cursor_state_json and transcript_jsonl are
 	// not this document.
 	HarnessCursorCLI = "cursor-cli"
+	// HarnessGrok is Grok Build. The transcript is updates.jsonl under
+	// sessions/<encoded-cwd>/<uuid>/. summary.json is the companion.
+	// The native session id is that UUID. Workers do not project it
+	// yet, so a stored manifest records normalize_error.
+	HarnessGrok = "grok"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.

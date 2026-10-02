@@ -9,6 +9,7 @@ import (
 	"terva.sh/lampi/internal/adapter/codex"
 	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/adapter/cursorcli"
+	"terva.sh/lampi/internal/adapter/grok"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
@@ -39,6 +40,7 @@ func knownSources() []source {
 		{harness: opencode.Adapter{}, required: false},
 		{harness: cursor.Adapter{}, required: false},
 		{harness: cursorcli.Adapter{}, required: false},
+		{harness: grok.Adapter{}, required: false},
 	}
 }
 
@@ -53,7 +55,7 @@ func configuredSources(env Env) ([]source, error) {
 }
 
 // sources resolves terva, Claude Code, Codex, OpenCode, the Cursor IDE,
-// and the Cursor CLI. harnesses is the Shape A map. A nil map leaves
+// the Cursor CLI, and Grok Build. harnesses is the Shape A map. A nil map leaves
 // every harness on. enabled false drops that harness only. terva's
 // home is required when terva is on. An optional harness whose default
 // cannot be named, because HOME is unset and the override is unset, is
@@ -190,6 +192,8 @@ func harnessOverride(id string, getenv func(string) string) bool {
 		return getenv("XDG_DATA_HOME") != ""
 	case protocol.HarnessCursorCLI:
 		return getenv("CURSOR_CONFIG_DIR") != ""
+	case protocol.HarnessGrok:
+		return getenv("GROK_HOME") != ""
 	default:
 		return false
 	}
@@ -224,6 +228,8 @@ func homeLabel(name string) string {
 		return "cursor_user_data"
 	case protocol.HarnessCursorCLI:
 		return "cursor_cli_config"
+	case protocol.HarnessGrok:
+		return "grok_home"
 	default:
 		return name + "_home"
 	}

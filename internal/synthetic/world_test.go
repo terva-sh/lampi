@@ -13,6 +13,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/adapter/cursorcli"
+	"terva.sh/lampi/internal/adapter/grok"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/cli"
 	"terva.sh/lampi/internal/protocol"
@@ -26,6 +27,7 @@ var statusOrder = []string{
 	protocol.HarnessOpenCode,
 	protocol.HarnessCursor,
 	protocol.HarnessCursorCLI,
+	protocol.HarnessGrok,
 }
 
 // planted are the four harnesses this suite configures with a root.
@@ -146,6 +148,8 @@ func defaultRoot(t *testing.T, id string, getenv func(string) string) string {
 		root, err = cursor.Home(getenv)
 	case protocol.HarnessCursorCLI:
 		root, err = cursorcli.Home(getenv)
+	case protocol.HarnessGrok:
+		root, err = grok.Home(getenv)
 	default:
 		t.Fatalf("no default root for %s", id)
 	}

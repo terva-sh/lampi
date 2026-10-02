@@ -24,7 +24,9 @@ import (
 //go:embed templates/*.html assets/*
 var files embed.FS
 var pages = template.Must(template.New("page").Funcs(template.FuncMap{
-	"sliceHarnesses":  func() []string { return []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli"} },
+	"sliceHarnesses": func() []string {
+		return []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli", "grok"}
+	},
 	"sliceStates":     func() []string { return []string{"pending", "failed", "ready", "unknown"} },
 	"sliceEventTypes": func() []string { return recall.EventTypes },
 	"sliceActors":     func() []string { return recall.Actors },

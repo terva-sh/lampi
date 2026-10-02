@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -19,10 +20,12 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/adapter/cursor"
+	"terva.sh/lampi/internal/adapter/grok"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/testharness"
 	"terva.sh/lampi/internal/watermark"
 
 	_ "modernc.org/sqlite"
@@ -1910,5 +1913,80 @@ func TestSyncSendsOnlyTheTailOfAFilePastTheCap(t *testing.T) {
 	sum := sha256.Sum256(grown)
 	if got, err := lake.CAS.Read(hex.EncodeToString(sum[:])); err != nil || !bytes.Equal(got, grown) {
 		t.Fatalf("grown file reads %d bytes, %v", len(got), err)
+	}
+}
+
+func TestSyncGrokCatalogAndRefusal(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	ctx := context.Background()
+
+	const allowedID = "018f1a2b-3c4d-7e5f-8a9b-0c1d2e3f4a5b"
+	const refusedID = "018f1a2b-3c4d-7e5f-8a9b-0c1d2e3f4a5c"
+	home := t.TempDir()
+	allowedCWD := "/work/allowed"
+	if _, err := testharness.PlantGrok(home, allowedCWD, []testharness.SessionSpec{{
+		ID: allowedID, Prompt: "hello grok",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testharness.PlantGrok(home, "/secret/denied", []testharness.SessionSpec{{
+		ID: refusedID, Prompt: "stay home",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	mustFile(t, filepath.Join(home, "sessions", "not-a-uuid", "updates.jsonl"), "not-json{{{\n")
+	mustFile(t, filepath.Join(home, "history.jsonl"), "{}\n")
+
+	opt := allowAll(srv, t.TempDir(), t.TempDir(), allowedCWD)
+	opt.GrokHome = home
+	res, err := Sync(ctx, opt)
+	var rejected *Rejected
+	if !errors.As(err, &rejected) || res.Refused != 1 || res.Manifests != 1 || res.Uploaded != 2 {
+		t.Fatalf("sync %+v err=%v", res, err)
+	}
+	if !strings.Contains(err.Error(), "not allowlisted") || !strings.Contains(err.Error(), "/secret/denied") || !strings.Contains(err.Error(), refusedID) {
+		t.Fatalf("refusal did not name the denied session: %v", err)
+	}
+
+	uid, arts, ok, err := lake.Catalog.Current(ctx, protocol.HarnessGrok, allowedID)
+	if err != nil || !ok || uid == "" {
+		t.Fatalf("current %v %v %s", ok, err, uid)
+	}
+	kinds := map[string]string{}
+	for _, a := range arts {
+		kinds[a.Kind] = a.SHA256
+	}
+	if kinds[protocol.KindTranscriptJSONL] == "" || kinds[protocol.KindSummaryJSON] == "" {
+		t.Fatalf("artifacts %+v", arts)
+	}
+	info, ok, err := lake.Catalog.Session(ctx, uid)
+	if err != nil || !ok {
+		t.Fatalf("session %v %v", ok, err)
+	}
+	if info.Harness != protocol.HarnessGrok || info.NativeID != allowedID {
+		t.Fatalf("identity %+v", info)
+	}
+	if info.Manifest.HarnessVersion != grok.Version || info.Manifest.Project.CWD != allowedCWD {
+		t.Fatalf("manifest %+v", info.Manifest)
+	}
+	summary, err := lake.CAS.Read(kinds[protocol.KindSummaryJSON])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(summary, []byte(`"generated_title":"synthetic `+allowedID+`"`)) || !bytes.Contains(summary, []byte(`"current_model_id":"grok-build"`)) || !bytes.Contains(summary, []byte(allowedCWD)) {
+		t.Fatalf("summary bytes %s", summary)
+	}
+	if _, _, ok, err := lake.Catalog.Current(ctx, protocol.HarnessGrok, refusedID); err != nil || ok {
+		t.Fatalf("refused session stored ok=%v err=%v", ok, err)
+	}
+
+	if err := lake.WaitNormalized(ctx); err != nil {
+		t.Fatal(err)
+	}
+	msg, ok, err := lake.Catalog.NormalizeError(ctx, uid)
+	if err != nil || !ok || !strings.Contains(msg, "not implemented") {
+		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
 	}
 }

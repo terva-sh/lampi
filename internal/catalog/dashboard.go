@@ -134,7 +134,7 @@ func (r *PageRequest) validate(kind string) (pageCursor, error) {
 // the lake ingests.
 func validHarness(h string) bool {
 	switch h {
-	case "", "terva", "claude", "codex", "opencode", "cursor", "cursor-cli":
+	case "", "terva", "claude", "codex", "opencode", "cursor", "cursor-cli", "grok":
 		return true
 	}
 	return false

@@ -118,6 +118,7 @@ func TestSourcesOmitAndExplicitEnable(t *testing.T) {
 		protocol.HarnessOpenCode,
 		protocol.HarnessCursor,
 		protocol.HarnessCursorCLI,
+		protocol.HarnessGrok,
 	}
 	for _, src := range [][]source{omitted, explicit} {
 		got := sourceNames(src)
@@ -391,8 +392,12 @@ func TestHarnessStatusesComplete(t *testing.T) {
 	if strings.Join(ids, "\n") != strings.Join(knownIDs(), "\n") {
 		t.Fatalf("order %v", ids)
 	}
-	if len(rows) != 6 {
+	if len(rows) != len(knownIDs()) {
 		t.Fatalf("rows %d", len(rows))
+	}
+	grokRow := indexHarness(rows)[protocol.HarnessGrok]
+	if grokRow.source != "default" || grokRow.root != filepath.Join(f.home, ".grok") {
+		t.Fatalf("grok default %+v", grokRow)
 	}
 	for _, row := range rows {
 		if !row.enabled || row.root == "" || row.source == "" {

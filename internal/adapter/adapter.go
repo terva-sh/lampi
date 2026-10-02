@@ -1,10 +1,10 @@
 // Package adapter is the seam between a harness on disk and the lake.
 //
-// terva, Claude Code, Codex CLI, OpenCode, the Cursor IDE, and the
-// Cursor CLI are the implementations. The IDE reader snapshots
+// terva, Claude Code, Codex CLI, OpenCode, the Cursor IDE, the Cursor
+// CLI, and Grok Build are the implementations. The IDE reader snapshots
 // state.vscdb. The CLI reader snapshots store.db. They are separate
 // corpora and do not share a harness name. Both upload a filtered
-// export.
+// export. Grok Build uploads updates.jsonl and does not project it yet.
 package adapter
 
 import (

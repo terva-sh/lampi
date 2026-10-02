@@ -140,7 +140,7 @@ name is not a path. A refused cursor or cursor-cli session with an
 empty cwd is named on stderr with that reason. config.json harnesses
 can turn a harness off or point it at
 another directory. The id is terva, claude, codex, opencode, cursor,
-or cursor-cli. enabled false skips discover, watch, and upload for
+cursor-cli, or grok. enabled false skips discover, watch, and upload for
 that id. The watermark and any object already stored stay. root is
 an absolute path and wins over the environment variable and the
 default above. There is no per-harness root flag. Omit harnesses,
@@ -663,6 +663,7 @@ func lakeOptions(env Env, file config.File, state string, src []source, lake con
 		OpenCodeHome:  homeOf(src, protocol.HarnessOpenCode),
 		CursorHome:    homeOf(src, protocol.HarnessCursor),
 		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
+		GrokHome:      homeOf(src, protocol.HarnessGrok),
 		MachineID:     m.MachineID,
 		StateDir:      state,
 		LakeStateDir:  lakestate.Dir(state, lake.Name),
