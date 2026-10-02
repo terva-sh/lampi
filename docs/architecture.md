@@ -34,13 +34,14 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | OpenCode | `internal/adapter/opencode` | Scheduled `opencode export` JSON at `$XDG_DATA_HOME/opencode/export/**/*.json`. Unset is `~/.local/share/opencode`. When `export/` has no JSON, the database file at that root. Not the WAL |
 | Cursor IDE | `internal/adapter/cursor` | Read-only snapshot of `state.vscdb` under the user-data directory. Filtered JSON export. Keys under `cursorAuth/` are dropped. Not the CLI store |
 | Cursor CLI | `internal/adapter/cursorcli` | Read-only snapshot of `store.db` under the CLI config directory. Separate harness `cursor-cli`. Not assumed to match IDE state |
+| Grok Build | `internal/adapter/grok` | `$GROK_HOME/sessions/<encoded-cwd>/<uuid>/updates.jsonl`. Unset is `~/.grok`. `summary.json` is the companion. Separate harness `grok`. Not a Cursor corpus |
 | Watch | `internal/watch` | fsnotify, poll fallback, append offset. One layout per harness |
 | Outbox | `internal/outbox` | SQLite queue of digests and manifest versions |
 | Watermarks | `internal/watermark` | Per-path cursor and the scan of its bytes, written only after a manifest ACK |
 | Redaction | `internal/redact` | Ruleset v2. It reads JSON escapes as the text they stand for. Upload hits are quarantined and the bytes are not rewritten. The training projection strips matches from its own copy |
 | Allowlist | `internal/config` | cwd prefix, git remote, terva cwd hash. Default deny |
 | Push | `internal/upload` | Allowlist, scan, watermark plan, outbox, put, manifest ACK, last-sync stamp. Files over the blob cap are chunked |
-| Normalize | `internal/normalize` | Workers project terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
+| Normalize | `internal/normalize` | Workers project terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, Cursor CLI, and Grok Build onto schema_version 1 events. Unknown fields kept. `encrypted_content` stays opaque. Parquet is partitioned by UTC date and harness |
 | Export | `terva-lampi export` | Normalized JSONL (`--format events`), or an allowlisted ShareGPT/trajectory JSONL. Training rows keep `raw_sha256`. `encrypted_content` stays opaque. Plaintext training fields are stripped with ruleset v2 |
 | MVP gate | `internal/accept` | Five architecture §7 tests against a local lake |
 
@@ -133,7 +134,7 @@ parquet/date=YYYY-MM-DD/harness=<harness>/<session_uid>.parquet
 is missing, the day is `ingested_at`. A session whose events fall on
 more than one day has one file in each of those partitions. `harness`
 is the event harness (terva, Claude Code, Codex CLI, OpenCode, Cursor IDE,
-or Cursor CLI). The file name is the session uid, so a re-projection
+Cursor CLI, or Grok Build). The file name is the session uid, so a re-projection
 replaces that session and leaves the rest of the day in place. DuckDB
 reads the tree with
 `read_parquet('parquet/**/*.parquet', hive_partitioning = true)`.
@@ -191,7 +192,7 @@ Left as interfaces, with the reason next to the type:
 
 | Package | Later work |
 |---------|------------|
-| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, or Cursor CLI is refused at the manifest with `400`. A new one needs a projector and an entry in the lake's allowlist |
+| `internal/normalize` | A harness other than terva, Claude Code, Codex CLI, OpenCode, Cursor IDE, Cursor CLI, or Grok Build is refused at the manifest with `400`. A new one needs a projector and an entry in the lake's allowlist |
 
 `internal/watch`, `internal/outbox`, `internal/watermark`, and
 `internal/redact` are implemented. `terva-lampi sync` and
@@ -467,12 +468,14 @@ a file URI leaves the cwd empty, and the allowlist refuses the export.
 The workspace hash is not a path. `sync` names those empty-cwd
 refusals on stderr. A refused chat is not copied or exported.
 The `projects` allow and deny rules are unchanged.
-The Claude, Codex, OpenCode,
-and Cursor record shapes are internal to those packages. Each pins a
-reader version on `harness_version` and keeps keys it does not
-interpret. Normalize workers project terva, Claude Code, Codex CLI,
-OpenCode, Cursor IDE, and Cursor CLI onto schema_version 1. A manifest
-for any other harness is refused with `400`.
+The Claude, Codex, OpenCode, Cursor, and Grok Build record shapes are
+internal to those packages. Each pins a reader version on
+`harness_version` and keeps keys it does not interpret. Normalize
+workers project terva, Claude Code, Codex CLI, OpenCode, Cursor IDE,
+Cursor CLI, and Grok Build onto schema_version 1. A manifest for any
+other harness is refused with `400`. Grok Build is harness `grok`.
+Where it reads, and which lines become events, are in
+[harnesses.md](harnesses.md).
 Path-based
 `cwd_hash` is copied from terva and buckets one absolute path. The
 same git repo at two paths hashes differently. Those checkouts link
@@ -518,6 +521,7 @@ internal/adapter/codex/   Codex rollout-*.jsonl, not history.jsonl
 internal/adapter/opencode/ OpenCode export JSON, not the WAL
 internal/adapter/cursor/  Cursor IDE state.vscdb snapshot
 internal/adapter/cursorcli/ Cursor CLI store.db snapshot, separate corpus
+internal/adapter/grok/    Grok Build updates.jsonl, harness grok
 internal/upload/          one-shot push
 internal/watch/           fsnotify, poll fallback
 internal/redact/          ruleset v2 and quarantine.jsonl

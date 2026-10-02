@@ -19,6 +19,7 @@ every enabled harness. A missing directory is skipped.
 | `opencode` | A scheduled `opencode export` at `$XDG_DATA_HOME/opencode/export/**/*.json` | `~/.local/share/opencode` (on Windows, `%USERPROFILE%\.local\share\opencode`) |
 | `cursor` | A read-only snapshot of `User/globalStorage/state.vscdb` and `User/workspaceStorage/<id>/state.vscdb` | `$XDG_CONFIG_HOME/Cursor` or `~/.config/Cursor` on Linux, `~/Library/Application Support/Cursor` on macOS, `%APPDATA%\Cursor` on Windows |
 | `cursor-cli` | A read-only snapshot of `$CURSOR_CONFIG_DIR/chats/<workspace>/<session>/store.db` | `$XDG_CONFIG_HOME/cursor` on Linux when that variable is set, otherwise `~/.cursor` (on Windows, `%USERPROFILE%\.cursor`) |
+| `grok` | `$GROK_HOME/sessions/<encoded-cwd>/<uuid>/updates.jsonl`, and `summary.json` in that directory | `~/.grok` |
 
 - terva sidecars upload with a session the allowlist already permits.
 - Codex `history.jsonl` is prompt history and is not a rollout, so it
@@ -26,12 +27,53 @@ every enabled harness. A missing directory is skipped.
 - When OpenCode's `export/` has no JSON, the database file at that root
   is listed instead. `opencode.db-wal` is not read. An export uploads as
   `opencode_export_json`, and a re-export replaces the session head.
-- The record shape for Claude, Codex, and OpenCode is internal to those
-  adapters. Each pins a reader version and keeps keys it does not
-  interpret.
+- The record shape for Claude, Codex, OpenCode, and Grok Build is
+  internal to those adapters. Each pins a reader version and keeps
+  keys it does not interpret.
 - The Cursor IDE `state.vscdb` reader and the Cursor CLI `store.db`
   reader are separate corpora. They do not share a harness, a session,
-  or a watermark.
+  or a watermark. Grok Build is its own corpus, harness `grok`. A
+  Cursor session that used a Grok model stays on `cursor` or
+  `cursor-cli`.
+
+## Grok Build
+
+`GROK_HOME` wins. When it is unset, the home is `~/.grok`. There is
+no XDG fallback. A relative `GROK_HOME` is used as given.
+
+A session is `sessions/<encoded-cwd>/<uuid>/`. The group directory
+name is the URL-encoding of the cwd. Hex digits in that encoding are
+uppercase, and ASCII letters, digits, and `-_.~` stay as themselves.
+When the encoding is longer than 255 bytes, the name is slugify of
+the path's leaf, a hyphen, and the first 16 hex characters of
+BLAKE3(cwd). That directory holds a `.cwd` file with the original
+path.
+
+`updates.jsonl` is the transcript and the source of truth. The native
+session id is the UUID directory. A directory name that is not a UUID
+is not a session. `summary.json` beside the transcript is the
+companion: cwd is `info.cwd`, the title is `generated_title` when
+that is set and `session_summary` otherwise, and the model is
+`current_model_id`. A directory that has only `summary.json` is not
+a session.
+
+Sync uploads those two files. `updates.jsonl` is kind
+`transcript_jsonl`. `summary.json` is kind `summary_json`.
+`chat_history.jsonl` is not the transcript. It and the other files
+in the session directory stay on the machine.
+
+Workers project `updates.jsonl` onto schema_version 1. The methods
+they read are `session/update` and `_x.ai/session/update`. Consecutive
+`user_message_chunk`, `agent_message_chunk`, and `agent_thought_chunk`
+lines of the same kind coalesce into one message. A change of
+`promptId` or `promptIndex` starts a new message. `tool_call` becomes
+a `tool_call`. `tool_call_update` becomes a `tool_result` only when
+its status is `completed` or `failed`. Any other method, and any other
+`sessionUpdate` including other xAI extensions, is skipped.
+`summary.json` and `chat_history.jsonl` are not projected.
+`session_id` is `grok:` plus the native UUID. The pinned reader
+version is `1`. The record has no confidence field. The Cursor IDE
+reader version is `2`, and its confidence is `low`.
 
 Every harness passes the same project allowlist before anything leaves
 the machine. See [Allowlist and redaction](allowlist-and-redaction.md).
