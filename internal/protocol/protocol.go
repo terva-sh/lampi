@@ -128,9 +128,11 @@ const (
 	// not this document.
 	HarnessCursorCLI = "cursor-cli"
 	// HarnessGrok is Grok Build. The transcript is updates.jsonl under
-	// sessions/<encoded-cwd>/<uuid>/. summary.json is the companion.
-	// The native session id is that UUID. Workers do not project it
-	// yet, so a stored manifest records normalize_error.
+	// sessions/<encoded-cwd>/<uuid>/. summary.json is the companion
+	// and is not the event stream. chat_history.jsonl is not the
+	// transcript. The native session id is that UUID. Workers project
+	// updates.jsonl onto schema_version 1. session_id is grok: plus
+	// that UUID. harness_version is the pinned reader.
 	HarnessGrok = "grok"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.

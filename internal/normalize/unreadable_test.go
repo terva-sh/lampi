@@ -17,8 +17,14 @@ func TestUnreadableLinesAreCapped(t *testing.T) {
 		"claude": Claude{},
 		"codex":  Codex{},
 		"terva":  Terva{},
+		"grok":   Grok{},
 	} {
-		good := map[string]string{"claude": `{"type":"user"}`, "codex": `{"type":"session_meta"}`, "terva": `{"type":"meta"}`}[name]
+		good := map[string]string{
+			"claude": `{"type":"user"}`,
+			"codex":  `{"type":"session_meta"}`,
+			"terva":  `{"type":"meta"}`,
+			"grok":   `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}}}}`,
+		}[name]
 		file := func(bad int) []byte {
 			return []byte(good + "\n" + strings.Repeat("not-json sk-live-secret\n", bad))
 		}

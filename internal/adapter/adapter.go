@@ -4,7 +4,7 @@
 // CLI, and Grok Build are the implementations. The IDE reader snapshots
 // state.vscdb. The CLI reader snapshots store.db. They are separate
 // corpora and do not share a harness name. Both upload a filtered
-// export. Grok Build uploads updates.jsonl and does not project it yet.
+// export. Grok Build uploads updates.jsonl. Workers project that file.
 package adapter
 
 import (

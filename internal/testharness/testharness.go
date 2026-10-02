@@ -41,11 +41,12 @@
 // empty, so a planted export keeps the database off the discover set.
 //
 // Grok Build sessions are sessions/<encoded-cwd>/<uuid>/updates.jsonl.
-// The id is a UUID. An empty ID is invented as one. summary.json is
-// written beside the transcript with info.cwd, a title, and a model.
-// When the URL-encoded cwd is longer than 255 bytes, the group
-// directory is the slug-hash form and a .cwd file holds the original
-// path. chat_history.jsonl is not written. Extra keys are ignored.
+// The id is a UUID. An empty ID is invented as one. The transcript is
+// one ACP user_message_chunk whose text is the prompt. summary.json is
+// written beside it with info.cwd, a title, and a model. When the
+// URL-encoded cwd is longer than 255 bytes, the group directory is
+// the slug-hash form and a .cwd file holds the original path.
+// chat_history.jsonl is not written. Extra keys are ignored.
 package testharness
 
 import (
@@ -528,14 +529,38 @@ type openCodePart struct {
 }
 
 func grokSession(root, cwd, id, prompt string, _ time.Time) (string, []byte, error) {
-	body, err := encodeLines(grokLine{Type: "user", Text: prompt})
+	body, err := encodeLines(grokACPLine{
+		Method: "session/update",
+		Params: grokACPParams{
+			SessionID: id,
+			Update: grokACPUpdate{
+				SessionUpdate: "user_message_chunk",
+				Content:       &grokACPBlock{Type: "text", Text: prompt},
+			},
+		},
+	})
 	if err != nil {
 		return "", nil, err
 	}
 	return filepath.Join(root, "sessions", grok.EncodeCWDDirname(cwd), id, "updates.jsonl"), body, nil
 }
 
-type grokLine struct {
+type grokACPLine struct {
+	Method string        `json:"method"`
+	Params grokACPParams `json:"params"`
+}
+
+type grokACPParams struct {
+	SessionID string        `json:"sessionId"`
+	Update    grokACPUpdate `json:"update"`
+}
+
+type grokACPUpdate struct {
+	SessionUpdate string        `json:"sessionUpdate"`
+	Content       *grokACPBlock `json:"content,omitempty"`
+}
+
+type grokACPBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }

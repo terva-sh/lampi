@@ -13,7 +13,8 @@
 //
 // chat_history.jsonl and the other files in the session directory are
 // not artifacts. Sync uploads the file bytes; it does not rewrite them.
-// Workers do not project this harness yet.
+// Workers project updates.jsonl. They do not project summary.json or
+// chat_history.jsonl.
 package grok
 
 import (
