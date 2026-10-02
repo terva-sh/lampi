@@ -16,7 +16,9 @@ parent: null
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:79
+    path: null
 claim:
   actor: agent:cursor/6699
   branch: cursor/grok-build-adapter-6699
@@ -27,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-02T19:04:57Z
-updated_at: 2026-10-02T19:22:46Z
+updated_at: 2026-10-02T19:23:41Z
 created_by:
   id: agent:cursor/6699
   name: Cursor cloud agent
@@ -84,3 +86,7 @@ Discover, watch, and upload for harness `grok` are on `cursor/grok-build-adapter
 
 ### Cut notes
 A session id that is not a UUID is not matched, so a `grok -s` client id is not a session here. A relative `GROK_HOME` is used as given and is not resolved from the process cwd. `chat_history.jsonl` and the other session files are not uploaded. `summary.json` is watched, so a rewrite of the companion is seen, and it does not move the transcript head. Event ids `grok:<uuid>` belong to the normalize ticket.
+
+**agent:cursor/6699** at 2026-10-02T19:23:41Z
+
+Opened https://github.com/terva-sh/lampi/pull/79 for this ticket. The pull request is ready for review. Squash-merge waits on review.
