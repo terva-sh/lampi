@@ -63,7 +63,7 @@ func (f reviewFilter) URL() string {
 // Any reports whether the filter narrows the queue.
 func (f reviewFilter) Any() bool { return f.Device != "" || f.Harness != "" || f.Profile != "" }
 
-var reviewHarnesses = []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli"}
+var reviewHarnesses = []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli", "grok"}
 
 // parseReviewFilter reads the filter; ok is false for a key it does not
 // know, a key given twice, or a value no filter takes. Empty values are

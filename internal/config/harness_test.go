@@ -115,7 +115,8 @@ func TestHarnessKnownKeys(t *testing.T) {
 		protocol.HarnessCodex != "codex" ||
 		protocol.HarnessOpenCode != "opencode" ||
 		protocol.HarnessCursor != "cursor" ||
-		protocol.HarnessCursorCLI != "cursor-cli" {
+		protocol.HarnessCursorCLI != "cursor-cli" ||
+		protocol.HarnessGrok != "grok" {
 		t.Fatal("protocol harness ids drifted from the config allowlist")
 	}
 	for _, id := range knownHarnessIDs {
@@ -305,6 +306,7 @@ var knownHarnessIDs = []string{
 	"opencode",
 	"cursor",
 	"cursor-cli",
+	"grok",
 }
 
 func absHarnessRoot(t *testing.T) string {

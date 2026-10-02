@@ -7,8 +7,9 @@
 // root is the absolute harness home. cwd is the absolute project
 // directory recorded in session metadata. Both are cleaned with
 // filepath.Clean. An empty SessionSpec.ID is replaced with a unique id
-// prefixed with "syn-". An empty Prompt becomes "synthetic prompt "
-// plus that id. Extra is reserved; unknown keys are ignored.
+// prefixed with "syn-". PlantGrok invents a UUID instead. An empty
+// Prompt becomes "synthetic prompt " plus that id. Extra is reserved;
+// unknown keys are ignored.
 //
 // Planting an id that is already on disk overwrites that session file
 // and leaves every other file in the home alone.
@@ -38,6 +39,13 @@
 // holding one user text part set to the prompt. Discover walks
 // export/**/*.json and only falls back to a root *.db when that glob is
 // empty, so a planted export keeps the database off the discover set.
+//
+// Grok Build sessions are sessions/<encoded-cwd>/<uuid>/updates.jsonl.
+// The id is a UUID. An empty ID is invented as one. summary.json is
+// written beside the transcript with info.cwd, a title, and a model.
+// When the URL-encoded cwd is longer than 255 bytes, the group
+// directory is the slug-hash form and a .cwd file holds the original
+// path. chat_history.jsonl is not written. Extra keys are ignored.
 package testharness
 
 import (
@@ -51,6 +59,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"terva.sh/lampi/internal/adapter/grok"
 )
 
 // SessionSpec is one synthetic session.
@@ -107,6 +117,44 @@ func PlantCodex(root, cwd string, sessions []SessionSpec) (PlantResult, error) {
 // file is not written. Planting the same id again overwrites that file only.
 func PlantOpenCode(root, cwd string, sessions []SessionSpec) (PlantResult, error) {
 	return plant(root, cwd, sessions, openCodeSession)
+}
+
+// PlantGrok writes sessions/<encoded-cwd>/<uuid>/updates.jsonl under
+// root, plus summary.json in that directory. The id must be a UUID.
+// An empty ID is replaced with a new UUID. A cwd whose URL-encoding
+// exceeds 255 bytes uses the slug-hash directory and a .cwd file.
+// Planting the same id and cwd again overwrites that session's files.
+func PlantGrok(root, cwd string, sessions []SessionSpec) (PlantResult, error) {
+	specs := make([]SessionSpec, len(sessions))
+	copy(specs, sessions)
+	seen := map[string]struct{}{}
+	for i := range specs {
+		id := specs[i].ID
+		if id == "" {
+			invented, err := inventUUID(seen)
+			if err != nil {
+				return PlantResult{}, err
+			}
+			id = invented
+			specs[i].ID = id
+		} else if !grok.ValidSessionID(id) {
+			return PlantResult{}, fmt.Errorf("testharness: session id must be a UUID")
+		}
+		if _, taken := seen[id]; taken {
+			return PlantResult{}, fmt.Errorf("testharness: duplicate session id %s", id)
+		}
+		seen[id] = struct{}{}
+	}
+	res, err := plant(root, cwd, specs, grokSession)
+	if err != nil {
+		return res, err
+	}
+	for i, path := range res.Files {
+		if err := writeGrokCompanion(path, cwd, res.SessionIDs[i]); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
 }
 
 type sessionFile func(root, cwd, id, prompt string, when time.Time) (string, []byte, error)
@@ -477,4 +525,75 @@ type openCodeMsgInfo struct {
 type openCodePart struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+func grokSession(root, cwd, id, prompt string, _ time.Time) (string, []byte, error) {
+	body, err := encodeLines(grokLine{Type: "user", Text: prompt})
+	if err != nil {
+		return "", nil, err
+	}
+	return filepath.Join(root, "sessions", grok.EncodeCWDDirname(cwd), id, "updates.jsonl"), body, nil
+}
+
+type grokLine struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type grokSummary struct {
+	Info           grokInfo `json:"info"`
+	GeneratedTitle string   `json:"generated_title"`
+	ModelID        string   `json:"current_model_id"`
+}
+
+type grokInfo struct {
+	ID  string `json:"id"`
+	CWD string `json:"cwd"`
+}
+
+func writeGrokCompanion(updates, cwd, id string) error {
+	dir := filepath.Dir(updates)
+	body, err := encodeLines(grokSummary{
+		Info:           grokInfo{ID: id, CWD: cwd},
+		GeneratedTitle: "synthetic " + id,
+		ModelID:        "grok-build",
+	})
+	if err != nil {
+		return err
+	}
+	if err := writeFile(filepath.Join(dir, "summary.json"), body); err != nil {
+		return err
+	}
+	if !grok.UsesCWDFile(cwd) {
+		return nil
+	}
+	group := filepath.Dir(dir)
+	marker := filepath.Join(group, ".cwd")
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	}
+	return writeFile(marker, []byte(cwd))
+}
+
+func inventUUID(seen map[string]struct{}) (string, error) {
+	for range 8 {
+		var buf [16]byte
+		if _, err := rand.Read(buf[:]); err != nil {
+			return "", fmt.Errorf("testharness: invent session id: %w", err)
+		}
+		buf[6] = (buf[6] & 0x0f) | 0x40
+		buf[8] = (buf[8] & 0x3f) | 0x80
+		id := fmt.Sprintf("%s-%s-%s-%s-%s",
+			hex.EncodeToString(buf[0:4]),
+			hex.EncodeToString(buf[4:6]),
+			hex.EncodeToString(buf[6:8]),
+			hex.EncodeToString(buf[8:10]),
+			hex.EncodeToString(buf[10:16]),
+		)
+		if _, taken := seen[id]; taken {
+			continue
+		}
+		return id, nil
+	}
+	return "", fmt.Errorf("testharness: could not invent a session id")
 }

@@ -434,7 +434,7 @@ func newGoLiveFixture(t *testing.T) *goLiveFixture {
 	t.Helper()
 	f := &goLiveFixture{root: t.TempDir(), homes: map[string]string{}}
 	harnesses := map[string]any{}
-	for _, id := range []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli"} {
+	for _, id := range []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli", "grok"} {
 		f.homes[id] = filepath.Join(f.root, "homes", id)
 		harnesses[id] = map[string]any{"root": f.homes[id], "enabled": id != "cursor" && id != "cursor-cli"}
 	}

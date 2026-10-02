@@ -57,7 +57,7 @@ exported: export reads the lake directory, which holds them all.
 Event filters, with --format events only, keep the events that match
 every filter given. They take the names and values of the web search
 filters and select the same events:
-  --harness H         terva, claude, codex, opencode, cursor or cursor-cli
+  --harness H         terva, claude, codex, opencode, cursor, cursor-cli or grok
   --project ID        the session's project id
   --event-type T      message, tool_call, tool_result, usage, compaction,
                       meta, error, unknown, or unreadable for a line that

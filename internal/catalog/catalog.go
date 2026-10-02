@@ -725,7 +725,7 @@ func reviseDecisions(ctx context.Context, tx *sql.Tx, blobs BlobReader, uid, ses
 // rewrite does.
 func snapshotArtifact(kind string) bool {
 	switch kind {
-	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON:
+	case protocol.KindRaatiJSON, protocol.KindTasksJSON, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON, protocol.KindSummaryJSON:
 		return true
 	default:
 		return false
@@ -744,8 +744,8 @@ func snapshotDecision(kind string) (Decision, bool) {
 }
 
 // headBearing is a kind that is the session itself: a transcript, or
-// a Cursor or OpenCode export. errors_jsonl, raati_json, and
-// tasks_json sit beside it and never stand in for it.
+// a Cursor or OpenCode export. errors_jsonl, raati_json, tasks_json,
+// and summary_json sit beside it and never stand in for it.
 func headBearing(kind string) bool {
 	switch kind {
 	case protocol.KindTranscriptJSONL, protocol.KindCursorStateJSON, protocol.KindCursorCLIStoreJSON, protocol.KindOpenCodeExportJSON:

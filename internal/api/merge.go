@@ -308,6 +308,7 @@ var (
 		protocol.HarnessOpenCode:  true,
 		protocol.HarnessCursor:    true,
 		protocol.HarnessCursorCLI: true,
+		protocol.HarnessGrok:      true,
 	}
 	knownKinds = map[string]bool{
 		protocol.KindTranscriptJSONL:    true,
@@ -317,6 +318,7 @@ var (
 		protocol.KindCursorStateJSON:    true,
 		protocol.KindCursorCLIStoreJSON: true,
 		protocol.KindOpenCodeExportJSON: true,
+		protocol.KindSummaryJSON:        true,
 	}
 )
 
