@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3Z02QJNXSYB4XQHPJGD9R59
 title: Adapter discover/watch/manifest for Grok Build
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ blocks_on: none
 references:
   - ref: pr:79
     path: null
-claim:
-  actor: agent:cursor/6699
-  branch: cursor/grok-build-adapter-6699
-  worktree: /workspace
-  commit: 4ba8d69b23f514371d625e8ce2eac35b0dbe70ca
-  session: null
-  claimed_at: 2026-10-02T19:05:18Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-02T19:04:57Z
-updated_at: 2026-10-02T19:23:41Z
+updated_at: 2026-10-02T19:29:18Z
 created_by:
   id: agent:cursor/6699
   name: Cursor cloud agent
@@ -90,3 +83,7 @@ A session id that is not a UUID is not matched, so a `grok -s` client id is not 
 **agent:cursor/6699** at 2026-10-02T19:23:41Z
 
 Opened https://github.com/terva-sh/lampi/pull/79 for this ticket. The pull request is ready for review. Squash-merge waits on review.
+
+## Summary
+
+Landed on main as 60a139c via https://github.com/terva-sh/lampi/pull/79. Discover, watch, upload, and catalog ingest see harness grok. Normalize and operator docs stay on their own tickets.
