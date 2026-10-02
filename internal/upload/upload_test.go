@@ -23,6 +23,7 @@ import (
 	"terva.sh/lampi/internal/adapter/grok"
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/testharness"
@@ -1986,7 +1987,17 @@ func TestSyncGrokCatalogAndRefusal(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg, ok, err := lake.Catalog.NormalizeError(ctx, uid)
-	if err != nil || !ok || !strings.Contains(msg, "not implemented") {
+	if err != nil || !ok || msg != "" {
 		t.Fatalf("normalize_error %q ok=%v err=%v", msg, ok, err)
+	}
+	derived, err := normalize.ReadEventsFile(lake.Normalized, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(derived, []byte(`"session_id":"grok:`+allowedID+`"`)) || !bytes.Contains(derived, []byte(`"schema_version":1`)) || !bytes.Contains(derived, []byte("hello grok")) {
+		t.Fatalf("derived:\n%s", derived)
+	}
+	if bytes.Contains(derived, []byte(`"confidence"`)) {
+		t.Fatalf("derived carries confidence:\n%s", derived)
 	}
 }
