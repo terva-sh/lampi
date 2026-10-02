@@ -17,7 +17,9 @@ origin: null
 dependencies:
   - TKT-01M3Z02QJNXSYB4XQHPJGD9R59
 blocks_on: none
-references: []
+references:
+  - ref: pr:81
+    path: null
 claim:
   actor: agent:cursor/e15e
   branch: cursor/grok-acp-normalize-e15e
@@ -28,7 +30,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-02T19:05:08Z
-updated_at: 2026-10-02T19:47:23Z
+updated_at: 2026-10-02T19:48:26Z
 created_by:
   id: agent:cursor/6699
   name: Cursor cloud agent
@@ -76,3 +78,7 @@ A unit fixture covers coalesced chunks, a tool call, a completed and a failed to
 **agent:cursor/e15e** at 2026-10-02T19:47:23Z
 
 normalize.Grok projects updates.jsonl. Consecutive user_message_chunk, agent_message_chunk, and agent_thought_chunk lines coalesce into one message. tool_call becomes tool_call. tool_call_update completed or failed becomes tool_result. Other methods and sessionUpdate values are skipped. summary.json and chat_history.jsonl are not projected. harness_version stays 1 and the projector has no Confidence field. Cursor packages are unchanged.
+
+**agent:cursor/e15e** at 2026-10-02T19:48:26Z
+
+Opened https://github.com/terva-sh/lampi/pull/81 for this ticket. The pull request is ready for review. Head 4c5e595 projects updates.jsonl; go test ./... and go vet ./... passed locally.
