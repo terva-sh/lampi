@@ -309,6 +309,7 @@ var (
 		protocol.HarnessCursor:    true,
 		protocol.HarnessCursorCLI: true,
 		protocol.HarnessGrok:      true,
+		protocol.HarnessGrokBot:   true,
 	}
 	knownKinds = map[string]bool{
 		protocol.KindTranscriptJSONL:    true,

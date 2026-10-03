@@ -47,6 +47,11 @@
 // URL-encoded cwd is longer than 255 bytes, the group directory is
 // the slug-hash form and a .cwd file holds the original path.
 // chat_history.jsonl is not written. Extra keys are ignored.
+//
+// Grok Bot transcripts are agent-transcripts/<uuid>/<uuid>.jsonl.
+// PlantGrokBot takes no cwd: the manifest cwd is that agent directory,
+// which is absolute because root is. store.db and conversation-blobs.db
+// are not written. The file is one user line whose text is the prompt.
 package testharness
 
 import (
@@ -62,6 +67,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/adapter/grok"
+	"terva.sh/lampi/internal/adapter/grokbot"
 )
 
 // SessionSpec is one synthetic session.
@@ -574,6 +580,79 @@ type grokSummary struct {
 type grokInfo struct {
 	ID  string `json:"id"`
 	CWD string `json:"cwd"`
+}
+
+// PlantGrokBot writes agent-transcripts/<uuid>/<uuid>.jsonl under root.
+// The id must be a UUID. An empty ID is replaced with a new UUID. The
+// file is one user message whose text is the prompt. The absolute cwd
+// of the session is the planted agent-transcripts/<uuid> directory.
+// store.db and conversation-blobs.db are not written. Planting the
+// same id again overwrites that file only.
+func PlantGrokBot(root string, sessions []SessionSpec) (PlantResult, error) {
+	root, err := absPath("root", root)
+	if err != nil {
+		return PlantResult{}, err
+	}
+	specs := make([]SessionSpec, len(sessions))
+	copy(specs, sessions)
+	seen := map[string]struct{}{}
+	for i := range specs {
+		id := specs[i].ID
+		if id == "" {
+			invented, err := inventUUID(seen)
+			if err != nil {
+				return PlantResult{}, err
+			}
+			id = invented
+			specs[i].ID = id
+		} else if !grokbot.ValidSessionID(id) {
+			return PlantResult{}, fmt.Errorf("testharness: session id must be a UUID")
+		}
+		if _, taken := seen[id]; taken {
+			return PlantResult{}, fmt.Errorf("testharness: duplicate session id %s", id)
+		}
+		seen[id] = struct{}{}
+	}
+	var res PlantResult
+	for _, spec := range specs {
+		prompt := spec.Prompt
+		if prompt == "" {
+			prompt = "synthetic prompt " + spec.ID
+		}
+		body, err := encodeLines(grokBotLine{
+			Role: "user",
+			Message: grokBotMessage{
+				Content: []grokBotPart{{Type: "text", Text: prompt}},
+			},
+		})
+		if err != nil {
+			return res, err
+		}
+		path := filepath.Join(root, "agent-transcripts", spec.ID, spec.ID+".jsonl")
+		if err := within(root, path); err != nil {
+			return res, err
+		}
+		if err := writeFile(path, body); err != nil {
+			return res, err
+		}
+		res.Files = append(res.Files, path)
+		res.SessionIDs = append(res.SessionIDs, spec.ID)
+	}
+	return res, nil
+}
+
+type grokBotLine struct {
+	Role    string         `json:"role"`
+	Message grokBotMessage `json:"message"`
+}
+
+type grokBotMessage struct {
+	Content []grokBotPart `json:"content"`
+}
+
+type grokBotPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 func writeGrokCompanion(updates, cwd, id string) error {

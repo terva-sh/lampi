@@ -24,15 +24,15 @@ import (
 // It does not write the CAS. A non-nil error means no derived view;
 // callers record it and leave the blobs in place.
 //
-// The head is one artifact. For terva, claude, codex, and grok, the
-// current artifacts at or under the head's directory are considered
-// too: a terva error sidecar and a Claude subagent transcript sit
-// there. The same session posted under another relpath is not read a
-// second time. cursor, cursor-cli, and opencode read the head only,
+// The head is one artifact. For terva, claude, codex, grok, and
+// grokbot, the current artifacts at or under the head's directory are
+// considered too: a terva error sidecar and a Claude subagent transcript
+// sit there. The same session posted under another relpath is not read
+// a second time. cursor, cursor-cli, and opencode read the head only,
 // because that export is the whole session.
 //
-// terva reads transcript_jsonl and errors_jsonl. claude, codex, and
-// grok read transcript_jsonl only. A codex history.jsonl artifact is
+// terva reads transcript_jsonl and errors_jsonl. claude, codex, grok,
+// and grokbot read transcript_jsonl only. A codex history.jsonl artifact is
 // not a rollout and is not read. A grok summary.json is session
 // metadata and a grok chat_history.jsonl is not the transcript;
 // neither is projected, including when a manifest labels that
@@ -45,7 +45,7 @@ import (
 // not an empty success. Other harnesses are rejected before a blob is
 // opened.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
-	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex && m.Harness != protocol.HarnessOpenCode && m.Harness != protocol.HarnessCursor && m.Harness != protocol.HarnessCursorCLI && m.Harness != protocol.HarnessGrok {
+	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex && m.Harness != protocol.HarnessOpenCode && m.Harness != protocol.HarnessCursor && m.Harness != protocol.HarnessCursorCLI && m.Harness != protocol.HarnessGrok && m.Harness != protocol.HarnessGrokBot {
 		return nil, fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
 	}
 	view, ok, err := s.Catalog.Head(ctx, m.Harness, m.NativeSessionID)
@@ -132,6 +132,17 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 			}).Normalize(ctx, raw)
 		case protocol.HarnessGrok:
 			ev, err = (normalize.Grok{
+				Now:            now,
+				NativeID:       m.NativeSessionID,
+				ParentNativeID: parent,
+				HarnessVersion: m.HarnessVersion,
+				CWD:            m.Project.CWD,
+				GitCommit:      m.Project.GitCommit,
+				ProjectID:      link,
+				Digest:         a.SHA256,
+			}).Normalize(ctx, raw)
+		case protocol.HarnessGrokBot:
+			ev, err = (normalize.GrokBot{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -228,14 +239,14 @@ func headArtifacts(harness string, v catalog.HeadView) []catalog.ArtifactRow {
 
 // projectKind is the artifact kinds that become events for harness.
 // raati_json and tasks_json are terva sidecars and stay out. Claude
-// Code, Codex CLI, and Grok Build upload transcript_jsonl only.
+// Code, Codex CLI, Grok Build, and Grok Bot upload transcript_jsonl only.
 // OpenCode uploads opencode_export_json; an older agent labelled the
 // same document transcript_jsonl. Cursor IDE uploads cursor_state_json.
 // Cursor CLI uploads cursor_cli_store_json. The two Cursor kinds are
 // not interchangeable.
 func projectKind(harness, kind string) bool {
 	switch harness {
-	case protocol.HarnessClaude, protocol.HarnessCodex, protocol.HarnessGrok:
+	case protocol.HarnessClaude, protocol.HarnessCodex, protocol.HarnessGrok, protocol.HarnessGrokBot:
 		return kind == protocol.KindTranscriptJSONL
 	case protocol.HarnessOpenCode:
 		return kind == protocol.KindOpenCodeExportJSON || kind == protocol.KindTranscriptJSONL

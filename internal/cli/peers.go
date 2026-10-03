@@ -10,6 +10,7 @@ import (
 	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/adapter/grok"
+	"terva.sh/lampi/internal/adapter/grokbot"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
@@ -41,6 +42,7 @@ func knownSources() []source {
 		{harness: cursor.Adapter{}, required: false},
 		{harness: cursorcli.Adapter{}, required: false},
 		{harness: grok.Adapter{}, required: false},
+		{harness: grokbot.Adapter{}, required: false},
 	}
 }
 
@@ -55,12 +57,12 @@ func configuredSources(env Env) ([]source, error) {
 }
 
 // sources resolves terva, Claude Code, Codex, OpenCode, the Cursor IDE,
-// the Cursor CLI, and Grok Build. harnesses is the Shape A map. A nil map leaves
-// every harness on. enabled false drops that harness only. terva's
-// home is required when terva is on. An optional harness whose default
-// cannot be named, because HOME is unset and the override is unset, is
-// left out. A set override is kept even when the directory does not
-// exist yet; Discover treats that as an empty tree.
+// the Cursor CLI, Grok Build, and Grok Bot. harnesses is the Shape A
+// map. A nil map leaves every harness on. enabled false drops that
+// harness only. terva's home is required when terva is on. An optional
+// harness whose home cannot be named is left out. A set override is
+// kept even when the directory does not exist yet; Discover treats
+// that as an empty tree.
 func sources(getenv func(string) string, harnesses config.Harnesses) ([]source, error) {
 	var out []source
 	for _, s := range knownSources() {
@@ -194,6 +196,8 @@ func harnessOverride(id string, getenv func(string) string) bool {
 		return getenv("CURSOR_CONFIG_DIR") != ""
 	case protocol.HarnessGrok:
 		return getenv("GROK_HOME") != ""
+	case protocol.HarnessGrokBot:
+		return getenv("GROK_BOT_HOME") != ""
 	default:
 		return false
 	}
@@ -230,6 +234,8 @@ func homeLabel(name string) string {
 		return "cursor_cli_config"
 	case protocol.HarnessGrok:
 		return "grok_home"
+	case protocol.HarnessGrokBot:
+		return "grokbot_home"
 	default:
 		return name + "_home"
 	}

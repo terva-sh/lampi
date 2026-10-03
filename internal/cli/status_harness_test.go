@@ -101,6 +101,7 @@ func TestStatusPrintsHarnessLines(t *testing.T) {
 		fmt.Sprintf("harness cursor enabled=true root=%s source=default", cursorHome),
 		fmt.Sprintf("harness cursor-cli enabled=true root=%s source=default", cliHome),
 		fmt.Sprintf("harness grok enabled=true root=%s source=default", grokHome),
+		"harness grokbot enabled=true root= source=default",
 	}
 	lines := harnessLines(text)
 	if strings.Join(lines, "\n") != strings.Join(want, "\n") {

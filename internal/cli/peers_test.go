@@ -400,6 +400,15 @@ func TestHarnessStatusesComplete(t *testing.T) {
 		t.Fatalf("grok default %+v", grokRow)
 	}
 	for _, row := range rows {
+		if row.id == protocol.HarnessGrokBot {
+			if !row.enabled || row.root != "" || row.source != "default" {
+				t.Fatalf("grokbot has no default home: %+v", row)
+			}
+			if row.line() != "harness grokbot enabled=true root= source=default" {
+				t.Fatalf("line %q", row.line())
+			}
+			continue
+		}
 		if !row.enabled || row.root == "" || row.source == "" {
 			t.Fatalf("row %+v", row)
 		}
@@ -557,6 +566,36 @@ func TestHarnessStatusSourcePrecedence(t *testing.T) {
 	cliOn := indexHarness(harnessStatuses(cliSet, nil))
 	if cliOn[protocol.HarnessCursorCLI].source != "env" || cliOn[protocol.HarnessCursorCLI].root != cliOverride {
 		t.Fatalf("cursor-cli env: %+v", cliOn[protocol.HarnessCursorCLI])
+	}
+
+	botRoot := t.TempDir()
+	botEnv := t.TempDir()
+	grokEnv := t.TempDir()
+	botSet := with(func(k string) string {
+		switch k {
+		case "GROK_BOT_HOME":
+			return botEnv
+		case "GROK_HOME":
+			return grokEnv
+		default:
+			return ""
+		}
+	})
+	botCfg := indexHarness(harnessStatuses(botSet, config.Harnesses{
+		protocol.HarnessGrokBot: {Enabled: true, Root: botRoot},
+	}))
+	if botCfg[protocol.HarnessGrokBot].source != "config" || botCfg[protocol.HarnessGrokBot].root != botRoot {
+		t.Fatalf("grokbot config beats env: %+v", botCfg[protocol.HarnessGrokBot])
+	}
+	if botCfg[protocol.HarnessGrok].root != grokEnv || botCfg[protocol.HarnessGrok].source != "env" {
+		t.Fatalf("grok env while grokbot is configured: %+v", botCfg[protocol.HarnessGrok])
+	}
+	botOnly := indexHarness(harnessStatuses(botSet, nil))
+	if botOnly[protocol.HarnessGrokBot].source != "env" || botOnly[protocol.HarnessGrokBot].root != botEnv {
+		t.Fatalf("grokbot env: %+v", botOnly[protocol.HarnessGrokBot])
+	}
+	if botOnly[protocol.HarnessGrokBot].root == filepath.Join(homeDir, ".grok") || botOnly[protocol.HarnessGrokBot].root == grokEnv {
+		t.Fatalf("grokbot followed grok home: %+v", botOnly[protocol.HarnessGrokBot])
 	}
 }
 

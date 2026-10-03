@@ -57,7 +57,7 @@ with that reason. The projects allow and deny rules are unchanged.
 config.json harnesses can set enabled false, which skips that
 harness, or root, an absolute path that replaces the environment
 variable and the default. The id is terva, claude, codex, opencode,
-cursor, cursor-cli, or grok. Omit the map or the id and the harness stays
+cursor, cursor-cli, grok, or grokbot. Omit the map or the id and the harness stays
 on. A skipped harness does not move its watermark and does not
 upload. There is no per-harness root flag.
 

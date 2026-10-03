@@ -134,6 +134,14 @@ const (
 	// updates.jsonl onto schema_version 1. session_id is grok: plus
 	// that UUID. harness_version is the pinned reader.
 	HarnessGrok = "grok"
+	// HarnessGrokBot is Grok Bot on the shared computer. The transcript
+	// is agent-transcripts/<uuid>/<uuid>.jsonl. The home is
+	// GROK_BOT_HOME, or harnesses.grokbot.root when that is set. There
+	// is no ~/.grok fallback. store.db and conversation-blobs.db are
+	// not read. The native session id is that UUID. Workers project
+	// the JSONL onto schema_version 1. session_id is grokbot: plus
+	// that UUID. harness_version is the pinned reader.
+	HarnessGrokBot = "grokbot"
 
 	// RedactionUnscanned means no ruleset looked at the bytes.
 	// Do not report "scanned" until a redactor actually runs.

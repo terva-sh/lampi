@@ -395,7 +395,8 @@ func TestImportBoundary(t *testing.T) {
 			}
 			// PlantGrok uses the adapter's cwd dirname so a planted
 			// tree matches the directory Grok Build would write.
-			if path == "terva.sh/lampi/internal/protocol" || path == "terva.sh/lampi/internal/adapter/grok" {
+			// PlantGrokBot uses the Grok Bot UUID check the same way.
+			if path == "terva.sh/lampi/internal/protocol" || path == "terva.sh/lampi/internal/adapter/grok" || path == "terva.sh/lampi/internal/adapter/grokbot" {
 				continue
 			}
 			first, _, _ := strings.Cut(path, "/")
