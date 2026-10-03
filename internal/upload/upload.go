@@ -62,6 +62,7 @@ import (
 	"terva.sh/lampi/internal/adapter/cursor"
 	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/adapter/grok"
+	"terva.sh/lampi/internal/adapter/grokbot"
 	"terva.sh/lampi/internal/adapter/opencode"
 	"terva.sh/lampi/internal/adapter/terva"
 	"terva.sh/lampi/internal/config"
@@ -97,8 +98,11 @@ type Options struct {
 	// to match, and they do not share watermarks.
 	CursorCLIHome string
 	// GrokHome is the Grok Build home. Empty skips it.
-	GrokHome  string
-	MachineID string
+	GrokHome string
+	// GrokBotHome is the Grok Bot home. Empty skips it. It is a
+	// different corpus from GrokHome.
+	GrokBotHome string
+	MachineID   string
 	// StateDir holds what does not depend on the lake: the quarantine
 	// records and the operator's acknowledgements.
 	StateDir string
@@ -834,6 +838,7 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 		{protocol.HarnessCursor, opt.CursorHome, cursorManifests},
 		{protocol.HarnessCursorCLI, opt.CursorCLIHome, cursorCLIManifests},
 		{protocol.HarnessGrok, opt.GrokHome, memoized(opt.Memo, protocol.HarnessGrok, grok.ManifestsMemo)},
+		{protocol.HarnessGrokBot, opt.GrokBotHome, memoized(opt.Memo, protocol.HarnessGrokBot, grokbot.ManifestsMemo)},
 	}
 	for _, h := range homes {
 		if h.home == "" {

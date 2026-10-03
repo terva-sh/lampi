@@ -125,7 +125,8 @@ func knownHarness(id string) bool {
 		protocol.HarnessOpenCode,
 		protocol.HarnessCursor,
 		protocol.HarnessCursorCLI,
-		protocol.HarnessGrok:
+		protocol.HarnessGrok,
+		protocol.HarnessGrokBot:
 		return true
 	default:
 		return false

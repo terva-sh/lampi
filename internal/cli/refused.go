@@ -107,6 +107,7 @@ func readOnlyOptions(env Env, harnesses config.Harnesses) (upload.Options, error
 		CursorHome:    homeOf(src, protocol.HarnessCursor),
 		CursorCLIHome: homeOf(src, protocol.HarnessCursorCLI),
 		GrokHome:      homeOf(src, protocol.HarnessGrok),
+		GrokBotHome:   homeOf(src, protocol.HarnessGrokBot),
 		// Manifests carry a machine id, and nothing here leaves the
 		// machine, so a fixed one avoids creating the real one.
 		MachineID: "refused-report",

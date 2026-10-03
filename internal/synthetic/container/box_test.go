@@ -45,6 +45,7 @@ var statusOrder = []string{
 	protocol.HarnessCursor,
 	protocol.HarnessCursorCLI,
 	protocol.HarnessGrok,
+	protocol.HarnessGrokBot,
 }
 
 // planted are the four harnesses this suite configures with a root.
@@ -214,6 +215,9 @@ func linuxDefaultRoot(id string) (string, bool) {
 		return path.Join(configMount, "cursor"), true
 	case protocol.HarnessGrok:
 		// The image does not set HOME, so ~/.grok cannot be named.
+		return "", true
+	case protocol.HarnessGrokBot:
+		// The image does not set GROK_BOT_HOME, and there is no default directory.
 		return "", true
 	default:
 		return "", false

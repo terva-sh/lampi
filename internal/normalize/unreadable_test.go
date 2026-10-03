@@ -14,16 +14,18 @@ func TestUnreadableLinesAreCapped(t *testing.T) {
 		Normalize(context.Context, []byte) ([]Event, error)
 	}
 	for name, p := range map[string]projector{
-		"claude": Claude{},
-		"codex":  Codex{},
-		"terva":  Terva{},
-		"grok":   Grok{},
+		"claude":  Claude{},
+		"codex":   Codex{},
+		"terva":   Terva{},
+		"grok":    Grok{},
+		"grokbot": GrokBot{},
 	} {
 		good := map[string]string{
-			"claude": `{"type":"user"}`,
-			"codex":  `{"type":"session_meta"}`,
-			"terva":  `{"type":"meta"}`,
-			"grok":   `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}}}}`,
+			"claude":  `{"type":"user"}`,
+			"codex":   `{"type":"session_meta"}`,
+			"terva":   `{"type":"meta"}`,
+			"grok":    `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}}}}`,
+			"grokbot": `{"role":"user","message":{"content":[{"type":"text","text":"hi"}]}}`,
 		}[name]
 		file := func(bad int) []byte {
 			return []byte(good + "\n" + strings.Repeat("not-json sk-live-secret\n", bad))
