@@ -631,6 +631,42 @@ func TestCursorCLIOffsetsFollowTheRows(t *testing.T) {
 		`"meta":[{"key":"0","value":{"name":"pond"}}],` +
 		`"blobs":[{"id":"aaa","data":{"role":"user","content":"first","next":"bbb"}},` +
 		`{"id":"bbb","data":{"role":"assistant","content":"seen"}}]}`)
+	at := cursorCLIOffsets(t, raw)
+	want := map[string]int{
+		"aaa": bytes.Index(raw, []byte(`"id":"aaa"`)) + len(`"id":`),
+		"bbb": bytes.Index(raw, []byte(`"id":"bbb"`)) + len(`"id":`),
+	}
+	for id, w := range want {
+		if at[id] != w {
+			t.Fatalf("%s at %d, want %d (offsets %v)", id, at[id], w, at)
+		}
+	}
+}
+
+// Sections and fields in another order: blobs before meta, and the meta
+// record names blobs aaa and zzz in nested ids. The blob's offset is
+// still in the blob, and the meta row's is still in the meta row. Blob
+// zzz writes its id with a space, so its own field is not found; its
+// offset is the start of its row, not the nested id after it.
+func TestCursorCLIOffsetsStayInTheirRow(t *testing.T) {
+	raw := []byte(`{"harness_version":"1","confidence":"low","source":"s","scope":"session",` +
+		`"blobs":[{"data":{"role":"user","content":"hi"},"id":"aaa"},{"id": "zzz","data":null}],` +
+		`"meta":[{"value":{"name":"pond","id":"aaa","x":{"id":"zzz"}},"key":"0"}]}`)
+	at := cursorCLIOffsets(t, raw)
+	want := map[string]int{
+		"aaa": bytes.Index(raw, []byte(`"id":"aaa"},`)) + len(`"id":`),
+		"zzz": bytes.Index(raw, []byte(`{"id": "zzz"`)),
+		"0":   bytes.Index(raw, []byte(`"key":"0"`)) + len(`"key":`),
+	}
+	for k, w := range want {
+		if at[k] != w {
+			t.Fatalf("%s at %d, want %d (offsets %v)", k, at[k], w, at)
+		}
+	}
+}
+
+func cursorCLIOffsets(t *testing.T, raw []byte) map[string]int {
+	t.Helper()
 	c := CursorCLI{Now: time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC), NativeID: "acp-sessions/s", HarnessVersion: "1", CWD: "/work/app", ProjectID: "local", Digest: "d"}
 	events, err := c.Normalize(context.Background(), raw)
 	if err != nil {
@@ -648,13 +684,5 @@ func TestCursorCLIOffsetsFollowTheRows(t *testing.T) {
 		}
 		at[ev.RawType] = n
 	}
-	want := map[string]int{
-		"aaa": bytes.Index(raw, []byte(`"id":"aaa"`)) + len(`"id":`),
-		"bbb": bytes.Index(raw, []byte(`"id":"bbb"`)) + len(`"id":`),
-	}
-	for id, w := range want {
-		if at[id] != w {
-			t.Fatalf("%s at %d, want %d (offsets %v)", id, at[id], w, at)
-		}
-	}
+	return at
 }

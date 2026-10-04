@@ -87,28 +87,28 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		return nil, err
 	}
 	events := []Event{env}
-	at := offsets{raw: raw}
-	for _, row := range doc.Meta {
+	at := newOffsets(raw, len(doc.Meta), len(doc.Blobs))
+	for i, row := range doc.Meta {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if cliAuthKey(row.Key) {
 			continue
 		}
-		ev, err := c.projectMeta(at.find(`"key":`, row.Key), row)
+		ev, err := c.projectMeta(at.metaAt(i, row.Key), row)
 		if err != nil {
 			return nil, err
 		}
 		events = append(events, ev)
 	}
-	for _, row := range doc.Blobs {
+	for i, row := range doc.Blobs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if cliAuthKey(row.ID) {
 			continue
 		}
-		ev, err := c.projectBlob(at.find(`"id":`, row.ID), row)
+		ev, err := c.projectBlob(at.blobAt(i, row.ID), row)
 		if err != nil {
 			return nil, err
 		}
@@ -117,32 +117,96 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 	return events, nil
 }
 
-// offsets finds each row in the export, in document order, by its own
-// field: "key":"<key>" for a meta row and "id":"<id>" for a blob. A
-// search starts where the previous row was found, so the whole document
-// is read about once. Searching from the start for every row read it
-// once per row, which on an export of tens of thousands of blobs and
-// hundreds of megabytes did not finish. Matching the field rather than
-// the bare quoted key also keeps a row's offset off an earlier row that
-// names it as a value.
+// offsets is where each meta row and blob sits in the export, by index
+// in its array, read in one pass. A row's offset is its own "key" or
+// "id" field, looked for only inside that row. Searching the whole
+// document from the start for every row read it once per row, which on
+// an export of tens of thousands of blobs and hundreds of megabytes did
+// not finish. Searching only inside the row also keeps the offset off
+// another row, or a nested field, that names the same id.
 type offsets struct {
-	raw []byte
-	at  int
+	raw   []byte
+	meta  [][2]int
+	blobs [][2]int
+	ok    bool
 }
 
-// find is the offset of key's quoted form where it follows field, at
-// or after the previous find. A row that is not found that way, in a
-// document written in another order or spacing, is looked for the way
-// cursorOffset does and does not move the next search.
-func (o *offsets) find(field, key string) int {
-	if key == "" || len(o.raw) == 0 {
-		return 0
+// newOffsets reads the spans of the meta and blobs elements. A document
+// the decoder cannot walk that way, or whose arrays are not the length
+// the parse found, has no spans, and every row is looked for the way
+// cursorOffset does.
+func newOffsets(raw []byte, metaRows, blobRows int) offsets {
+	o := offsets{raw: raw}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return o
 	}
-	if i := bytes.Index(o.raw[o.at:], []byte(field+strconvQuote(key))); i >= 0 {
-		o.at += i + len(field)
-		return o.at
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return o
+		}
+		key, _ := tok.(string)
+		var spans *[][2]int
+		switch key {
+		case "meta":
+			spans = &o.meta
+		case "blobs":
+			spans = &o.blobs
+		}
+		if spans == nil {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return o
+			}
+			continue
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('[') {
+			return o
+		}
+		for dec.More() {
+			start := elementStart(raw, int(dec.InputOffset()))
+			var row json.RawMessage
+			if err := dec.Decode(&row); err != nil {
+				return o
+			}
+			*spans = append(*spans, [2]int{start, int(dec.InputOffset())})
+		}
+		if _, err := dec.Token(); err != nil {
+			return o
+		}
 	}
-	return cursorOffset(o.raw, key)
+	o.ok = len(o.meta) == metaRows && len(o.blobs) == blobRows
+	return o
+}
+
+// elementStart skips the comma and space after at, to the first byte
+// of the next array element.
+func elementStart(raw []byte, at int) int {
+	for at < len(raw) {
+		switch raw[at] {
+		case ',', ' ', '\t', '\n', '\r':
+			at++
+		default:
+			return at
+		}
+	}
+	return at
+}
+
+func (o offsets) metaAt(i int, key string) int { return o.find(o.meta, i, `"key":`, key) }
+func (o offsets) blobAt(i int, id string) int  { return o.find(o.blobs, i, `"id":`, id) }
+
+// find is the offset of key's quoted form after field inside row i.
+func (o offsets) find(spans [][2]int, i int, field, key string) int {
+	if !o.ok || i >= len(spans) {
+		return cursorOffset(o.raw, key)
+	}
+	s := spans[i]
+	if j := bytes.Index(o.raw[s[0]:s[1]], []byte(field+strconvQuote(key))); j >= 0 {
+		return s[0] + j + len(field)
+	}
+	return s[0]
 }
 
 type cursorCLIExport struct {

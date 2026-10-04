@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:34:28Z
-updated_at: 2026-10-04T21:34:28Z
+updated_at: 2026-10-04T21:39:03Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -68,3 +68,7 @@ Alternatives considered:
 **agent:claude-code/580cbe08** at 2026-10-04T21:34:28Z
 
 Measured on a copy of a real 222 MB ACP store (exported as 284,062,434 bytes): normalize took 1.8 s and produced 13,451 events with the fix. Before it, the lake's worker was still in cursorOffset when the 9-minute test timeout fired. The new test fails when the forward search is disabled. The IDE projector (internal/normalize/cursor.go) still calls cursorOffset per row; not changed here.
+
+**agent:claude-code/580cbe08** at 2026-10-04T21:39:03Z
+
+Supersedes the plan's forward cursor. terva-review on #192 (review 2127, medium) found that a shared forward cursor can pass a row in a document with blobs before meta and then match a nested field after it, and only falls back when nothing later matches. Each row's span now comes from one json.Decoder pass over the meta and blobs arrays, and the row's field is looked for only inside its span; a row whose field is not found there gets its span start. Lengths that do not match the parse fall back to cursorOffset. The real 284 MB export normalizes in 2.8 s this way (1.8 s with the forward cursor). TestCursorCLIOffsetsStayInTheirRow covers reordered sections, a nested id, and a row whose own field is not found; unbounding the search or turning the spans off each fails a test.
