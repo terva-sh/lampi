@@ -106,6 +106,8 @@ func Run(args []string, env Env) error {
 		err = runExport(env, args[1:])
 	case "query":
 		err = runQuery(env, args[1:])
+	case "mcp":
+		err = runMCP(env, args[1:])
 	case "conflicts":
 		err = runConflicts(env, args[1:])
 	case "quarantine":
@@ -256,6 +258,7 @@ usage:
   terva-lampi login     write a device token file
   terva-lampi export    write normalized events, or an allowlisted ShareGPT trajectory
   terva-lampi query     read normalized events from a lake with a read token
+  terva-lampi mcp       serve a lake's recall tools to an agent over stdio
   terva-lampi conflicts list divergent_copy artifacts from the catalog
   terva-lampi quarantine list redaction hits, or allow one digest
   terva-lampi self-update upgrade to the lake's release, verified

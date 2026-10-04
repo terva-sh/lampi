@@ -21,7 +21,11 @@ dependencies:
   - TKT-01M3FPWCBK7WQSRF723RJFXKXE
   - TKT-01M3FPWCDFXXCHD8F5PA0GGMWP
 blocks_on: none
-references: []
+references:
+  - ref: pr:186
+    path: null
+  - ref: pr:187
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: t3code/expose-session-lake-tools
@@ -32,7 +36,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-04T18:33:49Z
+updated_at: 2026-10-04T18:44:33Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -48,8 +52,8 @@ Serve an MCP endpoint from the lake exposing search, structured filters, event w
 
 ## Acceptance criteria
 
-- [ ] MCP tools return the same results as the web API for the same inputs.
-- [ ] Documentation shows how to configure an agent to use the lake for recall instead of terva-ext-session-search.
+- [x] MCP tools return the same results as the web API for the same inputs.
+- [x] Documentation shows how to configure an agent to use the lake for recall instead of terva-ext-session-search.
 
 ## Implementation plan
 
@@ -82,3 +86,24 @@ Two pull requests, so each stays small enough for terva-review.
 **agent:claude-code/dae09bda** at 2026-10-01T06:49:12Z
 
 MCP authenticates with read tokens holding events:read, per TKT-01M3FPWCH4GFYYX4GKT9XFN53G. Tools should reuse the internal/recall event filter from TKT-01M3V3J8VZKAZJJAR9VTMDGJGD.
+
+**agent:claude-code/9078ac3f** at 2026-10-04T18:44:20Z
+
+The lake endpoint is up for review as Forgejo PR 186, and the stdio bridge with the agent docs as PR 187, which builds on 186.
+
+### Protocol era
+
+The MCP spec revision 2026-07-28 drops the `initialize` handshake and puts the version, client info and capabilities in every request's `_meta`, mirrored into the `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers. The current TypeScript SDK (1.32.0) still speaks 2025-11-25 with `initialize`. So the endpoint serves both eras on one stateless route, as the spec allows a dual-era server to do. Supporting only 2026-07-28 would have left today's agents with no way in, and supporting only the initialize era would fail a modern client's header checks.
+
+### Review 2102 on PR 186
+
+terva-review found two audit gaps. A misnamed argument's value was written to the audit log before the parser refused it, and refused calls returned before the audit step. Fixed in b3a5f60: every call is audited first, and the detail takes only the keys in the tool's input schema. The new assertions fail on the earlier commit.
+
+### Verification beyond unit tests
+
+The official TypeScript MCP SDK client ran against a throwaway localhost lake: over HTTP for PR 186, and through the built `terva-lampi mcp` over stdio for PR 187. Both runs listed the tools and called each one.
+
+### Unrelated findings, filed as drafts
+
+- TKT-01M44347FD (Flaky under load: sqlitesnap TestTakeIsConsistentUnderAWriter)
+- TKT-01M44347GZ (go.mod lists zeebo/blake3 as indirect; -mod=mod rewrites it)
