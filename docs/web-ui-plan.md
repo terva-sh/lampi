@@ -399,7 +399,7 @@ Epic: [TKT-01M3FPP3H592T31Y2M3N347CPB — Session recall: one query surface for 
 | [TKT-01M3FPWC9E15XG1GFS7886Z415](../.tickets/done/TKT-01M3FPWC9E15XG1GFS7886Z415.md) | Recall: structured event filters shared by web search and MCP |
 | [TKT-01M3FPWCBK7WQSRF723RJFXKXE](../.tickets/done/TKT-01M3FPWCBK7WQSRF723RJFXKXE.md) | Recall: generation-pinned deep links to events |
 | [TKT-01M3FPWCDFXXCHD8F5PA0GGMWP](../.tickets/done/TKT-01M3FPWCDFXXCHD8F5PA0GGMWP.md) | Recall: copy a selected event span out in paste-ready form |
-| [TKT-01M3FPWCFSFK9572R9MCFPCK60](../.tickets/tickets/TKT-01M3FPWCFSFK9572R9MCFPCK60.md) | MCP: serve recall tools over the shared query layer |
+| [TKT-01M3FPWCFSFK9572R9MCFPCK60](../.tickets/done/TKT-01M3FPWCFSFK9572R9MCFPCK60.md) | MCP: serve recall tools over the shared query layer |
 | [TKT-01M3FPWCH4GFYYX4GKT9XFN53G](../.tickets/done/TKT-01M3FPWCH4GFYYX4GKT9XFN53G.md) | Read tokens: an events:read permission for agents and MCP clients |
 | [TKT-01M3V3J8VZKAZJJAR9VTMDGJGD](../.tickets/done/TKT-01M3V3J8VZKAZJJAR9VTMDGJGD.md) | Export: filter normalized events and select their fields |
 | [TKT-01M3V3JSQXA831MB02BRWW6NHE](../.tickets/done/TKT-01M3V3JSQXA831MB02BRWW6NHE.md) | Read API: stream filtered normalized events to read tokens |
