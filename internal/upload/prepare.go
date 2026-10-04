@@ -28,6 +28,9 @@ type prepared struct {
 	manifest protocol.Manifest
 	bodies   map[string][]byte
 	full     map[string][]byte
+	// cuts is the reader's chunk lengths for a body, by digest, from
+	// adapter.Bundle.Cuts.
+	cuts map[string][]int64
 }
 
 // prepare is the local half of the pipeline: allowlist, ruleset v2,
@@ -129,7 +132,12 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 		// the session's next change.
 		next.Bays = opt.Bays.For(next.Harness, projectID(next)).Bays
 		next.BayAware = true
-		item := prepared{root: bundle.Root, manifest: next, bodies: bodies, full: full}
+		item := prepared{root: bundle.Root, manifest: next, bodies: bodies, full: full, cuts: map[string][]int64{}}
+		for d := range bodies {
+			if c, ok := bundle.Cuts[d]; ok {
+				item.cuts[d] = c
+			}
+		}
 		if err := enqueue(ctx, opt, q, item); err != nil {
 			return nil, res, err
 		}

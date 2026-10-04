@@ -50,6 +50,13 @@ type Bundle struct {
 	// bytes, so the upload adds this to it. A digest with no entry had
 	// nothing hidden.
 	Hidden map[string]redact.Result
+	// Cuts is where a reader would split a file the upload sends as
+	// chunks, keyed by its digest: the length of each chunk, in order.
+	// A reader whose file changes in the middle chooses cuts that stay
+	// put across versions, so the lake already holds the unchanged
+	// chunks. The upload uses them when it splits that file and each
+	// chunk fits; otherwise it cuts fixed pieces.
+	Cuts map[string][]int64
 	// Skipped is each file this harness left out of the bundle, as an
 	// error that names it: gone, unreadable, or with a line too long
 	// to find its session. The other files still upload.
