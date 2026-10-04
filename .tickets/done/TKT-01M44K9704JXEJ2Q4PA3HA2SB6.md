@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44K9704JXEJ2Q4PA3HA2SB6
 title: "Release v0.8.0: MCP recall tools and Cursor CLI ACP sessions"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: release/v0.8.0
-  worktree: /home/sothr/.cache/agent-scratch/lampi/sdk-port-CTOO/rel
-  commit: 99c5e3356e82269f24cb7d039dfdd7f0545171dd
-  session: null
-  claimed_at: 2026-10-04T23:16:45Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T23:16:45Z
-updated_at: 2026-10-04T23:18:47Z
+updated_at: 2026-10-04T23:29:40Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -85,9 +78,9 @@ Since v0.7.0 (478435f), main gained the following.
 ## Acceptance criteria
 
 - [x] A lake at v0.7.0 starts on a build of the final main with nothing to migrate, keeps its counts, and passes health and fsck; a v0.6.0 agent and the new agent each sync to it and upload nothing new
-- [ ] The release is tagged on both forges and its archives and image name the tag
-- [ ] self-update from the published v0.6.0 agent installs the published v0.8.0 against a v0.8.0 lake
-- [ ] Release notes say there is no migration, rollback is a binary swap, which normalizer changed, the upgrade order, and describe the MCP endpoint and bridge
+- [x] The release is tagged on both forges and its archives and image name the tag
+- [x] self-update from the published v0.6.0 agent installs the published v0.8.0 against a v0.8.0 lake
+- [x] Release notes say there is no migration, rollback is a binary swap, which normalizer changed, the upgrade order, and describe the MCP endpoint and bridge
 
 ## Implementation plan
 
@@ -128,3 +121,45 @@ The new build was the release branch head 2d4a3af. Outside `.tickets`, it is mai
 The `self-update` rehearsal waits for the published release.
 
 `GOFLAGS=-mod=mod just ci` passed on the release tree, and `just release-check` validated `.goreleaser.yaml`. GitHub CI passed on f150332.
+
+**agent:claude-code/9078ac3f** at 2026-10-04T23:29:40Z
+
+### Published, 2026-10-04
+
+- **Tag.** v0.8.0 is an annotated tag on f150332, which is main on both forges. It was pushed to origin and github, after CI passed on f150332 on both forges.
+- **Workflows.**
+  - The GitHub release workflow (run 37243365549) passed.
+  - On Forgejo, Build Image and Build and Publish Release passed (release id 17742).
+- **Archives.**
+  - On each forge, all five archives match that forge's `checksums.txt`, and the release is neither a draft nor a prerelease. Both linux_amd64 binaries print `terva-lampi v0.8.0 (f150332a55c8)`.
+  - The forges build separately, so their `checksums.txt` differ, and the two linux_amd64 binaries differ in their build id.
+- **Image.** With podman, `ghcr.io/terva-sh/lampi:0.8.0` and `:latest`, freshly pulled, are one digest, and both print `terva-lampi v0.8.0 (f150332)`.
+- **Notes.** The notes were prepended to both release bodies, with `####` headings: Upgrading from v0.7.0, New, Changed.
+
+### self-update, rehearsed
+
+The scratch lake was restarted on the published GitHub v0.8.0 binary. `status` from a copy of the published v0.6.0 agent reported `lake_release: v0.8.0` and said it was behind.
+
+`self-update --no-restart` then:
+- downloaded `terva-lampi_0.8.0_linux_amd64.tar.gz` as "the release lake default runs";
+- replaced the copy, which is byte-identical to the GitHub linux_amd64 binary and prints v0.8.0;
+- kept the old binary as `terva-lampi.prev`, which prints v0.6.0.
+
+The updated agent's sync read `unchanged 1`, and the lake logged no warnings or errors.
+
+`--no-restart` was needed because `self-update` restarts the `terva-lampi-agent` user unit by name, which on this machine is the live agent. The live unit's start time did not change.
+
+## Summary
+
+v0.8.0 is tagged at f150332 and published on both forges, with notes. The archives and the GHCR image (0.8.0 and latest) report v0.8.0.
+
+It carries:
+- the MCP recall tools: the lake's `/api/read/v1/mcp` and the `terva-lampi mcp` stdio bridge, on `modelcontextprotocol/go-sdk` v1.8.0, with a per-token rate limit;
+- Cursor CLI ACP sessions, chunked re-uploads, and quieter passes;
+- the x/crypto, x/sys and klauspost/compress bumps.
+
+There is no migration (schema 21), and rollback is a binary swap. Only the Cursor CLI normalizer changed, and sessions are not queued again. Upgrade the lake before the agents; `terva-lampi mcp` needs a v0.8.0 lake.
+
+The rehearsal upgraded a lake seeded by v0.7.0 and v0.6.0 with no re-upload. `self-update` from the published v0.6.0 installed the published v0.8.0.
+
+The deploy to the workstation is TKT-01M44KG2PM151XTBC5RNFTYWC9 (Deploy v0.8.0 to the internal lake and the workstation agent).
