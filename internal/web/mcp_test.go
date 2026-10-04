@@ -392,6 +392,17 @@ func TestMCPProtocolEras(t *testing.T) {
 	if w := postRPC(h, token, rpcBody(5, "tools/list", nil), map[string]string{"MCP-Protocol-Version": "1999-01-01"}); w.Code != 400 || decodeRPC(t, w).Error.Code != mcpBadVersion {
 		t.Errorf("unknown legacy header: %d %s", w.Code, w.Body.String())
 	}
+	// initialize's header is checked as any request's is (review 2112).
+	initialize := rpcBody(5, "initialize", map[string]any{"protocolVersion": "2025-06-18"})
+	if w := postRPC(h, token, initialize, map[string]string{"MCP-Protocol-Version": "1999-01-01"}); w.Code != 400 || decodeRPC(t, w).Error.Code != mcpBadVersion {
+		t.Errorf("initialize with an unsupported header: %d %s", w.Code, w.Body.String())
+	}
+	if w := postRPC(h, token, initialize, map[string]string{"MCP-Protocol-Version": mcpModern}); w.Code != 400 || decodeRPC(t, w).Error.Code != mcpHeaderMismatch {
+		t.Errorf("initialize with a modern header and no _meta: %d %s", w.Code, w.Body.String())
+	}
+	if w := postRPC(h, token, initialize, map[string]string{"MCP-Protocol-Version": "2025-06-18"}); w.Code != 200 || decodeRPC(t, w).Result["protocolVersion"] != "2025-06-18" {
+		t.Errorf("initialize with a served header: %d %s", w.Code, w.Body.String())
+	}
 
 	// Per-request metadata.
 	meta := map[string]any{"io.modelcontextprotocol/protocolVersion": mcpModern, "io.modelcontextprotocol/clientInfo": map[string]any{"name": "t", "version": "1"}, "io.modelcontextprotocol/clientCapabilities": map[string]any{}}

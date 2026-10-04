@@ -207,13 +207,16 @@ func mcpCapabilities() map[string]any {
 // mcpVersion checks the request's protocol version. A request that
 // names one in _meta is modern: its headers must repeat the version,
 // the method and a tool's name, and the version must be mcpModern. Any
-// other request is from the initialize era, whose header, when sent,
-// must name a version served; none means 2025-03-26.
+// other request, initialize included, is from the initialize era, whose
+// header, when sent, must name a version served; none means 2025-03-26.
 func mcpVersion(r *http.Request, method string, p rpcParams) (modern bool, status int, _ *rpcError) {
 	header := r.Header.Get("MCP-Protocol-Version")
 	raw, modern := p.Meta["io.modelcontextprotocol/protocolVersion"]
 	if !modern {
-		if header == "" || slices.Contains(mcpLegacy, header) || method == "initialize" {
+		// initialize names the version it wants in its params, and gets
+		// the newest served one when that is not served; a header it
+		// sends is checked like any other request's (review 2112).
+		if header == "" || slices.Contains(mcpLegacy, header) {
 			return false, 0, nil
 		}
 		if header == mcpModern {
