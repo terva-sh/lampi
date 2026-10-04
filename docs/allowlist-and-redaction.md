@@ -233,7 +233,9 @@ Neither the allowlist nor the scan rewrites the raw file.
 A hit is appended to `quarantine.jsonl` in the state directory (mode
 0600) and is not uploaded. The log names the rule. It does not contain
 the matched text. A record is added once per relpath, digest, and rule
-set, not on every sync.
+set, not on every sync. A file whose digest already has a record under
+the current ruleset is held again without being read or scanned, and
+is still reported as quarantined.
 
 - `terva-lampi quarantine list` prints the log.
 - `terva-lampi quarantine allow <relpath|sha256>` acknowledges one

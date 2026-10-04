@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44B45GTE4ZFV6Y86P9A7RKE
 title: Cursor CLI export uploads the session's blobEncryptionKey
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/580cbe08
-  branch: cursor/drop-blob-key
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-580cbe08
-  commit: 783cc0c1746f3877447b1ce0eb29e4dd2d7dbd3f
-  session: null
-  claimed_at: 2026-10-04T20:54:23Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T20:54:11Z
-updated_at: 2026-10-04T20:56:11Z
+updated_at: 2026-10-04T21:04:24Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -48,9 +41,9 @@ The normalize projector keeps its own list in `cliAuthKey` (`internal/normalize/
 
 ## Acceptance criteria
 
-- [ ] The Cursor CLI export drops blobEncryptionKey from JSON objects at any depth, ignoring case
-- [ ] The normalize projector drops the same key from a stored export
-- [ ] A test fails if the key reaches the export or the normalized events
+- [x] The Cursor CLI export drops blobEncryptionKey from JSON objects at any depth, ignoring case
+- [x] The normalize projector drops the same key from a stored export
+- [x] A test fails if the key reaches the export or the normalized events
 
 ## Implementation plan
 
@@ -71,3 +64,7 @@ Promoted from draft by the owner's instruction on 2026-10-04: file, promote and 
 **agent:claude-code/580cbe08** at 2026-10-04T20:56:11Z
 
 Each fix was reverted alone to check its test: the adapter revert fails TestSnapshotFiltersAuthAndReadsWAL and TestExcludedKey, and the normalize revert fails TestCursorCLIAuthAbsent. GOFLAGS=-mod=mod just ci is green. -mod=mod rewrites go.mod (blake3 direct vs indirect), which was already on main and is not part of this change; it was reverted before commit.
+
+## Summary
+
+Landed in #189 (merge 8ffc0ed). The Cursor CLI adapter's excludedKey and the normalize projector's cliAuthKey drop blobEncryptionKey by the same rule as the other credential names: a meta key, a blob id, or a JSON object key at any depth, case ignored. Tests seed the key in the session record and fail when either list stops dropping it. No Cursor CLI export had reached the workstation's lake before the fix: the harness was off and the chats/ sessions have no cwd. A lake elsewhere that took a Cursor CLI export before this change holds the key in that blob; that is not repaired here.

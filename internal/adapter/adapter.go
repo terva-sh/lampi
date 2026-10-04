@@ -54,6 +54,12 @@ type Bundle struct {
 	// error that names it: gone, unreadable, or with a line too long
 	// to find its session. The other files still upload.
 	Skipped []error
+	// Load, when set, writes the artifact rel names and returns its
+	// path, for a manifest that carries a digest and has no entry in
+	// Paths: a reader that recalled the digest from a memo and left
+	// the export unbuilt. It also adds to Hidden what that export
+	// holds encoded. Nil means every digest has a path.
+	Load func(rel string) (string, error)
 	// Cleanup removes temporary files this bundle created. Nil does
 	// nothing. Call it after Paths have been read. A second call is safe.
 	Cleanup func()

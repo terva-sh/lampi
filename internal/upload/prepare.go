@@ -83,6 +83,14 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			res.Unchanged++
 			continue
 		}
+		if hit := knownQuarantine(opt, m); hit != nil {
+			res.Quarantined++
+			reasons = append(reasons, hit.Error())
+			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
+				return nil, res, err
+			}
+			continue
+		}
 		// Only an admitted session may run git for its root commit.
 		m.Project = adapter.ResolveRoot(m.Project)
 		next, bodies, full, hit, err := scanSession(ctx, opt, wm, bundle, m)
@@ -203,6 +211,55 @@ func (h *quarantineHit) Error() string {
 		h.rel, redact.RulesetV2, h.hits, word, where, strings.Join(h.rules, ", "))
 }
 
+// quarantinedDigests is the quarantine log's file records under the
+// current ruleset, by digest. A manifest record is left out: its digest
+// is of the manifest JSON, not of a file.
+func quarantinedDigests(stateDir string) (map[string]redact.Record, error) {
+	recs, err := redact.ReadQuarantine(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]redact.Record{}
+	for _, r := range recs {
+		if r.Manifest || r.Ruleset != redact.RulesetV2 || r.SHA256 == "" {
+			continue
+		}
+		out[r.SHA256] = r
+	}
+	return out, nil
+}
+
+// knownQuarantine is the quarantine of a session whose every artifact
+// already has a record at its digest, and that no override lets
+// through. Those bytes were scanned under this ruleset and held, so
+// the session is held again without reading it: a Cursor export is
+// rebuilt to be read, and a session that never uploads has no
+// watermark to make it unchanged. Nil means read and scan it.
+func knownQuarantine(opt Options, m protocol.Manifest) *quarantineHit {
+	if opt.UploadHits || len(m.Artifacts) == 0 {
+		return nil
+	}
+	var hit *quarantineHit
+	seen := map[string]bool{}
+	for _, a := range m.Artifacts {
+		rec, ok := opt.quarantined[a.SHA256]
+		if a.SHA256 == "" || !ok || opt.allowed[a.SHA256] {
+			return nil
+		}
+		if hit == nil {
+			hit = &quarantineHit{rel: a.RelPath}
+		}
+		hit.hits += rec.Hits
+		for _, name := range rec.Rules {
+			if !seen[name] {
+				seen[name] = true
+				hit.rules = append(hit.rules, name)
+			}
+		}
+	}
+	return hit
+}
+
 // errFileChanged is a session whose file no longer hashes to the digest
 // its manifest was built with. It is skipped for this round.
 var errFileChanged = errors.New("upload: file changed since its digest was taken")
@@ -229,6 +286,13 @@ func readArtifacts(bundle adapter.Bundle, m protocol.Manifest) ([][]byte, error)
 	out := make([][]byte, 0, len(m.Artifacts))
 	for _, a := range m.Artifacts {
 		path := bundle.Paths[a.RelPath]
+		if path == "" && bundle.Load != nil {
+			p, err := bundle.Load(a.RelPath)
+			if err != nil {
+				return nil, &unreadableError{rel: a.RelPath, err: err}
+			}
+			path = p
+		}
 		if path == "" {
 			return nil, fmt.Errorf("upload: %s: no local path", a.RelPath)
 		}

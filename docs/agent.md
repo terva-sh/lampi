@@ -51,6 +51,11 @@ moved since its last pass. The pass at start, and one every 6 hours,
 reads and hashes every file. A rewrite that kept the size and mtime
 therefore waits at most 6 hours.
 
+A Cursor CLI session is `store.db` and its `store.db-wal`. While
+neither stat has moved, the agent does not snapshot or export the
+session; it exports it only if the upload needs the bytes. The Cursor
+IDE reader still exports every permitted workspace on every pass.
+
 A harness home that does not exist yet, terva included, is polled until
 it appears. A watcher that cannot use fsnotify, at the inotify watch
 limit or after a queue overflow, polls that tree and says so. On macOS

@@ -74,6 +74,7 @@ package cursorcli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -83,6 +84,7 @@ import (
 	"strings"
 
 	"terva.sh/lampi/internal/adapter"
+	"terva.sh/lampi/internal/discover"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/redact"
 )
@@ -248,6 +250,16 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 // before its export is built. A refused session is not snapshotted or
 // exported; its manifest is kept with no digest and no path.
 func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bundle, error) {
+	return ManifestsMemo(root, machineID, nil, permit)
+}
+
+// ManifestsMemo is ManifestsPermit with a memo. A session whose
+// store.db and store.db-wal have the stat they had when memo last saw
+// them is not snapshotted: its manifest carries the remembered digest
+// and size and has no entry in Paths. If the upload still needs its
+// bytes, the bundle's Load exports it then. A nil memo exports every
+// permitted session.
+func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Permit) (adapter.Bundle, error) {
 	ctx := context.Background()
 	refs, err := Adapter{}.Discover(ctx, root)
 	if err != nil {
@@ -269,6 +281,35 @@ func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bun
 	}()
 
 	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
+	// lazy is each session left unexported on a memo hit, by export
+	// relpath.
+	lazy := map[string]adapter.Ref{}
+	export := func(ref adapter.Ref) (path string, sum string, size int64, err error) {
+		wal := walStat(ref.AbsPath)
+		rel := exportRel(ref.RelPath)
+		body, hidden, err := exportScanned(ctx, ref.AbsPath, ref.RelPath)
+		if err != nil {
+			return "", "", 0, fmt.Errorf("cursor-cli: %s: %w", ref.RelPath, err)
+		}
+		out := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+			return "", "", 0, err
+		}
+		if err := os.WriteFile(out, body, 0o600); err != nil {
+			return "", "", 0, err
+		}
+		sum, err = adapter.HashFile(out)
+		if err != nil {
+			return "", "", 0, err
+		}
+		size = int64(len(body))
+		b.Paths[rel] = out
+		if hidden.Hits > 0 {
+			b.Hidden[sum] = hidden
+		}
+		remember(memo, ref, wal, sum, size, hidden)
+		return out, sum, size, nil
+	}
 	for _, ref := range refs {
 		rel := exportRel(ref.RelPath)
 		m := protocol.Manifest{
@@ -288,38 +329,96 @@ func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bun
 			b.Manifests = append(b.Manifests, m)
 			continue
 		}
-		body, hidden, err := exportScanned(ctx, ref.AbsPath, ref.RelPath)
-		if err != nil {
-			return adapter.Bundle{}, fmt.Errorf("cursor-cli: %s: %w", ref.RelPath, err)
-		}
-		out := filepath.Join(dir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
-			return adapter.Bundle{}, err
-		}
-		if err := os.WriteFile(out, body, 0o600); err != nil {
-			return adapter.Bundle{}, err
-		}
-		sum, err := adapter.HashFile(out)
-		if err != nil {
-			return adapter.Bundle{}, err
-		}
-		info, err := os.Stat(out)
-		if err != nil {
-			return adapter.Bundle{}, err
-		}
 		a := &m.Artifacts[0]
-		a.Size = info.Size()
+		if sum, size, hidden, hit := recall(memo, ref); hit {
+			a.Size = size
+			a.SHA256 = sum
+			a.TailSHA256 = sum
+			if hidden.Hits > 0 {
+				b.Hidden[sum] = hidden
+			}
+			lazy[rel] = ref
+			b.Manifests = append(b.Manifests, m)
+			continue
+		}
+		_, sum, size, err := export(ref)
+		if err != nil {
+			return adapter.Bundle{}, err
+		}
+		a.Size = size
 		a.SHA256 = sum
 		a.ByteWatermarkPrev = 0
 		a.TailSHA256 = sum
-		b.Paths[rel] = out
-		if hidden.Hits > 0 {
-			b.Hidden[sum] = hidden
-		}
 		b.Manifests = append(b.Manifests, m)
+	}
+	if len(lazy) > 0 {
+		b.Load = func(rel string) (string, error) {
+			if p := b.Paths[rel]; p != "" {
+				return p, nil
+			}
+			ref, ok := lazy[rel]
+			if !ok {
+				return "", fmt.Errorf("cursor-cli: %s: not a session in this bundle", rel)
+			}
+			p, _, _, err := export(ref)
+			return p, err
+		}
 	}
 	ok = true
 	return b, nil
+}
+
+// memoIdent is what the memo keeps beside a store.db digest: the WAL
+// stat the export was taken at, the export size, and what the ruleset
+// found in bytes the export holds only in encoded form.
+type memoIdent struct {
+	WAL    adapter.FileStat `json:"wal"`
+	Size   int64            `json:"size"`
+	Hidden redact.Result    `json:"hidden"`
+}
+
+// walStat is the stat of store.db-wal beside db. A missing WAL is the
+// zero stat.
+func walStat(db string) adapter.FileStat {
+	info, err := os.Stat(db + "-wal")
+	if err != nil {
+		return adapter.FileStat{}
+	}
+	return adapter.FileStat{Size: info.Size(), ModTime: info.ModTime().UTC(), Inode: discover.Inode(info)}
+}
+
+// recall is the remembered export of ref, when store.db has the stat
+// the walk saw and the WAL has the stat it had at that export.
+func recall(memo adapter.Memo, ref adapter.Ref) (sum string, size int64, hidden redact.Result, ok bool) {
+	if memo == nil {
+		return "", 0, redact.Result{}, false
+	}
+	seen, ok := memo.Recall(ref.AbsPath, ref.Stat())
+	if !ok {
+		return "", 0, redact.Result{}, false
+	}
+	var id memoIdent
+	if err := json.Unmarshal(seen.Ident, &id); err != nil || seen.SHA256 == "" {
+		return "", 0, redact.Result{}, false
+	}
+	if wal := walStat(ref.AbsPath); wal.Size != id.WAL.Size || wal.Inode != id.WAL.Inode || !wal.ModTime.Equal(id.WAL.ModTime) {
+		return "", 0, redact.Result{}, false
+	}
+	return seen.SHA256, id.Size, id.Hidden, true
+}
+
+// remember keeps an export of ref at the store.db stat the walk saw
+// and the WAL stat taken before the snapshot. A write after either
+// stat is a different stat on the next pass, so it is exported again.
+func remember(memo adapter.Memo, ref adapter.Ref, wal adapter.FileStat, sum string, size int64, hidden redact.Result) {
+	if memo == nil {
+		return
+	}
+	raw, err := json.Marshal(memoIdent{WAL: wal, Size: size, Hidden: hidden})
+	if err != nil {
+		return
+	}
+	memo.Remember(ref.AbsPath, ref.Stat(), adapter.Seen{SHA256: sum, Ident: raw})
 }
 
 func exportRel(dbRel string) string {
