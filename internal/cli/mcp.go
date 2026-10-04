@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -124,13 +125,24 @@ type mcpBridge struct {
 	werr   error
 	ctx    context.Context
 	cancel context.CancelFunc
-	// calls holds each request in flight by its id, for
+	// calls holds each request in flight by the value of its id, for
 	// notifications/cancelled to stop.
 	calls map[string]*mcpCall
+	// beforeReply, when set, runs as an answer is about to be written.
+	// A test sets it to read a cancellation at that point.
+	beforeReply func()
 }
 
-// mcpCall is a request in flight; cancel stops its request to the lake.
-type mcpCall struct{ cancel context.CancelFunc }
+// mcpCall is one message the bridge forwards, and ctx is what its call
+// to the lake runs under. notifications/cancelled sets cancelled under
+// the bridge's mu, and an answer is written under the same lock only
+// while it is unset, so no answer follows a cancellation the bridge has
+// read (review 2135).
+type mcpCall struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	cancelled bool
+}
 
 // mcpMessage is what the bridge reads of a message to route it.
 type mcpMessage struct {
@@ -201,24 +213,27 @@ read:
 			b.cancelCall(m.Params.RequestID)
 			continue
 		}
-		if m.Method == "initialize" {
-			// Later requests carry the version it negotiates, so they
-			// wait for it, as the protocol has a client wait.
-			b.forward(b.ctx, m, line)
-			continue
-		}
 		select {
 		case slots <- struct{}{}:
 		case <-b.ctx.Done():
 			break read
 		}
-		ctx, done := b.track(m.ID)
+		if m.Method == "initialize" {
+			// Later requests carry the version it negotiates, so they
+			// wait for it, as the protocol has a client wait. It takes a
+			// slot like any request (review 2135), and is never
+			// cancelled.
+			b.forward(&mcpCall{ctx: b.ctx}, m, line)
+			<-slots
+			continue
+		}
+		c, done := b.track(m.ID)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer func() { <-slots }()
 			defer done()
-			b.forward(ctx, m, line)
+			b.forward(c, m, line)
 		}()
 	}
 	wg.Wait()
@@ -238,23 +253,24 @@ read:
 	return nil
 }
 
-// track registers a request in flight under its id, and returns the
-// context its call to the lake runs under and the func that ends it. A
-// notification has no id to cancel it by.
-func (b *mcpBridge) track(id json.RawMessage) (context.Context, func()) {
-	if id == nil {
-		return b.ctx, func() {}
+// track registers a request in flight under its id, and returns it with
+// the func that ends it. A notification, or an id that is neither a
+// string nor a number, has no id to cancel it by.
+func (b *mcpBridge) track(id json.RawMessage) (*mcpCall, func()) {
+	key, ok := mcpIDKey(id)
+	if !ok {
+		return &mcpCall{ctx: b.ctx}, func() {}
 	}
 	ctx, cancel := context.WithCancel(b.ctx)
-	c := &mcpCall{cancel: cancel}
+	c := &mcpCall{ctx: ctx, cancel: cancel}
 	b.mu.Lock()
-	b.calls[string(id)] = c
+	b.calls[key] = c
 	b.mu.Unlock()
-	return ctx, func() {
+	return c, func() {
 		b.mu.Lock()
 		// A client that reuses an id in flight has replaced this call.
-		if b.calls[string(id)] == c {
-			delete(b.calls, string(id))
+		if b.calls[key] == c {
+			delete(b.calls, key)
 		}
 		b.mu.Unlock()
 		cancel()
@@ -264,19 +280,47 @@ func (b *mcpBridge) track(id json.RawMessage) (context.Context, func()) {
 // cancelCall stops the request in flight that id names. One already
 // answered, or never sent, has nothing to stop.
 func (b *mcpBridge) cancelCall(id json.RawMessage) {
+	key, ok := mcpIDKey(id)
+	if !ok {
+		return
+	}
 	b.mu.Lock()
-	c := b.calls[string(id)]
-	b.mu.Unlock()
-	if c != nil {
+	defer b.mu.Unlock()
+	if c := b.calls[key]; c != nil {
+		c.cancelled = true
 		c.cancel()
 	}
 }
 
-func (b *mcpBridge) forward(ctx context.Context, m mcpMessage, body []byte) {
+// mcpIDKey is the value of a JSON-RPC id as a key that every spelling of
+// it shares: "a" and "\u0061", or 2 and 2.0 (review 2135). A string and a
+// number stay apart. ok is false for an id that is neither.
+func mcpIDKey(id json.RawMessage) (key string, ok bool) {
+	d := json.NewDecoder(bytes.NewReader(id))
+	d.UseNumber()
+	var v any
+	if d.Decode(&v) != nil {
+		return "", false
+	}
+	switch v := v.(type) {
+	case string:
+		return "s" + v, true
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return "n" + strconv.FormatInt(i, 10), true
+		}
+		if f, err := v.Float64(); err == nil {
+			return "n" + strconv.FormatFloat(f, 'g', -1, 64), true
+		}
+	}
+	return "", false
+}
+
+func (b *mcpBridge) forward(c *mcpCall, m mcpMessage, body []byte) {
 	notification := m.ID == nil
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, b.url, bytes.NewReader(body))
 	if err != nil {
-		b.fail(ctx, m, -32603, err.Error())
+		b.fail(c, m, -32603, err.Error())
 		return
 	}
 	h := req.Header
@@ -300,13 +344,13 @@ func (b *mcpBridge) forward(ctx context.Context, m mcpMessage, body []byte) {
 	}
 	resp, err := queryClient.Do(req)
 	if err != nil {
-		b.fail(ctx, m, -32603, "lake unreachable: "+err.Error())
+		b.fail(c, m, -32603, "lake unreachable: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	reply, err := io.ReadAll(io.LimitReader(resp.Body, mcpReplyMax+1))
 	if err != nil {
-		b.fail(ctx, m, -32603, "reading the lake's answer: "+err.Error())
+		b.fail(c, m, -32603, "reading the lake's answer: "+err.Error())
 		return
 	}
 	if notification {
@@ -314,7 +358,7 @@ func (b *mcpBridge) forward(ctx context.Context, m mcpMessage, body []byte) {
 		// else is a refusal, such as of a revoked token, that the agent
 		// would otherwise not see until its next request (review 2115).
 		if resp.StatusCode/100 != 2 {
-			b.fail(ctx, m, -32603, mcpRefusal(resp.StatusCode, resp.Header.Get("Content-Type"), reply))
+			b.fail(c, m, -32603, mcpRefusal(resp.StatusCode, resp.Header.Get("Content-Type"), reply))
 		}
 		return
 	}
@@ -326,7 +370,7 @@ func (b *mcpBridge) forward(ctx context.Context, m mcpMessage, body []byte) {
 	}
 	isRPC := strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") && len(reply) <= mcpReplyMax && json.Unmarshal(reply, &rpc) == nil && rpc.JSONRPC == "2.0"
 	if !isRPC {
-		b.fail(ctx, m, -32603, mcpRefusal(resp.StatusCode, resp.Header.Get("Content-Type"), reply))
+		b.fail(c, m, -32603, mcpRefusal(resp.StatusCode, resp.Header.Get("Content-Type"), reply))
 		return
 	}
 	if m.Method == "initialize" && rpc.Result.ProtocolVersion != "" {
@@ -336,40 +380,49 @@ func (b *mcpBridge) forward(ctx context.Context, m mcpMessage, body []byte) {
 	}
 	var line bytes.Buffer
 	if err := json.Compact(&line, reply); err != nil {
-		b.fail(ctx, m, -32603, "the lake's answer is not JSON")
+		b.fail(c, m, -32603, "the lake's answer is not JSON")
 		return
 	}
-	b.reply(ctx, line.Bytes())
+	b.reply(c, line.Bytes())
 }
 
 // fail answers a request the lake did not answer in JSON-RPC, and logs
 // a notification's failure, which has no one to answer.
-func (b *mcpBridge) fail(ctx context.Context, m mcpMessage, code int, msg string) {
-	if ctx.Err() != nil {
-		// Cancelled, or the bridge is stopping: the failure is ours.
-		return
-	}
+func (b *mcpBridge) fail(c *mcpCall, m mcpMessage, code int, msg string) {
 	if m.ID == nil {
-		fmt.Fprintf(b.log, "terva-lampi mcp: %s: %s\n", m.Method, msg)
+		// Once the bridge is stopping, the failure is its own.
+		if c.ctx.Err() == nil {
+			fmt.Fprintf(b.log, "terva-lampi mcp: %s: %s\n", m.Method, msg)
+		}
 		return
 	}
-	b.reply(ctx, mcpErrorLine(m.ID, code, msg))
+	b.reply(c, mcpErrorLine(m.ID, code, msg))
 }
 
-// reply writes the answer to a request, unless the agent cancelled it:
-// a cancelled request gets no answer.
-func (b *mcpBridge) reply(ctx context.Context, line []byte) {
-	if ctx.Err() != nil {
-		return
+// reply writes the answer to a request, unless the agent cancelled it.
+// It decides under the lock cancelCall takes, so a cancellation read
+// before the write is never answered.
+func (b *mcpBridge) reply(c *mcpCall, line []byte) {
+	if b.beforeReply != nil {
+		b.beforeReply()
 	}
-	b.write(line)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !c.cancelled {
+		b.writeLocked(line)
+	}
 }
 
-// write sends one line to the agent. After a write fails, nothing more
-// is written, and serve stops.
+// write sends one line to the agent.
 func (b *mcpBridge) write(line []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.writeLocked(line)
+}
+
+// writeLocked sends one line to the agent, with b.mu held. After a write
+// fails, nothing more is written, and serve stops.
+func (b *mcpBridge) writeLocked(line []byte) {
 	if b.werr != nil {
 		return
 	}

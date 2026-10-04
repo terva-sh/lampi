@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -354,7 +355,8 @@ func TestMCPBridgeLogsARefusedNotification(t *testing.T) {
 }
 
 // The bridge keeps at most mcpInFlight requests open to the lake, however
-// many the agent sends at once, and answers each of them.
+// many the agent sends at once, and answers each of them. An initialize
+// sent once the slots are full waits for one too (review 2135).
 func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
 	var mu sync.Mutex
 	inFlight, most := 0, 0
@@ -378,7 +380,11 @@ func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
 	const sent = 3 * mcpInFlight
 	var lines []string
 	for i := 1; i <= sent; i++ {
-		lines = append(lines, rpcLine(i, "ping", nil))
+		method := "ping"
+		if i == mcpInFlight+1 {
+			method = "initialize"
+		}
+		lines = append(lines, rpcLine(i, method, nil))
 	}
 	// The lake holds every request until the bridge has filled its slots
 	// and had time to open more than it should.
@@ -410,74 +416,149 @@ func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
 }
 
 // notifications/cancelled stops that request's call to the lake, and the
-// bridge writes no answer for it. The notification goes no further.
+// bridge writes no answer for it. The notification goes no further. It
+// names the request by the value of its id, however that is spelled
+// (review 2135).
 func TestMCPBridgeCancelsARequest(t *testing.T) {
-	var mu sync.Mutex
-	var methods []string
-	started, cancelled, stop := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string) {
-		mu.Lock()
-		methods = append(methods, method)
-		mu.Unlock()
-		if string(id) == "2" {
-			close(started)
-			select {
-			case <-r.Context().Done():
-				close(cancelled)
-				return
-			case <-stop:
+	for _, tc := range []struct{ name, id, requestID string }{
+		{"number", `2`, `2`},
+		{"string escaped differently", `"a"`, `"\u0061"`},
+		{"number spelled as a float", `2`, `2.0`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var methods []string
+			started, cancelled, stop := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string) {
+				mu.Lock()
+				methods = append(methods, method)
+				mu.Unlock()
+				if method == "tools/call" {
+					close(started)
+					select {
+					case <-r.Context().Done():
+						close(cancelled)
+						return
+					case <-stop:
+					}
+				}
+				answerMCP(w, id)
+			})
+			t.Cleanup(func() { close(stop) })
+			send, finish := startBridge(t, server, token, nil)
+			send(`{"jsonrpc":"2.0","id":` + tc.id + `,"method":"tools/call","params":{"name":"search","arguments":{"query":"push"}}}`)
+			waitFor(t, started, "the request never reached the lake")
+			send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":` + tc.requestID + `,"reason":"the user stopped it"}}`)
+			waitFor(t, cancelled, "the bridge did not cancel the request to the lake")
+			send(rpcLine(3, "ping", nil))
+			ids, stderr := finish()
+			if !slices.Equal(ids, []string{"3"}) {
+				t.Errorf("the bridge answered ids %v, want only 3", ids)
 			}
+			if strings.Contains(stderr, "canceled") {
+				t.Errorf("the bridge logged the cancellation as a failure:\n%s", stderr)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if slices.Contains(methods, "notifications/cancelled") {
+				t.Errorf("the bridge forwarded the cancellation to the lake: %v", methods)
+			}
+		})
+	}
+}
+
+// An answer that is ready when the bridge reads the request's
+// cancellation is not written, even though it was ready first: the
+// decision to write it waits on the same lock (review 2135).
+func TestMCPBridgeWritesNoAnswerAfterACancellation(t *testing.T) {
+	third := make(chan struct{})
+	server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string) {
+		if string(id) == "3" {
+			close(third)
 		}
 		answerMCP(w, id)
 	})
-	t.Cleanup(func() { close(stop) })
+	held, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	free := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	var answers atomic.Int32
+	send, finish := startBridge(t, server, token, func() {
+		// Only the first answer, to request 2, is held.
+		if answers.Add(1) == 1 {
+			close(held)
+			<-release
+		}
+	})
+	send(rpcLine(2, "tools/call", map[string]any{"name": "search", "arguments": map[string]any{"query": "push"}}))
+	waitFor(t, held, "the answer to request 2 never came")
+	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}`)
+	// The bridge reads lines in order, so request 3 reaching the lake
+	// means it has read the cancellation.
+	send(rpcLine(3, "ping", nil))
+	waitFor(t, third, "request 3 never reached the lake")
+	free()
+	if ids, _ := finish(); !slices.Equal(ids, []string{"3"}) {
+		t.Errorf("the bridge answered ids %v, want only 3", ids)
+	}
+}
+
+// startBridge serves a bridge to server on a pipe, with beforeReply set
+// before it starts. send writes it one line. finish ends its input, waits
+// for it to stop, and returns the ids it answered, in order, and what it
+// logged.
+func startBridge(t *testing.T, server, tokenPath string, beforeReply func()) (func(string), func() ([]string, string)) {
+	t.Helper()
+	token, err := readReadToken(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	b := &mcpBridge{url: server + mcpEndpoint, token: token, out: &out, log: &errw, beforeReply: beforeReply}
 	stdin, feed := io.Pipe()
 	t.Cleanup(func() { feed.Close() })
-	var out, errw bytes.Buffer
 	done := make(chan error, 1)
-	go func() {
-		done <- Run([]string{"mcp", "--server", server, "--token-file", token}, Env{Stdin: stdin, Stdout: &out, Stderr: &errw})
-	}()
+	go func() { done <- b.serve(stdin) }()
 	send := func(line string) {
 		t.Helper()
 		if _, err := io.WriteString(feed, line+"\n"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	wait := func(c chan struct{}, what string) {
+	finish := func() ([]string, string) {
 		t.Helper()
+		feed.Close()
 		select {
-		case <-c:
-		case <-time.After(10 * time.Second):
-			t.Fatal(what)
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("serve: %v\n%s", err, errw.String())
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("the bridge did not stop at the end of its input")
 		}
+		var ids []string
+		for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			if line == "" {
+				continue
+			}
+			var m struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if err := json.Unmarshal([]byte(line), &m); err != nil {
+				t.Fatalf("stdout line is not JSON: %q", line)
+			}
+			ids = append(ids, string(m.ID))
+		}
+		return ids, errw.String()
 	}
-	send(rpcLine(2, "tools/call", map[string]any{"name": "search", "arguments": map[string]any{"query": "push"}}))
-	wait(started, "the request never reached the lake")
-	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2,"reason":"the user stopped it"}}`)
-	wait(cancelled, "the bridge did not cancel the request to the lake")
-	send(rpcLine(3, "ping", nil))
-	feed.Close()
+	return send, finish
+}
+
+func waitFor(t *testing.T, c <-chan struct{}, what string) {
+	t.Helper()
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("mcp: %v\n%s", err, errw.String())
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("the bridge did not stop at the end of its input")
-	}
-	if !strings.Contains(out.String(), `"id":3`) {
-		t.Errorf("no answer to the request after the cancelled one:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), `"id":2`) {
-		t.Errorf("the bridge answered the cancelled request:\n%s", out.String())
-	}
-	if strings.Contains(errw.String(), "canceled") {
-		t.Errorf("the bridge logged the cancellation as a failure:\n%s", errw.String())
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if slices.Contains(methods, "notifications/cancelled") {
-		t.Errorf("the bridge forwarded the cancellation to the lake: %v", methods)
+	case <-c:
+	case <-time.After(10 * time.Second):
+		t.Fatal(what)
 	}
 }
