@@ -73,7 +73,7 @@ func (s *Server) mcpRoutes(m *http.ServeMux) {
 		// The SDK's default adds logging, which 2026-07-28 deprecates.
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
-	srv.AddReceivingMiddleware(s.mcpAudit(&mcpLimits{by: map[string]*rate.Limiter{}}))
+	srv.AddReceivingMiddleware(s.mcpAudit(&mcpLimits{by: map[string]*mcpLimit{}}))
 	for _, tool := range mcpTools {
 		srv.AddTool(tool, s.mcpCall)
 	}
@@ -179,18 +179,32 @@ var errToolRate = errors.New("mcp: too many tool calls with this token")
 // refill it.
 type mcpLimits struct {
 	mu sync.Mutex
-	by map[string]*rate.Limiter
+	by map[string]*mcpLimit
+}
+
+// mcpLimit is one token's limiter and the latest time it was given.
+// Concurrent calls can reach the limiter out of the order their times
+// were taken in, and rate.Limiter goes back to an older time, after
+// which the next call refills the same interval again. So a token's
+// time never goes back (review 2133).
+type mcpLimit struct {
+	lim  *rate.Limiter
+	last time.Time
 }
 
 func (l *mcpLimits) allow(token string, now time.Time) bool {
 	l.mu.Lock()
-	lim, ok := l.by[token]
+	defer l.mu.Unlock()
+	e, ok := l.by[token]
 	if !ok {
-		lim = rate.NewLimiter(mcpRate, mcpBurst)
-		l.by[token] = lim
+		e = &mcpLimit{lim: rate.NewLimiter(mcpRate, mcpBurst)}
+		l.by[token] = e
 	}
-	l.mu.Unlock()
-	return lim.AllowN(now, 1)
+	if now.Before(e.last) {
+		now = e.last
+	}
+	e.last = now
+	return e.lim.AllowN(now, 1)
 }
 
 // mcpAudit records every tools/call before the SDK looks the tool up,
