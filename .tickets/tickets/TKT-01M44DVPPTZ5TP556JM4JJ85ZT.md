@@ -15,7 +15,9 @@ parent: null
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:193
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: deps/x-crypto
@@ -26,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:42:11Z
+updated_at: 2026-10-04T21:45:49Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -50,10 +52,16 @@ The same change runs `go mod tidy`, which moves `zeebo/blake3` into the direct b
 
 ## Acceptance criteria
 
-- [ ] go.mod requires golang.org/x/crypto v0.57.0 and golang.org/x/sys v0.48.0, or newer.
+- [x] go.mod requires golang.org/x/crypto v0.57.0 and golang.org/x/sys v0.48.0, or newer.
 - [ ] govulncheck ./... reports no finding in golang.org/x/crypto.
-- [ ] GOFLAGS=-mod=mod just ci passes and leaves go.mod unchanged.
+- [x] GOFLAGS=-mod=mod just ci passes and leaves go.mod unchanged.
 
 ## Implementation plan
 
 go get golang.org/x/crypto@v0.57.0 golang.org/x/sys@v0.48.0, then go mod tidy, which also moves zeebo/blake3 into the direct block (TKT-01M44347GZ). Check what else the bump pulls in, rerun govulncheck, run the full gate with GOFLAGS=-mod=mod and confirm go.mod is unchanged afterwards.
+
+## Notes
+
+**agent:claude-code/9078ac3f** at 2026-10-04T21:44:27Z
+
+Criterion 2 is left open. After the bump, govulncheck v1.8.0 on ./... still reports one module-level finding in x/crypto: GO-2026-5932, an advisory that golang.org/x/crypto/openpgp is unmaintained, which has no fixed version. No lampi package imports openpgp (go list -deps ./... lists chacha20, chacha20poly1305, curve25519, hkdf, pbkdf2 and scrypt from x/crypto). The sixteen findings that had fixes are gone. The criterion as written cannot be met by any x/crypto release, so it stays unticked rather than reworded after the fact. The full gate passed with GOFLAGS=-mod=mod and left go.mod unchanged.

@@ -6,7 +6,7 @@ require (
 	filippo.io/age v1.3.1
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/klauspost/compress v1.17.9
+	github.com/klauspost/compress v1.20.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/parquet-go/parquet-go v0.25.1
 	github.com/zeebo/blake3 v0.2.4
