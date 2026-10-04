@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T22:37:30Z
+updated_at: 2026-10-04T22:39:03Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -63,8 +63,8 @@ The run wrote the MCP server by hand rather than adding `modelcontextprotocol/go
 
 ## Acceptance criteria
 
-- [ ] An MCP test reads through a bay-scoped read token, and through one scoped to a bay and named sessions, and each reaches only its sessions.
-- [ ] SessionBayNames answers no bays for a session outside a scope narrowed to named sessions.
+- [x] An MCP test reads through a bay-scoped read token, and through one scoped to a bay and named sessions, and each reaches only its sessions.
+- [x] SessionBayNames answers no bays for a session outside a scope narrowed to named sessions.
 - [ ] The lake limits tool calls per read token; a call over the limit is refused with a hint and no audit line, and docs/web-api.md gives the limit.
 - [ ] terva-lampi mcp logs to stderr the lake's refusal of a notification.
 - [ ] terva-lampi mcp keeps a bounded number of requests to the lake in flight.
