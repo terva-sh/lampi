@@ -87,33 +87,179 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		return nil, err
 	}
 	events := []Event{env}
-	for _, row := range doc.Meta {
+	at := newOffsets(raw, len(doc.Meta), len(doc.Blobs))
+	for i, row := range doc.Meta {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if cliAuthKey(row.Key) {
 			continue
 		}
-		ev, err := c.projectMeta(raw, row)
+		ev, err := c.projectMeta(at.metaAt(i, row.Key), row)
 		if err != nil {
 			return nil, err
 		}
 		events = append(events, ev)
 	}
-	for _, row := range doc.Blobs {
+	for i, row := range doc.Blobs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if cliAuthKey(row.ID) {
 			continue
 		}
-		ev, err := c.projectBlob(raw, row)
+		ev, err := c.projectBlob(at.blobAt(i, row.ID), row)
 		if err != nil {
 			return nil, err
 		}
 		events = append(events, ev)
 	}
 	return events, nil
+}
+
+// offsets is where each meta row's "key" value and each blob's "id"
+// value sits in the export, by index in its array, read in one pass of
+// a json.Decoder. Only the row's own top-level field counts, so a
+// nested field or another row that names the same id never supplies
+// the offset. Searching the whole document from the start for every
+// row read it once per row, which on an export of tens of thousands of
+// blobs and hundreds of megabytes did not finish.
+type offsets struct {
+	raw   []byte
+	meta  []int
+	blobs []int
+	ok    bool
+}
+
+// newOffsets walks the meta and blobs arrays. A row with no top-level
+// "key" or "id" gets the offset of its first byte. A document the
+// decoder cannot walk, or whose arrays are not the length the parse
+// found, has no offsets, and every row is looked for the way
+// cursorOffset does.
+func newOffsets(raw []byte, metaRows, blobRows int) offsets {
+	o := offsets{raw: raw}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return o
+	}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return o
+		}
+		var at *[]int
+		field := ""
+		switch tok {
+		case "meta":
+			at, field = &o.meta, "key"
+		case "blobs":
+			at, field = &o.blobs, "id"
+		}
+		if at == nil {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return o
+			}
+			continue
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('[') {
+			return o
+		}
+		for dec.More() {
+			off, err := rowField(dec, raw, field)
+			if err != nil {
+				return o
+			}
+			*at = append(*at, off)
+		}
+		if _, err := dec.Token(); err != nil {
+			return o
+		}
+	}
+	o.ok = len(o.meta) == metaRows && len(o.blobs) == blobRows
+	return o
+}
+
+// rowField reads one array element and returns where the value of its
+// top-level field starts, or where the element starts when it is not an
+// object or has no such field.
+func rowField(dec *json.Decoder, raw []byte, field string) (int, error) {
+	start := skipSpace(raw, int(dec.InputOffset()), true)
+	tok, err := dec.Token()
+	if err != nil {
+		return 0, err
+	}
+	if tok == json.Delim('[') {
+		return start, skipOpen(dec)
+	}
+	if tok != json.Delim('{') {
+		return start, nil
+	}
+	// The field matches as json.Unmarshal matches it for the parse:
+	// case ignored, and a repeated field takes the last one that is not
+	// null, since null leaves a string alone.
+	at := start
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return 0, err
+		}
+		valueAt := skipSpace(raw, int(dec.InputOffset()), false)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return 0, err
+		}
+		if name, ok := key.(string); ok && strings.EqualFold(name, field) && !isNull(value) {
+			at = valueAt
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return 0, err
+	}
+	return at, nil
+}
+
+// skipOpen reads to the close of an array or object whose opening
+// delimiter the decoder has just returned.
+func skipOpen(dec *json.Decoder) error {
+	for depth := 1; depth > 0; {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t {
+		case json.Delim('['), json.Delim('{'):
+			depth++
+		case json.Delim(']'), json.Delim('}'):
+			depth--
+		}
+	}
+	return nil
+}
+
+// skipSpace moves at past whitespace and, between elements, a comma,
+// or, after an object key, a colon: to the first byte of the next value.
+func skipSpace(raw []byte, at int, comma bool) int {
+	for at < len(raw) {
+		switch c := raw[at]; {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		case comma && c == ',', !comma && c == ':':
+		default:
+			return at
+		}
+		at++
+	}
+	return at
+}
+
+func (o offsets) metaAt(i int, key string) int { return o.at(o.meta, i, key) }
+func (o offsets) blobAt(i int, id string) int  { return o.at(o.blobs, i, id) }
+
+func (o offsets) at(rows []int, i int, key string) int {
+	if !o.ok || i >= len(rows) {
+		return cursorOffset(o.raw, key)
+	}
+	return rows[i]
 }
 
 type cursorCLIExport struct {
@@ -208,13 +354,13 @@ func (c CursorCLI) envelope(doc cursorCLIExport) (Event, error) {
 	return c.emit("cursor_cli_store_json", EventMeta, "", time.Time{}, 0, "", extra)
 }
 
-func (c CursorCLI) projectMeta(raw []byte, row cursorCLIMeta) (Event, error) {
+func (c CursorCLI) projectMeta(offset int, row cursorCLIMeta) (Event, error) {
 	if isBase64Wrapper(row.Value) || !jsonIsObject(row.Value) {
-		return c.projectMetaUnknown(raw, row)
+		return c.projectMetaUnknown(offset, row)
 	}
 	obj, ok := jsonObject(row.Value)
 	if !ok {
-		return c.projectMetaUnknown(raw, row)
+		return c.projectMetaUnknown(offset, row)
 	}
 	// Key "0" is the session record. It is never a message turn, even
 	// when the object also carries text. Other objects are meta only
@@ -225,64 +371,64 @@ func (c CursorCLI) projectMeta(raw []byte, row cursorCLIMeta) (Event, error) {
 			return Event{}, err
 		}
 		extra["meta_key"] = row.Key
-		return c.emit(row.Key, EventMeta, "", cursorWhen(obj), cursorOffset(raw, row.Key), "", extra)
+		return c.emit(row.Key, EventMeta, "", cursorWhen(obj), offset, "", extra)
 	}
-	return c.projectMetaUnknown(raw, row)
+	return c.projectMetaUnknown(offset, row)
 }
 
-func (c CursorCLI) projectMetaUnknown(raw []byte, row cursorCLIMeta) (Event, error) {
+func (c CursorCLI) projectMetaUnknown(offset int, row cursorCLIMeta) (Event, error) {
 	extra := map[string]any{"meta_key": row.Key}
 	if !isNull(row.Value) {
 		extra["value"] = cliOpaque(row.Value)
 	}
-	return c.emit(row.Key, EventUnknown, "", time.Time{}, cursorOffset(raw, row.Key), "", extra)
+	return c.emit(row.Key, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
-func (c CursorCLI) projectBlob(raw []byte, row cursorCLIBlob) (Event, error) {
+func (c CursorCLI) projectBlob(offset int, row cursorCLIBlob) (Event, error) {
 	if isBase64Wrapper(row.Data) || !jsonIsObject(row.Data) {
-		return c.projectBlobUnknown(raw, row)
+		return c.projectBlobUnknown(offset, row)
 	}
 	obj, ok := jsonObject(row.Data)
 	if !ok {
-		return c.projectBlobUnknown(raw, row)
+		return c.projectBlobUnknown(offset, row)
 	}
 	// A non-string content value is a parts array or another structure.
 	// v1 does not read strings out of it and does not fall through to
 	// text or rawText.
 	if cliNonStringContent(obj) {
-		return c.projectBlobObjectUnknown(raw, row, obj)
+		return c.projectBlobObjectUnknown(offset, row, obj)
 	}
 	role, roleOK := cliMessageRole(obj)
 	text, textOK := cliCleartext(obj)
 	if !roleOK || !textOK {
-		return c.projectBlobUnknown(raw, row)
+		return c.projectBlobUnknown(offset, row)
 	}
 	extra, err := cliObjectExtra(obj)
 	if err != nil {
 		return Event{}, err
 	}
 	extra["blob_id"] = row.ID
-	return c.emit(row.ID, EventMessage, role, cursorWhen(obj), cursorOffset(raw, row.ID), text, extra)
+	return c.emit(row.ID, EventMessage, role, cursorWhen(obj), offset, text, extra)
 }
 
 // projectBlobObjectUnknown keeps the blob as one unknown event. The
 // object fields, including a content parts array, sit on extra. Parts
 // are not promoted.
-func (c CursorCLI) projectBlobObjectUnknown(raw []byte, row cursorCLIBlob, obj map[string]json.RawMessage) (Event, error) {
+func (c CursorCLI) projectBlobObjectUnknown(offset int, row cursorCLIBlob, obj map[string]json.RawMessage) (Event, error) {
 	extra, err := cliObjectExtra(obj)
 	if err != nil {
 		return Event{}, err
 	}
 	extra["blob_id"] = row.ID
-	return c.emit(row.ID, EventUnknown, "", time.Time{}, cursorOffset(raw, row.ID), "", extra)
+	return c.emit(row.ID, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
-func (c CursorCLI) projectBlobUnknown(raw []byte, row cursorCLIBlob) (Event, error) {
+func (c CursorCLI) projectBlobUnknown(offset int, row cursorCLIBlob) (Event, error) {
 	extra := map[string]any{"blob_id": row.ID}
 	if !isNull(row.Data) {
 		extra["value"] = cliOpaque(row.Data)
 	}
-	return c.emit(row.ID, EventUnknown, "", time.Time{}, cursorOffset(raw, row.ID), "", extra)
+	return c.emit(row.ID, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
 func (c CursorCLI) emit(rawType, eventType, role string, recorded time.Time, offset int, text string, extra map[string]any) (Event, error) {
