@@ -144,6 +144,11 @@ type Options struct {
 	// StateDir when the run starts. A file with exactly those bytes
 	// uploads with an override stamp, the way UploadHits does.
 	allowed map[string]bool
+	// quarantined is the file records in StateDir's quarantine log by
+	// digest, read when the run starts. A file whose bytes already
+	// have a record under this ruleset is not read or scanned again:
+	// the scan would find the same hits.
+	quarantined map[string]redact.Record
 }
 
 // Result counts what this run did. Sessions are the uids the server ACKed,
@@ -231,6 +236,11 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 			return Result{}, err
 		}
 		opt.allowed = allowed
+		quarantined, err := quarantinedDigests(opt.StateDir)
+		if err != nil {
+			return Result{}, err
+		}
+		opt.quarantined = quarantined
 	}
 	opt.Memo.begin(opt.now())
 	bundles, skipped := bundlesFor(opt)
@@ -824,7 +834,7 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 		return cursor.ManifestsPermit(root, machineID, permit)
 	}
 	cursorCLIManifests := func(root, machineID string) (adapter.Bundle, error) {
-		return cursorcli.ManifestsPermit(root, machineID, permit)
+		return cursorcli.ManifestsMemo(root, machineID, opt.Memo.forHarness(protocol.HarnessCursorCLI), permit)
 	}
 	homes := []struct {
 		name      string
@@ -860,8 +870,8 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 	return out, skipped
 }
 
-// memoized binds a reader to its harness's view of m. The Cursor
-// readers build a fresh export on every pass and take no memo.
+// memoized binds a reader to its harness's view of m. The Cursor IDE
+// reader builds a fresh export on every pass and takes no memo.
 func memoized(m *Memo, harness string, f func(root, machineID string, memo adapter.Memo) (adapter.Bundle, error)) func(root, machineID string) (adapter.Bundle, error) {
 	return func(root, machineID string) (adapter.Bundle, error) {
 		return f(root, machineID, m.forHarness(harness))
