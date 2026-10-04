@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44DVPVXQVWVGC3EYAFH64RP
 title: "MCP: serve the lake endpoint with the official Go SDK"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/9078ac3f
+  branch: mcp/go-sdk
+  worktree: /home/sothr/.cache/agent-scratch/lampi/sdk-port-CTOO/sdk
+  commit: 603227a9b072603af847aa1a203b23f81087a8ed
+  session: null
+  claimed_at: 2026-10-04T21:50:10Z
+  expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:41:59Z
+updated_at: 2026-10-04T21:50:10Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -81,3 +88,39 @@ The SDK misses one rule that ours follows: it compares `Mcp-Name` to the body wi
 - [ ] A test drives the endpoint with the SDK's own client.
 - [ ] terva-lampi mcp works against the new endpoint and its tests pass.
 - [ ] docs/web-api.md says where lampi deliberately departs from the SDK's defaults or from the spec, and why.
+
+## Implementation plan
+
+One PR, stacked on #193 until it merges.
+
+### internal/web/mcp.go
+
+- One `mcp.Server` built in `mcpRoutes`. Its options are `Instructions`, and `Capabilities` set to tools only, with no `listChanged`, because the tool list is fixed. The SDK's default also adds `logging`, which 2026-07-28 deprecates.
+- `mcp.NewStreamableHTTPHandler` with `Stateless`, `JSONResponse`, `MaxRequestBodyBytes: mcpBodyMax` and `DisableLocalhostProtection`.
+- lampi's gate goes in front of it, on `POST /api/read/v1/mcp`:
+  1. `tokenFor` with events:read.
+  2. The Origin check against `base_url`: 403 with a JSON-RPC error that has no id.
+  3. `Cache-Control: no-store`.
+  4. A decoded `Mcp-Name` when it is in the base64 form. The SDK compares the header to the body as sent, and the transport says a server decodes it first.
+  5. The token and request, put in the request context for the tool handler.
+- The 405 answer for GET and DELETE stays the lake's own JSON route.
+- A receiving middleware audits every `tools/call` before the SDK looks the tool up. This one place covers an unknown tool, which the SDK refuses before any tool handler runs.
+- The tool handler parses the arguments with `mcpQuery` and runs the browser route's helper, as before. Results become `*mcp.CallToolResult` with one `TextContent`. A failed audit is a `jsonrpc.Error` with -32603, because a plain error reaches the wire with code 0.
+- `mcpTools` becomes `[]*mcp.Tool`. The schemas stay as maps, built by the same helpers. The annotations are read-only, idempotent and closed-world.
+- Deleted: the rpc types, `mcpVersion`, `headerValue`, `validID`, `rpcReply`, `mcpLegacy` and `mcpServerInfo`.
+
+### Tests
+
+- `TestMCPToolsMatchTheWebAPI` and `TestMCPReadsWithinTheTokenScope` stay unchanged.
+- `TestMCPProtocolEras` is rewritten for what lampi relies on:
+  - Initialize era: the versions served, notifications, string ids, the version header, and batching, which the SDK allows only at 2025-03-26.
+  - 2026-07-28: `ping` is 404; `clientCapabilities` is required; `tools/list` carries `ttlMs`, `cacheScope` and `serverInfo`; header mismatch, including the base64 `Mcp-Name`; an unsupported version; `server/discover`.
+  - Malformed requests are 4xx.
+  - Origin, and 405 for GET and DELETE.
+- New: the SDK's own client drives the endpoint through `httptest.NewServer`, once per era. This covers the "real client for 2026-07-28" item in TKT-01M445H1.
+
+### Bridge and docs
+
+- `internal/cli` tests run the bridge against the real lake handler, so they run against the SDK unchanged.
+- `docs/web-api.md`'s MCP section gets a part on where lampi departs from the SDK's defaults and from the spec, and why. This covers the dependency choices recorded in the ticket description too.
+- `docs/architecture.md` and the other docs that call the server hand-written are corrected.
