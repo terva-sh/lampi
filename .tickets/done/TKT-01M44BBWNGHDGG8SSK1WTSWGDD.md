@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44BBWNGHDGG8SSK1WTSWGDD
 title: "Cursor CLI: skip unchanged and quarantined sessions without re-export"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M44B45GTE4ZFV6Y86P9A7RKE
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/580cbe08
-  branch: cursor/skip-unchanged
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-580cbe08
-  commit: c82e0b9d9ebe5df817b1fe9a2a6215031f9771ea
-  session: null
-  claimed_at: 2026-10-04T20:58:38Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T20:58:24Z
-updated_at: 2026-10-04T21:04:24Z
+updated_at: 2026-10-04T21:13:16Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -50,10 +43,10 @@ Found on 2026-10-04 while planning the ACP reader. Filed separately so the ACP r
 
 ## Acceptance criteria
 
-- [ ] A Cursor CLI session whose store.db and WAL stat did not change is not snapshotted or exported on a non-full pass
-- [ ] A memo hit that still needs bytes (no watermark, pending outbox) exports then, and the redaction scan still sees hidden bytes
-- [ ] An artifact whose digest is already quarantined under the current ruleset and not allowed is not read or scanned again, and is still reported as quarantined
-- [ ] Tests count snapshots to prove a second unchanged pass takes none
+- [x] A Cursor CLI session whose store.db and WAL stat did not change is not snapshotted or exported on a non-full pass
+- [x] A memo hit that still needs bytes (no watermark, pending outbox) exports then, and the redaction scan still sees hidden bytes
+- [x] An artifact whose digest is already quarantined under the current ruleset and not allowed is not read or scanned again, and is still reported as quarantined
+- [x] Tests count snapshots to prove a second unchanged pass takes none
 
 ## Implementation plan
 
@@ -79,3 +72,7 @@ Filed and promoted under the owner's instruction of 2026-10-04 to file, promote 
 **agent:claude-code/580cbe08** at 2026-10-04T21:04:24Z
 
 Each part was removed alone to check its test: the quarantine skip (TestKnownQuarantineIsNotScannedAgain), the Load call (TestSyncCursorCLIMemoLoadsWhenBytesAreNeeded), the memo recall and the WAL stat check (TestManifestsMemoSkipsAnUnchangedStore). The first WAL mutation was written as 'false && a || b || c', which left b and c live, and passed; rewritten as 'false && (...)' it fails as it should. GOFLAGS=-mod=mod just ci is green.
+
+## Summary
+
+Landed in #190 (merge f37526e). The Cursor CLI reader takes the upload memo, keyed on store.db's stat with the WAL stat, export size and hidden-bytes scan beside the digest, and does not snapshot a session whose two stats have not moved. Bundle.Load exports a recalled session when the upload still needs the bytes. A session whose every artifact digest is already in the quarantine log under the current ruleset, with no allow entry and no upload_hits, is reported as quarantined without being read or scanned; that applies to every harness. The Cursor IDE reader still exports every pass. Tests count snapshots and scans, and each part was removed alone to confirm its test fails.
