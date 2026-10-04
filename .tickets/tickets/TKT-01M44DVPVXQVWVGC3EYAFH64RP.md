@@ -16,7 +16,9 @@ parent: TKT-01M3FPP3H592T31Y2M3N347CPB
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:195
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: mcp/go-sdk
@@ -27,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:59:45Z
+updated_at: 2026-10-04T21:59:56Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
