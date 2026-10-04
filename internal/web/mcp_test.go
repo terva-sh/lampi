@@ -410,6 +410,87 @@ func TestMCPReadsWithinABayScopedToken(t *testing.T) {
 	}
 }
 
+// A read token gets a burst of mcpBurst tool calls, then mcpRate a
+// second. A call over the limit is a tool error with a hint, writes no
+// audit line and runs nothing, and one token's limit does not hold back
+// another's (TKT-01M445H1). The clock is fixed, so the refill is exact.
+func TestMCPLimitsToolCallsPerToken(t *testing.T) {
+	lake, _, _, dir, _ := mcpLake(t)
+	srv := &Server{catalog: lake.Catalog, reg: &Registrations{Lake: func() registrar.Lake { return registrar.Lake{Catalog: lake.Catalog, Dir: dir} }}, log: slog.New(slog.DiscardHandler)}
+	ran := 0
+	mw := srv.mcpAudit(&mcpLimits{by: map[string]*mcpLimit{}})(func(context.Context, string, mcp.Request) (mcp.Result, error) {
+		ran++
+		return &mcp.CallToolResult{}, nil
+	})
+	start := time.Now()
+	// call reports whether the token's call at start+at was refused.
+	call := func(token string, at time.Duration) bool {
+		t.Helper()
+		caller := mcpCaller{r: httptest.NewRequest("POST", "https://lake.example"+mcpPath, nil), t: catalog.ReadToken{ID: token, Label: token}, now: start.Add(at)}
+		res, err := mw(context.WithValue(t.Context(), mcpCallerKey{}, caller), "tools/call", &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "search", Arguments: json.RawMessage(`{"q":"git push"}`)}})
+		result, _ := res.(*mcp.CallToolResult)
+		if err != nil || result == nil {
+			t.Fatalf("%s at %s: %v %+v", token, at, err, res)
+		}
+		if !result.IsError {
+			return false
+		}
+		text, _ := result.Content[0].(*mcp.TextContent)
+		var body map[string]string
+		if text == nil || json.Unmarshal([]byte(text.Text), &body) != nil || body["error"] != "rate_limited" || !strings.Contains(body["hint"], "Wait a second") {
+			t.Fatalf("%s at %s: refusal %+v", token, at, result.Content)
+		}
+		return true
+	}
+	for i := range mcpBurst {
+		if call("rtk_a", 0) {
+			t.Fatalf("call %d of the burst was refused", i+1)
+		}
+	}
+	if !call("rtk_a", 0) {
+		t.Error("a call past the burst ran")
+	}
+	if call("rtk_b", 0) {
+		t.Error("another token was held back")
+	}
+	// Half a second refills one call at two a second, and no more.
+	if call("rtk_a", 500*time.Millisecond) || !call("rtk_a", 500*time.Millisecond) {
+		t.Error("the refill is not one call per half second")
+	}
+	if want := mcpBurst + 2; ran != want {
+		t.Errorf("%d calls ran, want %d", ran, want)
+	}
+	log, err := os.ReadFile(audit.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(log), `"actor":"token:rtk_`); n != ran {
+		t.Errorf("%d audit lines for %d calls that ran", n, ran)
+	}
+}
+
+// Concurrent calls can reach the limiter out of the order their times
+// were taken in. A call stamped earlier must not move a token's limiter
+// back, or the next call refills the same second again (review 2133).
+func TestMCPLimitsKeepEachTokensTimeMoving(t *testing.T) {
+	limits := &mcpLimits{by: map[string]*mcpLimit{}}
+	t0 := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	for i := range mcpBurst {
+		if !limits.allow("tok", t0) {
+			t.Fatalf("call %d of the burst refused", i+1)
+		}
+	}
+	// A second later, mcpRate (2) calls pass: one stamped then, and one
+	// stamped t0 that reached the limiter after it.
+	later := t0.Add(time.Second)
+	if !limits.allow("tok", later) || !limits.allow("tok", t0) {
+		t.Fatal("a second refilled fewer than 2 calls")
+	}
+	if limits.allow("tok", later) {
+		t.Error("the call stamped t0 moved the limiter back, and the same second refilled twice")
+	}
+}
+
 // The endpoint answers an initialize-era client and a client that sends
 // its version with every request, and refuses what neither allows. The
 // protocol is the SDK's (TKT-01M44DVPVX). This holds it to the parts

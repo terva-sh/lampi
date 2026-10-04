@@ -146,6 +146,8 @@ func failure(err error) (int, map[string]string) {
 		status, code = 404, "not_found"
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
 		status, code = 503, "read_unavailable"
+	case errors.Is(err, errToolRate):
+		status, code = 429, "rate_limited"
 	}
 	body["error"] = code
 	return status, body

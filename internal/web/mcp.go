@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -12,10 +13,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/time/rate"
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
@@ -70,7 +73,7 @@ func (s *Server) mcpRoutes(m *http.ServeMux) {
 		// The SDK's default adds logging, which 2026-07-28 deprecates.
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
-	srv.AddReceivingMiddleware(s.mcpAudit)
+	srv.AddReceivingMiddleware(s.mcpAudit(&mcpLimits{by: map[string]*mcpLimit{}}))
 	for _, tool := range mcpTools {
 		srv.AddTool(tool, s.mcpCall)
 	}
@@ -158,42 +161,95 @@ func decodeHeader(v string) (string, bool) {
 	return "", false
 }
 
+// Tool calls a read token may make (TKT-01M445H1). The tools
+// specification asks a server to rate-limit them, and each call syncs
+// an audit line. An agent's burst of parallel searches passes, and a
+// runaway loop is held to two synced writes a second.
+const (
+	mcpRate  = 2  // calls per second, refilled
+	mcpBurst = 30 // calls at once
+)
+
+// errToolRate is a tool call over its token's limit.
+var errToolRate = errors.New("mcp: too many tool calls with this token")
+
+// mcpLimits holds a limiter per read token, by id. An admin mints the
+// tokens, so the map stays small. A limiter takes the gate's time,
+// which carries the monotonic clock, so a step in wall time does not
+// refill it.
+type mcpLimits struct {
+	mu sync.Mutex
+	by map[string]*mcpLimit
+}
+
+// mcpLimit is one token's limiter and the latest time it was given.
+// Concurrent calls can reach the limiter out of the order their times
+// were taken in, and rate.Limiter goes back to an older time, after
+// which the next call refills the same interval again. So a token's
+// time never goes back (review 2133).
+type mcpLimit struct {
+	lim  *rate.Limiter
+	last time.Time
+}
+
+func (l *mcpLimits) allow(token string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, ok := l.by[token]
+	if !ok {
+		e = &mcpLimit{lim: rate.NewLimiter(mcpRate, mcpBurst)}
+		l.by[token] = e
+	}
+	if now.Before(e.last) {
+		now = e.last
+	}
+	e.last = now
+	return e.lim.AllowN(now, 1)
+}
+
 // mcpAudit records every tools/call before the SDK looks the tool up,
 // so a call to an unknown tool, which the SDK refuses before a tool
 // runs, is audited too. The event is durable in the outbox before a
-// result leaves, as an event stream's is.
-func (s *Server) mcpAudit(next mcp.MethodHandler) mcp.MethodHandler {
-	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
-		if method != "tools/call" {
+// result leaves, as an event stream's is. A call over its token's limit
+// is refused first, unaudited: the limit is what bounds the synced
+// writes, as on the open routes.
+func (s *Server) mcpAudit(limits *mcpLimits) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method != "tools/call" {
+				return next(ctx, method, req)
+			}
+			c, ok := ctx.Value(mcpCallerKey{}).(mcpCaller)
+			if !ok {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "mcp: a tool call without its caller"}
+			}
+			if !limits.allow(c.t.ID, c.now) {
+				return toolError(errToolRate), nil
+			}
+			// A call naming no tool is audited as one to an unknown tool.
+			// One with no params at all is refused by the SDK's transport
+			// before it gets here; it names nothing and reads nothing.
+			var name string
+			var args json.RawMessage
+			if p, _ := req.GetParams().(*mcp.CallToolParamsRaw); p != nil {
+				name, args = p.Name, p.Arguments
+			}
+			i := slices.IndexFunc(mcpTools, func(tool *mcp.Tool) bool { return tool.Name == name })
+			uid, q, _ := mcpArgs(name, args)
+			lake := s.reg.Lake()
+			if err := lake.Catalog.QueueAudit(ctx, c.now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + c.t.ID + " (" + c.t.Label + ")", Detail: mcpAuditDetail(i, uid, q)}); err != nil {
+				s.logError(c.r, "queueing an MCP call's audit line failed", err)
+				// A plain error reaches the wire with code 0.
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "audit_failed"}
+			}
+			if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
+				s.logError(c.r, "an MCP call's audit line stays queued", err)
+			}
+			if err := lake.Catalog.TouchReadToken(ctx, c.t.ID, c.now); err != nil {
+				s.logError(c.r, "recording a read token's use failed", err)
+			}
 			return next(ctx, method, req)
 		}
-		c, ok := ctx.Value(mcpCallerKey{}).(mcpCaller)
-		if !ok {
-			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "mcp: a tool call without its caller"}
-		}
-		// A call naming no tool is audited as one to an unknown tool. One
-		// with no params at all is refused by the SDK's transport before
-		// it gets here; it names nothing and reads nothing.
-		var name string
-		var args json.RawMessage
-		if p, _ := req.GetParams().(*mcp.CallToolParamsRaw); p != nil {
-			name, args = p.Name, p.Arguments
-		}
-		i := slices.IndexFunc(mcpTools, func(tool *mcp.Tool) bool { return tool.Name == name })
-		uid, q, _ := mcpArgs(name, args)
-		lake := s.reg.Lake()
-		if err := lake.Catalog.QueueAudit(ctx, c.now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + c.t.ID + " (" + c.t.Label + ")", Detail: mcpAuditDetail(i, uid, q)}); err != nil {
-			s.logError(c.r, "queueing an MCP call's audit line failed", err)
-			// A plain error reaches the wire with code 0.
-			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "audit_failed"}
-		}
-		if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
-			s.logError(c.r, "an MCP call's audit line stays queued", err)
-		}
-		if err := lake.Catalog.TouchReadToken(ctx, c.t.ID, c.now); err != nil {
-			s.logError(c.r, "recording a read token's use failed", err)
-		}
-		return next(ctx, method, req)
 	}
 }
 
@@ -310,6 +366,7 @@ var mcpHints = map[string]string{
 	"search_unavailable":     "This lake has no search index.",
 	"read_unavailable":       "The read ran out of time. Narrow it with filters, a project or a time range.",
 	"read_failed":            "The lake could not read. Try again later.",
+	"rate_limited":           "Too many tool calls with this token. Wait a second and call again: after a burst of " + strconv.Itoa(mcpBurst) + " calls, the lake allows " + strconv.Itoa(mcpRate) + " a second.",
 }
 
 func toolError(err error) *mcp.CallToolResult {
