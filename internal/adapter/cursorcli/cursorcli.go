@@ -326,14 +326,14 @@ func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Per
 		}
 	}()
 
-	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cleanup: cleanup}
+	b := adapter.Bundle{Root: root, Paths: map[string]string{}, Hidden: map[string]redact.Result{}, Cuts: map[string][]int64{}, Cleanup: cleanup}
 	// lazy is each session left unexported on a memo hit, by export
 	// relpath.
 	lazy := map[string]adapter.Ref{}
 	export := func(ref adapter.Ref) (path string, sum string, size int64, err error) {
 		wal := walStat(ref.AbsPath)
 		rel := exportRel(ref.RelPath)
-		body, hidden, err := exportScanned(ctx, ref.AbsPath, ref.RelPath)
+		body, cuts, hidden, err := exportScanned(ctx, ref.AbsPath, ref.RelPath)
 		if err != nil {
 			return "", "", 0, fmt.Errorf("cursor-cli: %s: %w", ref.RelPath, err)
 		}
@@ -353,6 +353,7 @@ func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Per
 		if hidden.Hits > 0 {
 			b.Hidden[sum] = hidden
 		}
+		b.Cuts[sum] = cuts
 		remember(memo, ref, wal, sum, size, hidden)
 		return out, sum, size, nil
 	}

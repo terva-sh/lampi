@@ -159,7 +159,18 @@ a held session in the inventory, prints `held N until HH:MM:SS` on the
 pass summary, and runs a pass when that time is up. `terva-lampi sync`
 does not wait.
 
-The export is also built whole in memory. A session whose `store.db`
+An export larger than the lake's object cap (32 MiB) goes up as a
+chunk list. The reader cuts it between blob rows, after a row picked by
+its id, so a chunk holds about 32 rows and at most 4 MiB. Blob ids are
+content hashes and rows are in id order, so a new blob changes the
+chunk it lands in and the first chunk, which holds the meta rows. The
+other chunks keep their digests, the lake already has them, and the
+upload sends only the changed ones. On a real 284 MB export, adding one
+blob sent 1 chunk of 435, 3 MB. The lake stores the chunk list, not a
+second whole copy. The document is the same bytes as before, so
+normalize, export and older lakes read it unchanged.
+
+The export is still built whole in memory. A session whose `store.db`
 and WAL together pass 256 MiB is not exported: the pass prints a
 `skipped` line with the session and its size, and the session stays on
 the machine.

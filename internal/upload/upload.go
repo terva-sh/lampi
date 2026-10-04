@@ -334,15 +334,19 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 		}
 	}
 	bodies := map[string][]byte{}
+	cuts := map[string][]int64{}
 	var arts []protocol.Artifact
 	for _, w := range work {
 		for d, b := range w.bodies {
 			bodies[d] = b
 		}
+		for d, c := range w.cuts {
+			cuts[d] = c
+		}
 		arts = append(arts, w.manifest.Artifacts...)
 	}
 	lists := map[string]chunkPlan{}
-	if err := uploadDigests(ctx, client, opt, maxBlob, &res, arts, bodies, lists); err != nil {
+	if err := uploadDigests(ctx, client, opt, maxBlob, &res, arts, bodies, cuts, lists); err != nil {
 		return res, err
 	}
 	for i := range work {
@@ -353,7 +357,7 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 		applyChunkLists(&w.manifest, lists)
 		ack, err := postManifest(ctx, client, opt, w.manifest)
 		if prefixMismatch(err) && widenToFullFile(w) {
-			if err := uploadDigests(ctx, client, opt, maxBlob, &res, w.manifest.Artifacts, w.bodies, lists); err != nil {
+			if err := uploadDigests(ctx, client, opt, maxBlob, &res, w.manifest.Artifacts, w.bodies, w.cuts, lists); err != nil {
 				return res, err
 			}
 			applyChunkLists(&w.manifest, lists)
@@ -553,7 +557,9 @@ func sessionOverCap(w *prepared, max int64, largeTails bool) bool {
 	return false
 }
 
-func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte, lists map[string]chunkPlan) error {
+// uploadDigests puts each body the lake is missing. A body over max is
+// sent as chunks, cut where cuts says when those cuts are usable.
+func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte, cuts map[string][]int64, lists map[string]chunkPlan) error {
 	if max <= 0 {
 		max = protocol.MaxBlobBytes
 	}
@@ -602,7 +608,7 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 		}
 	}
 	for _, job := range splits {
-		if err := uploadSplit(ctx, client, opt, max, res, job.rel, job.digest, job.body, lists); err != nil {
+		if err := uploadSplit(ctx, client, opt, max, res, job.rel, job.digest, job.body, cuts[job.digest], lists); err != nil {
 			return err
 		}
 	}
@@ -610,8 +616,10 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 }
 
 // uploadSplit PUTs chunks of at most max and records them on lists.
-// The logical digest is not PUT. The lake will not install it.
-func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, rel, digest string, body []byte, lists map[string]chunkPlan) error {
+// The chunks are cut at cuts when each fits and they add up to body,
+// and at fixed offsets otherwise. The logical digest is not PUT. The
+// lake will not install it.
+func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, rel, digest string, body []byte, cuts []int64, lists map[string]chunkPlan) error {
 	chunk := max
 	if opt.ChunkBytes > 0 && opt.ChunkBytes < chunk {
 		chunk = opt.ChunkBytes
@@ -619,7 +627,14 @@ func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int6
 	if chunk <= 0 || chunk > int64(^uint(0)>>1) {
 		return fmt.Errorf("upload: %s: chunk size %d is not usable", rel, chunk)
 	}
-	parts, lengths, chunkBody := splitBytes(body, int(chunk))
+	var parts []string
+	var lengths []int64
+	var chunkBody map[string][]byte
+	if usableCuts(cuts, int64(len(body)), chunk) {
+		parts, lengths, chunkBody = splitAt(body, cuts)
+	} else {
+		parts, lengths, chunkBody = splitBytes(body, int(chunk))
+	}
 	if lists != nil {
 		lists[digest] = chunkPlan{Digests: parts, Lengths: lengths}
 	}
@@ -639,6 +654,42 @@ func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int6
 		}
 	}
 	return nil
+}
+
+// usableCuts reports cuts that cover exactly size bytes in chunks of
+// 1..chunk bytes.
+func usableCuts(cuts []int64, size, chunk int64) bool {
+	if len(cuts) == 0 {
+		return false
+	}
+	var total int64
+	for _, n := range cuts {
+		if n <= 0 || n > chunk {
+			return false
+		}
+		total += n
+	}
+	return total == size
+}
+
+// splitAt cuts body into pieces of the given lengths, which usableCuts
+// has checked. The pieces share body's bytes rather than copying them:
+// body is not written to, and it outlives the upload.
+func splitAt(body []byte, lengths []int64) (parts []string, out []int64, blobs map[string][]byte) {
+	blobs = map[string][]byte{}
+	var start int64
+	for _, n := range lengths {
+		piece := body[start : start+n]
+		start += n
+		sum := sha256.Sum256(piece)
+		d := hex.EncodeToString(sum[:])
+		parts = append(parts, d)
+		out = append(out, n)
+		if _, ok := blobs[d]; !ok {
+			blobs[d] = piece
+		}
+	}
+	return parts, out, blobs
 }
 
 func splitBytes(body []byte, n int) (parts []string, lengths []int64, blobs map[string][]byte) {

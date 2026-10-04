@@ -3,6 +3,7 @@ package cursorcli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -67,23 +68,108 @@ var scanner redact.Redactor = redact.Ruleset{}
 // does not have a home-relative path; the base name is recorded
 // instead.
 func exportDatabase(ctx context.Context, src, sourceRel string) ([]byte, error) {
-	body, _, err := exportScanned(ctx, src, sourceRel)
+	body, _, _, err := exportScanned(ctx, src, sourceRel)
 	return body, err
 }
 
 // exportScanned is exportDatabase plus the ruleset's scan of the raw
 // values the export holds as base64 or hex text, which a scan of the
-// JSON cannot read.
-func exportScanned(ctx context.Context, src, sourceRel string) ([]byte, redact.Result, error) {
+// JSON cannot read, and the chunk lengths encodeDocument cut it into.
+func exportScanned(ctx context.Context, src, sourceRel string) ([]byte, []int64, redact.Result, error) {
 	doc, err := exportDocument(ctx, src, sourceRel)
 	if err != nil {
-		return nil, redact.Result{}, err
+		return nil, nil, redact.Result{}, err
 	}
-	body, err := json.Marshal(doc)
+	body, cuts, err := encodeDocument(doc)
 	if err != nil {
-		return nil, redact.Result{}, err
+		return nil, nil, redact.Result{}, err
 	}
-	return body, doc.hidden(), nil
+	return body, cuts, doc.hidden(), nil
+}
+
+const (
+	// cutEvery is how many blob rows a chunk holds on average. A row
+	// whose id hashes to a first byte under 256/cutEvery ends one.
+	cutEvery = 32
+	// maxCut is the longest chunk. A chunk ends before a row that
+	// would pass it, and a longer row is cut into pieces of this size.
+	maxCut = 4 << 20
+)
+
+// encodeDocument is json.Marshal(doc), written one blob row at a time,
+// and the lengths of the chunks it cuts the result into.
+//
+// A chunk ends after a row chosen by its id, not at a fixed offset.
+// Blob ids are content hashes, and rows are in id order, so a new blob
+// lands at a random place and changes only the chunk it lands in, and
+// the first chunk, which holds the meta rows. The other chunks keep
+// their bytes and their digests from one export to the next, and the
+// upload does not send them again.
+func encodeDocument(doc document) ([]byte, []int64, error) {
+	rows := doc.Blobs
+	doc.Blobs = []blobRow{}
+	head, err := json.Marshal(doc)
+	if err != nil {
+		return nil, nil, err
+	}
+	const tail = "]}"
+	if !bytes.HasSuffix(head, []byte("["+tail)) {
+		return nil, nil, fmt.Errorf("cursor-cli: document does not end with its blobs")
+	}
+	var buf bytes.Buffer
+	buf.Write(head[:len(head)-len(tail)])
+	c := cutter{cur: int64(buf.Len())}
+	for i, r := range rows {
+		start := buf.Len()
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return nil, nil, err
+		}
+		buf.Write(raw)
+		c.row(int64(buf.Len()-start), r.ID)
+	}
+	buf.WriteString(tail)
+	c.add(int64(len(tail)))
+	c.flush()
+	return buf.Bytes(), c.out, nil
+}
+
+// cutter collects chunk lengths. cur is the open chunk.
+type cutter struct {
+	cur int64
+	out []int64
+}
+
+// row adds one blob row of n bytes, its leading comma included.
+func (c *cutter) row(n int64, id string) {
+	if c.cur > 0 && c.cur+n > maxCut {
+		c.flush()
+	}
+	c.add(n)
+	if sum := sha256.Sum256([]byte(id)); sum[0] < 256/cutEvery {
+		c.flush()
+	}
+}
+
+// add puts n bytes in the open chunk, closing it at maxCut.
+func (c *cutter) add(n int64) {
+	for c.cur+n > maxCut {
+		take := maxCut - c.cur
+		c.cur += take
+		n -= take
+		c.flush()
+	}
+	c.cur += n
+}
+
+func (c *cutter) flush() {
+	if c.cur > 0 {
+		c.out = append(c.out, c.cur)
+		c.cur = 0
+	}
 }
 
 func exportDocument(ctx context.Context, src, sourceRel string) (document, error) {

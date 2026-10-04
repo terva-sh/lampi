@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44B45JRVQ1W2XF5H0K3MC4X
 title: "Cursor CLI: read ACP sessions under acp-sessions/"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M44BBWNGHDGG8SSK1WTSWGDD
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/580cbe08
-  branch: cursor/acp-sessions
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-580cbe08
-  commit: c5503b4f52daa8a742878ad526d18f67eed14670
-  session: null
-  claimed_at: 2026-10-04T21:12:43Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T20:54:11Z
-updated_at: 2026-10-04T21:12:43Z
+updated_at: 2026-10-04T21:44:19Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -80,3 +73,7 @@ Alternatives considered:
 **agent:claude-code/580cbe08** at 2026-10-04T21:12:43Z
 
 Checked against this workstation's real ~/.cursor with an isolated XDG config and state (the live agent untouched). agent discover lists the 9 ACP stores and the 3 chats and none of the 862 meta.json-only directories. A real export of the 244K ACP store: 47,647 bytes in 5 ms. Of today's 359 MiB store: 467,101,398 bytes in 6.1 s, 19,916 blobs, no hidden hits, no blobEncryptionKey, peak RSS 2.6 GB (that figure includes the test parsing the JSON back). That measurement is why the 256 MiB cap is in this ticket: the 744 MiB and 2.5 GiB stores would be several times that. With the cap, 6 of the 9 ACP sessions export now; the 359 MiB, 744 MiB and 2.5 GiB ones wait for TKT-01M44B45MT89CGR6M0HHTWG63P. Mutation checks: removing the ACP path case, the hold, the WAL mtime in the hold, the held count, the held inventory, the agent's Settle, or the cap each fails a test. The agent's call to armHold after a pass has no test of its own; armHold is tested directly.
+
+## Summary
+
+Landed in #191 (merge b2db016). The Cursor CLI reader walks and watches acp-sessions/<session>/store.db beside chats/, with session id acp-sessions/<session>; a directory with only meta.json is not a session. The agent holds a session whose store.db or WAL changed in the last 5 minutes (Bundle.Held, counted in the inventory, 'held N until' on the pass summary) and runs a pass when the hold ends; a one-shot sync does not hold. A store over 256 MiB is skipped with a line naming it and its size, because the export is built whole in memory (a 359 MiB store peaked near 2.6 GB). Verified against the workstation's real ~/.cursor: 9 ACP stores and 3 chats found, none of the 862 meta.json-only directories. With the cap, 6 of the 9 ACP sessions are exportable; the 359 MiB, 744 MiB and 2.5 GiB ones wait for TKT-01M44DRPSD0FHC969KWV5B9YZV (Cursor CLI: stream the export so large stores need not be capped). The agent loop's call to armHold after a pass has no test of its own; terva-review noted the same. The live agent picks this up only after a release and self-update.
