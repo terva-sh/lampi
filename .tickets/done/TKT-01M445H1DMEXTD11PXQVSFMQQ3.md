@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M445H1DMEXTD11PXQVSFMQQ3
 title: "MCP follow-ups: bay-token tests, bridge limits, audit rate"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -23,17 +23,10 @@ references:
     path: null
   - ref: pr:201
     path: null
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: mcp/bay-scoped-tokens
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
-  commit: d807aaa779b3399b6fa1e8d44e4593bd5f208f42
-  session: null
-  claimed_at: 2026-10-04T22:37:13Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T23:10:26Z
+updated_at: 2026-10-04T23:16:37Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -160,3 +153,25 @@ main was merged into #201 once #200 had landed, so its CI and gate run on the tr
 **agent:claude-code/9078ac3f** at 2026-10-04T23:10:26Z
 
 Supersedes one line of the previous note, "An exponent beyond an int64 is not kept for cancellation". The bound is ±2^62, not the int64 range (review 2139, low). It leaves room to adjust the exponent by the digits' count without overflow. An id whose exponent is past that bound is still forwarded and answered, but cannot be cancelled. `TestMCPIDKey` checks both edges, ±2^62 accepted and ±(2^62+1) refused. The comment on `mcpNumberKey` says so.
+
+## Summary
+
+Landed in #199, #200 and #201. Every criterion is met.
+
+- **#199.** `TestMCPReadsWithinABayScopedToken` reads through the endpoint with three tokens. One is scoped to a bay. One is scoped to a bay and a session in it. One is scoped to a bay and a session outside it. Each reaches only its sessions. `catalog.SessionBayNames` goes through `Scope.names` and `Scope.readsBay`, the checks `where` makes, so a scope narrowed to named sessions lists no bays for another session.
+- **#200.** Each read token gets a burst of 30 tool calls, then 2 a second (`golang.org/x/time/rate`). A call over the limit is refused with `rate_limited`, a hint, and no audit line. A token's limiter time never goes back (review 2133). `docs/web-api.md` gives the limit.
+- **#201.** `terva-lampi mcp`:
+  - logs to stderr a notification the lake refused (review 2115);
+  - keeps at most 8 requests open to the lake, initialize included;
+  - on `notifications/cancelled`, closes that request's call to the lake and writes no answer for it, whatever the id's spelling.
+
+  Reviews 2135, 2136 and 2137 found four problems, each fixed with a test:
+  - a reply race;
+  - ids matched by spelling;
+  - initialize outside the slots;
+  - numeric ids expanded into large keys.
+
+  Review 2139 corrected the stated exponent bound, which is ±2^62.
+- **Real client of 2026-07-28.** Met by `TestMCPServesTheSDKClient` (TKT-01M44DVPVX, #195).
+
+Each fix was checked against the code before it: its test fails there. These ship in v0.8.0.
