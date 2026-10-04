@@ -46,6 +46,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 |---------|--------------|
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT dataset. See [Export](#export). |
 | `terva-lampi query events` | Read normalized events from a lake with a read token, with export's filters and `--fields`. See [Query a lake](#query-a-lake). |
+| `terva-lampi mcp` | Serve a lake's recall tools to an agent over stdio, with a read token. See [Serve recall to an agent](#serve-recall-to-an-agent). |
 | `terva-lampi conflicts` | List unresolved `divergent_copy` artifacts from the catalog: session, digests, and machines. `--resolved` adds resolved ones with their resolution. |
 
 ## Export
@@ -143,6 +144,27 @@ Without `--out`, the rows that arrived are already on stdout. A summary
 goes to stderr. The token is never printed.
 [Read the lake from an agent](reading-the-lake.md) shows how to mint
 the token and run a query.
+
+## Serve recall to an agent
+
+`terva-lampi mcp` is an MCP server on stdin and stdout. An agent such as
+Claude Code or Codex starts it, and it sends each message to the lake's
+[MCP endpoint](web-api.md#mcp-recall-tools) with a read token that holds
+`events:read`. Each answer from the lake goes back on stdout as one line.
+
+| Flag | Meaning |
+|------|---------|
+| `--token-file FILE` | The read token. Without it, the file that `LAMPI_READ_TOKEN_FILE` names. There is no default path. |
+| `--server URL` | The lake. Without it, the server of the `config.json` lake that `--lake NAME` names, or of the only lake that `config.json` lists. |
+
+stdout carries only protocol messages, so errors and a start line go to
+stderr. When the lake refuses the token, the agent gets a JSON-RPC error
+that says why: `401` for an unknown, expired or revoked token, and `404`
+for a token without `events:read`, or for a lake that has no MCP
+endpoint yet. The command follows no redirect and never prints the
+token. It sends a token over plain http only to a loopback address.
+[Let an agent search past sessions](reading-the-lake.md#let-an-agent-search-past-sessions)
+shows how to add it to an agent.
 
 ## Where a setting comes from
 

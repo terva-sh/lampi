@@ -160,6 +160,7 @@ The [documentation index](docs/README.md) groups every page by task.
 | Add machines, or report to several lakes | [Registration and lakes](docs/registration-and-lakes.md) |
 | Host a lake | [VPS bring-up](docs/vps-bringup.md), [the container guide](docs/container.md), and [deploy/README.md](deploy/README.md) |
 | Turn on the dashboard | [Serving the dashboard](docs/web-dashboard.md) |
+| Let an agent search past sessions | [Read the lake from an agent](docs/reading-the-lake.md) |
 | Look up a command or setting | [Command reference](docs/cli.md) |
 | Understand the design | [Architecture](docs/architecture.md) and [Capture protocol 1](docs/protocol.md) |
 | Work on lampi | [Developing lampi](docs/development.md) and [Pull requests and reviews](docs/pr-reviews.md) |
@@ -170,7 +171,7 @@ terva's fleet is a live control plane: members dial a hub so one
 browser can drive sessions. The lake stores bytes after the fact. The
 protocols stay separate. `terva-ext-session-search` is local recall for
 one project on one machine. The lake is the central copy across all of
-them.
+them, and `terva-lampi mcp` lets an agent search it.
 
 The command is `terva-lampi`, not `lampi`, because a bare `lampi`
 already names an unrelated LAMP installer.
