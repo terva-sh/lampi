@@ -554,9 +554,11 @@ module that is already linked could do it.
   The tools, the token check, the Origin check and the audit stay
   lampi's. [web-api.md](web-api.md#where-lampi-departs-from-the-sdk-and-the-specification)
   lists what lampi sets and where it departs from the SDK.
-- **`golang.org/x/time/rate`** ships with the SDK. The open routes'
-  limiter in `internal/api/identity.go` stays lampi's own: when the wall
-  clock steps back, `rate.Limiter` moves its clock back too and refills
+- **`golang.org/x/time/rate`** ships with the SDK, and limits MCP tool
+  calls per read token. That limiter takes `time.Now`, whose monotonic
+  reading a wall-clock step does not move. The open routes' limiter in
+  `internal/api/identity.go` stays lampi's own: when the time it is
+  given steps back, `rate.Limiter` moves its clock back too and refills
   the gap again on the next call, and lampi's does not.
 - **`golang.org/x/sync`** ships with the SDK too. The upload slots in
   `internal/api` and the identity-provider slots in `internal/webauth`
