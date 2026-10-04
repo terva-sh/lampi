@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44DVPPTZ5TP556JM4JJ85ZT
 title: "Deps: bump golang.org/x/crypto and x/sys to current releases"
 type: chore
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ blocks_on: none
 references:
   - ref: pr:193
     path: null
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: deps/x-crypto
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
-  commit: 6cf198fea7f52e17a9fd9eae0c79417297940e92
-  session: null
-  claimed_at: 2026-10-04T21:42:11Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:45:49Z
+updated_at: 2026-10-04T22:13:34Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -65,3 +58,14 @@ go get golang.org/x/crypto@v0.57.0 golang.org/x/sys@v0.48.0, then go mod tidy, w
 **agent:claude-code/9078ac3f** at 2026-10-04T21:44:27Z
 
 Criterion 2 is left open. After the bump, govulncheck v1.8.0 on ./... still reports one module-level finding in x/crypto: GO-2026-5932, an advisory that golang.org/x/crypto/openpgp is unmaintained, which has no fixed version. No lampi package imports openpgp (go list -deps ./... lists chacha20, chacha20poly1305, curve25519, hkdf, pbkdf2 and scrypt from x/crypto). The sixteen findings that had fixes are gone. The criterion as written cannot be met by any x/crypto release, so it stays unticked rather than reworded after the fact. The full gate passed with GOFLAGS=-mod=mod and left go.mod unchanged.
+
+## Summary
+
+Landed in PR 193.
+
+- `golang.org/x/crypto` v0.45.0 → v0.57.0 and `golang.org/x/sys` v0.47.0 → v0.48.0, with no other module moved.
+- `go mod tidy` moved `zeebo/blake3` into the direct block (TKT-01M44347GZ).
+
+govulncheck no longer reports the sixteen x/crypto findings that had fixes. It still reports GO-2026-5932, an advisory that `x/crypto/openpgp` is unmaintained. That advisory has no fixed version, and lampi imports no openpgp package. Criterion 2 is left unticked for that reason.
+
+The full gate passed on the branch, and again on the branch merged onto `main`, with `GOFLAGS=-mod=mod`. It left `go.mod` unchanged.

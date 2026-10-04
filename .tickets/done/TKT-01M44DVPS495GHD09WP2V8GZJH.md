@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44DVPS495GHD09WP2V8GZJH
 title: "Deps: bump klauspost/compress to v1.20.1"
 type: chore
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ blocks_on: none
 references:
   - ref: pr:194
     path: null
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: deps/compress
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
-  commit: 431d9b7c9b1d488a56585a0d6194d5be039d6da9
-  session: null
-  claimed_at: 2026-10-04T21:46:37Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:49:44Z
+updated_at: 2026-10-04T22:13:35Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -63,3 +56,9 @@ go get github.com/klauspost/compress@v1.20.1 and tidy. Confirm nothing compares 
 **agent:claude-code/9078ac3f** at 2026-10-04T21:49:24Z
 
 Checked: nothing in lampi compares zstd output. CAS keys are sha256 of the bytes before compression (internal/cas/zstd.go), and an events file's frame index is written with the file. Cross-version check through two temporary tests, not committed: one wrote a CAS store (16 objects, 0 B to 3 MiB, random and repetitive, either side of the 256-byte content-size cutoff) and a 5,000-event indexed events file with one version; the other read them with cas.Read, cas.Size, ReadEventsFile and EventsFile.From at five positions. Written by v1.17.9 and read by v1.20.1, and the reverse, both byte for byte. govulncheck: GO-2026-5841 is gone; the only finding left is GO-2026-5932 (x/crypto/openpgp advisory, no fix, not imported). Full gate passed. Test times, v1.17.9 then v1.20.1: internal/api 9.1s, 8.5s; internal/cas 2.9s, 2.9s; internal/normalize 0.5s, 0.3s.
+
+## Summary
+
+Landed in PR 194: `klauspost/compress` v1.17.9 → v1.20.1. govulncheck no longer reports GO-2026-5841.
+
+Nothing in lampi compares zstd output bytes. A CAS store and an indexed events file written by either version read back byte for byte with the other, checked through temporary tests that were not committed. The note on this ticket gives the details. Test times stayed flat: `internal/api` 9.1s → 8.5s, `internal/cas` 2.9s → 2.9s, `internal/normalize` 0.5s → 0.3s.
