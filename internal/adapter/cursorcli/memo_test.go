@@ -69,7 +69,7 @@ func TestManifestsMemoSkipsAnUnchangedStore(t *testing.T) {
 	memo := statMemo{}
 	permit := func(protocol.Manifest) bool { return true }
 
-	first, err := ManifestsMemo(root, "machine-1", memo, permit)
+	first, err := ManifestsMemo(root, "machine-1", memo, permit, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestManifestsMemoSkipsAnUnchangedStore(t *testing.T) {
 		t.Fatalf("first pass hidden %+v", first.Hidden)
 	}
 
-	second, err := ManifestsMemo(root, "machine-1", memo, permit)
+	second, err := ManifestsMemo(root, "machine-1", memo, permit, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestManifestsMemoSkipsAnUnchangedStore(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO blobs (id, data) VALUES ('later', '{"text":"later"}')`); err != nil {
 		t.Fatal(err)
 	}
-	third, err := ManifestsMemo(root, "machine-1", memo, permit)
+	third, err := ManifestsMemo(root, "machine-1", memo, permit, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

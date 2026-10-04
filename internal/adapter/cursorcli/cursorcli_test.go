@@ -118,7 +118,7 @@ func TestHome(t *testing.T) {
 	}
 }
 
-func TestDiscoverListsOnlyChatStores(t *testing.T) {
+func TestDiscoverListsChatAndACPStores(t *testing.T) {
 	root := t.TempDir()
 	session := filepath.Join(root, "chats", "ab12", "sid-1")
 	mustWrite(t, filepath.Join(session, "store.db"), "db")
@@ -131,6 +131,11 @@ func TestDiscoverListsOnlyChatStores(t *testing.T) {
 	mustWrite(t, filepath.Join(root, "chats", "store.db"), "shallow")
 	mustWrite(t, filepath.Join(root, "chats", "ab12", "sid-1", "nested", "store.db"), "deep")
 	mustWrite(t, filepath.Join(root, "acp-sessions", "sid-1", "store.db"), "acp")
+	mustWrite(t, filepath.Join(root, "acp-sessions", "sid-1", "store.db-wal"), "wal")
+	mustWrite(t, filepath.Join(root, "acp-sessions", "sid-1", "meta.json"), `{"schemaVersion":1,"cwd":"/work/app"}`)
+	mustWrite(t, filepath.Join(root, "acp-sessions", "meta-only", "meta.json"), `{"schemaVersion":1,"cwd":"/home/u"}`)
+	mustWrite(t, filepath.Join(root, "acp-sessions", "store.db"), "shallow")
+	mustWrite(t, filepath.Join(root, "acp-sessions", "sid-1", "nested", "store.db"), "deep")
 	mustWrite(t, filepath.Join(root, "projects", "work-app", "agent-transcripts", "sid-1.jsonl"), "{}\n")
 	mustWrite(t, filepath.Join(root, "User", "globalStorage", "state.vscdb"), "ide")
 
@@ -138,11 +143,32 @@ func TestDiscoverListsOnlyChatStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs) != 1 || refs[0].RelPath != "chats/ab12/sid-1/store.db" {
+	if len(refs) != 2 || refs[0].RelPath != "chats/ab12/sid-1/store.db" || refs[1].RelPath != "acp-sessions/sid-1/store.db" {
 		t.Fatalf("refs %+v", refs)
 	}
-	if refs[0].Kind != protocol.KindCursorCLIStoreJSON {
-		t.Fatalf("kind %s", refs[0].Kind)
+	for _, r := range refs {
+		if r.Kind != protocol.KindCursorCLIStoreJSON {
+			t.Fatalf("kind %s", r.Kind)
+		}
+	}
+	for rel, want := range map[string]bool{
+		"acp-sessions/sid-1/store.db-wal":  true,
+		"acp-sessions/sid-1/store.db-shm":  true,
+		"acp-sessions/sid-1/meta.json":     false,
+		"acp-sessions/store.db":            false,
+		"acp-sessions/a/b/store.db":        false,
+		"acp-sessions/../chats/store.db":   false,
+		"chats/ab12/store.db":              false,
+		"chats/ab12/sid-1/store.db-wal":    true,
+		"acp-sessions/sid-1/store.db.bak":  false,
+		"projects/x/agent-transcripts/a.j": false,
+	} {
+		if _, got := (Adapter{}).Match(rel); got != want {
+			t.Fatalf("Match(%s) = %v", rel, got)
+		}
+	}
+	if got := (Adapter{}).WatchDirs(); len(got) != 2 || got[0] != "chats" || got[1] != "acp-sessions" {
+		t.Fatalf("watch dirs %v", got)
 	}
 	if _, err := (Adapter{}).Discover(context.Background(), filepath.Join(root, "missing")); err != nil {
 		t.Fatal(err)

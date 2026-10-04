@@ -56,11 +56,17 @@
 // documented config directory was not checked against a Cursor CLI
 // build. That chats follow CURSOR_CONFIG_DIR, rather than only
 // XDG_CONFIG_HOME, was not observed separately: the override
-// replaces the config directory, and chats are read from it. ACP
-// sessions under acp-sessions/ and JSONL under
-// projects/*/agent-transcripts/ are different stores and are not
-// read. Other Unix systems follow the Linux rule. That was not
-// checked against a Cursor CLI build.
+// replaces the config directory, and chats are read from it. Other
+// Unix systems follow the Linux rule. That was not checked against a
+// Cursor CLI build.
+//
+// A session an ACP client starts is acp-sessions/<session>/store.db
+// under the same directory, with the same tables, hex-encoded meta
+// record, WAL sidecars, and sibling meta.json cwd. That layout was read
+// off a Linux workstation in October 2026, not from Cursor's docs. A
+// directory there with only meta.json is a session the client opened
+// and never wrote, and is not listed. JSONL under
+// projects/*/agent-transcripts/ is a different store and is not read.
 //
 // The session cwd is the cwd field of the sibling meta.json when
 // that value is an absolute path. A missing file, a relative path,
@@ -82,6 +88,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"terva.sh/lampi/internal/adapter"
 	"terva.sh/lampi/internal/discover"
@@ -100,8 +107,25 @@ const (
 
 	dbName   = "store.db"
 	chatsRel = "chats"
+	acpRel   = "acp-sessions"
 	metaName = "meta.json"
+
+	// SettleAfter is how long the agent waits for a session's store.db
+	// and WAL to go unwritten before it exports the session. The export
+	// is the whole database on every change, so a session is uploaded
+	// once it pauses rather than on every write of an agent turn.
+	SettleAfter = 5 * time.Minute
 )
+
+// now is the clock the settle check reads. A test sets it.
+var now = time.Now
+
+// maxStoreBytes is the largest store.db plus WAL this reader exports.
+// The export is built whole in memory, and the upload reads it whole
+// again: a 359 MiB store made a 467 MB export and a peak near 2.6 GB.
+// A larger session is skipped with a line that says so. A test lowers
+// it.
+var maxStoreBytes int64 = 256 << 20
 
 // Adapter implements adapter.Harness for Cursor CLI store.db files.
 type Adapter struct{}
@@ -159,6 +183,11 @@ func configDir(goos string, getenv func(string) string) (string, error) {
 // WatchDir is the chats tree. A missing directory is an empty tree.
 func (Adapter) WatchDir() string { return chatsRel }
 
+// WatchDirs is the chats tree and the ACP sessions tree.
+func (Adapter) WatchDirs() []string { return []string{chatsRel, acpRel} }
+
+var _ adapter.WatchRoots = Adapter{}
+
 // Match reports whether rel, slash-separated from the config
 // directory, is a store.db or one of its WAL sidecars. The sidecars
 // are not artifacts. The watcher uses them so a write that lands in
@@ -171,9 +200,10 @@ func (Adapter) Match(rel string) (string, bool) {
 	return protocol.KindCursorCLIStoreJSON, true
 }
 
-// storePath reports a chat store at chats/<workspace>/<session>/store.db,
-// including the -wal and -shm sidecars that sit beside it. A shallower
-// or deeper path is not a session this pin knows.
+// storePath reports a chat store at chats/<workspace>/<session>/store.db
+// or an ACP session store at acp-sessions/<session>/store.db, including
+// the -wal and -shm sidecars that sit beside it. A shallower or deeper
+// path is not a session this pin knows.
 func storePath(rel string) bool {
 	name := path.Base(rel)
 	switch name {
@@ -182,28 +212,41 @@ func storePath(rel string) bool {
 		return false
 	}
 	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != chatsRel {
+	switch {
+	case len(parts) == 4 && parts[0] == chatsRel:
+		return validSegment(parts[1]) && validSegment(parts[2])
+	case len(parts) == 3 && parts[0] == acpRel:
+		return validSegment(parts[1])
+	default:
 		return false
 	}
-	return validSegment(parts[1]) && validSegment(parts[2])
 }
 
 func validSegment(s string) bool {
 	return s != "" && s != "." && s != ".."
 }
 
-// Discover lists store.db files. WAL sidecars are not listed. A
-// missing directory is an empty list.
+// Discover lists store.db files under chats/ and acp-sessions/. WAL
+// sidecars are not listed, and an ACP directory that holds only
+// meta.json lists nothing. A missing directory is an empty list.
 func (Adapter) Discover(ctx context.Context, root string) ([]adapter.Ref, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return adapter.Walk(root, chatsRel, func(rel string) (string, bool) {
-		if path.Base(rel) != dbName {
-			return "", false
+	var out []adapter.Ref
+	for _, dir := range (Adapter{}).WatchDirs() {
+		refs, err := adapter.Walk(root, dir, func(rel string) (string, bool) {
+			if path.Base(rel) != dbName {
+				return "", false
+			}
+			return Adapter{}.Match(rel)
+		})
+		if err != nil {
+			return nil, err
 		}
-		return Adapter{}.Match(rel)
-	})
+		out = append(out, refs...)
+	}
+	return out, nil
 }
 
 // ReadSlice returns the filtered export when absPath is a store.db.
@@ -250,7 +293,7 @@ func Manifests(root, machineID string) (adapter.Bundle, error) {
 // before its export is built. A refused session is not snapshotted or
 // exported; its manifest is kept with no digest and no path.
 func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bundle, error) {
-	return ManifestsMemo(root, machineID, nil, permit)
+	return ManifestsMemo(root, machineID, nil, permit, 0)
 }
 
 // ManifestsMemo is ManifestsPermit with a memo. A session whose
@@ -259,7 +302,10 @@ func ManifestsPermit(root, machineID string, permit adapter.Permit) (adapter.Bun
 // and size and has no entry in Paths. If the upload still needs its
 // bytes, the bundle's Load exports it then. A nil memo exports every
 // permitted session.
-func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Permit) (adapter.Bundle, error) {
+//
+// A permitted session whose store.db or WAL was written within settle
+// goes on Held, not Manifests, and is not exported. Zero holds nothing.
+func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Permit, settle time.Duration) (adapter.Bundle, error) {
 	ctx := context.Background()
 	refs, err := Adapter{}.Discover(ctx, root)
 	if err != nil {
@@ -329,6 +375,17 @@ func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Per
 			b.Manifests = append(b.Manifests, m)
 			continue
 		}
+		if size := ref.Size + walStat(ref.AbsPath).Size; size > maxStoreBytes {
+			b.Skipped = append(b.Skipped, fmt.Errorf("cursor-cli: %s: store.db and WAL are %d MiB, over the %d MiB this reader exports whole", ref.RelPath, size>>20, maxStoreBytes>>20))
+			continue
+		}
+		if until, held := settling(ref, settle); held {
+			b.Held = append(b.Held, m)
+			if b.HeldUntil.IsZero() || until.Before(b.HeldUntil) {
+				b.HeldUntil = until
+			}
+			continue
+		}
 		a := &m.Artifacts[0]
 		if sum, size, hidden, hit := recall(memo, ref); hit {
 			a.Size = size
@@ -366,6 +423,21 @@ func ManifestsMemo(root, machineID string, memo adapter.Memo, permit adapter.Per
 	}
 	ok = true
 	return b, nil
+}
+
+// settling reports a session written within settle, and when it may
+// next be read. The last write is the later of store.db's mtime and its
+// WAL's. A zero settle holds nothing.
+func settling(ref adapter.Ref, settle time.Duration) (until time.Time, held bool) {
+	if settle <= 0 {
+		return time.Time{}, false
+	}
+	last := ref.ModTime
+	if wal := walStat(ref.AbsPath); wal.ModTime.After(last) {
+		last = wal.ModTime
+	}
+	until = last.Add(settle)
+	return until, now().Before(until)
 }
 
 // memoIdent is what the memo keeps beside a store.db digest: the WAL
@@ -425,9 +497,10 @@ func exportRel(dbRel string) string {
 	return strings.TrimSuffix(dbRel, ".db") + ".json"
 }
 
-// sessionID is the chat directory, chats/<workspace>/<session>. The
-// workspace segment is the hash Cursor chose. It is not a project
-// path, and it is not an IDE composer id.
+// sessionID is the session directory: chats/<workspace>/<session> for
+// a chat, acp-sessions/<session> for an ACP session. The prefixes keep
+// the two apart. The workspace segment is the hash Cursor chose. It is
+// not a project path, and it is not an IDE composer id.
 func sessionID(exportRelPath string) string {
 	return path.Dir(exportRelPath)
 }

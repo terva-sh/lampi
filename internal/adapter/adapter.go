@@ -60,6 +60,13 @@ type Bundle struct {
 	// the export unbuilt. It also adds to Hidden what that export
 	// holds encoded. Nil means every digest has a path.
 	Load func(rel string) (string, error)
+	// Held is each permitted session the reader left out of Manifests
+	// because it is still being written. It has no digest and no path.
+	// The upload counts it in the inventory and does not read it.
+	Held []protocol.Manifest
+	// HeldUntil is the earliest time a held session may next be read.
+	// Zero when nothing is held.
+	HeldUntil time.Time
 	// Cleanup removes temporary files this bundle created. Nil does
 	// nothing. Call it after Paths have been read. A second call is safe.
 	Cleanup func()

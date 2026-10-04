@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A Cursor CLI session the memo recalls has no export on disk. When the
@@ -91,5 +92,50 @@ func TestKnownQuarantineIsNotScannedAgain(t *testing.T) {
 	opt.UploadHits = true
 	if res, err := Sync(context.Background(), opt); err != nil || res.Uploaded != 1 || scans != 2 {
 		t.Fatalf("upload_hits did not scan and upload: %+v scans %d err %v", res, scans, err)
+	}
+}
+
+// With Settle set, a Cursor CLI session written just now is held: the
+// result counts it and says when it may be read, nothing is posted,
+// and the inventory still counts the session. Without Settle, the same
+// session uploads.
+func TestSyncHoldsACursorCLISessionStillBeingWritten(t *testing.T) {
+	lake, _ := openLake(t)
+	srv := httptest.NewServer(lake.Handler())
+	t.Cleanup(srv.Close)
+	cap := wrapClient(srv.Client())
+
+	home := t.TempDir()
+	db := filepath.Join(home, "acp-sessions", "sid-1", "store.db")
+	if err := writeCursorCLIStore(db, "hello from acp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(db), "meta.json"), []byte(`{"schemaVersion":1,"cwd":"/work/app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := allowAll(srv, t.TempDir(), t.TempDir(), "/work/app")
+	opt.Client = cap.client
+	opt.CursorCLIHome = home
+	opt.Settle = time.Hour
+
+	before := time.Now()
+	res, err := Sync(context.Background(), opt)
+	if err != nil || res.Held != 1 || res.Manifests != 0 || len(cap.manifests) != 0 {
+		t.Fatalf("held pass: %+v err %v", res, err)
+	}
+	if res.HeldUntil.Before(before.Add(59*time.Minute)) || res.HeldUntil.After(time.Now().Add(time.Hour)) {
+		t.Fatalf("held until %v", res.HeldUntil)
+	}
+	if len(res.Inventory) != 1 || res.Inventory[0].Sessions != 1 {
+		t.Fatalf("inventory %+v", res.Inventory)
+	}
+
+	opt.Settle = 0
+	res, err = Sync(context.Background(), opt)
+	if err != nil || res.Held != 0 || !res.HeldUntil.IsZero() || res.Uploaded != 1 {
+		t.Fatalf("unheld pass: %+v err %v", res, err)
+	}
+	if len(cap.manifests) != 1 || cap.manifests[0].NativeSessionID != "acp-sessions/sid-1" {
+		t.Fatalf("manifests %+v", cap.manifests)
 	}
 }

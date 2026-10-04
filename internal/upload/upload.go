@@ -136,6 +136,10 @@ type Options struct {
 	// Memo keeps what the readers took from each file across passes.
 	// The agent sets one. Nil hashes every file on every pass.
 	Memo *Memo
+	// Settle is how long a reader that holds a session still being
+	// written waits for it to go quiet: the Cursor CLI reader. Zero
+	// holds nothing, so a one-shot sync uploads what is there.
+	Settle time.Duration
 	// Pin, when set, is checked on every hello. A registered lake has
 	// one; a lake set by hand does not.
 	Pin *Pin
@@ -164,6 +168,11 @@ type Result struct {
 	// Unchanged counts sessions left alone because every artifact
 	// matched its watermark.
 	Unchanged int
+	// Held counts sessions a reader left out because they are still
+	// being written. HeldUntil is the earliest time one may be read;
+	// zero when none is held. A long-running caller syncs again then.
+	Held      int
+	HeldUntil time.Time
 	Sessions  []string
 	// Warning is set when hello's server_time disagrees with the client
 	// clock by more than protocol.ClockSkewWarn. The push still runs.
@@ -250,7 +259,8 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 	// too: the rows are what is on the machine, not what reached the
 	// lake.
 	inventory := inventoryRows(opt, bundles)
-	defer func() { res.Inventory = inventory }()
+	held, heldUntil := heldSessions(bundles)
+	defer func() { res.Inventory, res.Held, res.HeldUntil = inventory, held, heldUntil }()
 	n := 0
 	for _, b := range bundles {
 		n += len(b.Manifests)
@@ -834,7 +844,7 @@ func bundlesFor(opt Options) (out []adapter.Bundle, skipped []string) {
 		return cursor.ManifestsPermit(root, machineID, permit)
 	}
 	cursorCLIManifests := func(root, machineID string) (adapter.Bundle, error) {
-		return cursorcli.ManifestsMemo(root, machineID, opt.Memo.forHarness(protocol.HarnessCursorCLI), permit)
+		return cursorcli.ManifestsMemo(root, machineID, opt.Memo.forHarness(protocol.HarnessCursorCLI), permit, opt.Settle)
 	}
 	homes := []struct {
 		name      string
@@ -876,6 +886,18 @@ func memoized(m *Memo, harness string, f func(root, machineID string, memo adapt
 	return func(root, machineID string) (adapter.Bundle, error) {
 		return f(root, machineID, m.forHarness(harness))
 	}
+}
+
+// heldSessions counts the sessions the readers held back and the
+// earliest time one of them may be read.
+func heldSessions(bundles []adapter.Bundle) (n int, until time.Time) {
+	for _, b := range bundles {
+		n += len(b.Held)
+		if !b.HeldUntil.IsZero() && (until.IsZero() || b.HeldUntil.Before(until)) {
+			until = b.HeldUntil
+		}
+	}
+	return n, until
 }
 
 func cleanupBundles(bundles []adapter.Bundle) {
