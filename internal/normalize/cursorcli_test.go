@@ -648,10 +648,11 @@ func TestCursorCLIOffsetsFollowTheRows(t *testing.T) {
 // row's own top-level field. Blob zzz writes its id with a space,
 // carries the same id, compact, in its data, and repeats id as null,
 // which the parse ignores; its offset is still its own id. Blob yyy has
-// no id field; its offset is its first byte.
+// no id field; its offset is its first byte. Blob xxx spells its id
+// field ID, which the parse reads as id.
 func TestCursorCLIOffsetsStayInTheirRow(t *testing.T) {
 	raw := []byte(`{"harness_version":"1","confidence":"low","source":"s","scope":"session",` +
-		`"blobs":[{"data":{"role":"user","content":"hi"},"id":"aaa"},{"id": "zzz","data":{"id":"zzz"},"id":null},{"data":{"id":"yyy"}}],` +
+		`"blobs":[{"data":{"role":"user","content":"hi"},"id":"aaa"},{"id": "zzz","data":{"id":"zzz"},"id":null},{"data":{"id":"yyy"}},{"ID":"xxx"}],` +
 		`"meta":[{"value":{"name":"pond","id":"aaa","x":{"id":"zzz"}},"key":"0"}]}`)
 	at := cursorCLIOffsets(t, raw)
 	want := map[string]int{
@@ -659,6 +660,7 @@ func TestCursorCLIOffsetsStayInTheirRow(t *testing.T) {
 		"zzz": bytes.Index(raw, []byte(`{"id": "zzz"`)) + len(`{"id": `),
 		"0":   bytes.Index(raw, []byte(`"key":"0"`)) + len(`"key":`),
 		"":    bytes.Index(raw, []byte(`{"data":{"id":"yyy"}}`)),
+		"xxx": bytes.Index(raw, []byte(`"ID":"xxx"`)) + len(`"ID":`),
 	}
 	for k, w := range want {
 		if at[k] != w {

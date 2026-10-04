@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:34:28Z
-updated_at: 2026-10-04T21:55:09Z
+updated_at: 2026-10-04T21:59:50Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -80,3 +80,7 @@ Supersedes the previous note's in-span substring search. terva-review on #192 (r
 **agent:claude-code/580cbe08** at 2026-10-04T21:55:09Z
 
 terva-review on #192 (review 2129): a repeated null id or key moved the offset, though json.Unmarshal leaves the parsed string alone on null; fixed, with the case in TestCursorCLIOffsetsStayInTheirRow. The same review's finding about the 256 MiB cap and ACP support does not apply to this PR: those landed in #191, already on this PR's base (b2db016); this PR's diff is the normalize projector, its test, and tickets.
+
+**agent:claude-code/580cbe08** at 2026-10-04T21:59:50Z
+
+terva-review on #192 (review 2130): field names now match case-insensitively, as json.Unmarshal matches them for the parse; an ID-spelled blob is in the test. Four review rounds have each found a narrower way a hand-built export could diverge from the parse; the walker now follows encoding/json's matching for these fields (case, null, last repeat, top level only). The adapter writes compact, lowercase, single fields, so none of these cases arise from a real export.

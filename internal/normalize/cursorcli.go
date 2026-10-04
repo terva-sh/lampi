@@ -195,8 +195,9 @@ func rowField(dec *json.Decoder, raw []byte, field string) (int, error) {
 	if tok != json.Delim('{') {
 		return start, nil
 	}
-	// A repeated field takes the last one that is not null: the value
-	// json.Unmarshal gave the parse, which leaves a string alone on null.
+	// The field matches as json.Unmarshal matches it for the parse:
+	// case ignored, and a repeated field takes the last one that is not
+	// null, since null leaves a string alone.
 	at := start
 	for dec.More() {
 		key, err := dec.Token()
@@ -208,7 +209,7 @@ func rowField(dec *json.Decoder, raw []byte, field string) (int, error) {
 		if err := dec.Decode(&value); err != nil {
 			return 0, err
 		}
-		if key == field && !isNull(value) {
+		if name, ok := key.(string); ok && strings.EqualFold(name, field) && !isNull(value) {
 			at = valueAt
 		}
 	}
