@@ -51,8 +51,10 @@ const (
 	// names the session, the digest and the byte range, never content.
 	ArtifactRead = "artifact.read"
 
-	// EventsRead is a read token streaming normalized events. Detail is
-	// the query: filters and field paths, never content.
+	// EventsRead is a read token streaming normalized events, or calling
+	// an MCP tool. Detail is the query: filters and field paths, never
+	// content. An MCP call's detail opens with "mcp tool=" and gives
+	// search text by its length.
 	EventsRead = "events.read"
 
 	// ReadTokenCreated and ReadTokenRevoked record an admin minting and

@@ -17,6 +17,10 @@ import (
 type Scope struct {
 	all  bool
 	bays []string
+	// sessions, when limited, narrows the bays to these session uids: a
+	// read token minted for named sessions (TKT-01M3FPWCFS).
+	limited  bool
+	sessions []string
 }
 
 // AllBays reads every bay: an admin, or a command on the lake host.
@@ -28,14 +32,27 @@ func InBays(ids []string) Scope {
 	return Scope{bays: slices.Clone(ids)}
 }
 
-// All reports whether the scope reads every bay.
-func (s Scope) All() bool { return s.all }
+// OnlySessions narrows s to the sessions named by uid. No uids reads
+// nothing.
+func (s Scope) OnlySessions(uids []string) Scope {
+	s.limited, s.sessions = true, slices.Clone(uids)
+	return s
+}
+
+// All reports whether the scope reads every bay and every session in
+// them.
+func (s Scope) All() bool { return s.all && !s.limited }
 
 // Bays is the bay ids a limited scope reads, or nil for AllBays.
 func (s Scope) Bays() []string { return slices.Clone(s.bays) }
 
-// Reads reports whether a session in bays is inside the scope.
+// Reads reports whether a session in bays is inside the scope. A scope
+// narrowed to named sessions cannot tell from bays alone, so it answers
+// false.
 func (s Scope) Reads(bays []string) bool {
+	if s.limited {
+		return false
+	}
 	if s.all {
 		return true
 	}
@@ -50,6 +67,24 @@ func (s Scope) Reads(bays []string) bool {
 // where is a condition that holds for a session uid column inside the
 // scope, with its arguments.
 func (s Scope) where(uidColumn string) (string, []any) {
+	cond, args := s.bayWhere(uidColumn)
+	if !s.limited || cond == "0=1" {
+		return cond, args
+	}
+	if len(s.sessions) == 0 {
+		return "0=1", nil
+	}
+	in := uidColumn + " IN (?" + strings.Repeat(",?", len(s.sessions)-1) + ")"
+	for _, uid := range s.sessions {
+		args = append(args, uid)
+	}
+	if s.all {
+		return in, args
+	}
+	return "(" + cond + " AND " + in + ")", args
+}
+
+func (s Scope) bayWhere(uidColumn string) (string, []any) {
 	if s.all {
 		return "1=1", nil
 	}
