@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/lakestate"
 	"terva.sh/lampi/internal/protocol"
@@ -129,12 +130,17 @@ is a separate corpus. On Linux the config directory is
 $XDG_CONFIG_HOME/cursor when that variable is set, otherwise
 ~/.cursor. CURSOR_CONFIG_DIR replaces it. On macOS it is ~/.cursor.
 On Windows it is the .cursor directory under USERPROFILE. Each chat is
-chats/<workspace>/<session>/store.db. The upload is a JSON export
+chats/<workspace>/<session>/store.db, and each session an ACP client
+started is acp-sessions/<session>/store.db. The agent exports a
+session once its store.db and WAL have gone 5 minutes unwritten, and
+looks again when that time is up. A store.db and WAL over 256 MiB
+is skipped, with a line that says so. The upload is a JSON export
 of a snapshot. The IDE reader does not open it, and this reader
 does not open state.vscdb. Keys under cursorAuth/ and credential
 fields such as accessToken are not in the export. The raw database
 and its -wal and -shm files are not uploaded. A chat needs an
-absolute cwd in the sibling meta.json. A relative path or a file URI
+absolute cwd in the sibling meta.json, as does an ACP session. An ACP
+directory with no store.db is not a session. A relative path or a file URI
 is an empty cwd, so the allowlist refuses it. The workspace directory
 name is not a path. A refused cursor or cursor-cli session with an
 empty cwd is named on stderr with that reason. config.json harnesses
@@ -407,6 +413,10 @@ type lakeRunner struct {
 
 	retryMu sync.Mutex
 	retry   *time.Timer
+	// hold wakes the loop when a session a reader held back, because it
+	// was still being written, may be read. It is apart from retry: a
+	// pass that held a session can still have succeeded.
+	hold *time.Timer
 
 	// synced holds what the last sync did, for the report, and
 	// reported asks the report loop to send it now.
@@ -424,6 +434,9 @@ func newLakeRunner(env Env, l agentLake) *lakeRunner {
 	// start, hashes every file. Each lake has its own, because a file
 	// pushed to one lake is not pushed to another.
 	l.opt.Memo = upload.NewMemo()
+	// The agent runs a pass after every write, and a Cursor CLI export
+	// is the whole database. It waits for a session to pause.
+	l.opt.Settle = cursorcli.SettleAfter
 	r := &lakeRunner{env: env, kick: make(chan struct{}, 1), reported: make(chan struct{}, 1), nudge: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{})}
 	l.opt.ProfileVersion = r.noteLakeVersion
 	r.lake = l
@@ -457,6 +470,21 @@ func (r *lakeRunner) armRetry(d time.Duration) {
 	})
 }
 
+// armHold resets the hold timer to fire at until, a second late so the
+// session is past its settle time. Zero stops it.
+func (r *lakeRunner) armHold(until time.Time) {
+	r.retryMu.Lock()
+	defer r.retryMu.Unlock()
+	if r.hold != nil {
+		r.hold.Stop()
+		r.hold = nil
+	}
+	if until.IsZero() {
+		return
+	}
+	r.hold = time.AfterFunc(max(time.Until(until)+time.Second, 0), r.wake)
+}
+
 func (r *lakeRunner) disarmRetry() {
 	r.retryMu.Lock()
 	defer r.retryMu.Unlock()
@@ -475,6 +503,7 @@ func (r *lakeRunner) errf(format string, args ...any) {
 // run pushes on each kick until ctx ends, then drains the outbox.
 func (r *lakeRunner) run(ctx context.Context) {
 	defer r.disarmRetry()
+	defer r.armHold(time.Time{})
 	bo := agentBackoff()
 	// seen keeps refusal and skip lines to one print while they last.
 	seen := &changeLog{}
@@ -506,6 +535,7 @@ func (r *lakeRunner) run(ctx context.Context) {
 			res, err = runAgentSync(ctx, r.env, opt, r.prefix(), seen)
 			if ctx.Err() == nil {
 				r.noteSync(res, err, time.Now())
+				r.armHold(res.HeldUntil)
 			}
 		}
 		if ctx.Err() != nil {

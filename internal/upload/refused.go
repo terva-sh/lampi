@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -138,7 +139,7 @@ func inventoryRows(opt Options, bundles []adapter.Bundle) []InventoryRow {
 	harnesses := map[string]map[string]bool{}
 	cwds := map[string]map[string]string{}
 	for _, b := range bundles {
-		for _, m := range b.Manifests {
+		for _, m := range slices.Concat(b.Manifests, b.Held) {
 			id := projectID(m)
 			reason := opt.Projects.Refusal(id)
 			key := "cwd\x00" + id.CWD

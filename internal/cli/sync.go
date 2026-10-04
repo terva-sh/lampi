@@ -45,8 +45,10 @@ The Cursor CLI store is separate. Its config directory is
 $CURSOR_CONFIG_DIR, or $XDG_CONFIG_HOME/cursor on Linux when that
 variable is set, otherwise ~/.cursor on macOS and Linux and the
 .cursor directory under USERPROFILE on Windows. Each chat is
-chats/<workspace>/<session>/store.db. The upload is a JSON export
-of a snapshot. It is not an IDE session and it does not share the
+chats/<workspace>/<session>/store.db, and each session an ACP client
+started is acp-sessions/<session>/store.db. sync uploads a session
+that is still being written; the agent waits for it to pause. The
+upload is a JSON export of a snapshot. It is not an IDE session and it does not share the
 IDE watermark. Keys under cursorAuth/ are removed. The raw database
 is not uploaded. The export needs an absolute cwd in the sibling
 meta.json. A relative path or a file URI is an empty cwd, and the
@@ -222,6 +224,10 @@ func printSync(stdout, stderr io.Writer, prefix string, res upload.Result) {
 	for _, s := range res.NoBay {
 		fmt.Fprintf(stderr, "terva-lampi: %swaiting for a bay: %s\n", prefix, s)
 	}
-	fmt.Fprintf(stdout, "%schecked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d, unchanged %d\n",
-		prefix, res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined, res.Unchanged)
+	held := ""
+	if res.Held > 0 {
+		held = fmt.Sprintf(", held %d until %s", res.Held, res.HeldUntil.Local().Format("15:04:05"))
+	}
+	fmt.Fprintf(stdout, "%schecked %d, missing %d, uploaded %d, manifests %d, refused %d, quarantined %d, unchanged %d%s\n",
+		prefix, res.Checked, res.Missing, res.Uploaded, res.Manifests, res.Refused, res.Quarantined, res.Unchanged, held)
 }

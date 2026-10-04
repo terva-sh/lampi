@@ -18,7 +18,7 @@ every enabled harness. A missing directory is skipped.
 | `codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl` | `~/.codex` |
 | `opencode` | A scheduled `opencode export` at `$XDG_DATA_HOME/opencode/export/**/*.json` | `~/.local/share/opencode` (on Windows, `%USERPROFILE%\.local\share\opencode`) |
 | `cursor` | A read-only snapshot of `User/globalStorage/state.vscdb` and `User/workspaceStorage/<id>/state.vscdb` | `$XDG_CONFIG_HOME/Cursor` or `~/.config/Cursor` on Linux, `~/Library/Application Support/Cursor` on macOS, `%APPDATA%\Cursor` on Windows |
-| `cursor-cli` | A read-only snapshot of `$CURSOR_CONFIG_DIR/chats/<workspace>/<session>/store.db` | `$XDG_CONFIG_HOME/cursor` on Linux when that variable is set, otherwise `~/.cursor` (on Windows, `%USERPROFILE%\.cursor`) |
+| `cursor-cli` | A read-only snapshot of `$CURSOR_CONFIG_DIR/chats/<workspace>/<session>/store.db` and `$CURSOR_CONFIG_DIR/acp-sessions/<session>/store.db` | `$XDG_CONFIG_HOME/cursor` on Linux when that variable is set, otherwise `~/.cursor` (on Windows, `%USERPROFILE%\.cursor`) |
 | `grok` | `$GROK_HOME/sessions/<encoded-cwd>/<uuid>/updates.jsonl`, and `summary.json` in that directory | `~/.grok` |
 
 - terva sidecars upload with a session the allowlist already permits.
@@ -142,6 +142,27 @@ A Cursor CLI chat takes its cwd from the `cwd` field of the sibling
 file, a relative path, or a file URI leaves the cwd empty, and the
 allowlist refuses the export. The workspace directory name is a hash,
 not a path.
+
+A session that an ACP client starts, such as an editor that drives the
+Cursor agent over the Agent Client Protocol, is
+`acp-sessions/<session>/store.db`. It has the same tables as a chat
+and the same `meta.json` beside it, and it takes its cwd the same way.
+Its session id is `acp-sessions/<session>`, so a chat and an ACP
+session with the same uuid are different sessions. A directory under
+`acp-sessions/` that holds only `meta.json` is not a session: the
+client opened it and wrote nothing, and nothing is reported for it.
+
+The export is the whole database, rebuilt on every change. The agent
+therefore exports a Cursor CLI session, chat or ACP, only after its
+`store.db` and `store.db-wal` have gone 5 minutes unwritten. It counts
+a held session in the inventory, prints `held N until HH:MM:SS` on the
+pass summary, and runs a pass when that time is up. `terva-lampi sync`
+does not wait.
+
+The export is also built whole in memory. A session whose `store.db`
+and WAL together pass 256 MiB is not exported: the pass prints a
+`skipped` line with the session and its size, and the session stays on
+the machine.
 
 ### What sync prints
 
