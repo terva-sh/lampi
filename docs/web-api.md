@@ -281,12 +281,72 @@ or revoked token is `401 not_authenticated` with a
 `WWW-Authenticate: Bearer realm="lampi-events"` header, and a token
 without `events:read` is `404 not_found`.
 
+### MCP recall tools
+
+`POST /api/read/v1/mcp` is a Model Context Protocol server over the
+Streamable HTTP transport. It serves an agent that holds a read token
+with `events:read`. Each tool answers what one browser route answers,
+read in the token's scope:
+
+| Tool | Browser route | Arguments |
+|---|---|---|
+| `search` | [`GET /api/web/v1/search`](#search) | The route's parameters: `q`, `harness`, `project`, `unlinked`, `since`, `until`, `event_type`, `actor`, `tool`, `tool_error`, `raw_type`, `limit`, `cursor`. |
+| `read_events` | [`GET /api/web/v1/sessions/{uid}/events`](#transcript-events) | `session_uid`, then the route's `from`, `limit`, `cursor`, `gen`. |
+| `copy_excerpt` | [`GET /api/web/v1/sessions/{uid}/excerpt`](#excerpts) | `session_uid`, then the route's `from`, `count`, `gen`. |
+
+- The arguments go through the route's own parser: a string as it is, an
+  integer in decimal, and a boolean as `true` or `false`. A null argument
+  is left out. The limits, defaults and cursors are the route's.
+- The result is one text content block that holds the route's JSON body.
+  The one difference is that `link` values are absolute: the lake's
+  `base_url` comes before the path, so an agent can give the link to a
+  person.
+- A refused argument or a failed read is a tool result with `isError`
+  true. Its text is the route's error body, such as
+  `{"error":"invalid_request"}`, with a `hint` that says what to change.
+- An unknown tool is JSON-RPC error `-32602`.
+- The scope is the token's: its bays, or every bay for a token from
+  before bays, narrowed to its sessions when it names any. A session
+  outside the scope is `not_found`, the same as one that is not there.
+  Search drops hits outside the scope, and `coverage` is reported only to
+  a token that reads every session.
+
+The server keeps no state and answers every request with one JSON body.
+It serves two protocol eras on the same path:
+
+| Era | Versions | How a request is recognized |
+|---|---|---|
+| Initialize | `2025-11-25`, `2025-06-18`, `2025-03-26` | No version in `_meta`. `initialize` gets the requested version when it is in this list, and `2025-11-25` otherwise. A missing `MCP-Protocol-Version` header means `2025-03-26`. |
+| Per-request metadata | `2026-07-28` | `params._meta["io.modelcontextprotocol/protocolVersion"]` is set. The `MCP-Protocol-Version`, `Mcp-Method` and, for `tools/call`, `Mcp-Name` headers must repeat the body's values. `server/discover` lists every served version. |
+
+| Request | Answer |
+|---|---|
+| A notification | `202` with no body. |
+| A header that does not match the body | `400`, JSON-RPC error `-32020`. |
+| A version not served | `400`, JSON-RPC error `-32022`, with `data.supported` and `data.requested`. |
+| An unknown method | JSON-RPC error `-32601`: status `404` for a per-request-metadata request, `200` otherwise. |
+| A batch, or a body that is not one JSON-RPC 2.0 request | `400`. |
+| A body over 64 KiB | `413`. |
+| An `Origin` header other than the lake's `base_url` | `403`. |
+| `GET` or `DELETE` | `405` with `Allow: POST`. |
+
+Each `tools/call` is written to `audit.jsonl` as one `events.read` event
+before its result is sent. The actor is the token. The detail names the
+tool, the session and the filters, as in
+`mcp tool=search q=8B event_type=tool_call`. Search text is given by its
+length only, and a cursor by its presence. A call whose event cannot be
+queued is JSON-RPC error `-32603` with the message `audit_failed`, and
+reads nothing.
+
+The token errors are those of the event stream, with
+`WWW-Authenticate: Bearer realm="lampi-mcp"`.
+
 ## Transcript events
 
 `/sessions/{uid}/events` reads the published normalized JSONL of one session.
 It never starts normalization and never reads raw blobs. The reader lives in
-`internal/recall`, the query layer the planned MCP server will share, so both
-return the same shape.
+`internal/recall`, the query layer the [MCP recall tools](#mcp-recall-tools)
+share, so both return the same shape.
 
 Parameters, each at most once:
 

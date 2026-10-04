@@ -32,7 +32,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-04T18:16:20Z
+updated_at: 2026-10-04T18:33:49Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -50,6 +50,32 @@ Serve an MCP endpoint from the lake exposing search, structured filters, event w
 
 - [ ] MCP tools return the same results as the web API for the same inputs.
 - [ ] Documentation shows how to configure an agent to use the lake for recall instead of terva-ext-session-search.
+
+## Implementation plan
+
+Two pull requests, so each stays small enough for terva-review.
+
+### PR 1: the lake serves MCP (this branch)
+
+- `catalog.ReadTokenScope` turns a read token into a `catalog.Scope`: every bay for a token from before bays, otherwise the bays it holds read on now, narrowed by the new `Scope.OnlySessions` to the sessions it names. Every recall function already enforces access through a Scope, so the token reaches search, event pages and excerpts without filtering each hit by hand. A narrowed scope reports `All()` false, so search coverage stays hidden, and `Reads(bays)` answers false because bays alone cannot say whether a named session is in it.
+- `POST /api/read/v1/mcp` in `internal/web/mcp.go`, authenticated by `tokenFor` with `events:read`. Three tools, `search`, `read_events` and `copy_excerpt`, call the same server helpers as the browser routes (`runSearch`, `eventPage`, `excerpt`, extracted from the handlers in `server.go`). Tool arguments become the route's query parameters and go through the route's own parser, so the same input gives the same result by construction. Links are made absolute with `base_url`.
+- Tool errors carry the browser route's error body (`failure`, extracted from `fail`) plus a hint for the agent.
+- Each `tools/call` is audited as `events.read` with an `mcp tool=` detail. Search text is recorded by its length only.
+- Both protocol eras on one stateless route: initialize-era clients (2025-03-26 to 2025-11-25) and per-request `_meta` clients (2026-07-28), including header and body matching and `server/discover`.
+- Reference docs in `docs/web-api.md`.
+
+### PR 2: `terva-lampi mcp` and agent setup
+
+- A stdio MCP server in the CLI that reads the token from `--token-file` and forwards each message to the lake's endpoint, so an agent's MCP config names a file, not the secret.
+- `docs/reading-the-lake.md`: configure Claude Code and Codex to use the lake for recall instead of `terva-ext-session-search`.
+
+### Alternatives rejected
+
+- **The official Go MCP SDK.** `go.mod` has eight direct dependencies, and the server needs only `initialize`, `server/discover`, `ping`, `tools/list` and `tools/call` with JSON replies. The SDK would add a dependency tree larger than the code it replaces.
+- **Filtering hits by `t.Allows` in the adapter.** Search pages would hold fewer hits than the limit for no visible reason, and each new tool would have to remember the filter. The Scope makes the catalog refuse what the token cannot read.
+- **Making links absolute inside `recall`.** It would add an input to `SearchRequest` and `EventRequest` that only one adapter sets, and would change the search cursor fingerprint. The excerpt already takes `Origin` because its text is pasted elsewhere; a link in JSON is the adapter's presentation.
+- **`structuredContent` and `outputSchema`.** The spec asks for the same JSON in a text block as well, which would double what reaches the agent's context.
+- **Only the 2026-07-28 era.** It is two months old, and a client that still sends `initialize` would fail with no way forward.
 
 ## Notes
 

@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -45,7 +46,7 @@ var unscoped = map[string]string{
 
 	// Scope and access: they decide what a caller reads.
 	"ScopeFor": "builds a scope", "DeviceScope": "builds a scope", "GroupBays": "builds a scope",
-	"Grants": "grant listing for serve bays on the lake host", "ReadTokenReaches": "checks a read token's bays",
+	"Grants": "grant listing for serve bays on the lake host", "ReadTokenReaches": "checks a read token's bays", "ReadTokenScope": "builds a scope",
 	"Bays": "bay names: the dashboard lists only those a user may use", "ResolveBay": "bay lookup",
 	"BaySessionCounts": "serve bays list on the lake host",
 
@@ -159,8 +160,11 @@ func TestScopeLimitsTheDashboard(t *testing.T) {
 	if err := c.RemoveFromBay(ctx, Membership{SessionUID: inWork, Bay: DefaultBayName, Actor: "admin", Via: ViaCLI}, now); err != nil {
 		t.Fatal(err)
 	}
-	scopes := map[string]Scope{"all": AllBays(), "work": InBays([]string{work.ID}), "none": {}, "empty": InBays(nil)}
-	want := map[string][]string{"all": {inWork, inbox}, "work": {inWork}, "none": nil, "empty": nil}
+	scopes := map[string]Scope{"all": AllBays(), "work": InBays([]string{work.ID}), "none": {}, "empty": InBays(nil),
+		"all, inbox session": AllBays().OnlySessions([]string{inbox}), "work, its session": InBays([]string{work.ID}).OnlySessions([]string{inWork}),
+		"work, inbox session": InBays([]string{work.ID}).OnlySessions([]string{inbox}), "all, no session": AllBays().OnlySessions(nil)}
+	want := map[string][]string{"all": {inWork, inbox}, "work": {inWork}, "none": nil, "empty": nil,
+		"all, inbox session": {inbox}, "work, its session": {inWork}, "work, inbox session": nil, "all, no session": nil}
 	for name, scope := range scopes {
 		page, err := c.DashboardSessions(ctx, scope, PageRequest{Limit: 10})
 		if err != nil {
@@ -184,17 +188,21 @@ func TestScopeLimitsTheDashboard(t *testing.T) {
 		if err != nil || n.Sessions != len(w) {
 			t.Errorf("%s: counts %d err=%v", name, n.Sessions, err)
 		}
+		readsInbox, readsWork := slices.Contains(w, inbox), slices.Contains(w, inWork)
 		_, err = c.DashboardSession(ctx, scope, inbox)
-		if in := name == "all"; (err == nil) != in {
+		if (err == nil) != readsInbox {
 			t.Errorf("%s: inbox session visible=%v", name, err == nil)
 		}
 		ok, err := c.SessionInScope(ctx, scope, inWork)
-		if err != nil || ok != (name == "all" || name == "work") {
+		if err != nil || ok != readsWork {
 			t.Errorf("%s: work session in scope=%v err=%v", name, ok, err)
 		}
 		recs, err := c.DashboardRecords(ctx, scope, inbox, "artifacts", PageRequest{Limit: 10})
-		if err != nil || (len(recs.Items) > 0) != (name == "all") {
+		if err != nil || (len(recs.Items) > 0) != readsInbox {
 			t.Errorf("%s: inbox artifacts %d err=%v", name, len(recs.Items), err)
+		}
+		if scope.All() != (name == "all") {
+			t.Errorf("%s: All()=%v", name, scope.All())
 		}
 	}
 }

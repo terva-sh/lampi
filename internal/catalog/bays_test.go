@@ -487,10 +487,23 @@ func TestBayScopedReadTokens(t *testing.T) {
 	if err != nil || !ok || !stored.BayScoped {
 		t.Fatalf("stored token %+v ok=%v err=%v", stored, ok, err)
 	}
+	// ReadTokenScope must agree with ReadTokenReaches, since the query
+	// layer reads through the one and the raw and event routes the other.
 	reach := func(t2 ReadToken, uid string) bool {
 		ok, err := c.ReadTokenReaches(ctx, t2, uid)
 		if err != nil {
 			t.Fatal(err)
+		}
+		scope, err := c.ReadTokenScope(ctx, t2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in, err := c.SessionInScope(ctx, scope, uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in != ok {
+			t.Fatalf("token %s session %s: reaches=%v but its scope reads=%v", t2.Label, uid, ok, in)
 		}
 		return ok
 	}
@@ -499,6 +512,24 @@ func TestBayScopedReadTokens(t *testing.T) {
 	}
 	if !reach(lake, inWork) || !reach(lake, inbox) {
 		t.Fatal("a token from before bays lost its reach")
+	}
+	if scope, _ := c.ReadTokenScope(ctx, lake); !scope.All() {
+		t.Fatal("a token from before bays does not read every bay")
+	}
+	// A token minted for named sessions reads only those, in every bay
+	// it reads.
+	named, err := c.CreateReadToken(ctx, ReadToken{Label: "named", Permissions: []string{PermEventsRead}, Sessions: []string{inbox}, CreatedBy: "admin", Expires: now.Add(time.Hour)}, strings.Repeat("3", 64), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := c.ReadTokenScope(ctx, named)
+	if err != nil || scope.All() {
+		t.Fatalf("a token for named sessions reads every session (err %v)", err)
+	}
+	for uid, want := range map[string]bool{inbox: true, inWork: false} {
+		if in, err := c.SessionInScope(ctx, scope, uid); err != nil || in != want || named.Allows(PermEventsRead, uid, now) != want {
+			t.Fatalf("token for named sessions, session %s: in scope %v, want %v (err %v)", uid, in, want, err)
+		}
 	}
 	// Revoking its last bay leaves the token reading nothing, not the
 	// whole lake.

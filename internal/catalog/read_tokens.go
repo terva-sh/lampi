@@ -307,3 +307,29 @@ func (c *Catalog) ReadTokenReaches(ctx context.Context, t ReadToken, sessionUID 
 	}
 	return true, nil
 }
+
+// ReadTokenScope is what a token reads through the query layer, the
+// same sessions ReadTokenReaches and Allows let it read: every bay for a
+// token from before bays, otherwise the bays it holds read on now, and
+// only its sessions when it names any. The caller checks the token's
+// state and permission first.
+func (c *Catalog) ReadTokenScope(ctx context.Context, t ReadToken) (Scope, error) {
+	scope := AllBays()
+	if t.BayScoped {
+		grants, err := c.Grants(ctx, PrincipalReadToken, t.ID)
+		if err != nil {
+			return Scope{}, err
+		}
+		var bays []string
+		for _, g := range grants {
+			if g.Permission == PermRead {
+				bays = append(bays, g.BayID)
+			}
+		}
+		scope = InBays(bays)
+	}
+	if len(t.Sessions) > 0 {
+		scope = scope.OnlySessions(t.Sessions)
+	}
+	return scope, nil
+}

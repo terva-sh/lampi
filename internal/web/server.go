@@ -84,6 +84,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	s.pageRoutes(m)
 	s.registrationRoutes(m)
 	s.readEventRoutes(m)
+	s.mcpRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }
 
@@ -108,6 +109,18 @@ func writeJSON(w http.ResponseWriter, v any) {
 // access log line; the body names only the code, because the detail
 // can name a lake path.
 func fail(w http.ResponseWriter, r *http.Request, err error) {
+	status, body := failure(err)
+	if status >= 500 {
+		reqlog.Note(r, err)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// failure is the status and body fail answers err with. The body's
+// error is the code; MCP tool errors carry the same body.
+func failure(err error) (int, map[string]string) {
 	status, code := 500, "read_failed"
 	body := map[string]string{}
 	var unavailable recall.UnavailableError
@@ -130,13 +143,8 @@ func fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
 		status, code = 503, "read_unavailable"
 	}
-	if status >= 500 {
-		reqlog.Note(r, err)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
 	body["error"] = code
-	_ = json.NewEncoder(w).Encode(body)
+	return status, body
 }
 
 // parsePage reads a list request. collection is the records collection
@@ -404,19 +412,24 @@ func parseEvents(q url.Values, extra ...string) (recall.EventRequest, error) {
 }
 
 func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
-	req, err := parseEvents(r.URL.Query())
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	v, err := s.events.Events(ctx, scopeOf(r), r.PathValue("uid"), req)
+	v, err := s.eventPage(ctx, scopeOf(r), r.PathValue("uid"), r.URL.Query())
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
+}
+
+// eventPage is one events page for scope, as the browser route and
+// the MCP read_events tool ask for it with the same parameters.
+func (s *Server) eventPage(ctx context.Context, scope catalog.Scope, uid string, q url.Values) (recall.EventPage, error) {
+	req, err := parseEvents(q)
+	if err != nil {
+		return recall.EventPage{}, err
+	}
+	return s.events.Events(ctx, scope, uid, req)
 }
 
 // errSearchOff is a search request to a lake with no index.
@@ -489,24 +502,28 @@ func parseSearch(q url.Values) (recall.SearchRequest, error) {
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
-	if s.index == nil {
-		fail(w, r, errSearchOff)
-		return
-	}
-	req, err := parseSearch(r.URL.Query())
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	req.Scope = scopeOf(r)
-	v, err := s.index.Search(ctx, req)
+	v, err := s.runSearch(ctx, scopeOf(r), r.URL.Query())
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
+}
+
+// runSearch is one search page for scope, as the browser route and the
+// MCP search tool ask for it with the same parameters.
+func (s *Server) runSearch(ctx context.Context, scope catalog.Scope, q url.Values) (recall.SearchPage, error) {
+	if s.index == nil {
+		return recall.SearchPage{}, errSearchOff
+	}
+	req, err := parseSearch(q)
+	if err != nil {
+		return recall.SearchPage{}, err
+	}
+	req.Scope = scope
+	return s.index.Search(ctx, req)
 }
 
 // parseExcerpt reads from, count and gen for a copy-out span.
@@ -549,20 +566,25 @@ func parseExcerpt(q url.Values) (recall.ExcerptRequest, error) {
 }
 
 func (s *Server) sessionExcerpt(w http.ResponseWriter, r *http.Request) {
-	req, err := parseExcerpt(r.URL.Query())
-	if err != nil {
-		fail(w, r, err)
-		return
-	}
 	ctx, cancel := readContext(r)
 	defer cancel()
-	req.Origin = s.origin
-	v, err := s.events.Excerpt(ctx, scopeOf(r), r.PathValue("uid"), req)
+	v, err := s.excerpt(ctx, scopeOf(r), r.PathValue("uid"), r.URL.Query())
 	if err != nil {
 		fail(w, r, err)
 		return
 	}
 	writeJSON(w, v)
+}
+
+// excerpt is a copy-out span for scope, as the browser route and the
+// MCP copy_excerpt tool ask for it with the same parameters.
+func (s *Server) excerpt(ctx context.Context, scope catalog.Scope, uid string, q url.Values) (recall.Excerpt, error) {
+	req, err := parseExcerpt(q)
+	if err != nil {
+		return recall.Excerpt{}, err
+	}
+	req.Origin = s.origin
+	return s.events.Excerpt(ctx, scope, uid, req)
 }
 
 // SeedBayGrants gives the groups the web config maps to viewer or
