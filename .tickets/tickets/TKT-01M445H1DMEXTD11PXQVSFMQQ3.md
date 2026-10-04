@@ -19,6 +19,10 @@ blocks_on: none
 references:
   - ref: pr:199
     path: null
+  - ref: pr:200
+    path: null
+  - ref: pr:201
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: mcp/bay-scoped-tokens
@@ -29,7 +33,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T22:41:47Z
+updated_at: 2026-10-04T22:51:38Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -68,9 +72,9 @@ The run wrote the MCP server by hand rather than adding `modelcontextprotocol/go
 - [x] An MCP test reads through a bay-scoped read token, and through one scoped to a bay and named sessions, and each reaches only its sessions.
 - [x] SessionBayNames answers no bays for a session outside a scope narrowed to named sessions.
 - [x] The lake limits tool calls per read token; a call over the limit is refused with a hint and no audit line, and docs/web-api.md gives the limit.
-- [ ] terva-lampi mcp logs to stderr the lake's refusal of a notification.
-- [ ] terva-lampi mcp keeps a bounded number of requests to the lake in flight.
-- [ ] terva-lampi mcp cancels a request's call to the lake on notifications/cancelled, and writes no answer for it.
+- [x] terva-lampi mcp logs to stderr the lake's refusal of a notification.
+- [x] terva-lampi mcp keeps a bounded number of requests to the lake in flight.
+- [x] terva-lampi mcp cancels a request's call to the lake on notifications/cancelled, and writes no answer for it.
 - [x] A real client drives the 2026-07-28 era.
 
 ## Implementation plan
@@ -108,3 +112,25 @@ The criterion for a real client of 2026-07-28 is met by TestMCPServesTheSDKClien
 **agent:claude-code/9078ac3f** at 2026-10-04T21:59:56Z
 
 Two items here are answered by TKT-01M44DVPVXQVWVGC3EYAFH64RP (MCP: serve the lake endpoint with the official Go SDK), PR 195. The SDK question: the endpoint now runs on modelcontextprotocol/go-sdk v1.8.0, with the measurements and alternatives in that ticket. The real-client check of 2026-07-28: TestMCPServesTheSDKClient drives the endpoint with the SDK's own client at 2026-07-28, 2025-11-25 and 2025-03-26. The bridge items, the per-token rate limit (x/time/rate now ships with the SDK) and SessionBayNames are still open.
+
+**agent:claude-code/9078ac3f** at 2026-10-04T22:51:38Z
+
+### The bridge, PR 201
+
+PRs: #199 (bay-scoped tokens, SessionBayNames), #200 (rate limit), #201 (bridge). They are stacked in that order.
+
+Criteria 4–6 are met by `TestMCPBridgeLogsARefusedNotification`, `TestMCPBridgeBoundsRequestsInFlight` and `TestMCPBridgeCancelsARequest`. Each was run against the bridge before this change and failed for the reason it names:
+
+- No 404 line on stderr.
+- 24 requests open at once, against a cap of 8.
+- The lake call was never cancelled; the test waited 10s.
+
+### Alternatives considered for the bound
+
+- **A second, larger bound on lines read but not yet sent**, so a `notifications/cancelled` is read even while all 8 slots are taken. Rejected. It moves the same corner to the larger bound rather than removing it, and it adds a second limit to explain. With one bound, a cancellation waits only when more than 8 requests are outstanding. Even then it waits only until the lake answers one of them.
+- **A goroutine per message that waits for a slot.** Rejected: the number of goroutines and buffered lines is unbounded again, which is what the bound is for.
+
+### Alternatives considered for the cancellation
+
+- **Forwarding `notifications/cancelled` to the lake.** Rejected. The lake is stateless, so its server has no request of that id to stop, and forwarding would cost a request. Closing the HTTP request already ends the lake's handler context.
+- **Writing a JSON-RPC error for the cancelled id.** Rejected. The cancellation spec asks a receiver not to answer a cancelled request, and the agent has already stopped waiting for it.
