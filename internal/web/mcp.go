@@ -263,8 +263,14 @@ func rpcReply(w http.ResponseWriter, status int, id json.RawMessage, result any,
 func (s *Server) mcpCall(r *http.Request, t catalog.ReadToken, now time.Time, p rpcParams) (map[string]any, *rpcError) {
 	i := slices.IndexFunc(mcpTools, func(tool mcpTool) bool { return tool.Name == p.Name })
 	q, err := mcpQuery(p.Arguments)
-	uid := q.Get("session_uid")
-	q.Del("session_uid")
+	// The session is a path segment of the events and excerpt routes.
+	// Search has no session filter yet, so there it stays an argument
+	// its parser refuses, rather than being dropped (review 2103).
+	var uid string
+	if p.Name != "search" {
+		uid = q.Get("session_uid")
+		q.Del("session_uid")
+	}
 	ctx := r.Context()
 	lake := s.reg.Lake()
 	// Every call is audited, a refused one too, and the event is durable
