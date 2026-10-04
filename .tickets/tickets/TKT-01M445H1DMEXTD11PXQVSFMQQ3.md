@@ -16,7 +16,9 @@ parent: TKT-01M3FPP3H592T31Y2M3N347CPB
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:199
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: mcp/bay-scoped-tokens
@@ -27,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T22:39:03Z
+updated_at: 2026-10-04T22:40:18Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
