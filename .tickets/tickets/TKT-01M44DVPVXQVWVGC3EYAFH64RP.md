@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:57:38Z
+updated_at: 2026-10-04T21:59:45Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -82,12 +82,12 @@ The SDK misses one rule that ours follows: it compares `Mcp-Name` to the body wi
 
 ## Acceptance criteria
 
-- [ ] /api/read/v1/mcp is served by the go-sdk mcp.Server through its streamable HTTP handler, stateless, answering in JSON.
-- [ ] TestMCPToolsMatchTheWebAPI and TestMCPReadsWithinTheTokenScope pass unchanged: same tools, results, errors, hints, scope and audit lines, an unknown tool's included.
-- [ ] A 2026-07-28 request is answered as that revision says: ping is 404, clientCapabilities is required, tools/list carries ttlMs and cacheScope, and results carry serverInfo.
-- [ ] A test drives the endpoint with the SDK's own client.
-- [ ] terva-lampi mcp works against the new endpoint and its tests pass.
-- [ ] docs/web-api.md says where lampi deliberately departs from the SDK's defaults or from the spec, and why.
+- [x] /api/read/v1/mcp is served by the go-sdk mcp.Server through its streamable HTTP handler, stateless, answering in JSON.
+- [x] TestMCPToolsMatchTheWebAPI and TestMCPReadsWithinTheTokenScope pass unchanged: same tools, results, errors, hints, scope and audit lines, an unknown tool's included.
+- [x] A 2026-07-28 request is answered as that revision says: ping is 404, clientCapabilities is required, tools/list carries ttlMs and cacheScope, and results carry serverInfo.
+- [x] A test drives the endpoint with the SDK's own client.
+- [x] terva-lampi mcp works against the new endpoint and its tests pass.
+- [x] docs/web-api.md says where lampi deliberately departs from the SDK's defaults or from the spec, and why.
 
 ## Implementation plan
 
@@ -124,3 +124,9 @@ One PR, stacked on #193 until it merges.
 - `internal/cli` tests run the bridge against the real lake handler, so they run against the SDK unchanged.
 - `docs/web-api.md`'s MCP section gets a part on where lampi departs from the SDK's defaults and from the spec, and why. This covers the dependency choices recorded in the ticket description too.
 - `docs/architecture.md` and the other docs that call the server hand-written are corrected.
+
+## Notes
+
+**agent:claude-code/9078ac3f** at 2026-10-04T21:59:45Z
+
+Found while porting, beyond the prototype: (1) the SDK sets Cache-Control: no-cache, no-transform on every answer, overwriting what a wrapper set before it; lampi's rule for authenticated data is no-store, so mcpGate wraps the ResponseWriter and replaces the header as the status is written. (2) In the initialize era the SDK answers a method it does not know with a plain-text 400, not JSON-RPC -32601; left as is and documented, since every method the spec names is known to it. (3) A tools/call with no params is refused by the SDK's transport before the receiving middleware, so it is not audited; it names no tool and reads nothing; documented. (4) The bridge's error for a plain-text refusal said only 'the lake answered 400'; it now carries the first text/plain line, capped at 200 printable characters. (5) Correction to this ticket's first draft: the SDK's auth package does not link golang-jwt (only an oauthex test imports it); the reason to keep tokenFor is that it answers as the event stream does (401 with the lampi-mcp realm, 404 without events:read) where RequireBearerToken answers 403 in plain text and reads the system clock. Full gate passed on c8f3ef2.
