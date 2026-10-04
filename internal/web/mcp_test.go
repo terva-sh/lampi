@@ -216,6 +216,7 @@ func TestMCPToolsMatchTheWebAPI(t *testing.T) {
 		{"search", map[string]any{"q": "push", "limit": 201}, "invalid_request"},
 		{"search", map[string]any{"q": []string{"push"}}, "invalid_request"},
 		{"search", map[string]any{"q": "push", "cursor": "forged"}, "invalid_request"},
+		{"search", map[string]any{"q": "push", "session_uid": a}, "invalid_request"},
 		{"read_events", map[string]any{}, "invalid_request"},
 		{"read_events", map[string]any{"session_uid": "no-such-session"}, "not_found"},
 		{"read_events", map[string]any{"session_uid": a, "gen": 7}, "generation_changed"},
