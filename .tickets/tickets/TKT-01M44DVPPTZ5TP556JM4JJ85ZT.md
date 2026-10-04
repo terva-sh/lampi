@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44DVPPTZ5TP556JM4JJ85ZT
 title: "Deps: bump golang.org/x/crypto and x/sys to current releases"
 type: chore
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/9078ac3f
+  branch: deps/x-crypto
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
+  commit: 6cf198fea7f52e17a9fd9eae0c79417297940e92
+  session: null
+  claimed_at: 2026-10-04T21:42:11Z
+  expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:41:59Z
+updated_at: 2026-10-04T21:42:11Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -46,3 +53,7 @@ The same change runs `go mod tidy`, which moves `zeebo/blake3` into the direct b
 - [ ] go.mod requires golang.org/x/crypto v0.57.0 and golang.org/x/sys v0.48.0, or newer.
 - [ ] govulncheck ./... reports no finding in golang.org/x/crypto.
 - [ ] GOFLAGS=-mod=mod just ci passes and leaves go.mod unchanged.
+
+## Implementation plan
+
+go get golang.org/x/crypto@v0.57.0 golang.org/x/sys@v0.48.0, then go mod tidy, which also moves zeebo/blake3 into the direct block (TKT-01M44347GZ). Check what else the bump pulls in, rerun govulncheck, run the full gate with GOFLAGS=-mod=mod and confirm go.mod is unchanged afterwards.
