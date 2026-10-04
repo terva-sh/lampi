@@ -33,7 +33,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T22:51:38Z
+updated_at: 2026-10-04T23:05:19Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -134,3 +134,25 @@ Criteria 4–6 are met by `TestMCPBridgeLogsARefusedNotification`, `TestMCPBridg
 
 - **Forwarding `notifications/cancelled` to the lake.** Rejected. The lake is stateless, so its server has no request of that id to stop, and forwarding would cost a request. Closing the HTTP request already ends the lake's handler context.
 - **Writing a JSON-RPC error for the cancelled id.** Rejected. The cancellation spec asks a receiver not to answer a cancelled request, and the agent has already stopped waiting for it.
+
+**agent:claude-code/9078ac3f** at 2026-10-04T23:05:19Z
+
+### Review fixes on #200 and #201
+
+Each fix came with a test that fails on the commit before it.
+
+**#200, review 2133: the limiter's time could go back.** Concurrent tool calls can reach the limiter out of the order in which their times were taken. `rate.Limiter.advance` and `reserveN` then set `last` to the older time, and the next call refills the same interval again. Each token now keeps the latest time it was given, and the map lock is held across `AllowN`. `TestMCPLimitsKeepEachTokensTimeMoving` covers it.
+- Rejected: reading `time.Now()` inside the lock. It would also order the times, but the limiter could then not be driven by a fixed clock in tests.
+
+**#201, review 2135: three findings.**
+- **The reply race.** `reply` checked the context and then wrote, so a cancellation read between the two let the answer out. `cancelCall` now marks the call under the bridge's mutex, and `reply` decides and writes under the same lock. A `beforeReply` hook, nil outside tests, holds an answer at that point; `internal/api` has `beforeProject` for the same purpose.
+- **Ids were matched by their JSON spelling.** They are now matched by value.
+- **initialize skipped the slots.** It now takes a slot, and still runs on its own.
+
+**#201, review 2136: equal numbers keyed differently.** 1000000 went through `Int64` and 1000000.0 through `FormatFloat`, so their keys differed. `big.Rat` fixed that, but review 2137 then found it expands an exponent up to 1e6 into a million-digit key on the input path.
+- Final form: the significant digits, with no leading or trailing zero, plus the power of ten that scales them. `1000000`, `1e6` and `1000000.0` are each `1e6`, and the key is never longer than the id.
+- An exponent beyond an int64 is not kept for cancellation. Such a request is still forwarded and answered; it just cannot be cancelled.
+- Rejected: `float64`, which loses precision past 2^53, and `big.Rat`, which expands.
+- `TestMCPIDKey` covers every spelling, including `1e99999999` against `10e99999998`.
+
+main was merged into #201 once #200 had landed, so its CI and gate run on the tree that will merge.
