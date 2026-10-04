@@ -347,6 +347,69 @@ func TestMCPReadsWithinTheTokenScope(t *testing.T) {
 	}
 }
 
+// A token scoped to a bay reaches that bay's sessions through every
+// tool, and one scoped to a bay and to named sessions reaches only a
+// named session in the bay. Neither is told search coverage, which
+// counts the whole lake (TKT-01M445H1).
+func TestMCPReadsWithinABayScopedToken(t *testing.T) {
+	lake, _, h, _, index := mcpLake(t)
+	a := seedHarness(t, lake, "codex", "sid-a")
+	b := seedHarness(t, lake, "claude", "sid-b")
+	c := seedHarness(t, lake, "codex", "sid-c")
+	for _, uid := range []string{a, b, c} {
+		publishNormalized(t, lake, uid, toolEvents("codex", "Bash git push"))
+	}
+	if err := index.Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, now := t.Context(), time.Now()
+	if _, err := lake.Catalog.CreateBay(ctx, "work", "admin", now); err != nil {
+		t.Fatal(err)
+	}
+	for _, uid := range []string{a, c} {
+		if _, err := lake.Catalog.AddToBay(ctx, catalog.Membership{SessionUID: uid, Bay: "work", Actor: "admin", Via: catalog.ViaCLI}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mint := func(label string, sessions []string) string {
+		secret := ReadTokenPrefix + label + strings.Repeat("0", 43-len(label))
+		tok := catalog.ReadToken{Label: label, Permissions: []string{catalog.PermEventsRead}, BayScoped: true, Bays: []string{"work"}, Sessions: sessions, CreatedBy: "admin", Expires: now.Add(time.Hour)}
+		if _, err := lake.Catalog.CreateReadToken(ctx, tok, hashReadToken(secret), now); err != nil {
+			t.Fatal(err)
+		}
+		return secret
+	}
+	for name, c2 := range map[string]struct {
+		token string
+		want  map[string]bool
+	}{
+		"the bay":                       {mint("bay", nil), map[string]bool{a: true, b: false, c: true}},
+		"the bay, a session in it":      {mint("bay-a", []string{a}), map[string]bool{a: true, b: false, c: false}},
+		"the bay, a session outside it": {mint("bay-b", []string{b}), map[string]bool{a: false, b: false, c: false}},
+	} {
+		text, isError := callTool(t, h, c2.token, "search", map[string]any{"q": "git push"})
+		var page recall.SearchPage
+		if isError || json.Unmarshal([]byte(text), &page) != nil || page.Coverage != (recall.Coverage{}) {
+			t.Fatalf("%s: search %s", name, text)
+		}
+		hits := map[string]bool{}
+		for _, hit := range page.Items {
+			hits[hit.SessionUID] = true
+		}
+		for uid, want := range c2.want {
+			if hits[uid] != want {
+				t.Errorf("%s: search hit %s = %v, want %v", name, uid, hits[uid], want)
+			}
+			for _, tool := range []string{"read_events", "copy_excerpt"} {
+				text, isError := callTool(t, h, c2.token, tool, map[string]any{"session_uid": uid})
+				if isError == want || (!want && !strings.Contains(text, `"not_found"`)) {
+					t.Errorf("%s: %s %s: error=%v %s", name, tool, uid, isError, text)
+				}
+			}
+		}
+	}
+}
+
 // The endpoint answers an initialize-era client and a client that sends
 // its version with every request, and refuses what neither allows. The
 // protocol is the SDK's (TKT-01M44DVPVX). This holds it to the parts

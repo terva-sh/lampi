@@ -541,6 +541,40 @@ func TestBayScopedReadTokens(t *testing.T) {
 	}
 }
 
+// SessionBayNames tells a scope narrowed to named sessions nothing about
+// a session it does not name, as every other read through the scope
+// does (TKT-01M445H1).
+func TestSessionBayNamesHonoursANarrowing(t *testing.T) {
+	ctx := context.Background()
+	c, _ := openTemp(t)
+	now := time.Now()
+	named := newSession(t, c, "sess-named")
+	other := newSession(t, c, "sess-other")
+	work, _ := c.CreateBay(ctx, "work", "admin", now)
+	for _, uid := range []string{named, other} {
+		if _, err := c.AddToBay(ctx, Membership{SessionUID: uid, Bay: "work", Actor: "admin", Via: ViaCLI}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, c2 := range map[string]struct {
+		scope Scope
+		uid   string
+		want  []string
+	}{
+		"every bay":                {AllBays(), other, []string{"default", "work"}},
+		"its bay":                  {InBays([]string{work.ID}), other, []string{"work"}},
+		"another bay":              {InBays([]string{"bay-elsewhere"}), other, nil},
+		"named, the session named": {InBays([]string{work.ID}).OnlySessions([]string{named}), named, []string{"work"}},
+		"named, another session":   {InBays([]string{work.ID}).OnlySessions([]string{named}), other, nil},
+		"every bay, another":       {AllBays().OnlySessions([]string{named}), other, nil},
+	} {
+		got, err := c.SessionBayNames(ctx, c2.scope, c2.uid)
+		if err != nil || !reflect.DeepEqual(got, c2.want) {
+			t.Errorf("%s: %v %v, want %v", name, got, err, c2.want)
+		}
+	}
+}
+
 // TestAMintIsCheckedWhereTheCodeIsStored is review 1415: the minter's
 // grants are read in the transaction that stores the code, so a grant
 // revoked after the web's own check still refuses.

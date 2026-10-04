@@ -43,6 +43,15 @@ func (s Scope) OnlySessions(uids []string) Scope {
 // them.
 func (s Scope) All() bool { return s.all && !s.limited }
 
+// readsBay reports whether the scope reads bay id, before any session
+// narrowing.
+func (s Scope) readsBay(id string) bool { return s.all || slices.Contains(s.bays, id) }
+
+// names reports whether uid survives the scope's narrowing to named
+// sessions, as where checks in SQL. A scope not narrowed names every
+// uid.
+func (s Scope) names(uid string) bool { return !s.limited || slices.Contains(s.sessions, uid) }
+
 // Bays is the bay ids a limited scope reads, or nil for AllBays.
 func (s Scope) Bays() []string { return slices.Clone(s.bays) }
 
@@ -144,8 +153,12 @@ func (c *Catalog) SessionInScope(ctx context.Context, scope Scope, uid string) (
 
 // SessionBayNames names the bays uid is in that scope reads, sorted. A
 // reader is not told the name of a bay it does not read, since a bay
-// name can name a client.
+// name can name a client, and a session a scope narrowed to named
+// sessions does not name is in no bay it reads.
 func (c *Catalog) SessionBayNames(ctx context.Context, scope Scope, uid string) ([]string, error) {
+	if !scope.names(uid) {
+		return nil, nil
+	}
 	rows, err := c.db.QueryContext(ctx, `SELECT b.id, b.name FROM session_bays m JOIN bays b ON b.id = m.bay_id WHERE m.session_uid = ? ORDER BY b.name`, uid)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
@@ -157,7 +170,7 @@ func (c *Catalog) SessionBayNames(ctx context.Context, scope Scope, uid string) 
 		if err := rows.Scan(&id, &name); err != nil {
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
-		if scope.all || slices.Contains(scope.bays, id) {
+		if scope.readsBay(id) {
 			out = append(out, name)
 		}
 	}
