@@ -16,7 +16,9 @@ parent: null
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:194
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: deps/compress
@@ -27,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:49:24Z
+updated_at: 2026-10-04T21:49:44Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
