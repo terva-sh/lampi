@@ -418,7 +418,7 @@ func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
 // notifications/cancelled stops that request's call to the lake, and the
 // bridge writes no answer for it. The notification goes no further. It
 // names the request by the value of its id, however that is spelled
-// (reviews 2135 and 2136).
+// (reviews 2135, 2136 and 2137).
 func TestMCPBridgeCancelsARequest(t *testing.T) {
 	for _, tc := range []struct{ name, id, requestID string }{
 		{"number", `2`, `2`},
@@ -426,6 +426,7 @@ func TestMCPBridgeCancelsARequest(t *testing.T) {
 		{"number spelled as a float", `2`, `2.0`},
 		{"number spelled with an exponent", `1000000`, `1e6`},
 		{"number past the exponent boundary, as a float", `1000000`, `1000000.0`},
+		{"number with a large exponent", `1e99999999`, `10e99999998`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
@@ -562,5 +563,43 @@ func waitFor(t *testing.T, c <-chan struct{}, what string) {
 	case <-c:
 	case <-time.After(10 * time.Second):
 		t.Fatal(what)
+	}
+}
+
+// Every spelling of an id's value shares a key, and values that differ
+// do not. A large exponent is kept as a number, not expanded (review
+// 2137).
+func TestMCPIDKey(t *testing.T) {
+	key := func(id string) string {
+		t.Helper()
+		k, ok := mcpIDKey(json.RawMessage(id))
+		if !ok {
+			t.Fatalf("mcpIDKey(%s) refused", id)
+		}
+		return k
+	}
+	for _, same := range [][2]string{
+		{`2`, `2.0`}, {`1000000`, `1e6`}, {`1000000`, `1000000.0`}, {`0.5`, `5E-1`},
+		{`-2`, `-2.00`}, {`0`, `-0.0`}, {`120`, `1.2e+2`}, {`"a"`, `"\u0061"`},
+		{`1e99999999`, `10e99999998`},
+	} {
+		if a, b := key(same[0]), key(same[1]); a != b {
+			t.Errorf("%s and %s have keys %q and %q", same[0], same[1], a, b)
+		}
+	}
+	for _, apart := range [][2]string{
+		{`1`, `"1"`}, {`1`, `10`}, {`1.5`, `15`}, {`-1`, `1`}, {`0.01`, `0.1`}, {`"a"`, `"A"`},
+	} {
+		if a, b := key(apart[0]), key(apart[1]); a == b {
+			t.Errorf("%s and %s share the key %q", apart[0], apart[1], a)
+		}
+	}
+	if k := key(`1e999999999999`); len(k) > 32 {
+		t.Errorf("the key of 1e999999999999 is %d bytes", len(k))
+	}
+	for _, id := range []string{`null`, `true`, `{}`, `[]`, `1e9999999999999999999`, ``} {
+		if k, ok := mcpIDKey(json.RawMessage(id)); ok {
+			t.Errorf("mcpIDKey(%s) = %q, want refused", id, k)
+		}
 	}
 }

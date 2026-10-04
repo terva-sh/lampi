@@ -10,8 +10,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -294,9 +294,8 @@ func (b *mcpBridge) cancelCall(id json.RawMessage) {
 
 // mcpIDKey is the value of a JSON-RPC id as a key that every spelling of
 // it shares: "a" and "\u0061" (review 2135), or 1000000, 1e6 and
-// 1000000.0, which big.Rat holds exactly (review 2136). A string and a
-// number stay apart. ok is false for an id that is neither, or for a
-// number whose exponent is too large for SetString to hold.
+// 1000000.0 (review 2136). A string and a number stay apart. ok is false
+// for an id that is neither.
 func mcpIDKey(id json.RawMessage) (key string, ok bool) {
 	d := json.NewDecoder(bytes.NewReader(id))
 	d.UseNumber()
@@ -308,11 +307,39 @@ func mcpIDKey(id json.RawMessage) (key string, ok bool) {
 	case string:
 		return "s" + v, true
 	case json.Number:
-		if r, ok := new(big.Rat).SetString(v.String()); ok {
-			return "n" + r.RatString(), true
+		if k, ok := mcpNumberKey(v.String()); ok {
+			return "n" + k, true
 		}
 	}
 	return "", false
+}
+
+// mcpNumberKey writes a JSON number as its significant digits, with no
+// leading or trailing zero, and the power of ten that scales them, so
+// 1000000, 1e6 and 1000000.0 are each "1e6". Nothing is expanded, so a
+// short id with a large exponent costs no more than its length (review
+// 2137). ok is false for an exponent beyond what an int64 holds.
+func mcpNumberKey(n string) (string, bool) {
+	sign := ""
+	if rest, ok := strings.CutPrefix(n, "-"); ok {
+		sign, n = "-", rest
+	}
+	mantissa, exponent, _ := strings.Cut(strings.ToLower(n), "e")
+	var exp int64
+	if exponent != "" {
+		var err error
+		if exp, err = strconv.ParseInt(exponent, 10, 64); err != nil || exp < -1<<62 || exp > 1<<62 {
+			return "", false
+		}
+	}
+	whole, frac, _ := strings.Cut(mantissa, ".")
+	digits := strings.TrimLeft(whole+frac, "0")
+	significant := strings.TrimRight(digits, "0")
+	if significant == "" {
+		return "0", true
+	}
+	exp += int64(len(digits)-len(significant)) - int64(len(frac))
+	return sign + significant + "e" + strconv.FormatInt(exp, 10), true
 }
 
 func (b *mcpBridge) forward(c *mcpCall, m mcpMessage, body []byte) {
