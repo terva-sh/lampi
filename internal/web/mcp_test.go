@@ -289,6 +289,21 @@ func TestMCPReadsWithinTheTokenScope(t *testing.T) {
 		t.Errorf("browser session: %d", w.Code)
 	}
 
+	// A refused call is audited too, and a value under a wrong name is
+	// counted, never written (review 2102).
+	if text, isError := callTool(t, h, onlyA, "search", map[string]any{"q": "git push", "text": "private transcript"}); !isError {
+		t.Errorf("an unknown argument was accepted: %s", text)
+	}
+	if _, isError := callTool(t, h, onlyA, "read_events", map[string]any{"from": 3}); !isError {
+		t.Error("read_events without a session was accepted")
+	}
+	if reply := decodeRPC(t, postRPC(h, onlyA, rpcBody(9, "tools/call", map[string]any{"name": "private transcript"}), nil)); reply.Error == nil {
+		t.Error("an unknown tool was accepted")
+	}
+	if text, isError := callTool(t, h, onlyA, "read_events", map[string]any{"session_uid": "private transcript"}); !isError {
+		t.Errorf("a malformed session uid was accepted: %s", text)
+	}
+
 	// Each call is audited before its result leaves, without the search
 	// text or the secret.
 	log, err := os.ReadFile(audit.Path(dir))
@@ -299,8 +314,13 @@ func TestMCPReadsWithinTheTokenScope(t *testing.T) {
 	if !strings.Contains(s, `"kind":"events.read"`) || !strings.Contains(s, "mcp tool=search q=8B") || !strings.Contains(s, "mcp tool=read_events session="+b) || !strings.Contains(s, "(one session)") {
 		t.Errorf("audit lacks the calls:\n%s", s)
 	}
-	if strings.Contains(s, "git push") || strings.Contains(s, onlyA) {
-		t.Error("audit holds search text or the secret")
+	for _, want := range []string{"mcp tool=search q=8B unknown_args=1", "mcp tool=read_events from=3", "mcp tool=unknown", "mcp tool=read_events session=invalid"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("audit lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "git push") || strings.Contains(s, "private") || strings.Contains(s, onlyA) {
+		t.Error("audit holds search text, a refused argument or the secret")
 	}
 }
 
