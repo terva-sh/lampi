@@ -123,7 +123,8 @@ func TestMCPBridgeServesTheLakeTools(t *testing.T) {
 	}
 	result, _ := replies["3"]["result"].(map[string]any)
 	content, _ := result["content"].([]any)
-	if result["isError"] != false || len(content) != 1 || !strings.Contains(content[0].(map[string]any)["text"].(string), `"snippet":"git push"`) {
+	// A result that is not an error may leave isError out.
+	if result["isError"] == true || len(content) != 1 || !strings.Contains(content[0].(map[string]any)["text"].(string), `"snippet":"git push"`) {
 		t.Errorf("search: %v", replies["3"])
 	}
 	// After initialize, every request names the negotiated version, and
