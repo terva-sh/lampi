@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -260,23 +261,15 @@ func rpcReply(w http.ResponseWriter, status int, id json.RawMessage, result any,
 // agent can correct itself. An unknown tool, or an audit line that
 // cannot be queued, is a protocol error.
 func (s *Server) mcpCall(r *http.Request, t catalog.ReadToken, now time.Time, p rpcParams) (map[string]any, *rpcError) {
-	if !slices.ContainsFunc(mcpTools, func(tool mcpTool) bool { return tool.Name == p.Name }) {
-		return nil, &rpcError{Code: rpcInvalidParams, Message: "unknown tool: " + p.Name}
-	}
+	i := slices.IndexFunc(mcpTools, func(tool mcpTool) bool { return tool.Name == p.Name })
 	q, err := mcpQuery(p.Arguments)
 	uid := q.Get("session_uid")
 	q.Del("session_uid")
-	if p.Name != "search" && uid == "" {
-		err = recall.ErrInvalid
-	}
-	if err != nil {
-		return toolError(err), nil
-	}
 	ctx := r.Context()
 	lake := s.reg.Lake()
-	// The event is durable in the outbox before a result leaves, as an
-	// event stream's is.
-	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: mcpAuditDetail(p.Name, uid, q)}); err != nil {
+	// Every call is audited, a refused one too, and the event is durable
+	// in the outbox before a result leaves, as an event stream's is.
+	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: mcpAuditDetail(i, uid, q)}); err != nil {
 		s.logError(r, "queueing an MCP call's audit line failed", err)
 		return nil, &rpcError{Code: rpcInternal, Message: "audit_failed"}
 	}
@@ -285,6 +278,15 @@ func (s *Server) mcpCall(r *http.Request, t catalog.ReadToken, now time.Time, p 
 	}
 	if err := lake.Catalog.TouchReadToken(ctx, t.ID, now); err != nil {
 		s.logError(r, "recording a read token's use failed", err)
+	}
+	if i < 0 {
+		return nil, &rpcError{Code: rpcInvalidParams, Message: "unknown tool: " + p.Name}
+	}
+	if p.Name != "search" && uid == "" {
+		err = recall.ErrInvalid
+	}
+	if err != nil {
+		return toolError(err), nil
 	}
 	scope, err := s.catalog.ReadTokenScope(ctx, t)
 	if err != nil {
@@ -379,32 +381,56 @@ func toolError(err error) map[string]any {
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "isError": true}
 }
 
-// mcpAuditDetail names the tool, the session and the filters of a call.
+// mcpAuditDetail names the tool, the session and the filters of a call
+// to mcpTools[i], or to an unknown tool when i is negative. Only the
+// arguments the tool's schema names are recorded, so a value under a
+// wrong name, which could be anything, is counted and never written.
 // Search text is recorded by its length only: it says what an agent
 // looked for, which can be as private as what it found. A cursor is
-// recorded as present.
-func mcpAuditDetail(tool, uid string, q url.Values) string {
-	parts := []string{"mcp tool=" + tool}
+// recorded as present, and a session uid only when it looks like one.
+func mcpAuditDetail(i int, uid string, q url.Values) string {
+	if i < 0 {
+		return "mcp tool=unknown"
+	}
+	tool := mcpTools[i]
+	parts := []string{"mcp tool=" + tool.Name}
 	if uid != "" {
+		if !auditSafe.MatchString(uid) {
+			uid = "invalid"
+		}
 		parts = append(parts, "session="+uid)
 	}
+	props, _ := tool.InputSchema["properties"].(map[string]any)
 	keys := make([]string, 0, len(q))
+	unknown := 0
 	for k := range q {
-		keys = append(keys, k)
+		if _, ok := props[k]; ok {
+			keys = append(keys, k)
+		} else {
+			unknown++
+		}
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
 		v := q.Get(k)
-		switch k {
-		case "q":
+		switch {
+		case k == "q":
 			v = strconv.Itoa(len(v)) + "B"
-		case "cursor":
+		case k == "cursor":
 			v = "yes"
+		case len(v) > 256:
+			v = strconv.Itoa(len(v)) + "B"
 		}
 		parts = append(parts, k+"="+url.QueryEscape(v))
 	}
+	if unknown > 0 {
+		parts = append(parts, "unknown_args="+strconv.Itoa(unknown))
+	}
 	return strings.Join(parts, " ")
 }
+
+// auditSafe matches a session uid worth recording as it is.
+var auditSafe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 // mcpTool is one tool as tools/list describes it.
 type mcpTool struct {

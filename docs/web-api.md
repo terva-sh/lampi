@@ -331,12 +331,14 @@ It serves two protocol eras on the same path:
 | `GET` or `DELETE` | `405` with `Allow: POST`. |
 
 Each `tools/call` is written to `audit.jsonl` as one `events.read` event
-before its result is sent. The actor is the token. The detail names the
-tool, the session and the filters, as in
+before its result is sent, a refused call included. The actor is the
+token. The detail names the tool, the session and the filters, as in
 `mcp tool=search q=8B event_type=tool_call`. Search text is given by its
-length only, and a cursor by its presence. A call whose event cannot be
-queued is JSON-RPC error `-32603` with the message `audit_failed`, and
-reads nothing.
+length only, and a cursor by its presence. Only the arguments the tool
+names are written. Others are counted as `unknown_args=N`, an unknown
+tool is `mcp tool=unknown`, and a session uid that does not look like one
+is `session=invalid`. A call whose event cannot be queued is JSON-RPC
+error `-32603` with the message `audit_failed`, and reads nothing.
 
 The token errors are those of the event stream, with
 `WWW-Authenticate: Bearer realm="lampi-mcp"`.
