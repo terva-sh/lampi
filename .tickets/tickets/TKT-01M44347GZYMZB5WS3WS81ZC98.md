@@ -15,7 +15,9 @@ parent: null
 origin: null
 dependencies: []
 blocks_on: none
-references: []
+references:
+  - ref: pr:193
+    path: null
 claim:
   actor: agent:claude-code/9078ac3f
   branch: deps/x-crypto
@@ -26,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T18:34:24Z
-updated_at: 2026-10-04T21:42:11Z
+updated_at: 2026-10-04T21:45:49Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
