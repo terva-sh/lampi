@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44347GZYMZB5WS3WS81ZC98
 title: go.mod lists zeebo/blake3 as indirect; -mod=mod rewrites it
 type: chore
-status: in-progress
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -18,17 +18,10 @@ blocks_on: none
 references:
   - ref: pr:193
     path: null
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: deps/x-crypto
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
-  commit: 6cf198fea7f52e17a9fd9eae0c79417297940e92
-  session: null
-  claimed_at: 2026-10-04T21:42:11Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T18:34:24Z
-updated_at: 2026-10-04T21:45:49Z
+updated_at: 2026-10-04T22:13:34Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -47,3 +40,7 @@ Fix: run `go mod tidy` and commit the result. Check that CI does not need anythi
 ## Implementation plan
 
 Done by the go mod tidy in TKT-01M44DVPPTZ5TP556JM4JJ85ZT (Deps: bump golang.org/x/crypto and x/sys), in the same PR.
+
+## Summary
+
+Fixed in PR 193 by the go mod tidy that came with TKT-01M44DVPPT (Deps: bump golang.org/x/crypto and x/sys): zeebo/blake3 is in go.mod's direct block. A full GOFLAGS=-mod=mod gate leaves go.mod unchanged, on the branch and on main after the merge. CI needed nothing else from the tidy.

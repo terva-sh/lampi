@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44DVPVXQVWVGC3EYAFH64RP
 title: "MCP: serve the lake endpoint with the official Go SDK"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,17 +19,10 @@ blocks_on: none
 references:
   - ref: pr:195
     path: null
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: mcp/go-sdk
-  worktree: /home/sothr/.cache/agent-scratch/lampi/sdk-port-CTOO/sdk
-  commit: 603227a9b072603af847aa1a203b23f81087a8ed
-  session: null
-  claimed_at: 2026-10-04T21:50:10Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:59:56Z
+updated_at: 2026-10-04T22:13:35Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -132,3 +125,30 @@ One PR, stacked on #193 until it merges.
 **agent:claude-code/9078ac3f** at 2026-10-04T21:59:45Z
 
 Found while porting, beyond the prototype: (1) the SDK sets Cache-Control: no-cache, no-transform on every answer, overwriting what a wrapper set before it; lampi's rule for authenticated data is no-store, so mcpGate wraps the ResponseWriter and replaces the header as the status is written. (2) In the initialize era the SDK answers a method it does not know with a plain-text 400, not JSON-RPC -32601; left as is and documented, since every method the spec names is known to it. (3) A tools/call with no params is refused by the SDK's transport before the receiving middleware, so it is not audited; it names no tool and reads nothing; documented. (4) The bridge's error for a plain-text refusal said only 'the lake answered 400'; it now carries the first text/plain line, capped at 200 printable characters. (5) Correction to this ticket's first draft: the SDK's auth package does not link golang-jwt (only an oauthex test imports it); the reason to keep tokenFor is that it answers as the event stream does (401 with the lampi-mcp realm, 404 without events:read) where RequireBearerToken answers 403 in plain text and reads the system clock. Full gate passed on c8f3ef2.
+
+## Summary
+
+Landed in PR 195. `/api/read/v1/mcp` runs on `modelcontextprotocol/go-sdk` v1.8.0, behind its streamable HTTP handler, stateless and answering in JSON. `internal/web/mcp.go` went from 551 lines to 429.
+
+**What stays lampi's**
+- `mcpGate`: `tokenFor`, the Origin check, decoding of the base64 `Mcp-Name` form, and `Cache-Control: no-store`.
+- The audit middleware, which runs before the SDK looks the tool up.
+- The tools, results, errors, hints and scope. `TestMCPToolsMatchTheWebAPI` and `TestMCPReadsWithinTheTokenScope` pass unchanged.
+
+**What the SDK brings:** the four 2026-07-28 rules the hand-written server missed: no `ping`, a required `clientCapabilities`, `ttlMs` and `cacheScope` on `tools/list`, and `serverInfo` on every result.
+
+**Tests**
+- `TestMCPProtocolEras` holds the endpoint to the spec's own numbers.
+- `TestMCPServesTheSDKClient` drives it with the SDK's own client at 2026-07-28, 2025-11-25 and 2025-03-26.
+
+**Bridge:** it stays a forwarder. When the lake refuses in plain text, the agent's error now includes the reason.
+
+**Docs**
+- `docs/web-api.md` gains "Where lampi departs from the SDK and the specification".
+- `docs/architecture.md` gains a Dependencies section: what comes from a module, and what stays lampi's code even though a linked module could do it.
+
+**Accepted from the SDK and documented**
+- An initialize-era request with a bad version header, an unreadable body, or an unknown method gets a plain-text 400.
+- A `tools/call` with no params is refused before the audit, so it isn't audited.
+- Tools are listed by name.
+- `2024-11-05` is served.
