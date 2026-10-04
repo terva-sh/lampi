@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/time/rate"
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/audit"
@@ -419,7 +418,7 @@ func TestMCPLimitsToolCallsPerToken(t *testing.T) {
 	lake, _, _, dir, _ := mcpLake(t)
 	srv := &Server{catalog: lake.Catalog, reg: &Registrations{Lake: func() registrar.Lake { return registrar.Lake{Catalog: lake.Catalog, Dir: dir} }}, log: slog.New(slog.DiscardHandler)}
 	ran := 0
-	mw := srv.mcpAudit(&mcpLimits{by: map[string]*rate.Limiter{}})(func(context.Context, string, mcp.Request) (mcp.Result, error) {
+	mw := srv.mcpAudit(&mcpLimits{by: map[string]*mcpLimit{}})(func(context.Context, string, mcp.Request) (mcp.Result, error) {
 		ran++
 		return &mcp.CallToolResult{}, nil
 	})
@@ -467,6 +466,28 @@ func TestMCPLimitsToolCallsPerToken(t *testing.T) {
 	}
 	if n := strings.Count(string(log), `"actor":"token:rtk_`); n != ran {
 		t.Errorf("%d audit lines for %d calls that ran", n, ran)
+	}
+}
+
+// Concurrent calls can reach the limiter out of the order their times
+// were taken in. A call stamped earlier must not move a token's limiter
+// back, or the next call refills the same second again (review 2133).
+func TestMCPLimitsKeepEachTokensTimeMoving(t *testing.T) {
+	limits := &mcpLimits{by: map[string]*mcpLimit{}}
+	t0 := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	for i := range mcpBurst {
+		if !limits.allow("tok", t0) {
+			t.Fatalf("call %d of the burst refused", i+1)
+		}
+	}
+	// A second later, mcpRate (2) calls pass: one stamped then, and one
+	// stamped t0 that reached the limiter after it.
+	later := t0.Add(time.Second)
+	if !limits.allow("tok", later) || !limits.allow("tok", t0) {
+		t.Fatal("a second refilled fewer than 2 calls")
+	}
+	if limits.allow("tok", later) {
+		t.Error("the call stamped t0 moved the limiter back, and the same second refilled twice")
 	}
 }
 
