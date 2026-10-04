@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -225,5 +226,30 @@ func TestHeaderSafe(t *testing.T) {
 		if got := headerSafe(in); got != want {
 			t.Errorf("headerSafe(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// failingWriter fails every write, as stdout does once the agent has
+// gone.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+// A write to the agent that fails ends the bridge with that error, rather
+// than dropping answers while it goes on forwarding (review 2107).
+func TestMCPBridgeStopsWhenTheAgentIsGone(t *testing.T) {
+	lake, srv, seen := mcpLake(t)
+	token := tokenFile(t, lake, catalog.PermEventsRead)
+	lines := []string{rpcLine(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"})}
+	for i := 2; i < 50; i++ {
+		lines = append(lines, rpcLine(i, "ping", nil))
+	}
+	env := Env{Stdin: strings.NewReader(strings.Join(lines, "\n") + "\n"), Stdout: failingWriter{}, Stderr: &bytes.Buffer{}}
+	err := Run([]string{"mcp", "--server", srv.URL, "--token-file", token}, env)
+	if err == nil || !strings.Contains(err.Error(), "writing to the agent") {
+		t.Fatalf("mcp with a broken stdout: %v", err)
+	}
+	if len(*seen) > 2 {
+		t.Errorf("the bridge sent %d requests after the agent was gone", len(*seen))
 	}
 }

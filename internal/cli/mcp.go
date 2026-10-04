@@ -113,6 +113,11 @@ type mcpBridge struct {
 	// version is what initialize negotiated, for the header an
 	// initialize-era client's later requests carry.
 	version string
+	// werr is the first failed write to the agent. It ends serve and
+	// cancels ctx, which the lake requests run under (review 2107).
+	werr   error
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // mcpMessage is what the bridge reads of a message to route it.
@@ -128,11 +133,12 @@ type mcpMessage struct {
 }
 
 func (b *mcpBridge) serve(in io.Reader) error {
+	b.ctx, b.cancel = context.WithCancel(context.Background())
+	defer b.cancel()
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 64<<10), mcpLineMax)
 	var wg sync.WaitGroup
-	defer wg.Wait()
-	for sc.Scan() {
+	for b.ctx.Err() == nil && sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
 			continue
@@ -160,6 +166,13 @@ func (b *mcpBridge) serve(in io.Reader) error {
 			b.forward(m, body)
 		}()
 	}
+	wg.Wait()
+	b.mu.Lock()
+	werr := b.werr
+	b.mu.Unlock()
+	if werr != nil {
+		return fmt.Errorf("mcp: writing to the agent: %w", werr)
+	}
 	if err := sc.Err(); err != nil {
 		return fmt.Errorf("mcp: reading from the agent: %w", err)
 	}
@@ -168,7 +181,7 @@ func (b *mcpBridge) serve(in io.Reader) error {
 
 func (b *mcpBridge) forward(m mcpMessage, body []byte) {
 	notification := m.ID == nil
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, b.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(b.ctx, http.MethodPost, b.url, bytes.NewReader(body))
 	if err != nil {
 		b.fail(m, -32603, err.Error())
 		return
@@ -240,10 +253,18 @@ func (b *mcpBridge) fail(m mcpMessage, code int, msg string) {
 	b.write(mcpErrorLine(m.ID, code, msg))
 }
 
+// write sends one line to the agent. After a write fails, nothing more
+// is written, and serve stops.
 func (b *mcpBridge) write(line []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.out.Write(append(line, '\n'))
+	if b.werr != nil {
+		return
+	}
+	if _, err := b.out.Write(append(line, '\n')); err != nil {
+		b.werr = err
+		b.cancel()
+	}
 }
 
 func mcpErrorLine(id json.RawMessage, code int, msg string) []byte {
