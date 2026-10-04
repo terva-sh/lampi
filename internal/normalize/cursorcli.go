@@ -117,23 +117,24 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 	return events, nil
 }
 
-// offsets is where each meta row and blob sits in the export, by index
-// in its array, read in one pass. A row's offset is its own "key" or
-// "id" field, looked for only inside that row. Searching the whole
-// document from the start for every row read it once per row, which on
-// an export of tens of thousands of blobs and hundreds of megabytes did
-// not finish. Searching only inside the row also keeps the offset off
-// another row, or a nested field, that names the same id.
+// offsets is where each meta row's "key" value and each blob's "id"
+// value sits in the export, by index in its array, read in one pass of
+// a json.Decoder. Only the row's own top-level field counts, so a
+// nested field or another row that names the same id never supplies
+// the offset. Searching the whole document from the start for every
+// row read it once per row, which on an export of tens of thousands of
+// blobs and hundreds of megabytes did not finish.
 type offsets struct {
 	raw   []byte
-	meta  [][2]int
-	blobs [][2]int
+	meta  []int
+	blobs []int
 	ok    bool
 }
 
-// newOffsets reads the spans of the meta and blobs elements. A document
-// the decoder cannot walk that way, or whose arrays are not the length
-// the parse found, has no spans, and every row is looked for the way
+// newOffsets walks the meta and blobs arrays. A row with no top-level
+// "key" or "id" gets the offset of its first byte. A document the
+// decoder cannot walk, or whose arrays are not the length the parse
+// found, has no offsets, and every row is looked for the way
 // cursorOffset does.
 func newOffsets(raw []byte, metaRows, blobRows int) offsets {
 	o := offsets{raw: raw}
@@ -146,15 +147,15 @@ func newOffsets(raw []byte, metaRows, blobRows int) offsets {
 		if err != nil {
 			return o
 		}
-		key, _ := tok.(string)
-		var spans *[][2]int
-		switch key {
+		var at *[]int
+		field := ""
+		switch tok {
 		case "meta":
-			spans = &o.meta
+			at, field = &o.meta, "key"
 		case "blobs":
-			spans = &o.blobs
+			at, field = &o.blobs, "id"
 		}
-		if spans == nil {
+		if at == nil {
 			var skip json.RawMessage
 			if err := dec.Decode(&skip); err != nil {
 				return o
@@ -165,12 +166,11 @@ func newOffsets(raw []byte, metaRows, blobRows int) offsets {
 			return o
 		}
 		for dec.More() {
-			start := elementStart(raw, int(dec.InputOffset()))
-			var row json.RawMessage
-			if err := dec.Decode(&row); err != nil {
+			off, err := rowField(dec, raw, field)
+			if err != nil {
 				return o
 			}
-			*spans = append(*spans, [2]int{start, int(dec.InputOffset())})
+			*at = append(*at, off)
 		}
 		if _, err := dec.Token(); err != nil {
 			return o
@@ -180,33 +180,84 @@ func newOffsets(raw []byte, metaRows, blobRows int) offsets {
 	return o
 }
 
-// elementStart skips the comma and space after at, to the first byte
-// of the next array element.
-func elementStart(raw []byte, at int) int {
+// rowField reads one array element and returns where the value of its
+// top-level field starts, or where the element starts when it is not an
+// object or has no such field.
+func rowField(dec *json.Decoder, raw []byte, field string) (int, error) {
+	start := skipSpace(raw, int(dec.InputOffset()), true)
+	tok, err := dec.Token()
+	if err != nil {
+		return 0, err
+	}
+	if tok == json.Delim('[') {
+		return start, skipOpen(dec)
+	}
+	if tok != json.Delim('{') {
+		return start, nil
+	}
+	// A repeated field takes the last one, the value json.Unmarshal
+	// gave the parse.
+	at := start
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return 0, err
+		}
+		if key == field {
+			at = skipSpace(raw, int(dec.InputOffset()), false)
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return 0, err
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return 0, err
+	}
+	return at, nil
+}
+
+// skipOpen reads to the close of an array or object whose opening
+// delimiter the decoder has just returned.
+func skipOpen(dec *json.Decoder) error {
+	for depth := 1; depth > 0; {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t {
+		case json.Delim('['), json.Delim('{'):
+			depth++
+		case json.Delim(']'), json.Delim('}'):
+			depth--
+		}
+	}
+	return nil
+}
+
+// skipSpace moves at past whitespace and, between elements, a comma,
+// or, after an object key, a colon: to the first byte of the next value.
+func skipSpace(raw []byte, at int, comma bool) int {
 	for at < len(raw) {
-		switch raw[at] {
-		case ',', ' ', '\t', '\n', '\r':
-			at++
+		switch c := raw[at]; {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		case comma && c == ',', !comma && c == ':':
 		default:
 			return at
 		}
+		at++
 	}
 	return at
 }
 
-func (o offsets) metaAt(i int, key string) int { return o.find(o.meta, i, `"key":`, key) }
-func (o offsets) blobAt(i int, id string) int  { return o.find(o.blobs, i, `"id":`, id) }
+func (o offsets) metaAt(i int, key string) int { return o.at(o.meta, i, key) }
+func (o offsets) blobAt(i int, id string) int  { return o.at(o.blobs, i, id) }
 
-// find is the offset of key's quoted form after field inside row i.
-func (o offsets) find(spans [][2]int, i int, field, key string) int {
-	if !o.ok || i >= len(spans) {
+func (o offsets) at(rows []int, i int, key string) int {
+	if !o.ok || i >= len(rows) {
 		return cursorOffset(o.raw, key)
 	}
-	s := spans[i]
-	if j := bytes.Index(o.raw[s[0]:s[1]], []byte(field+strconvQuote(key))); j >= 0 {
-		return s[0] + j + len(field)
-	}
-	return s[0]
+	return rows[i]
 }
 
 type cursorCLIExport struct {

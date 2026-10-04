@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:34:28Z
-updated_at: 2026-10-04T21:39:03Z
+updated_at: 2026-10-04T21:43:44Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -72,3 +72,7 @@ Measured on a copy of a real 222 MB ACP store (exported as 284,062,434 bytes): n
 **agent:claude-code/580cbe08** at 2026-10-04T21:39:03Z
 
 Supersedes the plan's forward cursor. terva-review on #192 (review 2127, medium) found that a shared forward cursor can pass a row in a document with blobs before meta and then match a nested field after it, and only falls back when nothing later matches. Each row's span now comes from one json.Decoder pass over the meta and blobs arrays, and the row's field is looked for only inside its span; a row whose field is not found there gets its span start. Lengths that do not match the parse fall back to cursorOffset. The real 284 MB export normalizes in 2.8 s this way (1.8 s with the forward cursor). TestCursorCLIOffsetsStayInTheirRow covers reordered sections, a nested id, and a row whose own field is not found; unbounding the search or turning the spans off each fails a test.
+
+**agent:claude-code/580cbe08** at 2026-10-04T21:43:44Z
+
+Supersedes the previous note's in-span substring search. terva-review on #192 (review 2128, medium) found that inside one row a spaced top-level "id": "aaa" lets the compact nested "id":"aaa" in its data win. The decoder pass now walks each element's top-level keys and records where its own "key" or "id" value starts; there is no substring search. A row with no such field gets its first byte; a repeated field takes the last, as json.Unmarshal does for the parse. Real 284 MB export: 2.4 s, every row resolved. Mutations (offsets off, top-level field ignored) each fail a test.

@@ -644,23 +644,24 @@ func TestCursorCLIOffsetsFollowTheRows(t *testing.T) {
 }
 
 // Sections and fields in another order: blobs before meta, and the meta
-// record names blobs aaa and zzz in nested ids. The blob's offset is
-// still in the blob, and the meta row's is still in the meta row. Blob
-// zzz writes its id with a space, so its own field is not found; its
-// offset is the start of its row, not the nested id after it.
+// record names blobs aaa and zzz in nested ids. Each offset is the
+// row's own top-level field. Blob zzz writes its id with a space and
+// carries the same id, compact, in its data; its offset is still its
+// own id. Blob yyy has no id field; its offset is its first byte.
 func TestCursorCLIOffsetsStayInTheirRow(t *testing.T) {
 	raw := []byte(`{"harness_version":"1","confidence":"low","source":"s","scope":"session",` +
-		`"blobs":[{"data":{"role":"user","content":"hi"},"id":"aaa"},{"id": "zzz","data":null}],` +
+		`"blobs":[{"data":{"role":"user","content":"hi"},"id":"aaa"},{"id": "zzz","data":{"id":"zzz"}},{"data":{"id":"yyy"}}],` +
 		`"meta":[{"value":{"name":"pond","id":"aaa","x":{"id":"zzz"}},"key":"0"}]}`)
 	at := cursorCLIOffsets(t, raw)
 	want := map[string]int{
 		"aaa": bytes.Index(raw, []byte(`"id":"aaa"},`)) + len(`"id":`),
-		"zzz": bytes.Index(raw, []byte(`{"id": "zzz"`)),
+		"zzz": bytes.Index(raw, []byte(`{"id": "zzz"`)) + len(`{"id": `),
 		"0":   bytes.Index(raw, []byte(`"key":"0"`)) + len(`"key":`),
+		"":    bytes.Index(raw, []byte(`{"data":{"id":"yyy"}}`)),
 	}
 	for k, w := range want {
 		if at[k] != w {
-			t.Fatalf("%s at %d, want %d (offsets %v)", k, at[k], w, at)
+			t.Fatalf("%q at %d, want %d (offsets %v)", k, at[k], w, at)
 		}
 	}
 }
