@@ -129,14 +129,9 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		rpcReply(w, http.StatusBadRequest, nil, nil, &rpcError{Code: rpcParseError, Message: "body is not one JSON-RPC message"})
 		return
 	}
-	if req.JSONRPC != "2.0" || req.Method == "" || string(req.ID) == "null" {
+	// An id is a string or a number; a notification has none.
+	if req.JSONRPC != "2.0" || req.Method == "" || (req.ID != nil && !validID(req.ID)) {
 		rpcReply(w, http.StatusBadRequest, nil, nil, &rpcError{Code: rpcInvalidRequest, Message: "not a JSON-RPC 2.0 request"})
-		return
-	}
-	if req.ID == nil {
-		// A notification, such as notifications/initialized. None needs
-		// an answer.
-		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	var p rpcParams
@@ -144,9 +139,17 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		rpcReply(w, http.StatusBadRequest, req.ID, nil, &rpcError{Code: rpcInvalidParams, Message: "params is not an object"})
 		return
 	}
+	// A notification's version and headers are checked as a request's
+	// are (review 2105).
 	modern, status, rerr := mcpVersion(r, req.Method, p)
 	if rerr != nil {
 		rpcReply(w, status, req.ID, nil, rerr)
+		return
+	}
+	if req.ID == nil {
+		// A notification, such as notifications/initialized. None needs
+		// an answer.
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	var result map[string]any
@@ -182,6 +185,19 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		result["resultType"] = "complete"
 	}
 	rpcReply(w, http.StatusOK, req.ID, result, nil)
+}
+
+// validID reports whether id is a JSON string or number.
+func validID(id json.RawMessage) bool {
+	var v any
+	if json.Unmarshal(id, &v) != nil {
+		return false
+	}
+	switch v.(type) {
+	case string, float64:
+		return true
+	}
+	return false
 }
 
 func mcpCapabilities() map[string]any {

@@ -348,6 +348,26 @@ func TestMCPProtocolEras(t *testing.T) {
 	if w := postRPC(h, token, `{"jsonrpc":"2.0","method":"notifications/initialized"}`, map[string]string{"MCP-Protocol-Version": "2025-06-18"}); w.Code != 202 || w.Body.Len() != 0 {
 		t.Errorf("notification: %d %q", w.Code, w.Body.String())
 	}
+	if w := postRPC(h, token, `{"jsonrpc":"2.0","id":"s-1","method":"ping"}`, nil); w.Code != 200 || string(decodeRPC(t, w).ID) != `"s-1"` {
+		t.Errorf("string id: %d %s", w.Code, w.Body.String())
+	}
+	// A notification's version and headers are checked as a request's
+	// are (review 2105).
+	for name, c := range map[string]struct {
+		body    string
+		headers map[string]string
+		code    int
+	}{
+		"legacy, unsupported version": {`{"jsonrpc":"2.0","method":"notifications/initialized"}`, map[string]string{"MCP-Protocol-Version": "1999-01-01"}, mcpBadVersion},
+		"modern, method mismatch": {`{"jsonrpc":"2.0","method":"notifications/initialized","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}`,
+			map[string]string{"MCP-Protocol-Version": mcpModern, "Mcp-Method": "ping"}, mcpHeaderMismatch},
+		"modern, unsupported version": {`{"jsonrpc":"2.0","method":"notifications/initialized","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2099-01-01"}}}`,
+			map[string]string{"MCP-Protocol-Version": "2099-01-01", "Mcp-Method": "notifications/initialized"}, mcpBadVersion},
+	} {
+		if w := postRPC(h, token, c.body, c.headers); w.Code != 400 || decodeRPC(t, w).Error.Code != c.code {
+			t.Errorf("notification, %s: %d %s", name, w.Code, w.Body.String())
+		}
+	}
 	reply := decodeRPC(t, postRPC(h, token, rpcBody(2, "tools/list", nil), map[string]string{"MCP-Protocol-Version": "2025-06-18"}))
 	tools, _ := reply.Result["tools"].([]any)
 	var names []string
@@ -428,6 +448,9 @@ func TestMCPProtocolEras(t *testing.T) {
 		"batch":      "[" + rpcBody(13, "ping", nil) + "]",
 		"not json":   "{",
 		"null id":    `{"jsonrpc":"2.0","id":null,"method":"ping"}`,
+		"object id":  `{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}`,
+		"array id":   `{"jsonrpc":"2.0","id":[1],"method":"ping"}`,
+		"boolean id": `{"jsonrpc":"2.0","id":true,"method":"ping"}`,
 		"no version": `{"id":1,"method":"ping"}`,
 		"too large":  `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"x":"` + strings.Repeat("a", mcpBodyMax) + `"}}`,
 	} {
