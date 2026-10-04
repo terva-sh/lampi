@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:41:59Z
-updated_at: 2026-10-04T21:50:10Z
+updated_at: 2026-10-04T21:57:38Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -74,8 +74,8 @@ The SDK misses one rule that ours follows: it compares `Mcp-Name` to the body wi
 
 ### Kept as lampi's own, deliberately
 
-- Bearer auth stays in `tokenFor`, in front of the SDK. The SDK's `auth` package would link `golang-jwt/jwt/v5` next to the `go-jose` that `go-oidc` already brings.
-- Arguments are validated once, by the query layer's own parsers. The SDK's typed `AddTool[In, Out]` would put a second validator in front of them, whose errors bypass the `invalid_request` body and hint, and whose refusals would skip the audit.
+- Bearer auth stays in `tokenFor`, in front of the SDK, so the endpoint answers as the event stream does: 401 `not_authenticated` with the `lampi-mcp` realm, and 404 for a token without `events:read`. The SDK's `auth.RequireBearerToken` also takes a verifier, but it answers a missing permission with a plain-text 403 and checks expiry against the system clock. (An earlier draft of this ticket said that package would link `golang-jwt/jwt/v5`. That was wrong: only an `oauthex` test imports it, so it is in the build list and not in the binary.)
+- Arguments are validated once, by the query layer's own parsers. The SDK's typed `AddTool[In, Out]` would put a second validator in front of them, which could disagree with them, and whose errors bypass the `invalid_request` body and hint.
 - The Origin check stays ours, matched against `base_url`. The SDK's localhost protection is off because the lake runs behind a proxy, so its Host header is the lake's public name.
 - The stdio bridge, `terva-lampi mcp`, stays a forwarder. An SDK client-and-server pair would negotiate one version with the agent and another with the lake, would snapshot the tool list at start, and would need the lake reachable before the agent's first message.
 - The open-route rate limiter in `internal/api/identity.go` and the channel semaphores in `internal/api/server.go` and `internal/webauth` stay as they are, even though `x/time/rate` and `x/sync` now ship in the binary. `rate.Limiter` moves its clock back when wall time steps back, and refills that gap again on the next call. Ours does not. A per-token MCP rate limit (TKT-01M445H1) may use `x/time/rate`.

@@ -311,37 +311,95 @@ read in the token's scope:
   Search drops hits outside the scope, and `coverage` is reported only to
   a token that reads every session.
 
-The server keeps no state and answers every request with one JSON body.
-It serves two protocol eras on the same path:
+The protocol is served by the official Go SDK,
+[`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk).
+lampi keeps the token, the Origin check, the audit and the tools. The
+server keeps no state and answers every request with one JSON body. It
+serves two protocol eras on the same path:
 
 | Era | Versions | How a request is recognized |
 |---|---|---|
-| Initialize | `2025-11-25`, `2025-06-18`, `2025-03-26` | No version in `_meta`. `initialize` gets the requested version when it is in this list, and `2025-11-25` otherwise. A missing `MCP-Protocol-Version` header means `2025-03-26`. |
-| Per-request metadata | `2026-07-28` | `params._meta["io.modelcontextprotocol/protocolVersion"]` is set. The `MCP-Protocol-Version`, `Mcp-Method` and, for `tools/call`, `Mcp-Name` headers must repeat the body's values. `server/discover` lists every served version. |
+| Initialize | `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` | No version in `_meta`. `initialize` gets the requested version when it is in this list, and `2025-11-25` otherwise. A missing `MCP-Protocol-Version` header means `2025-03-26`. |
+| Per-request metadata | `2026-07-28` | `params._meta` names the version in `io.modelcontextprotocol/protocolVersion` and carries `io.modelcontextprotocol/clientCapabilities`. The `MCP-Protocol-Version`, `Mcp-Method` and, for `tools/call`, `Mcp-Name` headers must repeat the body's values. `Mcp-Name` may be in the base64 form `=?base64?…?=`. `ping` is gone in this era, and `server/discover` lists every served version. |
+
+Capabilities are `tools` only. A result in the per-request era carries
+`resultType` and the server's identity in `_meta`, and `tools/list` adds
+`ttlMs` and `cacheScope`. Tools are listed by name.
 
 | Request | Answer |
 |---|---|
 | A notification | `202` with no body. |
-| A header that does not match the body | `400`, JSON-RPC error `-32020`. |
-| A version not served | `400`, JSON-RPC error `-32022`, with `data.supported` and `data.requested`. |
-| An unknown method | JSON-RPC error `-32601`: status `404` for a per-request-metadata request, `200` otherwise. |
-| A batch, or a body that is not one JSON-RPC 2.0 request | `400`. |
+| A header that does not match the body, or a required one missing | `400`, JSON-RPC error `-32020`. |
+| Per-request `_meta` without `clientCapabilities` | `400`, JSON-RPC error `-32602`. |
+| A per-request version not served | `400`, JSON-RPC error `-32022`, with `data.supported` and `data.requested`. |
+| An initialize-era version header not served | `400` with a plain-text body. |
+| An unknown method | `404`, JSON-RPC error `-32601`, in the per-request era. A `400` with a plain-text body in the initialize era. |
+| A batch | Refused with `400` from `2025-06-18` on. A request with no version header is `2025-03-26`, which allowed batches. |
+| A body that is not JSON-RPC 2.0, or an id that is neither a string nor a number | `400` with a plain-text body. |
 | A body over 64 KiB | `413`. |
-| An `Origin` header other than the lake's `base_url` | `403`. |
+| An `Origin` header other than the lake's `base_url` | `403`, JSON-RPC error `-32600` with no id. |
 | `GET` or `DELETE` | `405` with `Allow: POST`. |
 
+Every answer carries `Cache-Control: no-store`.
+
 Each `tools/call` is written to `audit.jsonl` as one `events.read` event
-before its result is sent, a refused call included. The actor is the
-token. The detail names the tool, the session and the filters, as in
+before the SDK looks up the tool, so a refused call is included, and so
+is a call to an unknown tool. The actor is the token. The detail names
+the tool, the session and the filters, as in
 `mcp tool=search q=8B event_type=tool_call`. Search text is given by its
 length only, and a cursor by its presence. Only the arguments the tool
 names are written. Others are counted as `unknown_args=N`, an unknown
 tool is `mcp tool=unknown`, and a session uid that does not look like one
 is `session=invalid`. A call whose event cannot be queued is JSON-RPC
-error `-32603` with the message `audit_failed`, and reads nothing.
+error `-32603` with the message `audit_failed`, and reads nothing. A
+`tools/call` without `params` is not audited: the SDK refuses it before
+that, and it names no tool and reads nothing.
 
 The token errors are those of the event stream, with
 `WWW-Authenticate: Bearer realm="lampi-mcp"`.
+
+#### Where lampi departs from the SDK and the specification
+
+These are deliberate. TKT-01M44DVPVX records the alternatives.
+
+Settings lampi chooses:
+
+- **Stateless, one JSON body per request.** Nothing is kept between
+  requests and nothing streams, so there is no session to expire and no
+  stream to hold open.
+- **Tools only.** The tool list is fixed, so `listChanged` is not
+  offered. The SDK's default would also offer `logging`, which
+  2026-07-28 deprecates.
+- **Localhost protection is off.** The SDK refuses a request that
+  arrives on a loopback address with a `Host` that is not a loopback
+  name. Behind a proxy on the lake's host, every request arrives that
+  way, with the lake's name as `Host`. The `Origin` check against
+  `base_url`, which the transport requires against DNS rebinding,
+  takes its place, along with the bearer token.
+- **lampi checks the token, not the SDK.** `tokenFor` is the event
+  stream's check, so the endpoint answers as that route does: `401
+  not_authenticated` with the `lampi-mcp` realm, and `404` for a token
+  without `events:read`. The SDK's `auth.RequireBearerToken` takes a
+  verifier too, but it answers a missing permission `403` with a
+  plain-text body, and checks expiry against the system clock rather
+  than the lake's.
+- **Arguments are checked by each browser route's own parser**, not by
+  the SDK against the tool's input schema. A tool refuses exactly what
+  its route refuses, with the same error body and hint, and no second
+  check can disagree with the route's. The schema describes the
+  arguments; it does not check them.
+- **`Cache-Control: no-store` replaces the SDK's `no-cache`**, as on all
+  authenticated data. `no-cache` lets a cache keep a copy.
+
+Where the SDK falls short of the specification:
+
+- **The base64 form of `Mcp-Name`.** The SDK compares the header to the
+  body as sent, and the transport says a server decodes it first. lampi
+  decodes it before the SDK sees the request.
+- **An unknown method in the initialize era** is a plain-text `400`, not
+  JSON-RPC error `-32601`. This is left as it is: every method the
+  specification names is known to the SDK, and an unused one such as
+  `resources/list` answers an empty list.
 
 ## Transcript events
 

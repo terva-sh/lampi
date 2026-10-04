@@ -25,6 +25,7 @@ The module path is `terva.sh/lampi`, the same vanity prefix as `terva.sh/terva`.
 | HTTP | `internal/api` | healthz, catalog stats, divergent_copy list, hello, blob check/put, manifests |
 | Browser UI | `internal/web` | Optional Go templates and embedded assets; viewer-only metadata, transcript, search, excerpt and activity API; see [web-dashboard.md](web-dashboard.md) |
 | Recall | `internal/recall` | Query layer shared by the browser API and the MCP server: generation-pinned event pages, the `search.db` FTS5 index, deep links and excerpts; see [web-api.md](web-api.md) |
+| MCP | `internal/web/mcp.go`, `internal/cli/mcp.go` | The recall tools served by the official Go SDK's MCP server behind lampi's token, Origin check and audit, and `terva-lampi mcp`, the stdio bridge an agent starts; see [web-api.md](web-api.md#mcp-recall-tools) |
 | Browser identity | `internal/webauth`, `internal/webconfig` | Explicit server config, OIDC code + PKCE, mapped groups, bounded in-memory sessions; separate from device tokens |
 | Device token | `internal/auth` | 256-bit file, mode 0600. SHA-256 hash at rest |
 | Machine id | `internal/config` | ULID in `~/.config/terva-lampi/machine.json` |
@@ -541,6 +542,35 @@ deploy/                   example agent and serve units, launchd, alias
 embeds them yet. git-ticket exports `cli` so terva can run `terva ticket`.
 If terva ever grows a `terva lampi` alias, this package is what would move
 out of `internal`.
+
+## Dependencies
+
+`go.mod` stays short. A module comes in when it does a job lampi would
+otherwise keep up by hand against an outside specification, as the MCP
+SDK does. A job lampi defines for itself stays lampi's code, even when a
+module that is already linked could do it.
+
+- **The MCP SDK** (`modelcontextprotocol/go-sdk`) serves the protocol.
+  The tools, the token check, the Origin check and the audit stay
+  lampi's. [web-api.md](web-api.md#where-lampi-departs-from-the-sdk-and-the-specification)
+  lists what lampi sets and where it departs from the SDK.
+- **`golang.org/x/time/rate`** ships with the SDK. The open routes'
+  limiter in `internal/api/identity.go` stays lampi's own: when the wall
+  clock steps back, `rate.Limiter` moves its clock back too and refills
+  the gap again on the next call, and lampi's does not.
+- **`golang.org/x/sync`** ships with the SDK too. The upload slots in
+  `internal/api` and the identity-provider slots in `internal/webauth`
+  stay buffered channels. `admit` makes one try, then waits on a timer
+  before it answers `503` with `Retry-After`, and the provider's slots
+  refuse at once when they are full. A semaphore would make neither
+  shorter.
+- **The SDK's JSON decoder, `segmentio/encoding`**, is the SDK's own
+  concern. lampi decodes with `encoding/json`.
+
+The `golang.org/x` modules move together, to their current releases. A
+module whose output lands on disk, such as `klauspost/compress` for
+zstd, is bumped in its own change, which checks that data written by
+the old version still reads.
 
 ## Auth and where the bytes sit
 
