@@ -208,7 +208,7 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 		t.Fatal("export created a live journal")
 	}
 	text := string(body)
-	for _, secret := range []string{"sekret-token", "sekret-refresh", "sekret-blob", "sekret-plain", "cursorAuth"} {
+	for _, secret := range []string{"sekret-token", "sekret-refresh", "sekret-blob", "sekret-plain", "cursorAuth", "blobEncryptionKey"} {
 		if strings.Contains(text, secret) {
 			t.Fatalf("export contains %s: %s", secret, text)
 		}
@@ -441,6 +441,7 @@ func TestExcludedKey(t *testing.T) {
 	for _, key := range []string{
 		"cursorAuth", "cursorAuth/accessToken", "CursorAuth/refreshToken",
 		"accessToken", "AccessToken", "refresh_token", "workosCursorSessionToken",
+		"blobEncryptionKey", "BlobEncryptionKey",
 	} {
 		if !excludedKey(key) {
 			t.Fatalf("kept %s", key)
@@ -544,7 +545,7 @@ func seedLive(t *testing.T, path string) (string, error) {
 	if _, err := db.Exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
 		return "", err
 	}
-	meta := `{"name":"kept-title","accessToken":"sekret-token","createdAt":1767396459642,"cursorAuth":{"refreshToken":"sekret-refresh"}}`
+	meta := `{"name":"kept-title","accessToken":"sekret-token","blobEncryptionKey":"sekret-blobkey","createdAt":1767396459642,"cursorAuth":{"refreshToken":"sekret-refresh"}}`
 	if _, err := db.Exec(`INSERT INTO meta (key, value) VALUES ('0', ?), ('cursorAuth/accessToken', 'sekret-plain')`, hex.EncodeToString([]byte(meta))); err != nil {
 		return "", err
 	}
@@ -606,7 +607,7 @@ func hashes(t *testing.T, dbPath string) map[string]string {
 
 func bytesContainAuth(b []byte) bool {
 	s := string(b)
-	return strings.Contains(s, "cursorAuth") || strings.Contains(s, "sekret-token") || strings.Contains(s, "sekret-refresh") || strings.Contains(s, "sekret-blob") || strings.Contains(s, "sekret-plain")
+	return strings.Contains(s, "cursorAuth") || strings.Contains(s, "blobEncryptionKey") || strings.Contains(s, "sekret-token") || strings.Contains(s, "sekret-refresh") || strings.Contains(s, "sekret-blob") || strings.Contains(s, "sekret-plain")
 }
 
 func mustWrite(t *testing.T, path, body string) {

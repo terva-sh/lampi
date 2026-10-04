@@ -468,7 +468,7 @@ func cliAuthKey(key string) bool {
 	switch strings.ToLower(key) {
 	case "accesstoken", "refreshtoken", "idtoken", "sessiontoken",
 		"access_token", "refresh_token", "id_token", "session_token",
-		"workoscursorsessiontoken":
+		"workoscursorsessiontoken", "blobencryptionkey":
 		return true
 	default:
 		return false

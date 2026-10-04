@@ -562,7 +562,7 @@ func TestCursorCLIAuthAbsent(t *testing.T) {
 			"meta": []any{
 				map[string]any{"key": "cursorAuth/accessToken", "value": secret},
 				map[string]any{"key": "0", "value": map[string]any{
-					"name": "hello pond", "refreshToken": secret,
+					"name": "hello pond", "refreshToken": secret, "blobEncryptionKey": secret,
 				}},
 			},
 			"blobs": []any{
