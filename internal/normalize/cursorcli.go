@@ -195,20 +195,21 @@ func rowField(dec *json.Decoder, raw []byte, field string) (int, error) {
 	if tok != json.Delim('{') {
 		return start, nil
 	}
-	// A repeated field takes the last one, the value json.Unmarshal
-	// gave the parse.
+	// A repeated field takes the last one that is not null: the value
+	// json.Unmarshal gave the parse, which leaves a string alone on null.
 	at := start
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
 			return 0, err
 		}
-		if key == field {
-			at = skipSpace(raw, int(dec.InputOffset()), false)
-		}
-		var skip json.RawMessage
-		if err := dec.Decode(&skip); err != nil {
+		valueAt := skipSpace(raw, int(dec.InputOffset()), false)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
 			return 0, err
+		}
+		if key == field && !isNull(value) {
+			at = valueAt
 		}
 	}
 	if _, err := dec.Token(); err != nil {

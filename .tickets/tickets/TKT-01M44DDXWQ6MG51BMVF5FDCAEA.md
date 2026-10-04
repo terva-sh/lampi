@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T21:34:28Z
-updated_at: 2026-10-04T21:43:44Z
+updated_at: 2026-10-04T21:55:09Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -76,3 +76,7 @@ Supersedes the plan's forward cursor. terva-review on #192 (review 2127, medium)
 **agent:claude-code/580cbe08** at 2026-10-04T21:43:44Z
 
 Supersedes the previous note's in-span substring search. terva-review on #192 (review 2128, medium) found that inside one row a spaced top-level "id": "aaa" lets the compact nested "id":"aaa" in its data win. The decoder pass now walks each element's top-level keys and records where its own "key" or "id" value starts; there is no substring search. A row with no such field gets its first byte; a repeated field takes the last, as json.Unmarshal does for the parse. Real 284 MB export: 2.4 s, every row resolved. Mutations (offsets off, top-level field ignored) each fail a test.
+
+**agent:claude-code/580cbe08** at 2026-10-04T21:55:09Z
+
+terva-review on #192 (review 2129): a repeated null id or key moved the offset, though json.Unmarshal leaves the parsed string alone on null; fixed, with the case in TestCursorCLIOffsetsStayInTheirRow. The same review's finding about the 256 MiB cap and ACP support does not apply to this PR: those landed in #191, already on this PR's base (b2db016); this PR's diff is the normalize projector, its test, and tickets.
