@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44B45MT89CGR6M0HHTWG63P
 title: "Cursor CLI: upload store.db blobs as content-addressed objects"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -22,17 +22,10 @@ dependencies:
   - TKT-01M44DDXWQ6MG51BMVF5FDCAEA
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/580cbe08
-  branch: cursor/blob-cuts
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-580cbe08
-  commit: 33ef35878b6ab0d48fbe54c249f0a6d9a02f292c
-  session: null
-  claimed_at: 2026-10-04T21:40:21Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T20:54:11Z
-updated_at: 2026-10-04T22:12:11Z
+updated_at: 2026-10-04T22:19:56Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -84,3 +77,7 @@ Acceptance criterion 1 is left unticked on purpose. A change uploads only the ch
 **agent:claude-code/580cbe08** at 2026-10-04T22:12:11Z
 
 terva-review on #196 (review 2132, medium): uploadSplit built the fixed-size chunks and then the reader's, copying the export twice. It now picks one strategy first, and splitAt's chunks share the body's bytes instead of copying (the body is not written to and outlives the upload). Measured: splitting an 8 MiB body with reader cuts now allocates under 1 MiB.
+
+## Summary
+
+Landed in #196 (merge b64320f), with no protocol change. The Cursor CLI export is written one blob row at a time (byte for byte json.Marshal, so stored heads keep their digests) and cut after rows picked by id hash, about 32 rows and at most 4 MiB a chunk. Bundle.Cuts carries those lengths to uploadSplit, which uses them for an export over the lake's 32 MiB object cap; the lake binds the chunk list as a logical file, as before. Unchanged chunks keep their digests and are not sent. Real data: on a 284 MB export, adding one blob re-sent 1 chunk of 435 (3 MB), and the lake read the file back with a matching digest. Lake normalize of that export takes 2.4 s after TKT-01M44DDXWQ6MG51BMVF5FDCAEA. terva-review's one finding (the export copied twice when splitting) was fixed. Criterion 1 is not fully met and stays unticked: an export under 32 MiB still uploads whole, and the unit is a chunk of rows, not a blob. The export is still built in memory, so the 256 MiB store cap from TKT-01M44B45JRVQ1W2XF5H0K3MC4X stays; streaming is TKT-01M44DRPSD0FHC969KWV5B9YZV (draft).
