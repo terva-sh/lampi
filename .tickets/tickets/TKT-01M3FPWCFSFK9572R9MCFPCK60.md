@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWCFSFK9572R9MCFPCK60
 title: "MCP: serve recall tools over the shared query layer"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -22,15 +22,22 @@ dependencies:
   - TKT-01M3FPWCDFXXCHD8F5PA0GGMWP
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/9078ac3f
+  branch: t3code/expose-session-lake-tools
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
+  commit: 478435f193ed03f0e6e0e2fdf759e78bdab922a8
+  session: null
+  claimed_at: 2026-10-04T18:16:20Z
+  expires_at: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-01T06:49:12Z
+updated_at: 2026-10-04T18:16:20Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/dae09bda
+  id: agent:claude-code/9078ac3f
   name: ""
 extensions: {}
 ---
