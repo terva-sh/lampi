@@ -207,6 +207,12 @@ func TestMCPBridgeExplainsRefusals(t *testing.T) {
 			t.Errorf("%s: %v", name, replies)
 		}
 	}
+	// A message the lake's server refuses in plain text gets that reason.
+	events := tokenFile(t, lake, catalog.PermEventsRead)
+	replies, _ := runBridge(t, srv.URL, events, `{"jsonrpc":"2.0","id":7,"method":"nope/nothing"}`)
+	if e, _ := replies["7"]["error"].(map[string]any); e == nil || !strings.Contains(e["message"].(string), "the lake answered 400") || !strings.Contains(e["message"].(string), "nope/nothing") {
+		t.Errorf("plain-text refusal: %v", replies)
+	}
 	if err := Run([]string{"mcp", "--server", "http://lake.example", "--token-file", raw}, Env{Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "plain http") {
 		t.Errorf("plain http to a remote lake: %v", err)
 	}

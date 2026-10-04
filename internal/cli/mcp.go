@@ -256,7 +256,7 @@ func (b *mcpBridge) forward(m mcpMessage, body []byte) {
 	}
 	isRPC := strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") && len(reply) <= mcpReplyMax && json.Unmarshal(reply, &rpc) == nil && rpc.JSONRPC == "2.0"
 	if !isRPC {
-		b.fail(m, -32603, mcpRefusal(resp.StatusCode, reply))
+		b.fail(m, -32603, mcpRefusal(resp.StatusCode, resp.Header.Get("Content-Type"), reply))
 		return
 	}
 	if m.Method == "initialize" && rpc.Result.ProtocolVersion != "" {
@@ -305,13 +305,25 @@ func mcpErrorLine(id json.RawMessage, code int, msg string) []byte {
 }
 
 // mcpRefusal says what to do about an answer that is not JSON-RPC: the
-// lake refused the token, or has no MCP endpoint.
-func mcpRefusal(status int, body []byte) string {
+// lake refused the token, has no MCP endpoint, or refused the message.
+func mcpRefusal(status int, contentType string, body []byte) string {
 	var refusal struct {
 		Error string `json:"error"`
 	}
 	_ = json.Unmarshal(body, &refusal)
-	msg := fmt.Sprintf("the lake answered %d %s", status, refusal.Error)
+	reason := refusal.Error
+	if reason == "" && strings.HasPrefix(contentType, "text/plain") {
+		// The lake's MCP server refuses a message it cannot read with
+		// one plain line, such as an id that is not a string or number.
+		line, _, _ := bytes.Cut(body, []byte("\n"))
+		reason = strings.Map(func(r rune) rune {
+			if r < 0x20 || r > 0x7e {
+				return -1
+			}
+			return r
+		}, string(line[:min(len(line), 200)]))
+	}
+	msg := fmt.Sprintf("the lake answered %d %s", status, reason)
 	switch {
 	case status == http.StatusUnauthorized:
 		return msg + ": the read token is unknown, expired or revoked; ask an admin for a new one"
