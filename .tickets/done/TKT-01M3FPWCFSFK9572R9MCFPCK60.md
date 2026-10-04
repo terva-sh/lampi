@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3FPWCFSFK9572R9MCFPCK60
 title: "MCP: serve recall tools over the shared query layer"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -26,17 +26,10 @@ references:
     path: null
   - ref: pr:187
     path: null
-claim:
-  actor: agent:claude-code/9078ac3f
-  branch: t3code/expose-session-lake-tools
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-268e1246
-  commit: 478435f193ed03f0e6e0e2fdf759e78bdab922a8
-  session: null
-  claimed_at: 2026-10-04T18:16:20Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-26T20:35:36Z
-updated_at: 2026-10-04T18:44:33Z
+updated_at: 2026-10-04T19:17:07Z
 created_by:
   id: agent:claude-code/cd41c9ac
   name: Claude Code local agent
@@ -75,7 +68,7 @@ Two pull requests, so each stays small enough for terva-review.
 
 ### Alternatives rejected
 
-- **The official Go MCP SDK.** `go.mod` has eight direct dependencies, and the server needs only `initialize`, `server/discover`, `ping`, `tools/list` and `tools/call` with JSON replies. The SDK would add a dependency tree larger than the code it replaces.
+- **The official Go MCP SDK.** `go.mod` has eight direct dependencies, and the server needs only `initialize`, `server/discover`, `ping`, `tools/list` and `tools/call` with JSON replies. The SDK's own dependency tree was not measured. In hindsight, six of the eight review findings were protocol corners the SDK would likely have handled; TKT-01M445H1 asks to measure it before the next protocol revision.
 - **Filtering hits by `t.Allows` in the adapter.** Search pages would hold fewer hits than the limit for no visible reason, and each new tool would have to remember the filter. The Scope makes the catalog refuse what the token cannot read.
 - **Making links absolute inside `recall`.** It would add an input to `SearchRequest` and `EventRequest` that only one adapter sets, and would change the search cursor fingerprint. The excerpt already takes `Origin` because its text is pasted elsewhere; a link in JSON is the adapter's presentation.
 - **`structuredContent` and `outputSchema`.** The spec asks for the same JSON in a text block as well, which would double what reaches the agent's context.
@@ -107,3 +100,34 @@ The official TypeScript MCP SDK client ran against a throwaway localhost lake: o
 
 - TKT-01M44347FD (Flaky under load: sqlitesnap TestTakeIsConsistentUnderAWriter)
 - TKT-01M44347GZ (go.mod lists zeebo/blake3 as indirect; -mod=mod rewrites it)
+
+**agent:claude-code/9078ac3f** at 2026-10-04T19:16:34Z
+
+### Review rounds after the first note
+
+terva-review ran six times on the two PRs and raised eight findings, each fixed with a test that fails on the commit before the fix:
+
+- 2102: two audit gaps, covered in the earlier note.
+- 2103: search dropped a `session_uid` argument instead of refusing it, so an agent narrowing a search to one session got every session's hits.
+- 2105: notifications skipped the version and header checks, and object, array and boolean ids were accepted.
+- 2107, then 2111: a failed stdout write in the bridge was ignored. The first fix covered only the synchronous `initialize` path. The second reads stdin on its own goroutine, so a failed write ends `serve` while stdin is idle.
+- 2112: `initialize` skipped the header check.
+- 2115, low, not fixed: the bridge does not log the lake's refusal of a notification. Filed in TKT-01M445H1.
+
+The last reviews on both heads were clean at the failure threshold.
+
+### Second-model review of the decision trail
+
+An investigator subagent on a different model (Sonnet) read the decision log, the session digest and the diff. Acted on: rerunning the stdio SDK client against the merged binary (it passed), removing the scratch worktree, closing this ticket, and correcting the unmeasured SDK claim in the plan. Filed as TKT-01M445H1: an MCP-level bay-scoped token test, a real-client check of the 2026-07-28 era, bridge concurrency and cancellation, an audit rate limit, and `SessionBayNames` ignoring a session narrowing. Reported to the owner, not changed: `git ticket claim` writes the local worktree path into the ticket, and the GitHub sync published it, as it already had for eight other tickets.
+
+## Summary
+
+Shipped in #186 and #187, merged to main at 3acce92 and synced to GitHub.
+
+- The lake serves MCP at `POST /api/read/v1/mcp` to read tokens holding `events:read`, with three tools: `search`, `read_events` and `copy_excerpt`. Each calls the same helper as its browser route, and the route's own parser reads the tool's arguments. `TestMCPToolsMatchTheWebAPI` checks the results match, with links made absolute.
+- `catalog.ReadTokenScope` turns a token into a `Scope`, narrowed by `Scope.OnlySessions` to any sessions it names, so the catalog refuses what the token cannot read.
+- The endpoint is stateless. It serves initialize-era clients (2025-03-26 to 2025-11-25) and 2026-07-28 per-request `_meta` clients. Every `tools/call` is audited as `events.read` before it runs, refused calls included, with only the arguments the tool names, and with search text recorded by length.
+- `terva-lampi mcp` is a stdio bridge. An agent's MCP configuration names the token file, never the token. `docs/reading-the-lake.md` shows how to add it to Claude Code and Codex in place of `terva-ext-session-search`.
+- The official TypeScript MCP SDK client (1.32.0) drove both the endpoint and the bridge built from merged main.
+- Follow-ups are in TKT-01M445H1 (MCP follow-ups: bay-token tests, bridge limits, audit rate). Two unrelated drafts came out of the run: TKT-01M44347FD (sqlitesnap load flake) and TKT-01M44347GZ (`go.mod` blake3 drift).
+- The decision trail was distilled into the plan and notes here and is not committed, because its evidence cells name the internal forge.
