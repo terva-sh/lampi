@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -229,11 +230,17 @@ func TestHeaderSafe(t *testing.T) {
 	}
 }
 
-// failingWriter fails every write, as stdout does once the agent has
-// gone.
-type failingWriter struct{}
+// failingWriter fails every write after the first ok ones, as stdout
+// does once the agent has gone.
+type failingWriter struct{ ok int }
 
-func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+func (f *failingWriter) Write(p []byte) (int, error) {
+	if f.ok > 0 {
+		f.ok--
+		return len(p), nil
+	}
+	return 0, errors.New("broken pipe")
+}
 
 // A write to the agent that fails ends the bridge with that error, rather
 // than dropping answers while it goes on forwarding (review 2107).
@@ -244,12 +251,38 @@ func TestMCPBridgeStopsWhenTheAgentIsGone(t *testing.T) {
 	for i := 2; i < 50; i++ {
 		lines = append(lines, rpcLine(i, "ping", nil))
 	}
-	env := Env{Stdin: strings.NewReader(strings.Join(lines, "\n") + "\n"), Stdout: failingWriter{}, Stderr: &bytes.Buffer{}}
+	env := Env{Stdin: strings.NewReader(strings.Join(lines, "\n") + "\n"), Stdout: &failingWriter{}, Stderr: &bytes.Buffer{}}
 	err := Run([]string{"mcp", "--server", srv.URL, "--token-file", token}, env)
 	if err == nil || !strings.Contains(err.Error(), "writing to the agent") {
 		t.Fatalf("mcp with a broken stdout: %v", err)
 	}
 	if len(*seen) > 2 {
 		t.Errorf("the bridge sent %d requests after the agent was gone", len(*seen))
+	}
+}
+
+// A failed write ends the bridge even when the agent keeps stdin open and
+// sends nothing more: the answer to a concurrent request fails while the
+// bridge waits for the next line (review 2111).
+func TestMCPBridgeStopsWhileTheAgentIsSilent(t *testing.T) {
+	lake, srv, _ := mcpLake(t)
+	token := tokenFile(t, lake, catalog.PermEventsRead)
+	stdin, feed := io.Pipe()
+	t.Cleanup(func() { feed.Close() })
+	env := Env{Stdin: stdin, Stdout: &failingWriter{ok: 1}, Stderr: &bytes.Buffer{}}
+	done := make(chan error, 1)
+	go func() { done <- Run([]string{"mcp", "--server", srv.URL, "--token-file", token}, env) }()
+	// initialize is answered on the one write that works; the ping's
+	// answer, written from its own goroutine, fails.
+	if _, err := io.WriteString(feed, rpcLine(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"})+"\n"+rpcLine(2, "ping", nil)+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "writing to the agent") {
+			t.Fatalf("mcp: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the bridge kept waiting for input after a write to the agent failed")
 	}
 }

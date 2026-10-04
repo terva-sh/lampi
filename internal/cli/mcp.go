@@ -135,11 +135,37 @@ type mcpMessage struct {
 func (b *mcpBridge) serve(in io.Reader) error {
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	defer b.cancel()
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 64<<10), mcpLineMax)
+	// Lines are read on their own goroutine, so a failed write to the
+	// agent ends serve even while the agent sends nothing more (review
+	// 2111). That reader is left blocked on stdin; the process exits.
+	lines := make(chan []byte)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(in)
+		sc.Buffer(make([]byte, 64<<10), mcpLineMax)
+		for sc.Scan() {
+			select {
+			case lines <- append([]byte(nil), sc.Bytes()...):
+			case <-b.ctx.Done():
+				return
+			}
+		}
+		readErr <- sc.Err()
+	}()
 	var wg sync.WaitGroup
-	for b.ctx.Err() == nil && sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
+read:
+	for {
+		var line []byte
+		select {
+		case <-b.ctx.Done():
+			break read
+		case l, ok := <-lines:
+			if !ok {
+				break read
+			}
+			line = bytes.TrimSpace(l)
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -153,17 +179,16 @@ func (b *mcpBridge) serve(in io.Reader) error {
 			// there is nothing to answer.
 			continue
 		}
-		body := append([]byte(nil), line...)
 		if m.Method == "initialize" {
 			// Later requests carry the version it negotiates, so they
 			// wait for it, as the protocol has a client wait.
-			b.forward(m, body)
+			b.forward(m, line)
 			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			b.forward(m, body)
+			b.forward(m, line)
 		}()
 	}
 	wg.Wait()
@@ -173,8 +198,12 @@ func (b *mcpBridge) serve(in io.Reader) error {
 	if werr != nil {
 		return fmt.Errorf("mcp: writing to the agent: %w", werr)
 	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("mcp: reading from the agent: %w", err)
+	select {
+	case err := <-readErr:
+		if err != nil {
+			return fmt.Errorf("mcp: reading from the agent: %w", err)
+		}
+	default:
 	}
 	return nil
 }
