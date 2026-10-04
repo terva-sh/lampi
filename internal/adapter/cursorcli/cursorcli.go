@@ -33,7 +33,8 @@
 // accessToken, refreshToken, idToken, sessionToken, the same names
 // with underscores, and workosCursorSessionToken are dropped too.
 // Those are the credential fields this pin treats as equivalent to
-// cursorAuth/*. A secret that sits only inside a string or an opaque
+// cursorAuth/*. blobEncryptionKey, a key the session record under meta
+// key "0" carries, is dropped by the same rule. A secret that sits only inside a string or an opaque
 // blob is not pulled out. Ruleset v2 still scans the export.
 // auth.json is not a table in store.db and this package does not
 // open it.
