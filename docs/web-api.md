@@ -305,6 +305,10 @@ read in the token's scope:
   true. Its text is the route's error body, such as
   `{"error":"invalid_request"}`, with a `hint` that says what to change.
 - An unknown tool is JSON-RPC error `-32602`.
+- Each read token gets a burst of 30 tool calls, then 2 a second. A call
+  over that is a tool result with `isError` true, the body
+  `{"error":"rate_limited"}` and a hint to wait. The limit is per token,
+  held in memory, and starts full when the lake starts.
 - The scope is the token's: its bays, or every bay for a token from
   before bays, narrowed to its sessions when it names any. A session
   outside the scope is `not_found`, the same as one that is not there.
@@ -352,6 +356,9 @@ names are written. Others are counted as `unknown_args=N`, an unknown
 tool is `mcp tool=unknown`, and a session uid that does not look like one
 is `session=invalid`. A call whose event cannot be queued is JSON-RPC
 error `-32603` with the message `audit_failed`, and reads nothing. A
+call over its token's limit is refused before the audit and writes no
+event: the limit is what bounds these synced writes, as on the open
+routes. A
 `tools/call` without `params` is not audited: the SDK refuses it before
 that, and it names no tool and reads nothing.
 
