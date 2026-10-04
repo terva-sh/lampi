@@ -87,6 +87,7 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		return nil, err
 	}
 	events := []Event{env}
+	at := offsets{raw: raw}
 	for _, row := range doc.Meta {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -94,7 +95,7 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		if cliAuthKey(row.Key) {
 			continue
 		}
-		ev, err := c.projectMeta(raw, row)
+		ev, err := c.projectMeta(at.find(`"key":`, row.Key), row)
 		if err != nil {
 			return nil, err
 		}
@@ -107,13 +108,41 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		if cliAuthKey(row.ID) {
 			continue
 		}
-		ev, err := c.projectBlob(raw, row)
+		ev, err := c.projectBlob(at.find(`"id":`, row.ID), row)
 		if err != nil {
 			return nil, err
 		}
 		events = append(events, ev)
 	}
 	return events, nil
+}
+
+// offsets finds each row in the export, in document order, by its own
+// field: "key":"<key>" for a meta row and "id":"<id>" for a blob. A
+// search starts where the previous row was found, so the whole document
+// is read about once. Searching from the start for every row read it
+// once per row, which on an export of tens of thousands of blobs and
+// hundreds of megabytes did not finish. Matching the field rather than
+// the bare quoted key also keeps a row's offset off an earlier row that
+// names it as a value.
+type offsets struct {
+	raw []byte
+	at  int
+}
+
+// find is the offset of key's quoted form where it follows field, at
+// or after the previous find. A row that is not found that way, in a
+// document written in another order or spacing, is looked for the way
+// cursorOffset does and does not move the next search.
+func (o *offsets) find(field, key string) int {
+	if key == "" || len(o.raw) == 0 {
+		return 0
+	}
+	if i := bytes.Index(o.raw[o.at:], []byte(field+strconvQuote(key))); i >= 0 {
+		o.at += i + len(field)
+		return o.at
+	}
+	return cursorOffset(o.raw, key)
 }
 
 type cursorCLIExport struct {
@@ -208,13 +237,13 @@ func (c CursorCLI) envelope(doc cursorCLIExport) (Event, error) {
 	return c.emit("cursor_cli_store_json", EventMeta, "", time.Time{}, 0, "", extra)
 }
 
-func (c CursorCLI) projectMeta(raw []byte, row cursorCLIMeta) (Event, error) {
+func (c CursorCLI) projectMeta(offset int, row cursorCLIMeta) (Event, error) {
 	if isBase64Wrapper(row.Value) || !jsonIsObject(row.Value) {
-		return c.projectMetaUnknown(raw, row)
+		return c.projectMetaUnknown(offset, row)
 	}
 	obj, ok := jsonObject(row.Value)
 	if !ok {
-		return c.projectMetaUnknown(raw, row)
+		return c.projectMetaUnknown(offset, row)
 	}
 	// Key "0" is the session record. It is never a message turn, even
 	// when the object also carries text. Other objects are meta only
@@ -225,64 +254,64 @@ func (c CursorCLI) projectMeta(raw []byte, row cursorCLIMeta) (Event, error) {
 			return Event{}, err
 		}
 		extra["meta_key"] = row.Key
-		return c.emit(row.Key, EventMeta, "", cursorWhen(obj), cursorOffset(raw, row.Key), "", extra)
+		return c.emit(row.Key, EventMeta, "", cursorWhen(obj), offset, "", extra)
 	}
-	return c.projectMetaUnknown(raw, row)
+	return c.projectMetaUnknown(offset, row)
 }
 
-func (c CursorCLI) projectMetaUnknown(raw []byte, row cursorCLIMeta) (Event, error) {
+func (c CursorCLI) projectMetaUnknown(offset int, row cursorCLIMeta) (Event, error) {
 	extra := map[string]any{"meta_key": row.Key}
 	if !isNull(row.Value) {
 		extra["value"] = cliOpaque(row.Value)
 	}
-	return c.emit(row.Key, EventUnknown, "", time.Time{}, cursorOffset(raw, row.Key), "", extra)
+	return c.emit(row.Key, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
-func (c CursorCLI) projectBlob(raw []byte, row cursorCLIBlob) (Event, error) {
+func (c CursorCLI) projectBlob(offset int, row cursorCLIBlob) (Event, error) {
 	if isBase64Wrapper(row.Data) || !jsonIsObject(row.Data) {
-		return c.projectBlobUnknown(raw, row)
+		return c.projectBlobUnknown(offset, row)
 	}
 	obj, ok := jsonObject(row.Data)
 	if !ok {
-		return c.projectBlobUnknown(raw, row)
+		return c.projectBlobUnknown(offset, row)
 	}
 	// A non-string content value is a parts array or another structure.
 	// v1 does not read strings out of it and does not fall through to
 	// text or rawText.
 	if cliNonStringContent(obj) {
-		return c.projectBlobObjectUnknown(raw, row, obj)
+		return c.projectBlobObjectUnknown(offset, row, obj)
 	}
 	role, roleOK := cliMessageRole(obj)
 	text, textOK := cliCleartext(obj)
 	if !roleOK || !textOK {
-		return c.projectBlobUnknown(raw, row)
+		return c.projectBlobUnknown(offset, row)
 	}
 	extra, err := cliObjectExtra(obj)
 	if err != nil {
 		return Event{}, err
 	}
 	extra["blob_id"] = row.ID
-	return c.emit(row.ID, EventMessage, role, cursorWhen(obj), cursorOffset(raw, row.ID), text, extra)
+	return c.emit(row.ID, EventMessage, role, cursorWhen(obj), offset, text, extra)
 }
 
 // projectBlobObjectUnknown keeps the blob as one unknown event. The
 // object fields, including a content parts array, sit on extra. Parts
 // are not promoted.
-func (c CursorCLI) projectBlobObjectUnknown(raw []byte, row cursorCLIBlob, obj map[string]json.RawMessage) (Event, error) {
+func (c CursorCLI) projectBlobObjectUnknown(offset int, row cursorCLIBlob, obj map[string]json.RawMessage) (Event, error) {
 	extra, err := cliObjectExtra(obj)
 	if err != nil {
 		return Event{}, err
 	}
 	extra["blob_id"] = row.ID
-	return c.emit(row.ID, EventUnknown, "", time.Time{}, cursorOffset(raw, row.ID), "", extra)
+	return c.emit(row.ID, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
-func (c CursorCLI) projectBlobUnknown(raw []byte, row cursorCLIBlob) (Event, error) {
+func (c CursorCLI) projectBlobUnknown(offset int, row cursorCLIBlob) (Event, error) {
 	extra := map[string]any{"blob_id": row.ID}
 	if !isNull(row.Data) {
 		extra["value"] = cliOpaque(row.Data)
 	}
-	return c.emit(row.ID, EventUnknown, "", time.Time{}, cursorOffset(raw, row.ID), "", extra)
+	return c.emit(row.ID, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
 func (c CursorCLI) emit(rawType, eventType, role string, recorded time.Time, offset int, text string, extra map[string]any) (Event, error) {

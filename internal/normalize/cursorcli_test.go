@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -618,4 +619,42 @@ func cursorCLIRawTypes(events []Event) []string {
 		out[i] = ev.RawType
 	}
 	return out
+}
+
+// Each row's content_ref offset is where that row sits, found by a
+// search that moves forward through the document. A blob id that an
+// earlier blob names as a field value does not pull the later row's
+// offset back to that field.
+func TestCursorCLIOffsetsFollowTheRows(t *testing.T) {
+	// The adapter's field order: meta before blobs, id before data.
+	raw := []byte(`{"harness_version":"1","confidence":"low","source":"acp-sessions/s/store.db","scope":"session",` +
+		`"meta":[{"key":"0","value":{"name":"pond"}}],` +
+		`"blobs":[{"id":"aaa","data":{"role":"user","content":"first","next":"bbb"}},` +
+		`{"id":"bbb","data":{"role":"assistant","content":"seen"}}]}`)
+	c := CursorCLI{Now: time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC), NativeID: "acp-sessions/s", HarnessVersion: "1", CWD: "/work/app", ProjectID: "local", Digest: "d"}
+	events, err := c.Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := map[string]int{}
+	for _, ev := range events {
+		if ev.ContentRef == nil {
+			continue
+		}
+		_, off, _ := strings.Cut(*ev.ContentRef, "#")
+		n, err := strconv.Atoi(off)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at[ev.RawType] = n
+	}
+	want := map[string]int{
+		"aaa": bytes.Index(raw, []byte(`"id":"aaa"`)) + len(`"id":`),
+		"bbb": bytes.Index(raw, []byte(`"id":"bbb"`)) + len(`"id":`),
+	}
+	for id, w := range want {
+		if at[id] != w {
+			t.Fatalf("%s at %d, want %d (offsets %v)", id, at[id], w, at)
+		}
+	}
 }
