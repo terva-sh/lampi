@@ -32,7 +32,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T20:54:11Z
-updated_at: 2026-10-04T21:40:21Z
+updated_at: 2026-10-04T22:12:11Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -80,3 +80,7 @@ Measured end to end on a copy of a real 222 MB ACP store (284,062,438-byte expor
 **agent:claude-code/580cbe08** at 2026-10-04T21:40:21Z
 
 Acceptance criterion 1 is left unticked on purpose. A change uploads only the chunks the lake lacks when the export is over the lake's 32 MiB object cap; an export under it still uploads whole, once per settled change (see the plan for why). And the unit is a chunk of about 32 rows, not one blob. Correction to TKT-01M44B45JRVQ1W2XF5H0K3MC4X: its plan and note say this ticket removes the reason for the 256 MiB store cap. It does not: the export is still built whole in memory, and the upload still reads it whole. Streaming the export is filed as a draft follow-up.
+
+**agent:claude-code/580cbe08** at 2026-10-04T22:12:11Z
+
+terva-review on #196 (review 2132, medium): uploadSplit built the fixed-size chunks and then the reader's, copying the export twice. It now picks one strategy first, and splitAt's chunks share the body's bytes instead of copying (the body is not written to and outlives the upload). Measured: splitting an 8 MiB body with reader cuts now allocates under 1 MiB.

@@ -627,9 +627,13 @@ func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int6
 	if chunk <= 0 || chunk > int64(^uint(0)>>1) {
 		return fmt.Errorf("upload: %s: chunk size %d is not usable", rel, chunk)
 	}
-	parts, lengths, chunkBody := splitBytes(body, int(chunk))
+	var parts []string
+	var lengths []int64
+	var chunkBody map[string][]byte
 	if usableCuts(cuts, int64(len(body)), chunk) {
 		parts, lengths, chunkBody = splitAt(body, cuts)
+	} else {
+		parts, lengths, chunkBody = splitBytes(body, int(chunk))
 	}
 	if lists != nil {
 		lists[digest] = chunkPlan{Digests: parts, Lengths: lengths}
@@ -669,7 +673,8 @@ func usableCuts(cuts []int64, size, chunk int64) bool {
 }
 
 // splitAt cuts body into pieces of the given lengths, which usableCuts
-// has checked.
+// has checked. The pieces share body's bytes rather than copying them:
+// body is not written to, and it outlives the upload.
 func splitAt(body []byte, lengths []int64) (parts []string, out []int64, blobs map[string][]byte) {
 	blobs = map[string][]byte{}
 	var start int64
@@ -681,7 +686,7 @@ func splitAt(body []byte, lengths []int64) (parts []string, out []int64, blobs m
 		parts = append(parts, d)
 		out = append(out, n)
 		if _, ok := blobs[d]; !ok {
-			blobs[d] = append([]byte(nil), piece...)
+			blobs[d] = piece
 		}
 	}
 	return parts, out, blobs
