@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M44DDXWQ6MG51BMVF5FDCAEA
 title: Cursor CLI normalize searches the whole export once per row
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/580cbe08
-  branch: cursor/cli-normalize-offsets
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-580cbe08
-  commit: f37526edb5a4698048d495d8cecaa766630e23fe
-  session: null
-  claimed_at: 2026-10-04T21:34:28Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-04T21:34:28Z
-updated_at: 2026-10-04T21:59:50Z
+updated_at: 2026-10-04T22:07:03Z
 created_by:
   id: agent:claude-code/580cbe08
   name: ""
@@ -84,3 +77,7 @@ terva-review on #192 (review 2129): a repeated null id or key moved the offset, 
 **agent:claude-code/580cbe08** at 2026-10-04T21:59:50Z
 
 terva-review on #192 (review 2130): field names now match case-insensitively, as json.Unmarshal matches them for the parse; an ID-spelled blob is in the test. Four review rounds have each found a narrower way a hand-built export could diverge from the parse; the walker now follows encoding/json's matching for these fields (case, null, last repeat, top level only). The adapter writes compact, lowercase, single fields, so none of these cases arise from a real export.
+
+## Summary
+
+Landed in #192 (merge 90478f8). The Cursor CLI projector takes each row's content_ref offset from one json.Decoder pass over the meta and blobs arrays: the start of the row's own top-level key or id value, matched as encoding/json matches it for the parse (case ignored, last non-null repeat), or the row's first byte when it has none. No substring search over the document is left. A real 284 MB ACP export normalizes in 2.4 s; before, the lake's worker was still running at 9 minutes. Four terva-review findings were each fixed with a test (cross-row match after reordered sections, nested field in the same row, repeated null, field-name case); one finding about the 256 MiB cap was outside this PR (it landed in #191). The Cursor IDE projector has the same per-row search: TKT-01M44DRPVEDJ9H6Z31XMQ1Q1DF (draft).
