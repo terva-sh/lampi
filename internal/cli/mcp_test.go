@@ -582,6 +582,7 @@ func TestMCPIDKey(t *testing.T) {
 		{`2`, `2.0`}, {`1000000`, `1e6`}, {`1000000`, `1000000.0`}, {`0.5`, `5E-1`},
 		{`-2`, `-2.00`}, {`0`, `-0.0`}, {`120`, `1.2e+2`}, {`"a"`, `"\u0061"`},
 		{`1e99999999`, `10e99999998`},
+		{`1e4611686018427387904`, `10e4611686018427387903`}, {`1e-4611686018427387904`, `0.1e-4611686018427387903`},
 	} {
 		if a, b := key(same[0]), key(same[1]); a != b {
 			t.Errorf("%s and %s have keys %q and %q", same[0], same[1], a, b)
@@ -597,7 +598,8 @@ func TestMCPIDKey(t *testing.T) {
 	if k := key(`1e999999999999`); len(k) > 32 {
 		t.Errorf("the key of 1e999999999999 is %d bytes", len(k))
 	}
-	for _, id := range []string{`null`, `true`, `{}`, `[]`, `1e9999999999999999999`, ``} {
+	// An exponent past ±2^62 is refused, so the id cannot be cancelled.
+	for _, id := range []string{`null`, `true`, `{}`, `[]`, `1e9999999999999999999`, `1e4611686018427387905`, `1e-4611686018427387905`, ``} {
 		if k, ok := mcpIDKey(json.RawMessage(id)); ok {
 			t.Errorf("mcpIDKey(%s) = %q, want refused", id, k)
 		}

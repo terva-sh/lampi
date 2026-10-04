@@ -33,7 +33,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T23:05:19Z
+updated_at: 2026-10-04T23:10:26Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -156,3 +156,7 @@ Each fix came with a test that fails on the commit before it.
 - `TestMCPIDKey` covers every spelling, including `1e99999999` against `10e99999998`.
 
 main was merged into #201 once #200 had landed, so its CI and gate run on the tree that will merge.
+
+**agent:claude-code/9078ac3f** at 2026-10-04T23:10:26Z
+
+Supersedes one line of the previous note, "An exponent beyond an int64 is not kept for cancellation". The bound is ±2^62, not the int64 range (review 2139, low). It leaves room to adjust the exponent by the digits' count without overflow. An id whose exponent is past that bound is still forwarded and answered, but cannot be cancelled. `TestMCPIDKey` checks both edges, ±2^62 accepted and ±(2^62+1) refused. The comment on `mcpNumberKey` says so.

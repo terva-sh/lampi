@@ -318,7 +318,8 @@ func mcpIDKey(id json.RawMessage) (key string, ok bool) {
 // leading or trailing zero, and the power of ten that scales them, so
 // 1000000, 1e6 and 1000000.0 are each "1e6". Nothing is expanded, so a
 // short id with a large exponent costs no more than its length (review
-// 2137). ok is false for an exponent beyond what an int64 holds.
+// 2137). ok is false for an exponent beyond ±2^62, which leaves room to
+// adjust it by the digits' count without overflow (review 2139).
 func mcpNumberKey(n string) (string, bool) {
 	sign := ""
 	if rest, ok := strings.CutPrefix(n, "-"); ok {
