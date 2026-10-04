@@ -162,10 +162,18 @@ stderr. When the lake refuses the token, the agent gets a JSON-RPC error
 that says why: `401` for an unknown, expired or revoked token, and `404`
 for a token without `events:read`, or for a lake that has no MCP
 endpoint yet. A message the lake cannot read, such as one with an id
-that is neither a string nor a number, gets the lake's reason. The
-command follows no redirect and never prints the token. It sends a token over plain http only to a loopback address.
+that is neither a string nor a number, gets the lake's reason. A
+notification has no answer to carry an error, so the lake's refusal of
+one goes to stderr. The command follows no redirect and never prints the token. It sends a token over plain http only to a loopback address.
 [Let an agent search past sessions](reading-the-lake.md#let-an-agent-search-past-sessions)
 shows how to add it to an agent.
+
+At most 8 requests are open to the lake at once. While all 8 are open,
+the command reads no further message until one is answered, so a
+cancellation sent then waits too. `notifications/cancelled` closes the
+named request's call to the lake, and the agent gets no answer to it.
+The notification itself goes no further: the lake keeps no session, so
+closing the request is the whole cancellation.
 
 ## Where a setting comes from
 

@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -291,5 +295,313 @@ func TestMCPBridgeStopsWhileTheAgentIsSilent(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the bridge kept waiting for input after a write to the agent failed")
+	}
+}
+
+// fakeMCPLake serves h as the lake, and returns its URL and a read token
+// file the bridge accepts. h gets each request's id and method.
+func fakeMCPLake(t *testing.T, h func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string)) (string, string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		h(w, r, m.ID, m.Method)
+	}))
+	t.Cleanup(srv.Close)
+	token := filepath.Join(t.TempDir(), "read-token")
+	if err := os.WriteFile(token, []byte(web.ReadTokenPrefix+"fake\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return srv.URL, token
+}
+
+func answerMCP(w http.ResponseWriter, id json.RawMessage) {
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{}}`, id)
+}
+
+// A notification has no answer to carry the lake's refusal, so the bridge
+// logs it, rather than leaving a revoked token unseen until the next
+// request (review 2115).
+func TestMCPBridgeLogsARefusedNotification(t *testing.T) {
+	lake, srv, _ := mcpLake(t)
+	initialized := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+	for _, tc := range []struct {
+		name, perm, logged string
+	}{
+		{"accepted", catalog.PermEventsRead, ""},
+		{"refused", catalog.PermRawRead, "terva-lampi mcp: notifications/initialized: the lake answered 404"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			replies, stderr := runBridge(t, srv.URL, tokenFile(t, lake, tc.perm), initialized)
+			if len(replies) != 0 {
+				t.Errorf("the bridge answered a notification: %v", replies)
+			}
+			logged := strings.Contains(stderr, "notifications/initialized")
+			if tc.logged == "" && logged {
+				t.Errorf("an accepted notification was logged:\n%s", stderr)
+			}
+			if tc.logged != "" && !strings.Contains(stderr, tc.logged) {
+				t.Errorf("stderr lacks %q:\n%s", tc.logged, stderr)
+			}
+		})
+	}
+}
+
+// The bridge keeps at most mcpInFlight requests open to the lake, however
+// many the agent sends at once, and answers each of them. An initialize
+// sent once the slots are full waits for one too (review 2135).
+func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
+	var mu sync.Mutex
+	inFlight, most := 0, 0
+	release := make(chan struct{})
+	server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, _ string) {
+		mu.Lock()
+		inFlight++
+		most = max(most, inFlight)
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		answerMCP(w, id)
+	})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	const sent = 3 * mcpInFlight
+	var lines []string
+	for i := 1; i <= sent; i++ {
+		method := "ping"
+		if i == mcpInFlight+1 {
+			method = "initialize"
+		}
+		lines = append(lines, rpcLine(i, method, nil))
+	}
+	// The lake holds every request until the bridge has filled its slots
+	// and had time to open more than it should.
+	observed := make(chan int, 1)
+	go func() {
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			n := inFlight
+			mu.Unlock()
+			if n >= mcpInFlight {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond)
+		mu.Lock()
+		observed <- most
+		mu.Unlock()
+		once.Do(func() { close(release) })
+	}()
+	replies, stderr := runBridge(t, server, token, lines...)
+	if n := <-observed; n != mcpInFlight {
+		t.Errorf("the bridge had %d requests open to the lake at once, want %d", n, mcpInFlight)
+	}
+	if len(replies) != sent {
+		t.Errorf("the bridge answered %d of %d requests:\n%s", len(replies), sent, stderr)
+	}
+}
+
+// notifications/cancelled stops that request's call to the lake, and the
+// bridge writes no answer for it. The notification goes no further. It
+// names the request by the value of its id, however that is spelled
+// (reviews 2135, 2136 and 2137).
+func TestMCPBridgeCancelsARequest(t *testing.T) {
+	for _, tc := range []struct{ name, id, requestID string }{
+		{"number", `2`, `2`},
+		{"string escaped differently", `"a"`, `"\u0061"`},
+		{"number spelled as a float", `2`, `2.0`},
+		{"number spelled with an exponent", `1000000`, `1e6`},
+		{"number past the exponent boundary, as a float", `1000000`, `1000000.0`},
+		{"number with a large exponent", `1e99999999`, `10e99999998`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var methods []string
+			started, cancelled, stop := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string) {
+				mu.Lock()
+				methods = append(methods, method)
+				mu.Unlock()
+				if method == "tools/call" {
+					close(started)
+					select {
+					case <-r.Context().Done():
+						close(cancelled)
+						return
+					case <-stop:
+					}
+				}
+				answerMCP(w, id)
+			})
+			t.Cleanup(func() { close(stop) })
+			send, finish := startBridge(t, server, token, nil)
+			send(`{"jsonrpc":"2.0","id":` + tc.id + `,"method":"tools/call","params":{"name":"search","arguments":{"query":"push"}}}`)
+			waitFor(t, started, "the request never reached the lake")
+			send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":` + tc.requestID + `,"reason":"the user stopped it"}}`)
+			waitFor(t, cancelled, "the bridge did not cancel the request to the lake")
+			send(rpcLine(3, "ping", nil))
+			ids, stderr := finish()
+			if !slices.Equal(ids, []string{"3"}) {
+				t.Errorf("the bridge answered ids %v, want only 3", ids)
+			}
+			if strings.Contains(stderr, "canceled") {
+				t.Errorf("the bridge logged the cancellation as a failure:\n%s", stderr)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if slices.Contains(methods, "notifications/cancelled") {
+				t.Errorf("the bridge forwarded the cancellation to the lake: %v", methods)
+			}
+		})
+	}
+}
+
+// An answer that is ready when the bridge reads the request's
+// cancellation is not written, even though it was ready first: the
+// decision to write it waits on the same lock (review 2135).
+func TestMCPBridgeWritesNoAnswerAfterACancellation(t *testing.T) {
+	third := make(chan struct{})
+	server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string) {
+		if string(id) == "3" {
+			close(third)
+		}
+		answerMCP(w, id)
+	})
+	held, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	free := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	var answers atomic.Int32
+	send, finish := startBridge(t, server, token, func() {
+		// Only the first answer, to request 2, is held.
+		if answers.Add(1) == 1 {
+			close(held)
+			<-release
+		}
+	})
+	send(rpcLine(2, "tools/call", map[string]any{"name": "search", "arguments": map[string]any{"query": "push"}}))
+	waitFor(t, held, "the answer to request 2 never came")
+	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2}}`)
+	// The bridge reads lines in order, so request 3 reaching the lake
+	// means it has read the cancellation.
+	send(rpcLine(3, "ping", nil))
+	waitFor(t, third, "request 3 never reached the lake")
+	free()
+	if ids, _ := finish(); !slices.Equal(ids, []string{"3"}) {
+		t.Errorf("the bridge answered ids %v, want only 3", ids)
+	}
+}
+
+// startBridge serves a bridge to server on a pipe, with beforeReply set
+// before it starts. send writes it one line. finish ends its input, waits
+// for it to stop, and returns the ids it answered, in order, and what it
+// logged.
+func startBridge(t *testing.T, server, tokenPath string, beforeReply func()) (func(string), func() ([]string, string)) {
+	t.Helper()
+	token, err := readReadToken(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	b := &mcpBridge{url: server + mcpEndpoint, token: token, out: &out, log: &errw, beforeReply: beforeReply}
+	stdin, feed := io.Pipe()
+	t.Cleanup(func() { feed.Close() })
+	done := make(chan error, 1)
+	go func() { done <- b.serve(stdin) }()
+	send := func(line string) {
+		t.Helper()
+		if _, err := io.WriteString(feed, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finish := func() ([]string, string) {
+		t.Helper()
+		feed.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("serve: %v\n%s", err, errw.String())
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("the bridge did not stop at the end of its input")
+		}
+		var ids []string
+		for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			if line == "" {
+				continue
+			}
+			var m struct {
+				ID json.RawMessage `json:"id"`
+			}
+			if err := json.Unmarshal([]byte(line), &m); err != nil {
+				t.Fatalf("stdout line is not JSON: %q", line)
+			}
+			ids = append(ids, string(m.ID))
+		}
+		return ids, errw.String()
+	}
+	return send, finish
+}
+
+func waitFor(t *testing.T, c <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-c:
+	case <-time.After(10 * time.Second):
+		t.Fatal(what)
+	}
+}
+
+// Every spelling of an id's value shares a key, and values that differ
+// do not. A large exponent is kept as a number, not expanded (review
+// 2137).
+func TestMCPIDKey(t *testing.T) {
+	key := func(id string) string {
+		t.Helper()
+		k, ok := mcpIDKey(json.RawMessage(id))
+		if !ok {
+			t.Fatalf("mcpIDKey(%s) refused", id)
+		}
+		return k
+	}
+	for _, same := range [][2]string{
+		{`2`, `2.0`}, {`1000000`, `1e6`}, {`1000000`, `1000000.0`}, {`0.5`, `5E-1`},
+		{`-2`, `-2.00`}, {`0`, `-0.0`}, {`120`, `1.2e+2`}, {`"a"`, `"\u0061"`},
+		{`1e99999999`, `10e99999998`},
+		{`1e4611686018427387904`, `10e4611686018427387903`}, {`1e-4611686018427387904`, `0.1e-4611686018427387903`},
+	} {
+		if a, b := key(same[0]), key(same[1]); a != b {
+			t.Errorf("%s and %s have keys %q and %q", same[0], same[1], a, b)
+		}
+	}
+	for _, apart := range [][2]string{
+		{`1`, `"1"`}, {`1`, `10`}, {`1.5`, `15`}, {`-1`, `1`}, {`0.01`, `0.1`}, {`"a"`, `"A"`},
+	} {
+		if a, b := key(apart[0]), key(apart[1]); a == b {
+			t.Errorf("%s and %s share the key %q", apart[0], apart[1], a)
+		}
+	}
+	if k := key(`1e999999999999`); len(k) > 32 {
+		t.Errorf("the key of 1e999999999999 is %d bytes", len(k))
+	}
+	// An exponent past ±2^62 is refused, so the id cannot be cancelled.
+	for _, id := range []string{`null`, `true`, `{}`, `[]`, `1e9999999999999999999`, `1e4611686018427387905`, `1e-4611686018427387905`, ``} {
+		if k, ok := mcpIDKey(json.RawMessage(id)); ok {
+			t.Errorf("mcpIDKey(%s) = %q, want refused", id, k)
+		}
 	}
 }
