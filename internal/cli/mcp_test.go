@@ -123,7 +123,8 @@ func TestMCPBridgeServesTheLakeTools(t *testing.T) {
 	}
 	result, _ := replies["3"]["result"].(map[string]any)
 	content, _ := result["content"].([]any)
-	if result["isError"] != false || len(content) != 1 || !strings.Contains(content[0].(map[string]any)["text"].(string), `"snippet":"git push"`) {
+	// A result that is not an error may leave isError out.
+	if result["isError"] == true || len(content) != 1 || !strings.Contains(content[0].(map[string]any)["text"].(string), `"snippet":"git push"`) {
 		t.Errorf("search: %v", replies["3"])
 	}
 	// After initialize, every request names the negotiated version, and
@@ -205,6 +206,12 @@ func TestMCPBridgeExplainsRefusals(t *testing.T) {
 		if len(replies) != 1 || e == nil || !strings.Contains(e["message"].(string), c.want) || !strings.Contains(e["message"].(string), "token") {
 			t.Errorf("%s: %v", name, replies)
 		}
+	}
+	// A message the lake's server refuses in plain text gets that reason.
+	events := tokenFile(t, lake, catalog.PermEventsRead)
+	replies, _ := runBridge(t, srv.URL, events, `{"jsonrpc":"2.0","id":7,"method":"nope/nothing"}`)
+	if e, _ := replies["7"]["error"].(map[string]any); e == nil || !strings.Contains(e["message"].(string), "the lake answered 400") || !strings.Contains(e["message"].(string), "nope/nothing") {
+		t.Errorf("plain-text refusal: %v", replies)
 	}
 	if err := Run([]string{"mcp", "--server", "http://lake.example", "--token-file", raw}, Env{Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "plain http") {
 		t.Errorf("plain http to a remote lake: %v", err)

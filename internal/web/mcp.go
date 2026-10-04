@@ -2,10 +2,9 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -14,6 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"terva.sh/lampi/internal/audit"
 	"terva.sh/lampi/internal/catalog"
@@ -27,32 +29,18 @@ import (
 // parsed by the same function, and its result is that route's JSON
 // body. Links are made absolute, so an agent can hand one to a person.
 //
-// The endpoint keeps no state and serves both protocol eras: a client
-// that opens with initialize (2025-03-26 to 2025-11-25), and one that
-// names its version in every request's _meta (2026-07-28). It answers
-// every request with one JSON body, never an event stream.
+// The protocol is the official Go SDK's (TKT-01M44DVPVX). Its server
+// keeps no state, answers every request with one JSON body, and serves
+// both eras: a client that opens with initialize, and one that names
+// its version in every request's _meta (2026-07-28). The token check,
+// the Origin check, the audit and the tools stay lampi's;
+// docs/web-api.md says where they depart from the SDK's defaults.
 
 const (
 	mcpPath = "/api/read/v1/mcp"
-	// mcpModern is the per-request-metadata version served.
-	mcpModern = "2026-07-28"
 	// mcpBodyMax caps one request. Arguments are short: a query of at
 	// most 1 KiB and a cursor of at most 2 KiB.
 	mcpBodyMax = 64 << 10
-)
-
-// mcpLegacy are the initialize-era versions served, newest first.
-var mcpLegacy = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
-
-// JSON-RPC and MCP error codes.
-const (
-	rpcParseError     = -32700
-	rpcInvalidRequest = -32600
-	rpcNoMethod       = -32601
-	rpcInvalidParams  = -32602
-	rpcInternal       = -32603
-	mcpHeaderMismatch = -32020
-	mcpBadVersion     = -32022
 )
 
 const mcpInstructions = "Recall past agent sessions stored in this lampi lake, from every machine and project that uploaded. " +
@@ -61,43 +49,42 @@ const mcpInstructions = "Recall past agent sessions stored in this lampi lake, f
 	"Use copy_excerpt for a span as plain text to paste into a new session. " +
 	"Every hit and event carries a link that opens it in the lake's web viewer."
 
-var mcpServerInfo = map[string]string{"name": "terva-lampi", "title": "lampi session lake", "version": "1"}
-
-type rpcRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
+// mcpCaller is the request a tool call arrived on and its read token.
+// The gate puts it in the request's context for the audit and the
+// tools, which the SDK calls with that context.
+type mcpCaller struct {
+	r   *http.Request
+	t   catalog.ReadToken
+	now time.Time
 }
 
-type rpcParams struct {
-	Meta map[string]json.RawMessage `json:"_meta"`
-	// Name and Arguments are a tools/call's; ProtocolVersion is an
-	// initialize's.
-	Name            string          `json:"name"`
-	Arguments       json.RawMessage `json:"arguments"`
-	ProtocolVersion string          `json:"protocolVersion"`
-}
-
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-}
-
-type rpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id"`
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
-}
+type mcpCallerKey struct{}
 
 func (s *Server) mcpRoutes(m *http.ServeMux) {
 	if s.reg == nil || s.events == nil {
 		return
 	}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "terva-lampi", Title: "lampi session lake", Version: "1"}, &mcp.ServerOptions{
+		Instructions: mcpInstructions,
+		// Tools only, and no list_changed, because the list is fixed.
+		// The SDK's default adds logging, which 2026-07-28 deprecates.
+		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
+	})
+	srv.AddReceivingMiddleware(s.mcpAudit)
+	for _, tool := range mcpTools {
+		srv.AddTool(tool, s.mcpCall)
+	}
+	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
+		Stateless:           true,
+		JSONResponse:        true,
+		MaxRequestBodyBytes: mcpBodyMax,
+		// The SDK refuses a request that reaches a loopback address with
+		// another Host. Behind a proxy that is every request, so the
+		// Origin check in mcpGate stands in for it.
+		DisableLocalhostProtection: true,
+	})
 	// Not behind Guard: the bearer token is the only credential it takes.
-	m.HandleFunc("POST "+mcpPath, s.mcp)
+	m.Handle("POST "+mcpPath, s.mcpGate(h))
 	m.HandleFunc(mcpPath, func(w http.ResponseWriter, r *http.Request) {
 		// Earlier revisions opened a stream with GET and ended a
 		// session with DELETE. Neither exists here.
@@ -106,222 +93,151 @@ func (s *Server) mcpRoutes(m *http.ServeMux) {
 	})
 }
 
-func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
-	now := s.now()
-	t, ok := s.tokenFor(w, r, catalog.PermEventsRead, "lampi-mcp", now)
-	if !ok {
-		return
-	}
-	// A browser on another site cannot send the token, but the transport
-	// requires the check against DNS rebinding all the same.
-	if o := r.Header.Get("Origin"); o != "" && o != s.origin {
-		rpcReply(w, http.StatusForbidden, nil, nil, &rpcError{Code: rpcInvalidRequest, Message: "origin not allowed"})
-		return
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, mcpBodyMax))
-	if err != nil {
-		rpcReply(w, http.StatusRequestEntityTooLarge, nil, nil, &rpcError{Code: rpcInvalidRequest, Message: "request too large"})
-		return
-	}
-	var req rpcRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		// An array is a batch, which no served version allows.
-		rpcReply(w, http.StatusBadRequest, nil, nil, &rpcError{Code: rpcParseError, Message: "body is not one JSON-RPC message"})
-		return
-	}
-	// An id is a string or a number; a notification has none.
-	if req.JSONRPC != "2.0" || req.Method == "" || (req.ID != nil && !validID(req.ID)) {
-		rpcReply(w, http.StatusBadRequest, nil, nil, &rpcError{Code: rpcInvalidRequest, Message: "not a JSON-RPC 2.0 request"})
-		return
-	}
-	var p rpcParams
-	if len(req.Params) > 0 && json.Unmarshal(req.Params, &p) != nil {
-		rpcReply(w, http.StatusBadRequest, req.ID, nil, &rpcError{Code: rpcInvalidParams, Message: "params is not an object"})
-		return
-	}
-	// A notification's version and headers are checked as a request's
-	// are (review 2105).
-	modern, status, rerr := mcpVersion(r, req.Method, p)
-	if rerr != nil {
-		rpcReply(w, status, req.ID, nil, rerr)
-		return
-	}
-	if req.ID == nil {
-		// A notification, such as notifications/initialized. None needs
-		// an answer.
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-	var result map[string]any
-	switch req.Method {
-	case "initialize":
-		version := mcpLegacy[0]
-		if slices.Contains(mcpLegacy, p.ProtocolVersion) {
-			version = p.ProtocolVersion
-		}
-		result = map[string]any{"protocolVersion": version, "capabilities": mcpCapabilities(), "serverInfo": mcpServerInfo, "instructions": mcpInstructions}
-	case "server/discover":
-		result = map[string]any{"supportedVersions": append([]string{mcpModern}, mcpLegacy...), "capabilities": mcpCapabilities(),
-			"_meta": map[string]any{"io.modelcontextprotocol/serverInfo": mcpServerInfo}, "instructions": mcpInstructions}
-	case "ping":
-		result = map[string]any{}
-	case "tools/list":
-		result = map[string]any{"tools": mcpTools}
-	case "tools/call":
-		result, rerr = s.mcpCall(r, t, now, p)
-		if rerr != nil {
-			rpcReply(w, http.StatusOK, req.ID, nil, rerr)
+// mcpGate admits a request to the SDK's handler: a read token holding
+// events:read, and no foreign Origin.
+func (s *Server) mcpGate(h http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		now := s.now()
+		t, ok := s.tokenFor(w, r, catalog.PermEventsRead, "lampi-mcp", now)
+		if !ok {
 			return
 		}
-	default:
-		status = http.StatusOK
-		if modern {
-			status = http.StatusNotFound
+		// A browser on another site cannot send the token, but the
+		// transport requires the check against DNS rebinding all the
+		// same. Its body may be a JSON-RPC error with no id.
+		if o := r.Header.Get("Origin"); o != "" && o != s.origin {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "error": map[string]any{"code": jsonrpc.CodeInvalidRequest, "message": "origin not allowed"}})
+			return
 		}
-		rpcReply(w, status, req.ID, nil, &rpcError{Code: rpcNoMethod, Message: "method not found: " + req.Method})
-		return
-	}
-	if modern {
-		result["resultType"] = "complete"
-	}
-	rpcReply(w, http.StatusOK, req.ID, result, nil)
-}
-
-// validID reports whether id is a JSON string or number.
-func validID(id json.RawMessage) bool {
-	var v any
-	if json.Unmarshal(id, &v) != nil {
-		return false
-	}
-	switch v.(type) {
-	case string, float64:
-		return true
-	}
-	return false
-}
-
-func mcpCapabilities() map[string]any {
-	return map[string]any{"tools": map[string]any{}}
-}
-
-// mcpVersion checks the request's protocol version. A request that
-// names one in _meta is modern: its headers must repeat the version,
-// the method and a tool's name, and the version must be mcpModern. Any
-// other request, initialize included, is from the initialize era, whose
-// header, when sent, must name a version served; none means 2025-03-26.
-func mcpVersion(r *http.Request, method string, p rpcParams) (modern bool, status int, _ *rpcError) {
-	header := r.Header.Get("MCP-Protocol-Version")
-	raw, modern := p.Meta["io.modelcontextprotocol/protocolVersion"]
-	if !modern {
-		// initialize names the version it wants in its params, and gets
-		// the newest served one when that is not served; a header it
-		// sends is checked like any other request's (review 2112).
-		if header == "" || slices.Contains(mcpLegacy, header) {
-			return false, 0, nil
+		// The SDK compares Mcp-Name to the body as sent. The transport
+		// says a server decodes the base64 form first.
+		if name, ok := decodeHeader(r.Header.Get("Mcp-Name")); ok {
+			r.Header.Set("Mcp-Name", name)
 		}
-		if header == mcpModern {
-			return false, http.StatusBadRequest, &rpcError{Code: mcpHeaderMismatch, Message: "MCP-Protocol-Version names " + mcpModern + " but _meta names no version"}
-		}
-		return false, http.StatusBadRequest, unsupported(header)
+		ctx := context.WithValue(r.Context(), mcpCallerKey{}, mcpCaller{r: r, t: t, now: now})
+		h.ServeHTTP(&noStore{ResponseWriter: w}, r.WithContext(ctx))
 	}
-	var version string
-	if json.Unmarshal(raw, &version) != nil {
-		return true, http.StatusBadRequest, &rpcError{Code: rpcInvalidParams, Message: "_meta protocol version is not a string"}
-	}
-	mismatch := func(name, header, body string) (bool, int, *rpcError) {
-		return true, http.StatusBadRequest, &rpcError{Code: mcpHeaderMismatch, Message: fmt.Sprintf("header mismatch: %s header %q does not match body value %q", name, header, body)}
-	}
-	if header != version {
-		return mismatch("MCP-Protocol-Version", header, version)
-	}
-	if h := r.Header.Get("Mcp-Method"); h != method {
-		return mismatch("Mcp-Method", h, method)
-	}
-	if method == "tools/call" {
-		if h := headerValue(r.Header.Get("Mcp-Name")); h != p.Name {
-			return mismatch("Mcp-Name", h, p.Name)
-		}
-	}
-	if version != mcpModern {
-		return true, http.StatusBadRequest, unsupported(version)
-	}
-	return true, 0, nil
 }
 
-func unsupported(requested string) *rpcError {
-	return &rpcError{Code: mcpBadVersion, Message: "unsupported protocol version",
-		Data: map[string]any{"supported": append([]string{mcpModern}, mcpLegacy...), "requested": requested}}
+// noStore keeps an answer out of every cache, as for all authenticated
+// data. The SDK sets Cache-Control: no-cache, which lets a cache keep a
+// copy, so the header is replaced as the status is written.
+type noStore struct {
+	http.ResponseWriter
+	wrote bool
 }
 
-// headerValue decodes the transport's base64 form of a header value,
-// =?base64?...?=, and returns any other value as it is.
-func headerValue(v string) string {
+func (w *noStore) WriteHeader(code int) {
+	if !w.wrote {
+		w.wrote = true
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *noStore) Write(b []byte) (int, error) {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *noStore) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// decodeHeader decodes the transport's base64 form of a header value,
+// =?base64?...?=. ok is false for any other value.
+func decodeHeader(v string) (string, bool) {
 	inner, ok := strings.CutPrefix(v, "=?base64?")
 	if inner, ok2 := strings.CutSuffix(inner, "?="); ok && ok2 {
 		if b, err := base64.StdEncoding.DecodeString(inner); err == nil {
-			return string(b)
+			return string(b), true
 		}
 	}
-	return v
+	return "", false
 }
 
-func rpcReply(w http.ResponseWriter, status int, id json.RawMessage, result any, rerr *rpcError) {
-	if id == nil {
-		id = json.RawMessage("null")
+// mcpAudit records every tools/call before the SDK looks the tool up,
+// so a call to an unknown tool, which the SDK refuses before a tool
+// runs, is audited too. The event is durable in the outbox before a
+// result leaves, as an event stream's is.
+func (s *Server) mcpAudit(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		if method != "tools/call" {
+			return next(ctx, method, req)
+		}
+		c, ok := ctx.Value(mcpCallerKey{}).(mcpCaller)
+		if !ok {
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "mcp: a tool call without its caller"}
+		}
+		// A call naming no tool is audited as one to an unknown tool. One
+		// with no params at all is refused by the SDK's transport before
+		// it gets here; it names nothing and reads nothing.
+		var name string
+		var args json.RawMessage
+		if p, _ := req.GetParams().(*mcp.CallToolParamsRaw); p != nil {
+			name, args = p.Name, p.Arguments
+		}
+		i := slices.IndexFunc(mcpTools, func(tool *mcp.Tool) bool { return tool.Name == name })
+		uid, q, _ := mcpArgs(name, args)
+		lake := s.reg.Lake()
+		if err := lake.Catalog.QueueAudit(ctx, c.now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + c.t.ID + " (" + c.t.Label + ")", Detail: mcpAuditDetail(i, uid, q)}); err != nil {
+			s.logError(c.r, "queueing an MCP call's audit line failed", err)
+			// A plain error reaches the wire with code 0.
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "audit_failed"}
+		}
+		if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
+			s.logError(c.r, "an MCP call's audit line stays queued", err)
+		}
+		if err := lake.Catalog.TouchReadToken(ctx, c.t.ID, c.now); err != nil {
+			s.logError(c.r, "recording a read token's use failed", err)
+		}
+		return next(ctx, method, req)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(rpcResponse{JSONRPC: "2.0", ID: id, Result: result, Error: rerr})
 }
 
-// mcpCall runs one tool. A bad argument or a failed read is a tool
-// result with isError set and the browser route's error body, so the
-// agent can correct itself. An unknown tool, or an audit line that
-// cannot be queued, is a protocol error.
-func (s *Server) mcpCall(r *http.Request, t catalog.ReadToken, now time.Time, p rpcParams) (map[string]any, *rpcError) {
-	i := slices.IndexFunc(mcpTools, func(tool mcpTool) bool { return tool.Name == p.Name })
-	q, err := mcpQuery(p.Arguments)
-	// The session is a path segment of the events and excerpt routes.
-	// Search has no session filter yet, so there it stays an argument
-	// its parser refuses, rather than being dropped (review 2103).
-	var uid string
-	if p.Name != "search" {
+// mcpArgs is a call's arguments as its browser route's query, and the
+// session it names. The session is a path segment of the events and
+// excerpt routes. Search has no session filter yet, so there it stays
+// an argument its parser refuses, rather than being dropped (review
+// 2103).
+func mcpArgs(tool string, args json.RawMessage) (uid string, q url.Values, err error) {
+	q, err = mcpQuery(args)
+	if tool != "search" {
 		uid = q.Get("session_uid")
 		q.Del("session_uid")
 	}
-	ctx := r.Context()
-	lake := s.reg.Lake()
-	// Every call is audited, a refused one too, and the event is durable
-	// in the outbox before a result leaves, as an event stream's is.
-	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: mcpAuditDetail(i, uid, q)}); err != nil {
-		s.logError(r, "queueing an MCP call's audit line failed", err)
-		return nil, &rpcError{Code: rpcInternal, Message: "audit_failed"}
+	return uid, q, err
+}
+
+// mcpCall runs one tool, already audited. A bad argument or a failed
+// read is a tool result with isError set and the browser route's error
+// body, so the agent can correct itself.
+func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	c, ok := ctx.Value(mcpCallerKey{}).(mcpCaller)
+	if !ok {
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "mcp: a tool call without its caller"}
 	}
-	if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
-		s.logError(r, "an MCP call's audit line stays queued", err)
-	}
-	if err := lake.Catalog.TouchReadToken(ctx, t.ID, now); err != nil {
-		s.logError(r, "recording a read token's use failed", err)
-	}
-	if i < 0 {
-		return nil, &rpcError{Code: rpcInvalidParams, Message: "unknown tool: " + p.Name}
-	}
-	if p.Name != "search" && uid == "" {
+	name := req.Params.Name
+	uid, q, err := mcpArgs(name, req.Params.Arguments)
+	if name != "search" && uid == "" {
 		err = recall.ErrInvalid
 	}
 	if err != nil {
 		return toolError(err), nil
 	}
-	scope, err := s.catalog.ReadTokenScope(ctx, t)
+	// The read runs under the context the SDK gave the call, so a call
+	// it cancels stops reading; c.r is only for the log (review on #195).
+	ctx, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
+	scope, err := s.catalog.ReadTokenScope(ctx, c.t)
 	if err != nil {
-		s.logError(r, "reading a read token's bays failed", err)
+		s.logError(c.r, "reading a read token's bays failed", err)
 		return toolError(err), nil
 	}
-	ctx, cancel := readContext(r)
-	defer cancel()
 	var v any
-	switch p.Name {
+	switch name {
 	case "search":
 		page, err2 := s.runSearch(ctx, scope, q)
 		for i := range page.Items {
@@ -339,7 +255,7 @@ func (s *Server) mcpCall(r *http.Request, t catalog.ReadToken, now time.Time, p 
 	}
 	if err != nil {
 		if status, _ := failure(err); status >= 500 {
-			s.logError(r, "an MCP tool call failed", err)
+			s.logError(c.r, "an MCP tool call failed", err)
 		}
 		return toolError(err), nil
 	}
@@ -347,7 +263,7 @@ func (s *Server) mcpCall(r *http.Request, t catalog.ReadToken, now time.Time, p 
 	if err != nil {
 		return toolError(err), nil
 	}
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "isError": false}, nil
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(text)}}}, nil
 }
 
 // mcpQuery turns a tool's arguments into the query parameters of its
@@ -396,14 +312,14 @@ var mcpHints = map[string]string{
 	"read_failed":            "The lake could not read. Try again later.",
 }
 
-func toolError(err error) map[string]any {
+func toolError(err error) *mcp.CallToolResult {
 	_, body := failure(err)
 	out := map[string]any{"hint": mcpHints[body["error"]]}
 	for k, v := range body {
 		out[k] = v
 	}
 	text, _ := json.Marshal(out)
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "isError": true}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(text)}}, IsError: true}
 }
 
 // mcpAuditDetail names the tool, the session and the filters of a call
@@ -425,7 +341,8 @@ func mcpAuditDetail(i int, uid string, q url.Values) string {
 		}
 		parts = append(parts, "session="+uid)
 	}
-	props, _ := tool.InputSchema["properties"].(map[string]any)
+	schema, _ := tool.InputSchema.(map[string]any)
+	props, _ := schema["properties"].(map[string]any)
 	keys := make([]string, 0, len(q))
 	unknown := 0
 	for k := range q {
@@ -457,15 +374,6 @@ func mcpAuditDetail(i int, uid string, q url.Values) string {
 // auditSafe matches a session uid worth recording as it is.
 var auditSafe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
-// mcpTool is one tool as tools/list describes it.
-type mcpTool struct {
-	Name        string         `json:"name"`
-	Title       string         `json:"title"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
-	Annotations map[string]any `json:"annotations"`
-}
-
 func prop(typ, description string) map[string]any {
 	return map[string]any{"type": typ, "description": description}
 }
@@ -493,9 +401,12 @@ func object(required []string, props map[string]any) map[string]any {
 	return o
 }
 
-var readOnly = map[string]any{"readOnlyHint": true, "openWorldHint": false}
+// readOnly marks a tool that changes nothing and reaches only the lake.
+var readOnly = &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: new(false)}
 
-var mcpTools = []mcpTool{
+// mcpTools are the tools, in the order the SDK does not keep: tools/list
+// sorts them by name.
+var mcpTools = []*mcp.Tool{
 	{
 		Name:  "search",
 		Title: "Search past sessions",

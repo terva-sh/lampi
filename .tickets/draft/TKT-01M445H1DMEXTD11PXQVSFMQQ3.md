@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-04T19:16:21Z
-updated_at: 2026-10-04T19:16:21Z
+updated_at: 2026-10-04T21:59:56Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -53,3 +53,9 @@ Follow-ups from TKT-01M3FPWCF (MCP: serve recall tools over the shared query lay
 ### Recorded for whoever revisits the SDK question
 
 The run wrote the MCP server by hand rather than adding `modelcontextprotocol/go-sdk`, on the grounds that `go.mod` has eight direct dependencies. It did not measure the SDK's own dependency tree. Six of the eight review findings were protocol corners in the hand-written code: notification and `initialize` header checks, id types, and argument handling. Measure the SDK before the next protocol revision rather than after.
+
+## Notes
+
+**agent:claude-code/9078ac3f** at 2026-10-04T21:59:56Z
+
+Two items here are answered by TKT-01M44DVPVXQVWVGC3EYAFH64RP (MCP: serve the lake endpoint with the official Go SDK), PR 195. The SDK question: the endpoint now runs on modelcontextprotocol/go-sdk v1.8.0, with the measurements and alternatives in that ticket. The real-client check of 2026-07-28: TestMCPServesTheSDKClient drives the endpoint with the SDK's own client at 2026-07-28, 2025-11-25 and 2025-03-26. The bridge items, the per-token rate limit (x/time/rate now ships with the SDK) and SessionBayNames are still open.
