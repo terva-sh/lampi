@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -291,5 +294,190 @@ func TestMCPBridgeStopsWhileTheAgentIsSilent(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the bridge kept waiting for input after a write to the agent failed")
+	}
+}
+
+// fakeMCPLake serves h as the lake, and returns its URL and a read token
+// file the bridge accepts. h gets each request's id and method.
+func fakeMCPLake(t *testing.T, h func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string)) (string, string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		h(w, r, m.ID, m.Method)
+	}))
+	t.Cleanup(srv.Close)
+	token := filepath.Join(t.TempDir(), "read-token")
+	if err := os.WriteFile(token, []byte(web.ReadTokenPrefix+"fake\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return srv.URL, token
+}
+
+func answerMCP(w http.ResponseWriter, id json.RawMessage) {
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{}}`, id)
+}
+
+// A notification has no answer to carry the lake's refusal, so the bridge
+// logs it, rather than leaving a revoked token unseen until the next
+// request (review 2115).
+func TestMCPBridgeLogsARefusedNotification(t *testing.T) {
+	lake, srv, _ := mcpLake(t)
+	initialized := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+	for _, tc := range []struct {
+		name, perm, logged string
+	}{
+		{"accepted", catalog.PermEventsRead, ""},
+		{"refused", catalog.PermRawRead, "terva-lampi mcp: notifications/initialized: the lake answered 404"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			replies, stderr := runBridge(t, srv.URL, tokenFile(t, lake, tc.perm), initialized)
+			if len(replies) != 0 {
+				t.Errorf("the bridge answered a notification: %v", replies)
+			}
+			logged := strings.Contains(stderr, "notifications/initialized")
+			if tc.logged == "" && logged {
+				t.Errorf("an accepted notification was logged:\n%s", stderr)
+			}
+			if tc.logged != "" && !strings.Contains(stderr, tc.logged) {
+				t.Errorf("stderr lacks %q:\n%s", tc.logged, stderr)
+			}
+		})
+	}
+}
+
+// The bridge keeps at most mcpInFlight requests open to the lake, however
+// many the agent sends at once, and answers each of them.
+func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
+	var mu sync.Mutex
+	inFlight, most := 0, 0
+	release := make(chan struct{})
+	server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, _ string) {
+		mu.Lock()
+		inFlight++
+		most = max(most, inFlight)
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		answerMCP(w, id)
+	})
+	var once sync.Once
+	t.Cleanup(func() { once.Do(func() { close(release) }) })
+	const sent = 3 * mcpInFlight
+	var lines []string
+	for i := 1; i <= sent; i++ {
+		lines = append(lines, rpcLine(i, "ping", nil))
+	}
+	// The lake holds every request until the bridge has filled its slots
+	// and had time to open more than it should.
+	observed := make(chan int, 1)
+	go func() {
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			n := inFlight
+			mu.Unlock()
+			if n >= mcpInFlight {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond)
+		mu.Lock()
+		observed <- most
+		mu.Unlock()
+		once.Do(func() { close(release) })
+	}()
+	replies, stderr := runBridge(t, server, token, lines...)
+	if n := <-observed; n != mcpInFlight {
+		t.Errorf("the bridge had %d requests open to the lake at once, want %d", n, mcpInFlight)
+	}
+	if len(replies) != sent {
+		t.Errorf("the bridge answered %d of %d requests:\n%s", len(replies), sent, stderr)
+	}
+}
+
+// notifications/cancelled stops that request's call to the lake, and the
+// bridge writes no answer for it. The notification goes no further.
+func TestMCPBridgeCancelsARequest(t *testing.T) {
+	var mu sync.Mutex
+	var methods []string
+	started, cancelled, stop := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	server, token := fakeMCPLake(t, func(w http.ResponseWriter, r *http.Request, id json.RawMessage, method string) {
+		mu.Lock()
+		methods = append(methods, method)
+		mu.Unlock()
+		if string(id) == "2" {
+			close(started)
+			select {
+			case <-r.Context().Done():
+				close(cancelled)
+				return
+			case <-stop:
+			}
+		}
+		answerMCP(w, id)
+	})
+	t.Cleanup(func() { close(stop) })
+	stdin, feed := io.Pipe()
+	t.Cleanup(func() { feed.Close() })
+	var out, errw bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run([]string{"mcp", "--server", server, "--token-file", token}, Env{Stdin: stdin, Stdout: &out, Stderr: &errw})
+	}()
+	send := func(line string) {
+		t.Helper()
+		if _, err := io.WriteString(feed, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wait := func(c chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-c:
+		case <-time.After(10 * time.Second):
+			t.Fatal(what)
+		}
+	}
+	send(rpcLine(2, "tools/call", map[string]any{"name": "search", "arguments": map[string]any{"query": "push"}}))
+	wait(started, "the request never reached the lake")
+	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":2,"reason":"the user stopped it"}}`)
+	wait(cancelled, "the bridge did not cancel the request to the lake")
+	send(rpcLine(3, "ping", nil))
+	feed.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("mcp: %v\n%s", err, errw.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the bridge did not stop at the end of its input")
+	}
+	if !strings.Contains(out.String(), `"id":3`) {
+		t.Errorf("no answer to the request after the cancelled one:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), `"id":2`) {
+		t.Errorf("the bridge answered the cancelled request:\n%s", out.String())
+	}
+	if strings.Contains(errw.String(), "canceled") {
+		t.Errorf("the bridge logged the cancellation as a failure:\n%s", errw.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if slices.Contains(methods, "notifications/cancelled") {
+		t.Errorf("the bridge forwarded the cancellation to the lake: %v", methods)
 	}
 }
