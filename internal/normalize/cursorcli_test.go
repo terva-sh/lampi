@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -618,4 +619,74 @@ func cursorCLIRawTypes(events []Event) []string {
 		out[i] = ev.RawType
 	}
 	return out
+}
+
+// Each row's content_ref offset is where that row sits, found by a
+// search that moves forward through the document. A blob id that an
+// earlier blob names as a field value does not pull the later row's
+// offset back to that field.
+func TestCursorCLIOffsetsFollowTheRows(t *testing.T) {
+	// The adapter's field order: meta before blobs, id before data.
+	raw := []byte(`{"harness_version":"1","confidence":"low","source":"acp-sessions/s/store.db","scope":"session",` +
+		`"meta":[{"key":"0","value":{"name":"pond"}}],` +
+		`"blobs":[{"id":"aaa","data":{"role":"user","content":"first","next":"bbb"}},` +
+		`{"id":"bbb","data":{"role":"assistant","content":"seen"}}]}`)
+	at := cursorCLIOffsets(t, raw)
+	want := map[string]int{
+		"aaa": bytes.Index(raw, []byte(`"id":"aaa"`)) + len(`"id":`),
+		"bbb": bytes.Index(raw, []byte(`"id":"bbb"`)) + len(`"id":`),
+	}
+	for id, w := range want {
+		if at[id] != w {
+			t.Fatalf("%s at %d, want %d (offsets %v)", id, at[id], w, at)
+		}
+	}
+}
+
+// Sections and fields in another order: blobs before meta, and the meta
+// record names blobs aaa and zzz in nested ids. Each offset is the
+// row's own top-level field. Blob zzz writes its id with a space,
+// carries the same id, compact, in its data, and repeats id as null,
+// which the parse ignores; its offset is still its own id. Blob yyy has
+// no id field; its offset is its first byte. Blob xxx spells its id
+// field ID, which the parse reads as id.
+func TestCursorCLIOffsetsStayInTheirRow(t *testing.T) {
+	raw := []byte(`{"harness_version":"1","confidence":"low","source":"s","scope":"session",` +
+		`"blobs":[{"data":{"role":"user","content":"hi"},"id":"aaa"},{"id": "zzz","data":{"id":"zzz"},"id":null},{"data":{"id":"yyy"}},{"ID":"xxx"}],` +
+		`"meta":[{"value":{"name":"pond","id":"aaa","x":{"id":"zzz"}},"key":"0"}]}`)
+	at := cursorCLIOffsets(t, raw)
+	want := map[string]int{
+		"aaa": bytes.Index(raw, []byte(`"id":"aaa"},`)) + len(`"id":`),
+		"zzz": bytes.Index(raw, []byte(`{"id": "zzz"`)) + len(`{"id": `),
+		"0":   bytes.Index(raw, []byte(`"key":"0"`)) + len(`"key":`),
+		"":    bytes.Index(raw, []byte(`{"data":{"id":"yyy"}}`)),
+		"xxx": bytes.Index(raw, []byte(`"ID":"xxx"`)) + len(`"ID":`),
+	}
+	for k, w := range want {
+		if at[k] != w {
+			t.Fatalf("%q at %d, want %d (offsets %v)", k, at[k], w, at)
+		}
+	}
+}
+
+func cursorCLIOffsets(t *testing.T, raw []byte) map[string]int {
+	t.Helper()
+	c := CursorCLI{Now: time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC), NativeID: "acp-sessions/s", HarnessVersion: "1", CWD: "/work/app", ProjectID: "local", Digest: "d"}
+	events, err := c.Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := map[string]int{}
+	for _, ev := range events {
+		if ev.ContentRef == nil {
+			continue
+		}
+		_, off, _ := strings.Cut(*ev.ContentRef, "#")
+		n, err := strconv.Atoi(off)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at[ev.RawType] = n
+	}
+	return at
 }
