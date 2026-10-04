@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-04T23:16:45Z
-updated_at: 2026-10-04T23:16:45Z
+updated_at: 2026-10-04T23:18:47Z
 created_by:
   id: agent:claude-code/9078ac3f
   name: ""
@@ -84,7 +84,7 @@ Since v0.7.0 (478435f), main gained the following.
 
 ## Acceptance criteria
 
-- [ ] A lake at v0.7.0 starts on a build of the final main with nothing to migrate, keeps its counts, and passes health and fsck; a v0.6.0 agent and the new agent each sync to it and upload nothing new
+- [x] A lake at v0.7.0 starts on a build of the final main with nothing to migrate, keeps its counts, and passes health and fsck; a v0.6.0 agent and the new agent each sync to it and upload nothing new
 - [ ] The release is tagged on both forges and its archives and image name the tag
 - [ ] self-update from the published v0.6.0 agent installs the published v0.8.0 against a v0.8.0 lake
 - [ ] Release notes say there is no migration, rollback is a binary swap, which normalizer changed, the upgrade order, and describe the MCP endpoint and bridge
@@ -103,3 +103,28 @@ Since v0.7.0 (478435f), main gained the following.
 5. **Rehearse `self-update`.** On the scratch lake, now running the published v0.8.0 binary, run the published v0.6.0 agent's `self-update`. It should install v0.8.0, check it against the release checksums, and keep `terva-lampi.prev`.
 6. **Notes.** Prepend the notes to both release bodies, with `####` headings.
 7. **Land.** Land these ticket commits through a Forgejo PR. Deploying to the workstation is a separate ticket.
+
+## Notes
+
+**agent:claude-code/9078ac3f** at 2026-10-04T23:18:46Z
+
+### Rehearsal, 2026-10-04
+
+The new build was the release branch head 2d4a3af. Outside `.tickets`, it is main f150332 (#201's merge). The old binaries were the published v0.7.0 and v0.6.0 linux_amd64 archives, each checked against its release's `checksums.txt`. Everything ran with a scratch HOME and XDG on 127.0.0.1:18998, apart from the live lake and agent.
+
+- **Seeded with v0.7.0.** The v0.7.0 binary created the lake (`catalog schema 21, created`), and the v0.6.0 agent uploaded one Claude session. It normalized: ready=1.
+- **New agent, old lake.** The new agent's sync against the v0.7.0 lake read `unchanged 1`, uploading nothing.
+- **Backup.** The lake was stopped and backed up with v0.7.0's `serve backup`. `serve fsck` on the copy checked 1 entry, 0 bad.
+- **Upgraded.** `serve migrate --check` with the new build reported `catalog schema 21, up to date`, and serve logged the same at start, with no migration. The lake id was unchanged.
+- **Both agents.** The v0.6.0 agent and the new agent each read `unchanged 1`, uploading nothing.
+- **Checks.**
+  - `/v1/stats`: 1 session, 1 artifact, normalization ready=1, failed=0, no jobs.
+  - `serve normalize --status` agreed.
+  - serve logged no warnings or errors.
+- **MCP route.** This lake runs without a web config, so `/api/read/v1/mcp` answered 404 here. `mcpRoutes` mounts the route when the server has its registrations and event reader, and `serve` passes both whenever the web is configured.
+  - Through the full lake handler with a web config, the endpoint answers 401 without a token and 404 for a raw-only token (`TestMCPReadsWithinTheTokenScope`, and `TestMCPBridgeLogsARefusedNotification` through `api.Server.Handler`).
+  - The live v0.7.0 lake answers 404 to an anonymous POST there. The deploy script checks for 401 after the install.
+
+The `self-update` rehearsal waits for the published release.
+
+`GOFLAGS=-mod=mod just ci` passed on the release tree, and `just release-check` validated `.goreleaser.yaml`. GitHub CI passed on f150332.
