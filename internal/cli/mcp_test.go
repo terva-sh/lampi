@@ -418,12 +418,14 @@ func TestMCPBridgeBoundsRequestsInFlight(t *testing.T) {
 // notifications/cancelled stops that request's call to the lake, and the
 // bridge writes no answer for it. The notification goes no further. It
 // names the request by the value of its id, however that is spelled
-// (review 2135).
+// (reviews 2135 and 2136).
 func TestMCPBridgeCancelsARequest(t *testing.T) {
 	for _, tc := range []struct{ name, id, requestID string }{
 		{"number", `2`, `2`},
 		{"string escaped differently", `"a"`, `"\u0061"`},
 		{"number spelled as a float", `2`, `2.0`},
+		{"number spelled with an exponent", `1000000`, `1e6`},
+		{"number past the exponent boundary, as a float", `1000000`, `1000000.0`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex

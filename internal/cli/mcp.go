@@ -10,8 +10,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -293,8 +293,10 @@ func (b *mcpBridge) cancelCall(id json.RawMessage) {
 }
 
 // mcpIDKey is the value of a JSON-RPC id as a key that every spelling of
-// it shares: "a" and "\u0061", or 2 and 2.0 (review 2135). A string and a
-// number stay apart. ok is false for an id that is neither.
+// it shares: "a" and "\u0061" (review 2135), or 1000000, 1e6 and
+// 1000000.0, which big.Rat holds exactly (review 2136). A string and a
+// number stay apart. ok is false for an id that is neither, or for a
+// number whose exponent is too large for SetString to hold.
 func mcpIDKey(id json.RawMessage) (key string, ok bool) {
 	d := json.NewDecoder(bytes.NewReader(id))
 	d.UseNumber()
@@ -306,11 +308,8 @@ func mcpIDKey(id json.RawMessage) (key string, ok bool) {
 	case string:
 		return "s" + v, true
 	case json.Number:
-		if i, err := v.Int64(); err == nil {
-			return "n" + strconv.FormatInt(i, 10), true
-		}
-		if f, err := v.Float64(); err == nil {
-			return "n" + strconv.FormatFloat(f, 'g', -1, 64), true
+		if r, ok := new(big.Rat).SetString(v.String()); ok {
+			return "n" + r.RatString(), true
 		}
 	}
 	return "", false
