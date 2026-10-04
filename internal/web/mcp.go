@@ -227,13 +227,15 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 	if err != nil {
 		return toolError(err), nil
 	}
+	// The read runs under the context the SDK gave the call, so a call
+	// it cancels stops reading; c.r is only for the log (review on #195).
+	ctx, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
 	scope, err := s.catalog.ReadTokenScope(ctx, c.t)
 	if err != nil {
 		s.logError(c.r, "reading a read token's bays failed", err)
 		return toolError(err), nil
 	}
-	ctx, cancel := readContext(c.r)
-	defer cancel()
 	var v any
 	switch name {
 	case "search":

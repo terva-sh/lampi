@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -530,6 +533,37 @@ func TestMCPProtocolEras(t *testing.T) {
 		if w := postRPC(h, token, body, nil); w.Code < 400 || w.Code >= 500 {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
+	}
+}
+
+// A tool reads under the context the SDK gives the call, not the HTTP
+// request's, so a call the SDK cancels reads nothing (review on #195).
+func TestMCPToolReadsUnderTheCallsContext(t *testing.T) {
+	lake, idp, h, _, index := mcpLake(t)
+	a := seedHarness(t, lake, "codex", "sid-a")
+	publishNormalized(t, lake, a, toolEvents("codex", "Bash git push"))
+	if err := index.Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	admin := signInAs(t, idp, h, "owners")
+	secret, _ := mintReadTokenWith(t, h, admin, "agent", "", catalog.PermEventsRead)
+	tok, found, err := lake.Catalog.ReadTokenBySecret(t.Context(), hashReadToken(secret))
+	if err != nil || !found {
+		t.Fatal("no token", err)
+	}
+	srv := &Server{catalog: lake.Catalog, events: recall.NewReader(lake.Catalog, lake.Normalized), index: index, origin: "https://lake.example", log: slog.New(slog.DiscardHandler)}
+	// The request stays live; only the call's context is cancelled.
+	caller := mcpCaller{r: httptest.NewRequest("POST", "https://lake.example"+mcpPath, nil), t: tok, now: time.Now()}
+	call := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "search", Arguments: json.RawMessage(`{"q":"git push"}`)}}
+	live, err := srv.mcpCall(context.WithValue(t.Context(), mcpCallerKey{}, caller), call)
+	if err != nil || live.IsError {
+		t.Fatalf("live call: %v %+v", err, live)
+	}
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), mcpCallerKey{}, caller))
+	cancel()
+	res, err := srv.mcpCall(ctx, call)
+	if err != nil || !res.IsError {
+		t.Errorf("a cancelled call read: %v %+v", err, res)
 	}
 }
 

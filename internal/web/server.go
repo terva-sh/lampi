@@ -97,8 +97,12 @@ func withServer(s *Server, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serverKey{}, s)))
 	})
 }
+
+// readTimeout bounds one read of the catalog, an event page or search.
+const readTimeout = 5 * time.Second
+
 func readContext(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), 5*time.Second)
+	return context.WithTimeout(r.Context(), readTimeout)
 }
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
