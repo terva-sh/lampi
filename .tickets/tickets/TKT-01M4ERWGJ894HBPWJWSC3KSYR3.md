@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:07:04Z
-updated_at: 2026-10-08T22:07:27Z
+updated_at: 2026-10-08T22:12:10Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -48,7 +48,7 @@ The current session cannot obtain noninteractive sudo: a password is required. P
 
 ## Acceptance criteria
 
-- [ ] A checksummed deployment binary and operator script are ready with rollback and verified backup gates.
+- [x] A checksummed deployment binary and operator script are ready with rollback and verified backup gates.
 - [ ] The dogfooding lake runs the merged build with schema, identity, counts, health, and authentication guards preserved.
 - [ ] The public site responds and capture resumes successfully; the deployment outcome is recorded.
 
@@ -61,3 +61,13 @@ Build the synchronized and gated main commit as a clearly labeled dogfooding bin
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T22:07:27Z
 
 draft to ready: Owner explicitly requested this dogfooding deployment on 2026-10-08.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:12:10Z
+
+Prepared the complete checksummed operator bundle deploy-dashboard-92c2dbe-eWYs3A4N under the external agent-handoffs/lampi directory; README.md contains the root command and rollback steps. It is attached to this ticket. The native binary reports v0.9.0-dogfood.92c2dbe (92c2dbec1e9f), with source outside .tickets identical to merged main 92c2dbe. Shell syntax and all bundle checksums pass; installed unit/drop-in still match the prior successful deployment and live v0.8.0 loopback/public health checks pass.
+
+A rehearsal with synthetic data used the installed v0.8.0 binary to seed one session, verified a stopped-lake backup and fsck, upgraded to the dogfooding binary with schema 21 and unchanged counts/integrity, re-posted the same manifest without growth, and restarted the old binary successfully. No live tokens/configuration were used. The script preserves capture configuration/state, checksums the deployment assets, installs atomically, verifies the newly mounted maintenance route denies anonymous requests, and attempts an automatic binary rollback on an install failure. Full stored-blob compaction is not triggered.
+
+Deploying the merged source as an explicitly unpublished dogfooding build was chosen over publishing v0.9.0 because the owner authorized the site deployment and has only asked to consider a public release. The stable release ticket remains draft; the capture-agent binary is unchanged. release.Parse deliberately rejects prerelease stamps, so agent self-update will not select this dogfooding binary as a stable release.
+
+Root execution is pending: sudo -n true returned a password requirement. The prepared command was handed to the owner through an async request. A completed script writes a credential-free DEPLOYMENT_RESULT into the bundle so this session can verify the result. The native shared browser reaches the sign-in page and requires the owner's login for an authenticated UI check. No live service was stopped or changed by this session before that root step.
