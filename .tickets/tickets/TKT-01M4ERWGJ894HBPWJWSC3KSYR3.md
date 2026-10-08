@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M4ERWGJ894HBPWJWSC3KSYR3
 title: Deploy dashboard pagination and maintenance to dogfooding
 type: task
-status: in-progress
-status_reason: null
+status: blocked
+status_reason: The checksummed, rehearsed operator bundle is ready and deployment is authorized. Root installation is waiting for the owner to run its command because sudo requires a password; this session has no noninteractive root access. Live services remain unchanged on v0.8.0.
 priority: normal
 due_on: null
 labels:
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3code-8afe4a1e
-  branch: ops/dogfood-dashboard-92c2dbe
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8afe4a1e
-  commit: 92c2dbec1e9f04d0bdfc14f78213b8a1124749fc
-  session: null
-  claimed_at: 2026-10-08T22:07:27Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-08T22:07:04Z
-updated_at: 2026-10-08T22:12:10Z
+updated_at: 2026-10-08T22:14:23Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -71,3 +64,13 @@ A rehearsal with synthetic data used the installed v0.8.0 binary to seed one ses
 Deploying the merged source as an explicitly unpublished dogfooding build was chosen over publishing v0.9.0 because the owner authorized the site deployment and has only asked to consider a public release. The stable release ticket remains draft; the capture-agent binary is unchanged. release.Parse deliberately rejects prerelease stamps, so agent self-update will not select this dogfooding binary as a stable release.
 
 Root execution is pending: sudo -n true returned a password requirement. The prepared command was handed to the owner through an async request. A completed script writes a credential-free DEPLOYMENT_RESULT into the bundle so this session can verify the result. The native shared browser reaches the sign-in page and requires the owner's login for an authenticated UI check. No live service was stopped or changed by this session before that root step.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:14:22Z
+
+Deployment record PR #205 is https://git.local.sothr.com/terva-sh/lampi/pulls/205. Clean review on fe28b7aa1c4cb79454efe23d13ca818bd750f26c, base 92c2dbec1e9f04d0bdfc14f78213b8a1124749fc, is https://git.local.sothr.com/terva-sh/lampi/pulls/205#issuecomment-28248 (Actions 1941, run 641fd20d-b06f-46c3-bedb-fb5119467a43), with no findings. It reviews repository ticket records only; the external operator bundle is covered by this session's source inspection, checksums, shell syntax check, and synthetic rehearsal. Carry the verdict for later ticket-only updates.
+
+The prepared root command was requested from the owner. No completion report exists yet and the live binary remains v0.8.0 with both services active. Deployment remains blocked on that operator execution, not on permission: the owner's deployment request already authorizes the change. Preserve the unticked live-deployment criteria until the report and independent post-install checks succeed. To resume, inspect the bundle's DEPLOYMENT_RESULT, verify the installed binary hash/version, both health endpoints and authentication guards, and capture's running state/last sync; then record results and close this ticket.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:14:22Z
+
+in-progress to blocked: The checksummed, rehearsed operator bundle is ready and deployment is authorized. Root installation is waiting for the owner to run its command because sudo requires a password; this session has no noninteractive root access. Live services remain unchanged on v0.8.0.
