@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T21:23:50Z
-updated_at: 2026-10-08T21:40:24Z
+updated_at: 2026-10-08T21:54:01Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -56,6 +56,14 @@ New navigation, byte-limit, scope/stale-generation, maintenance authorization/ad
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T21:40:24Z
 
 draft to done: Completed the user-requested dashboard changes on t3code/pagination-page-controls in commit 617064a; full tests, race checks, vet and build passed.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T21:54:01Z
+
+PR #204: https://git.local.sothr.com/terva-sh/lampi/pulls/204. Initial review 2329 reviewed 6f20fd0f47b87b149d33c0e5854c491a49edc474 at https://git.local.sothr.com/terva-sh/lampi/pulls/204#issuecomment-28207 (Actions 1927).
+
+Finding-1 claimed search uses from as its date bound. This is rejected: parseSearch only accepts since/until and rejects from, so deleting from cannot discard a supported search filter. Added end-to-end dated search first/last/previous navigation checks and explicit bound-preservation assertions. Transcript-only deletion of from/at is now scoped to generation-pinned transcript links to make the helper's intent explicit. Request a fresh review after this small code change.
+
+Release assessment: v0.8.0 was published on 2026-10-04 and the pre-feature delta contains only ticket bookkeeping. Candidate v0.9.0 is tracked in draft TKT-01M4ER2290N50YQJP4PX36WJX3 — Release v0.9.0: dashboard navigation and lake maintenance. No schema or normalizer change since v0.8.0; release configuration check passed. No release tag publication was requested yet.
 
 ## Summary
 

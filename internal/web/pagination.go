@@ -27,9 +27,9 @@ func pager(r *http.Request, nav catalog.PageNavigation, generation *int64) pager
 	link := func(i int) string {
 		q := r.URL.Query()
 		q.Del("cursor")
-		q.Del("from")
-		q.Del("at")
 		if generation != nil {
+			q.Del("from")
+			q.Del("at")
 			q.Set("gen", strconv.FormatInt(*generation, 10))
 		}
 		if nav.Cursors[i] != "" {

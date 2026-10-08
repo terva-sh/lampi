@@ -40,7 +40,7 @@ func TestPagerWindowAndPreservedFilters(t *testing.T) {
 			t.Fatal("lost size or pin, or retained target", path)
 		}
 	}
-	q := httptest.NewRequest("GET", "/search?q=needle&actor=user&limit=3", nil)
+	q := httptest.NewRequest("GET", "/search?q=needle&actor=user&limit=3&since=2026-09-26&until=2026-09-26", nil)
 	p = pager(q, catalog.PageNavigation{Cursors: []string{"", "next"}}, nil)
 	if p.First != "" || p.Previous != "" || !strings.Contains(p.Last, "actor=user") || !strings.Contains(p.Last, "q=needle") {
 		t.Fatal("first-page filters or disabled links", p)
@@ -48,6 +48,12 @@ func TestPagerWindowAndPreservedFilters(t *testing.T) {
 	p = pager(q, catalog.PageNavigation{Cursors: []string{"", "next"}, Current: 1}, nil)
 	if p.Next != "" || p.Last != "" || p.First == "" || p.Previous == "" {
 		t.Fatal("last-page links", p)
+	}
+	for _, path := range []string{p.First, p.Previous} {
+		u, err := url.Parse(path)
+		if err != nil || u.Query().Get("since") != "2026-09-26" || u.Query().Get("until") != "2026-09-26" {
+			t.Fatal("lost search date bounds", path, err)
+		}
 	}
 }
 
@@ -62,12 +68,20 @@ func TestDashboardListsHaveTwoWorkingPagers(t *testing.T) {
 	if err := indexes[lake].Pass(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/sessions?limit=2", "/search?q=needle&limit=7", "/sessions/" + uid + "/transcript?limit=7"} {
+	for _, path := range []string{"/sessions?limit=2", "/search?q=needle&limit=7", "/search?q=needle&limit=7&since=2026-09-26&until=2026-09-26", "/sessions/" + uid + "/transcript?limit=7"} {
 		w := get(h, path, cookie)
 		if w.Code != 200 || strings.Count(w.Body.String(), `aria-label="Pagination"`) != 2 {
 			t.Fatal("missing pagers", path, w.Code)
 		}
 		first := w.Body.String()
+		if strings.Contains(path, "since=") {
+			for _, label := range []string{"Next page", "Last page"} {
+				u, err := url.Parse(pagerLink(t, first, label))
+				if err != nil || u.Query().Get("since") != "2026-09-26" || u.Query().Get("until") != "2026-09-26" {
+					t.Fatal("lost search date bounds", label, u, err)
+				}
+			}
+		}
 		last := get(h, pagerLink(t, first, "Last page"), cookie)
 		if last.Code != 200 || strings.Contains(last.Body.String(), `aria-label="Next page"`) || !strings.Contains(last.Body.String(), `aria-current="page" aria-label="Page `) {
 			t.Fatal("last page", path, last.Code)
