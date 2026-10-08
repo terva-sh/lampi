@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T21:23:50Z
-updated_at: 2026-10-08T21:38:34Z
+updated_at: 2026-10-08T21:40:07Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -35,9 +35,9 @@ User requested first, previous, nearby page numbers, next and last controls abov
 
 ## Acceptance criteria
 
-- [ ] All existing paginated dashboard lists have matching top and bottom controls with nearby page numbers and first/last navigation.
-- [ ] Pagination preserves filters, limits, scope and transcript generation checks.
-- [ ] Operations offers guarded maintenance requests with progress and results using existing lake routines.
+- [x] All existing paginated dashboard lists have matching top and bottom controls with nearby page numbers and first/last navigation.
+- [x] Pagination preserves filters, limits, scope and transcript generation checks.
+- [x] Operations offers guarded maintenance requests with progress and results using existing lake routines.
 
 ## Implementation plan
 
@@ -52,3 +52,7 @@ Implemented shared top/bottom numbered controls for sessions, search hits, trans
 Operations now has admin-only asynchronous search-index compaction, upload-leftover cleanup and storage sampling. Requests require CSRF and a recent sign-in, are audited, serialize jobs, show completion/failure, and are cancelled/joined on shutdown. Search compaction shares a writer lock with indexing passes; upload sweeping shares the partial-upload store lock. Full CAS version folding stays offline: its existing exclusive-lock requirement protects manifests and ingest, so invoking it directly from a live dashboard was rejected.
 
 New navigation, byte-limit, scope/stale-generation, maintenance authorization/admission/shutdown and online-compaction tests pass. The affected web/recall/CAS/catalog packages pass under the race detector; vet, formatting and a production build pass. Native shared-browser layout checks used rendered synthetic pages (with CSRF fields removed) because the browser cannot reach this machine's loopback fixture. Pager and maintenance containers fit a 390px phone viewport. Existing unrelated header/document overflow remains outside this change. The full suite is being rerun with an explicit -trimpath=false because local GOFLAGS=-trimpath breaks existing runtime.Caller-based repository-file tests; clearing GOFLAGS alone did not override the local setting.
+
+## Summary
+
+Delivered matching top/bottom full pagination across all existing paginated dashboard lists, preserving filters, limits, scope and transcript pins. Added audited admin-only background search-index compaction, stale-upload cleanup and storage refresh, with concurrency control, status/results and shutdown coordination. Full stored-blob compaction remains offline because it requires exclusive ingest access. Documentation and synthetic browser smoke locators were updated. The full suite passes with go test -trimpath=false -p 1 ./...; affected-package race tests, vet, formatting, diff checks and production build pass. Native browser layout checks confirm the added controls fit desktop and 390px phone layouts. No live lake or agent configuration was changed.

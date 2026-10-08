@@ -24,13 +24,16 @@ const FileName = "audit.jsonl"
 
 // Event kinds.
 const (
-	DeviceCreated  = "device.created"
-	DeviceBound    = "device.bound"
-	DeviceUnbound  = "device.unbound"
-	DeviceRevoked  = "device.revoked"
-	DeviceRefused  = "device.refused"
-	DeviceDetached = "device.detached"
-	DeviceProfile  = "device.profile"
+	MaintenanceRequested = "maintenance.requested"
+	MaintenanceFinished  = "maintenance.finished"
+	MaintenanceFailed    = "maintenance.failed"
+	DeviceCreated        = "device.created"
+	DeviceBound          = "device.bound"
+	DeviceUnbound        = "device.unbound"
+	DeviceRevoked        = "device.revoked"
+	DeviceRefused        = "device.refused"
+	DeviceDetached       = "device.detached"
+	DeviceProfile        = "device.profile"
 
 	RegistrationCreated  = "registration.created"
 	RegistrationRedeemed = "registration.redeemed"

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 )
@@ -316,5 +317,38 @@ func TestOptimizeFreesTheEntriesOfRemovedRows(t *testing.T) {
 
 	if before, after, err := OptimizeIndex(t.Context(), filepath.Join(t.TempDir(), "absent.db")); err != nil || before != 0 || after != 0 {
 		t.Fatalf("no index to optimize: %d %d %v", before, after, err)
+	}
+}
+
+func TestOnlineOptimizeWaitsForIndexingAndKeepsSearchReadable(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "online-optimize")
+	publish(t, s, uid, events(30, func(i int) string { return fmt.Sprint("keepword ", i) }))
+	x := openIndex(t, s)
+	entered, release := make(chan struct{}), make(chan struct{})
+	x.beforeReclaim = func() {
+		close(entered)
+		<-release
+	}
+	passDone := make(chan error, 1)
+	go func() { passDone <- x.Pass(t.Context()) }()
+	<-entered
+	optimized := make(chan error, 1)
+	go func() { _, _, err := x.Optimize(t.Context()); optimized <- err }()
+	select {
+	case err := <-optimized:
+		close(release)
+		t.Fatalf("optimize ran during a pass: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	if err := <-passDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-optimized; err != nil {
+		t.Fatal(err)
+	}
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "keepword"}); len(p.Items) != 30 {
+		t.Fatal("live compaction changed search results", len(p.Items))
 	}
 }

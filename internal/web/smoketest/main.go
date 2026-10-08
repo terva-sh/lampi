@@ -150,6 +150,26 @@ func run() error {
 	}
 	started := time.Now().Add(-26 * time.Hour)
 	ops := &web.Operations{Version: "v0.0.0-smoke", Release: "v0.2.0", Started: started, LakeID: func() string { return "lake_synthetic_smoke" }, Contacts: lake.Contacts}
+	ops.Maintenance = web.NewMaintenance(ctx, func(ctx context.Context, action string) (string, error) {
+		message := "Storage measurements refreshed."
+		switch action {
+		case "search":
+			before, after, err := index.Optimize(ctx)
+			if err != nil {
+				return "", err
+			}
+			message = fmt.Sprintf("Search index compacted: %d bytes before, %d bytes after.", before, after)
+		case "uploads":
+			n, err := lake.CAS.Sweep(time.Now().Add(-24 * time.Hour))
+			if err != nil {
+				return "", err
+			}
+			message = fmt.Sprintf("Removed %d old upload leftovers.", n)
+		}
+		_, err := lake.SampleStorage(ctx)
+		return message, err
+	})
+	defer ops.Maintenance.Close()
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, idp.Client())
 	if err != nil {
 		return err

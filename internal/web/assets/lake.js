@@ -10,7 +10,7 @@ showLatest(document);
   const login = document.getElementById('sign-in-again');
   if (!button || !status) return;
   button.hidden = false;
-  const polling = document.body.dataset.poll === 'true';
+  let polling = document.body.dataset.poll === 'true';
   let timer, paused = false, busy = false;
   function schedule() {
     clearTimeout(timer);
@@ -39,6 +39,8 @@ showLatest(document);
       // Keep a table the reader opened open across the refresh.
       live.querySelectorAll('details[id][open]').forEach(d => { const next = updated.querySelector('#' + d.id); if (next) next.open = true; });
       live.replaceWith(updated);
+      polling = parsed.body.dataset.poll === 'true';
+      document.body.dataset.poll = String(polling);
       showLatest(updated);
       paused = false;
       status.textContent = polling ? 'Up to date. Refreshes every 25 seconds while this tab is visible.' : 'Up to date. This page stays still while you read.';

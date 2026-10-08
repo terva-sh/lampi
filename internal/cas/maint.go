@@ -23,10 +23,13 @@ func TempFile(name string) bool {
 
 // Sweep removes temp files last written before cutoff, and partial
 // uploads whose files were all last written before cutoff. It is for
-// start-up, before any request: a put in flight has a fresh temp file,
-// and an upload a client is still resuming has a fresh span. removed
-// counts files and partial uploads.
+// start-up and live maintenance with a cutoff older than any request's
+// lifetime: a put in flight has a fresh temp file, and an upload a client
+// is still resuming has a fresh span. removed counts files and partial uploads.
 func (s *Store) Sweep(cutoff time.Time) (removed int, err error) {
+	// A resumed upload and its age check/removal must not interleave.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, sub := range []string{"sha256", "logical"} {
 		n, err := sweepTemps(filepath.Join(s.Root, sub), cutoff)
 		removed += n

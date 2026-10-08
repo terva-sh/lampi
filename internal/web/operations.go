@@ -12,6 +12,7 @@ import (
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/storage"
+	"terva.sh/lampi/internal/webauth"
 )
 
 // Operations is what the operations page reads from the running
@@ -34,6 +35,7 @@ type Operations struct {
 	// IgnoredProfiles lists the profiles files serve warns it does not
 	// read, looked up again on each call so an import and removal shows.
 	IgnoredProfiles func() []IgnoredProfiles
+	Maintenance     *Maintenance
 }
 
 // opsRange is one preset of the operations page's growth charts.
@@ -194,7 +196,16 @@ func (s *Server) operationsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Operations", View: "operations", AsOf: v.AsOf, Ops: buildOpsView(v, s.now())})
+	view := buildOpsView(v, s.now())
+	id, _ := webauth.Current(r)
+	if id.Admin && s.ops != nil && s.ops.Maintenance != nil && s.reg != nil {
+		view.Actions = true
+		view.SearchAction = s.index != nil
+		view.Maintenance = s.ops.Maintenance.status()
+		view.Fresh = webauth.Fresh(r, s.now())
+		view.FreshURL = webauth.FreshLoginURL("/operations")
+	}
+	render(w, r, pageData{Title: "Operations", View: "operations", AsOf: v.AsOf, Ops: view, Poll: view.Maintenance.Running})
 }
 
 func (s *Server) readOperations(ctx context.Context, rg opsRange, now time.Time) (operations, error) {
@@ -413,11 +424,14 @@ func freshness(last, now time.Time) string {
 
 // opsView is the operations page.
 type opsView struct {
-	Ranges    []opsRange
-	Range     string
-	Ops       operations
-	Uptime    string
-	SampleAge string
+	Actions, SearchAction, Fresh bool
+	FreshURL                     string
+	Maintenance                  maintenanceState
+	Ranges                       []opsRange
+	Range                        string
+	Ops                          operations
+	Uptime                       string
+	SampleAge                    string
 	// Rows are the components, largest first, with their share of the
 	// lake directory and the change over the range.
 	Rows      []storageRow
