@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M4ET6TFCKN6H6CZRZNAPJA63
 title: Diagnose failed Operations search-index compaction
 type: bug
-status: review
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T23:10:45Z
+updated_at: 2026-10-08T23:19:18Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -80,3 +80,7 @@ PR #207: https://git.local.sothr.com/terva-sh/lampi/pulls/207, head 4dc27d0356bf
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T23:10:45Z
 
 Clean review at https://git.local.sothr.com/terva-sh/lampi/pulls/207#issuecomment-28266, run c12bba7c-7cc6-4c7c-9975-c80d08eed936; reviewed head 4dc27d0356bfcbf8dd3ca6bca3e67fe941b338a9 and base a3c25eef8e2d8479883eab88f2f43a2be7422b99. No findings. Full relevant recall/web race suites passed (250.8 s / 38.9 s); the final added rollback-limit and restart assertions also passed targeted non-race tests and are running under race separately. Forgejo full gates cover the final head. No live recovery yet; after rollout the admin should request Compact search index once and report the result.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:19:18Z
+
+PR #207 merged as d7dcde1ab7a337d0cd392fc1515bf9ea9095076a, now on both Forgejo and GitHub main. Final head 2623087cd0c6516cf530823ecfd530c083974fe3 passed all Forgejo gates and carried review. Final focused rollback/restart tests passed under race in 226.1 s. A built-binary synthetic rehearsal accepted one blob/manifest, backed up and fsck-verified it, and the previous dogfooding binary opened that schema-21 backup. An initial empty-lake fsck lacked a CAS directory; the seeded nonempty rehearsal matches this rollout and passed. The verified external operator bundle installs exactly merged d7dcde1 (binary SHA256 633fbc42401470a5b6fcaf5ca01f6b3ac2f3a531bce85b8d7c5adde4eb520bde), includes the merged pond icon, reserves recovery headroom, backs up the lake/config/state and original search index, verifies health/auth and public icon bytes, and resumes capture. No public release/tag, schema migration, or capture binary upgrade. Live installation requires the user terminal because sudo -n still requires a password; criterion 3 remains open until the admin compaction succeeds.
