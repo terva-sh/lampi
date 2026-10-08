@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M4ERWGJ894HBPWJWSC3KSYR3
 title: Deploy dashboard pagination and maintenance to dogfooding
 type: task
-status: in-progress
-status_reason: The owner started the prepared root operator script; backup/install verification is now underway.
+status: done
+status_reason: null
 priority: normal
 due_on: null
 labels:
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3code-8afe4a1e
-  branch: ops/dogfood-dashboard-92c2dbe
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8afe4a1e
-  commit: d5f9b5274d8cb9a3e09292ddb4252c87765a61bc
-  session: null
-  claimed_at: 2026-10-08T22:17:25Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-08T22:07:04Z
-updated_at: 2026-10-08T22:17:25Z
+updated_at: 2026-10-08T22:22:45Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -49,8 +42,8 @@ The current session cannot obtain noninteractive sudo: a password is required. P
 ## Acceptance criteria
 
 - [x] A checksummed deployment binary and operator script are ready with rollback and verified backup gates.
-- [ ] The dogfooding lake runs the merged build with schema, identity, counts, health, and authentication guards preserved.
-- [ ] The public site responds and capture resumes successfully; the deployment outcome is recorded.
+- [x] The dogfooding lake runs the merged build with schema, identity, counts, health, and authentication guards preserved.
+- [x] The public site responds and capture resumes successfully; the deployment outcome is recorded.
 
 ## Implementation plan
 
@@ -89,3 +82,17 @@ blocked to in-progress: The owner started the prepared root operator script; bac
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T22:17:25Z
 
 The prepared root operator script is now running. Both lake and capture units are paused and the installed binary is still v0.8.0, consistent with the stopped-lake checkpoint stage. The sudo execution blocker is resolved by the owner running the command; live verification criteria remain unticked until the script completion report and independent post-install checks succeed.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:22:45Z
+
+Deployed on 2026-10-08 at 22:21:49 UTC. The owner ran the prepared operator script and supplied its completion output; the bundle also contains DEPLOYMENT_RESULT. The installed lake reports v0.9.0-dogfood.92c2dbe (92c2dbec1e9f). Its SHA256 bbe79ad8abb1a1cb07d6e73f187995cf2f6d95ebd949f176a7b6ab07b8ccea79 independently matches the validated bundle binary.
+
+The operator verified the stopped-lake checkpoint and fsck, catalog integrity and schema 21, preserved counts (789 sessions, 44376 artifacts, 44375 provenance rows), unchanged lake identity/admin mapping/configuration, health, anonymous API/MCP/raw-read guards, the newly mounted maintenance route's authentication guard, and public reachability. The protected checkpoint and prior binary are retained; their coordinates and root command remain in the external handoff.
+
+Independent post-install checks confirm both services active, loopback/public health 200, overview 401 without sign-in, and maintenance POST 401 without sign-in. The initial forced capture sync reported uploaded=0, manifests=0, unchanged=265. A later successful sync confirms ongoing capture (unchanged=265, one new upload/manifest while sessions continue to be written). The capture binary/profile/allow rules were not changed. The native browser remains on the owner's sign-in page, so authenticated live UI inspection is not claimed; embedded assets/templates match the tested and reviewed build.
+
+PR #205 records the rollout and final result; its original clean review is on fe28b7aa1c4cb79454efe23d13ca818bd750f26c at https://git.local.sothr.com/terva-sh/lampi/pulls/205#issuecomment-28248, carried to ticket-only updates. CI passed on 5d5bf4077b930f6d4e07dab4fcb15bdcc356cb70. Carry the clean review to the closure commit and merge after its CI passes, then synchronize both main remotes. This supersedes the earlier root-execution blocker; no stable release or tag has been published.
+
+## Summary
+
+The dogfooding lake runs merged main 92c2dbe as v0.9.0-dogfood.92c2dbe. The owner executed the checksummed, rehearsed operator bundle, which retained a verified stopped-lake checkpoint and previous binary, preserved schema 21/counts/identity/configuration, and resumed capture. Independent binary-hash/version, both active units, public/loopback health 200, and anonymous overview/maintenance 401 checks pass. Initial resumed sync uploaded nothing; later capture continues normally. No capture-agent upgrade, stable release tag, or maintenance cleanup job was performed. The external handoff retains deployment and rollback details.
