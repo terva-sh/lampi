@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T23:09:11Z
+updated_at: 2026-10-08T23:10:10Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -43,8 +43,8 @@ The dogfooding dashboard accepted Compact search index but finished with: Mainte
 
 ## Acceptance criteria
 
-- [ ] The cause is identified from the maintenance error and reproduced safely.
-- [ ] The fix handles the demonstrated failure and has regression coverage.
+- [x] The cause is identified from the maintenance error and reproduced safely.
+- [x] The fix handles the demonstrated failure and has regression coverage.
 - [ ] Compaction succeeds on dogfooding with search and capture healthy.
 
 ## Implementation plan
@@ -72,3 +72,7 @@ Implemented merge continuation with positive budgets after one forced start, ret
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T23:09:11Z
 
 Correction to the previous validation note: the initial trigger-based rollback injection did not pass; a trigger on SQLite private FTS tables exposed a recursive driver rollback failure. It has been removed, with no production code using shadow-table triggers. The final test instead temporarily limits SQLite row length on its sole connection. Rebuild then fails while reading 4000-byte fixture rows, rolls back all prior FTS writes, retains 2000 segments and all existing hits, and succeeds after the limit is restored. This targeted test now passes. Merge-continuation coverage also reopens the index during an unfinished merge.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:10:10Z
+
+PR #207: https://git.local.sothr.com/terva-sh/lampi/pulls/207, head 4dc27d0356bfcbf8dd3ca6bca3e67fe941b338a9. Final targeted merge/recovery tests pass, including restart and limited-row rollback. Vet and formatting pass. The production lake has not been modified, and dogfooding-success criterion 3 remains unchecked. Full race tests and Forgejo review/CI are in progress. The rollout will include the already-merged pond icon and this fix, preserve a protected checkpoint, and use the existing admin compaction control for recovery.
