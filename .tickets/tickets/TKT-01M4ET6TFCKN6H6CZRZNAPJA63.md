@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M4ET6TFCKN6H6CZRZNAPJA63
 title: Diagnose failed Operations search-index compaction
 type: bug
-status: in-progress
+status: review
 status_reason: null
 priority: high
 due_on: null
@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T23:10:10Z
+updated_at: 2026-10-08T23:10:45Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -76,3 +76,7 @@ Correction to the previous validation note: the initial trigger-based rollback i
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T23:10:10Z
 
 PR #207: https://git.local.sothr.com/terva-sh/lampi/pulls/207, head 4dc27d0356bfcbf8dd3ca6bca3e67fe941b338a9. Final targeted merge/recovery tests pass, including restart and limited-row rollback. Vet and formatting pass. The production lake has not been modified, and dogfooding-success criterion 3 remains unchecked. Full race tests and Forgejo review/CI are in progress. The rollout will include the already-merged pond icon and this fix, preserve a protected checkpoint, and use the existing admin compaction control for recovery.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:10:45Z
+
+Clean review at https://git.local.sothr.com/terva-sh/lampi/pulls/207#issuecomment-28266, run c12bba7c-7cc6-4c7c-9975-c80d08eed936; reviewed head 4dc27d0356bfcbf8dd3ca6bca3e67fe941b338a9 and base a3c25eef8e2d8479883eab88f2f43a2be7422b99. No findings. Full relevant recall/web race suites passed (250.8 s / 38.9 s); the final added rollback-limit and restart assertions also passed targeted non-race tests and are running under race separately. Forgejo full gates cover the final head. No live recovery yet; after rollout the admin should request Compact search index once and report the result.
