@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T23:19:18Z
+updated_at: 2026-10-08T23:54:29Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -84,3 +84,7 @@ Clean review at https://git.local.sothr.com/terva-sh/lampi/pulls/207#issuecommen
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T23:19:18Z
 
 PR #207 merged as d7dcde1ab7a337d0cd392fc1515bf9ea9095076a, now on both Forgejo and GitHub main. Final head 2623087cd0c6516cf530823ecfd530c083974fe3 passed all Forgejo gates and carried review. Final focused rollback/restart tests passed under race in 226.1 s. A built-binary synthetic rehearsal accepted one blob/manifest, backed up and fsck-verified it, and the previous dogfooding binary opened that schema-21 backup. An initial empty-lake fsck lacked a CAS directory; the seeded nonempty rehearsal matches this rollout and passed. The verified external operator bundle installs exactly merged d7dcde1 (binary SHA256 633fbc42401470a5b6fcaf5ca01f6b3ac2f3a531bce85b8d7c5adde4eb520bde), includes the merged pond icon, reserves recovery headroom, backs up the lake/config/state and original search index, verifies health/auth and public icon bytes, and resumes capture. No public release/tag, schema migration, or capture binary upgrade. Live installation requires the user terminal because sudo -n still requires a password; criterion 3 remains open until the admin compaction succeeds.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:54:29Z
+
+The operator completed deployment of d7dcde1 at 2026-10-08 23:34:32 UTC. Protected checkpoint includes original search index, lake backup, config/state and prior binary. Backup/fsck, unchanged lake identity and role configuration, schema 21, catalog integrity and preserved counts passed: 789 sessions, 44575 artifacts, 44574 provenance rows. Capture resumed with uploaded=0, manifests=0, unchanged=266. Independently verified installed version/hash, both services active, public health 200, anonymous overview and maintenance 401, and exact SVG/ICO/PNG bundle bytes with correct MIME types. The pond icon is now deployed. No stable release or capture-agent upgrade. Admin compaction result is still requested; criterion 3 remains open. Deployment-record PR #208 has a clean review at https://git.local.sothr.com/terva-sh/lampi/pulls/208#issuecomment-28275, run 40c24d57-f0e9-471a-9144-0d5a2c305438, reviewed head 4d8dec42e7680c5ef1123c6e80aa2c0047d40596/base d7dcde1ab7a337d0cd392fc1515bf9ea9095076a. No findings; full CI passed that head.
