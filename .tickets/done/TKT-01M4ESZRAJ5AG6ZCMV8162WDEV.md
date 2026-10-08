@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T22:26:19Z
-updated_at: 2026-10-08T22:30:36Z
+updated_at: 2026-10-08T22:36:37Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -52,6 +52,10 @@ Implemented a two-wave cream mark on a blue rounded square, matching the existin
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T22:30:35Z
 
 PR #206: https://git.local.sothr.com/terva-sh/lampi/pulls/206. Clean model review at https://git.local.sothr.com/terva-sh/lampi/pulls/206#issuecomment-28255, run 72a1297d-ae2b-484f-a368-eace94699a40; reviewed head 3466363c36a9539934f025f64d315d2c28834b58 and base 0616211805ac616729b3a376ec62a1093a5f5da1. No findings. The review did not inspect binary images or execute routes; local small-size rendering and anonymous synthetic HTTP checks cover those limits. Dogfooding still runs the earlier dashboard build until a subsequent deployment.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:36:37Z
+
+Final reviewed head 47e6fba7224e48beb08a846e04885e17b3f7129b passed Forgejo race/vet/format/build tests, both image-platform builds, and the carried clean review. PR #206 merged; origin/main and github/main were synced. The icon is ready for the next dogfooding rollout; it is not present in the currently installed 92c2dbe build. The subsequent reported compaction failure is tracked independently under TKT-01M4ET6TFCKN6H6CZRZNAPJA63, Diagnose failed Operations search-index compaction.
 
 ## Summary
 
