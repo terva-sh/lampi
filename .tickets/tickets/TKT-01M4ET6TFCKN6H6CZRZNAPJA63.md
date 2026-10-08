@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T23:07:56Z
+updated_at: 2026-10-08T23:09:11Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -68,3 +68,7 @@ Live read-only diagnostics show a 4.54 GiB index, 776 indexed sessions, no freel
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T23:07:56Z
 
 Implemented merge continuation with positive budgets after one forced start, retaining later deletion requests for a subsequent merge and resuming conservatively after restart. Explicit compaction detects 2000 occupied segment IDs and transactionally rebuilds only FTS from docs before optimizing. Successful online compaction clears transient per-generation failures and schedules reconciliation. The synthetic saturated fixture fails ordinary optimize, and recovery preserves existing hits, passes FTS/content integrity-check, compacts to one segment, and retries a session whose insert failed at saturation. A trigger-injected rebuild failure and canceled request both leave the saturated index and old search hits intact. The earlier bounded-size regression now drains pending reclaim passes before measuring: continuing a merge may defer a new forced request by a pass. Targeted tests, vet and formatting pass; race/CI validation follows.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:09:11Z
+
+Correction to the previous validation note: the initial trigger-based rollback injection did not pass; a trigger on SQLite private FTS tables exposed a recursive driver rollback failure. It has been removed, with no production code using shadow-table triggers. The final test instead temporarily limits SQLite row length on its sole connection. Rebuild then fails while reading 4000-byte fixture rows, rolls back all prior FTS writes, retains 2000 segments and all existing hits, and succeeds after the limit is restored. This targeted test now passes. Merge-continuation coverage also reopens the index during an unfinished merge.

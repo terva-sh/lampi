@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/catalog"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // indexBytes is the index file and its WAL after a checkpoint.
@@ -413,6 +416,17 @@ func TestForcedMergeContinuesWhileNewSegmentsArrive(t *testing.T) {
 	// New deletions may request another forced merge, but must not
 	// restart an unfinished one when uploads add new segments.
 	for i := 0; i < 100; i++ {
+		if i == 50 {
+			// A restart must resume the persistent partial merge, too.
+			path, reader := x.path, x.reader
+			x.Close()
+			var err error
+			x, err = OpenIndex(path, reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { x.Close() })
+		}
 		addMergeRow(t, x, i)
 		x.deleted = true
 		if _, err := x.reclaimPages(t.Context(), x.deleted, 1); err != nil {
@@ -475,22 +489,36 @@ func TestOptimizeRecoversSaturatedSegmentsAndRetriesFailedSessions(t *testing.T)
 	if n := segmentCount(t, x); n != 2000 {
 		t.Fatal("canceled recovery changed segments", n)
 	}
-	// Fail after rebuild has started clearing/writing shadow tables.
-	// SQLite must roll back the whole statement, preserving the old hits.
-	if _, err := x.db.Exec(`CREATE TRIGGER fail_rebuild BEFORE INSERT ON fts_data BEGIN SELECT RAISE(ABORT,'fixture rebuild failure'); END`); err != nil {
+	// Restrict the one connection's row size so rebuild fails when it
+	// reads the 4,000-byte fixture content, after clearing FTS tables.
+	// The statement must roll back, preserving all old segments/hits.
+	x.db.SetMaxOpenConns(1)
+	conn, err := x.db.Conn(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := x.Optimize(t.Context()); err == nil || !strings.Contains(err.Error(), "rebuild saturated index: constraint failed") {
-		t.Fatal("recovery did not propagate the injected failure", err)
+	oldLimit, err := sqlite.Limit(conn, sqlite3.SQLITE_LIMIT_LENGTH, 3000)
+	conn.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := x.Optimize(t.Context()); err == nil || !strings.Contains(err.Error(), "rebuild saturated index") {
+		t.Fatal("recovery did not propagate the limited-row failure", err)
+	}
+	conn, err = x.db.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlite.Limit(conn, sqlite3.SQLITE_LIMIT_LENGTH, oldLimit)
+	conn.Close()
+	if err != nil {
+		t.Fatal(err)
 	}
 	if n := segmentCount(t, x); n != 2000 {
 		t.Fatal("failed rebuild did not roll back segments", n)
 	}
 	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "keepword"}); len(p.Items) != 3 {
 		t.Fatal("failed rebuild lost existing search hits", len(p.Items))
-	}
-	if _, err := x.db.Exec(`DROP TRIGGER fail_rebuild`); err != nil {
-		t.Fatal(err)
 	}
 	pending := ingest(t, s, "failed-at-saturation")
 	publish(t, s, pending, events(1, func(int) string { return "retryword" }))
