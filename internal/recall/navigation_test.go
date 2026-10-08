@@ -64,6 +64,9 @@ func TestNumberedSearchOmitsStaleAndUnreadableSessions(t *testing.T) {
 		if err != nil || n.Current != i {
 			t.Fatal("search page", n, err)
 		}
+		if (p.NextCursor != "") != (i < len(nav.Cursors)-1) {
+			t.Fatal("search continuation", i, p.NextCursor)
+		}
 		for _, hit := range p.Items {
 			if hit.SessionUID != visible || seen[hit.Position] {
 				t.Fatal("hidden, stale or duplicate hit", hit)

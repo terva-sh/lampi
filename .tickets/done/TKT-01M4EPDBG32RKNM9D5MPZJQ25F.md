@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T21:23:50Z
-updated_at: 2026-10-08T21:54:01Z
+updated_at: 2026-10-08T21:56:43Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -64,6 +64,14 @@ PR #204: https://git.local.sothr.com/terva-sh/lampi/pulls/204. Initial review 23
 Finding-1 claimed search uses from as its date bound. This is rejected: parseSearch only accepts since/until and rejects from, so deleting from cannot discard a supported search filter. Added end-to-end dated search first/last/previous navigation checks and explicit bound-preservation assertions. Transcript-only deletion of from/at is now scoped to generation-pinned transcript links to make the helper's intent explicit. Request a fresh review after this small code change.
 
 Release assessment: v0.8.0 was published on 2026-10-04 and the pre-feature delta contains only ticket bookkeeping. Candidate v0.9.0 is tracked in draft TKT-01M4ER2290N50YQJP4PX36WJX3 — Release v0.9.0: dashboard navigation and lake maintenance. No schema or normalizer change since v0.8.0; release configuration check passed. No release tag publication was requested yet.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T21:56:43Z
+
+Review 2330 reviewed 397ca0d3a5dfe96087f2ccc36c3fd02aa2991131 at https://git.local.sothr.com/terva-sh/lampi/pulls/204#issuecomment-28210. It acknowledged the earlier search-date premise was incorrect and reported a real medium issue: numbered boundaries recalculated after the displayed session read can repeat or skip a record during ordering changes.
+
+Accepted finding-1. Sequential Next now uses the displayed page's actual continuation cursor for every list, preserving keyset continuation during live ordering changes and transcript deep links between numbered boundaries. SearchNumbered retains one extra lightweight matching key so Search returns its normal actual continuation. Added a regression that inserts a leading session between the display read and navigation read and verifies the next page has the remaining two undisplayed sessions. Numbered jumps/counts continue to represent the latest navigation scan; building a database snapshot across display and navigation was rejected as unnecessary for preserving existing live keyset semantics.
+
+The dated-search regression passed against the original reviewed pager as well as the clarified helper; disposition 28208 rejected review 2329 finding-1 with parser evidence. The complete web race suite passed. A GoReleaser snapshot on 397ca0d built and archived all five Linux/Darwin amd64/arm64 and Windows amd64 targets, with checksums, in task scratch; nothing was published.
 
 ## Summary
 

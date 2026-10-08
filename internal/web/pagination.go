@@ -19,12 +19,12 @@ type pageLink struct {
 	Current, Gap bool
 }
 
-func pager(r *http.Request, nav catalog.PageNavigation, generation *int64) pagerView {
+func pager(r *http.Request, nav catalog.PageNavigation, generation *int64, nextCursor string) pagerView {
 	if len(nav.Cursors) == 0 {
 		return pagerView{}
 	}
 	p := pagerView{Current: nav.Current + 1, Total: len(nav.Cursors)}
-	link := func(i int) string {
+	linkCursor := func(cursor string) string {
 		q := r.URL.Query()
 		q.Del("cursor")
 		if generation != nil {
@@ -32,19 +32,26 @@ func pager(r *http.Request, nav catalog.PageNavigation, generation *int64) pager
 			q.Del("at")
 			q.Set("gen", strconv.FormatInt(*generation, 10))
 		}
-		if nav.Cursors[i] != "" {
-			q.Set("cursor", nav.Cursors[i])
+		if cursor != "" {
+			q.Set("cursor", cursor)
 		}
 		if len(q) == 0 {
 			return r.URL.Path
 		}
 		return r.URL.Path + "?" + q.Encode()
 	}
+	link := func(i int) string { return linkCursor(nav.Cursors[i]) }
 	if nav.Current > 0 {
 		p.First, p.Previous = link(0), link(nav.Current-1)
 	}
 	if nav.Current < p.Total-1 {
-		p.Next, p.Last = link(nav.Current+1), link(p.Total-1)
+		p.Last = link(p.Total - 1)
+	}
+	// Continue after the displayed records even if ordering changed between
+	// the page read and the navigation read, or a transcript deep link starts
+	// between numbered boundaries.
+	if nextCursor != "" {
+		p.Next = linkCursor(nextCursor)
 	}
 	previous := -1
 	for i := 0; i < p.Total; i++ {

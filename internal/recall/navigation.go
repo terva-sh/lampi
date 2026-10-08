@@ -71,7 +71,7 @@ func (x *Index) SearchNumbered(ctx context.Context, req SearchRequest) (SearchPa
 		}
 		if before > 0 && id >= before {
 			skipped++
-		} else if len(ids) < req.Limit {
+		} else if len(ids) < req.Limit+1 {
 			ids = append(ids, id)
 		}
 		previous = id

@@ -279,7 +279,7 @@ func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil), Poll: p.Cursor == ""})
+	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor), Poll: p.Cursor == ""})
 }
 func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -321,7 +321,7 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	d.Pager = pager(r, nav, nil)
+	d.Pager = pager(r, nav, nil, records.NextCursor)
 	if kind == "conflicts" {
 		d.Conflicts = s.newConflictsView(ctx, records, p, *r.URL, uid)
 	}
@@ -345,7 +345,7 @@ func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, Conflicts: s.newConflictsView(ctx, v, p, *r.URL, ""), AsOf: v.AsOf, Pager: pager(r, nav, nil)})
+	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, Conflicts: s.newConflictsView(ctx, v, p, *r.URL, ""), AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor)})
 }
 
 // transcriptPage shows one page of a session's published events. at
@@ -394,7 +394,7 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 			pageError(w, r, err)
 			return
 		}
-		d.Pager = pager(r, nav, &d.Transcript.Generation)
+		d.Pager = pager(r, nav, &d.Transcript.Generation, d.Transcript.NextCursor)
 		d.AsOf = d.Transcript.AsOf
 		d.TranscriptBlocks = transcriptBlocks(d.Transcript.Items, d.Target, d.HasTarget)
 		render(w, r, d)
@@ -457,7 +457,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 				d.Search.Coverage = &page.Coverage
 			}
 			d.AsOf = page.AsOf
-			d.Pager = pager(r, nav, nil)
+			d.Pager = pager(r, nav, nil, page.NextCursor)
 			render(w, r, d)
 			return
 		}

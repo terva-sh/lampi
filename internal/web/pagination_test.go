@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func TestPagerWindowAndPreservedFilters(t *testing.T) {
 		nav.Cursors[i] = fmt.Sprint("cursor-", i)
 	}
 	gen := int64(2)
-	p := pager(r, nav, &gen)
+	p := pager(r, nav, &gen, nav.Cursors[11])
 	if p.Current != 11 || p.Total != 20 || len(p.Pages) != 9 {
 		t.Fatalf("pager %+v", p)
 	}
@@ -41,11 +42,11 @@ func TestPagerWindowAndPreservedFilters(t *testing.T) {
 		}
 	}
 	q := httptest.NewRequest("GET", "/search?q=needle&actor=user&limit=3&since=2026-09-26&until=2026-09-26", nil)
-	p = pager(q, catalog.PageNavigation{Cursors: []string{"", "next"}}, nil)
+	p = pager(q, catalog.PageNavigation{Cursors: []string{"", "next"}}, nil, "next")
 	if p.First != "" || p.Previous != "" || !strings.Contains(p.Last, "actor=user") || !strings.Contains(p.Last, "q=needle") {
 		t.Fatal("first-page filters or disabled links", p)
 	}
-	p = pager(q, catalog.PageNavigation{Cursors: []string{"", "next"}, Current: 1}, nil)
+	p = pager(q, catalog.PageNavigation{Cursors: []string{"", "next"}, Current: 1}, nil, "")
 	if p.Next != "" || p.Last != "" || p.First == "" || p.Previous == "" {
 		t.Fatal("last-page links", p)
 	}
@@ -53,6 +54,39 @@ func TestPagerWindowAndPreservedFilters(t *testing.T) {
 		u, err := url.Parse(path)
 		if err != nil || u.Query().Get("since") != "2026-09-26" || u.Query().Get("until") != "2026-09-26" {
 			t.Fatal("lost search date bounds", path, err)
+		}
+	}
+}
+
+func TestPagerContinuesAfterDisplayedSessionsWhenOrderingChanges(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	for i := 0; i < 4; i++ {
+		seedSession(t, lake.Catalog, fmt.Sprintf("before-%d", i))
+	}
+	cookie, _ := signIn(t, idp, h)
+	req := catalog.PageRequest{Limit: 2}
+	page, err := lake.Catalog.DashboardSessions(t.Context(), catalog.AllBays(), req)
+	if err != nil || len(page.Items) != 2 || page.NextCursor == "" {
+		t.Fatal("initial page", page, err)
+	}
+	// A new leading session shifts numbered boundaries after the page read.
+	seedSession(t, lake.Catalog, "inserted-between-reads")
+	nav, err := lake.Catalog.DashboardNavigation(t.Context(), catalog.AllBays(), "", "sessions", req)
+	if err != nil || nav.Cursors[1] == page.NextCursor {
+		t.Fatal("expected shifted boundary", nav, err)
+	}
+	r := httptest.NewRequest("GET", "/api/web/v1/sessions?limit=2", nil)
+	p := pager(r, nav, nil, page.NextCursor)
+	w := get(h, p.Next, cookie)
+	var next catalog.Page[catalog.SessionSummary]
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &next) != nil || len(next.Items) != 2 {
+		t.Fatal("next page", w.Code, w.Body.String())
+	}
+	for _, item := range next.Items {
+		for _, displayed := range page.Items {
+			if item.UID == displayed.UID {
+				t.Fatal("repeated displayed session", item.UID)
+			}
 		}
 	}
 }
