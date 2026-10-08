@@ -374,32 +374,7 @@ func (c *Catalog) DashboardRecords(ctx context.Context, scope Scope, uid, kind s
 	if r.Harness != "" || r.Project != "" || r.State != "" || r.Unlinked {
 		return out, ErrPage
 	}
-	var query string
-	var args []any
-	if kind == "provenance" {
-		inP, pArgs := scope.where("p.session_uid")
-		query = `SELECT p.rowid,p.session_uid,substr(p.machine_id,1,128),p.sha256,substr(p.relpath,1,512) FROM provenance p WHERE p.session_uid=? AND p.rowid>? AND ` + inP + ` ORDER BY p.rowid LIMIT ?`
-		args = append(append([]any{uid, cur.When}, pArgs...), r.Limit+1)
-	} else {
-		inA, aArgs := scope.where("a.session_uid")
-		where := []string{"a.artifact_id>?", inA}
-		args = append([]any{cur.After}, aArgs...)
-		if uid != "" {
-			where = append(where, "a.session_uid=?")
-			args = append(args, uid)
-		}
-		if kind == "conflicts" {
-			where = append(where, "a.relation='divergent_copy'")
-			if !r.Resolved {
-				where = append(where, unresolvedSQL)
-			}
-		}
-		if r.Current {
-			where = append(where, "a.current=1")
-		}
-		query = `SELECT a.artifact_id,a.session_uid,a.kind,substr(a.relpath,1,512),a.sha256,a.size,a.relation,a.current,s.head_sha256,COALESCE((SELECT r.resolution FROM conflict_resolutions r WHERE r.artifact_id=a.artifact_id),'') FROM artifacts a JOIN sessions s ON s.session_uid=a.session_uid WHERE ` + strings.Join(where, " AND ") + ` ORDER BY a.artifact_id LIMIT ?`
-		args = append(args, r.Limit+1)
-	}
+	query, args := recordSQL(scope, uid, kind, r, cur)
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return out, err
@@ -436,6 +411,36 @@ func (c *Catalog) DashboardRecords(ctx context.Context, scope Scope, uid, kind s
 		}
 	}
 	return out, nil
+}
+
+func recordSQL(scope Scope, uid, kind string, r PageRequest, cur pageCursor) (string, []any) {
+	var query string
+	var args []any
+	if kind == "provenance" {
+		inP, pArgs := scope.where("p.session_uid")
+		query = `SELECT p.rowid,p.session_uid,substr(p.machine_id,1,128),p.sha256,substr(p.relpath,1,512) FROM provenance p WHERE p.session_uid=? AND p.rowid>? AND ` + inP + ` ORDER BY p.rowid LIMIT ?`
+		args = append(append([]any{uid, cur.When}, pArgs...), r.Limit+1)
+	} else {
+		inA, aArgs := scope.where("a.session_uid")
+		where := []string{"a.artifact_id>?", inA}
+		args = append([]any{cur.After}, aArgs...)
+		if uid != "" {
+			where = append(where, "a.session_uid=?")
+			args = append(args, uid)
+		}
+		if kind == "conflicts" {
+			where = append(where, "a.relation='divergent_copy'")
+			if !r.Resolved {
+				where = append(where, unresolvedSQL)
+			}
+		}
+		if r.Current {
+			where = append(where, "a.current=1")
+		}
+		query = `SELECT a.artifact_id,a.session_uid,a.kind,substr(a.relpath,1,512),a.sha256,a.size,a.relation,a.current,s.head_sha256,COALESCE((SELECT r.resolution FROM conflict_resolutions r WHERE r.artifact_id=a.artifact_id),'') FROM artifacts a JOIN sessions s ON s.session_uid=a.session_uid WHERE ` + strings.Join(where, " AND ") + ` ORDER BY a.artifact_id LIMIT ?`
+		args = append(args, r.Limit+1)
+	}
+	return query, args
 }
 
 // describeConflict adds what a reader needs to judge a conflict: the

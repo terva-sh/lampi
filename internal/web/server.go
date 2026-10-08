@@ -82,6 +82,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/profiles/{name}", s.profile)
 	get("/api/web/v1/review", s.review)
 	s.pageRoutes(m)
+	s.maintenanceRoutes(m)
 	s.registrationRoutes(m)
 	s.readEventRoutes(m)
 	s.mcpRoutes(m)

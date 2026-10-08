@@ -116,7 +116,7 @@ func TestTranscriptPageRendersLiterallyAndHandlesStaleLinks(t *testing.T) {
 	})
 	w := get(h, page, cookie)
 	body := w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, `id="e-0"`) || !strings.Contains(body, "Later events") || strings.Contains(body, "Earlier events") {
+	if w.Code != 200 || !strings.Contains(body, `id="e-0"`) || !strings.Contains(body, `aria-label="Next page"`) || strings.Contains(body, `aria-label="Previous page"`) {
 		t.Fatal("first page", w.Code)
 	}
 	if strings.Contains(body, "<script>window.owned") || !strings.Contains(body, "&lt;script&gt;window.owned=1&lt;/script&gt;") || strings.Contains(body, "<img") {
@@ -124,7 +124,7 @@ func TestTranscriptPageRendersLiterallyAndHandlesStaleLinks(t *testing.T) {
 	}
 	w = get(h, fmt.Sprintf("%s?gen=%d&at=120", page, gen), cookie)
 	body = w.Body.String()
-	if w.Code != 200 || !strings.Contains(body, `id="e-120" class="event actor-assistant target"`) || !strings.Contains(body, `id="e-115"`) || strings.Contains(body, `id="e-114"`) || !strings.Contains(body, "Earlier events") {
+	if w.Code != 200 || !strings.Contains(body, `id="e-120" class="event actor-assistant target"`) || !strings.Contains(body, `id="e-115"`) || strings.Contains(body, `id="e-114"`) || !strings.Contains(body, `aria-label="Previous page"`) {
 		t.Fatal("deep link", w.Code)
 	}
 	publishEvents(t, lake, uid, 3, func(int) string { return "rewritten" })

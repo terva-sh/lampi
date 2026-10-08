@@ -39,7 +39,7 @@ try {
   await page.screenshot({path: join(artifacts, 'overview-desktop.png'), fullPage: true});
   await page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Sessions', exact: true}).click();
   assert.equal(await page.locator('tbody tr').count(), 50);
-  await page.getByRole('link', {name: 'Next page'}).click();
+  await page.getByRole('link', {name: 'Next page'}).first().click();
   assert.equal(await page.locator('body').getAttribute('data-poll'), 'false');
   assert.equal(await page.locator('select[name=harness]').count(), 1, (await page.locator('body').innerText()).slice(0,1000));
   await page.getByLabel('Harness', {exact: true}).selectOption('codex');
@@ -89,7 +89,7 @@ try {
   assert.equal(plainText, copied);
   await page.screenshot({path: join(artifacts, 'transcript-copy.png'), fullPage: false});
   await page.getByRole('button', {name: 'Clear', exact: true}).click();
-  await page.getByRole('link', {name: 'Later events →'}).first().click();
+  await page.getByRole('link', {name: 'Next page'}).first().click();
   assert.equal(await page.locator('.event').first().getAttribute('id'), 'e-100');
   await page.getByRole('link', {name: 'Link to event 120'}).click();
   assert.match(page.url(), /[?&]gen=\d+&at=120#e-120$|[?&]at=120&gen=\d+#e-120$/);
@@ -219,14 +219,14 @@ try {
   await basic.getByRole('searchbox', {name: 'Text'}).fill('git push --dry-run');
   await basic.getByRole('button', {name: 'Search', exact: true}).click();
   assert.equal(await basic.locator('.hit').count(), 50);
-  await basic.getByRole('link', {name: 'Next page →'}).click();
+  await basic.getByRole('link', {name: 'Next page'}).first().click();
   assert.ok(await basic.locator('.hit').count() > 0, 'no-JS search paging');
   await basic.goto(transcriptURL);
   assert.equal(await basic.locator('.event').count(), 100);
   assert.equal(await basic.locator('#excerpt-bar').isVisible(), false);
   const pagePlain = await basic.getByRole('link', {name: 'This page as plain text'}).getAttribute('href');
   assert.match(await (await noJS.request.get(live.url + pagePlain)).text(), /Events #0 to #99 of generation/);
-  await basic.getByRole('link', {name: 'Later events →'}).first().click();
+  await basic.getByRole('link', {name: 'Next page'}).first().click();
   assert.equal(await basic.locator('.event').first().getAttribute('id'), 'e-100');
   await basic.goto(live.url + '/activity');
   await basic.getByLabel('Range').selectOption('90d');

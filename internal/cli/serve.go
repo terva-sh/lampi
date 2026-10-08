@@ -713,6 +713,39 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 			return ignoredProfilesFiles(data, profilesFile)
 		},
 	}
+	ops.Maintenance = web.NewMaintenance(ctx, func(ctx context.Context, action string) (string, error) {
+		var message string
+		var err error
+		switch action {
+		case "search":
+			var before, after int64
+			before, after, err = index.Optimize(ctx)
+			message = fmt.Sprintf("Search index compacted: %.1f MiB before, %.1f MiB after.", float64(before)/(1<<20), float64(after)/(1<<20))
+		case "uploads":
+			var removed int
+			removed, err = lake.CAS.Sweep(time.Now().Add(-sweepAge))
+			message = fmt.Sprintf("Removed %d upload leftovers older than %s.", removed, sweepAge)
+		case "sample":
+			message = "Storage measurements refreshed."
+		default:
+			return "", fmt.Errorf("unknown maintenance action")
+		}
+		if err == nil {
+			_, err = lake.SampleStorage(ctx)
+		}
+		if err != nil && lake.Log != nil {
+			lake.Log.Error("maintenance failed", "action", action, "err", err)
+		}
+		return message, err
+	})
+	beforeClose := lake.BeforeClose
+	lake.BeforeClose = func() {
+		// Cancel the indexing pass too, so maintenance waiting for its
+		// writer lock can finish before either store is closed.
+		stop()
+		ops.Maintenance.Close()
+		beforeClose()
+	}
 	logAdmins(lake.Log, cfg)
 	lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, ops, nil, lake.Log)
 	if err != nil {

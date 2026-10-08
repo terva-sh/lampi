@@ -113,9 +113,11 @@ type Coverage struct {
 // is published with what is indexed, so a crash or restart loses
 // nothing that the next pass does not find.
 type Index struct {
-	db     *sql.DB
-	reader *Reader
-	Log    *slog.Logger
+	db      *sql.DB
+	path    string
+	writeMu sync.Mutex
+	reader  *Reader
+	Log     *slog.Logger
 	// Interval is the longest wait between passes. Notify starts one
 	// sooner.
 	Interval time.Duration
@@ -151,7 +153,7 @@ func OpenIndex(path string, reader *Reader) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := &Index{db: db, reader: reader, Interval: 5 * time.Minute, wake: make(chan struct{}, 1), failed: map[string]int64{}, merging: true}
+	x := &Index{db: db, path: path, reader: reader, Interval: 5 * time.Minute, wake: make(chan struct{}, 1), failed: map[string]int64{}, merging: true}
 	x.passed = sync.NewCond(&x.mu)
 	return x, nil
 }
@@ -285,6 +287,8 @@ type indexedRow struct {
 // ready session whose published generation is not the indexed one,
 // and drops sessions that are gone, failed or never published.
 func (x *Index) Pass(ctx context.Context) error {
+	x.writeMu.Lock()
+	defer x.writeMu.Unlock()
 	sessions, err := x.reader.catalog.PublishedSessions(ctx)
 	if err != nil {
 		return err
@@ -756,25 +760,43 @@ func OptimizeIndex(ctx context.Context, path string) (before, after int64, err e
 		return before, before, err
 	}
 	defer db.Close()
+	err = optimizeDB(ctx, db, false)
+	return before, IndexSize(path), err
+}
+
+// Optimize compacts the running index between reconciliation passes. Readers
+// keep their snapshots; a busy checkpoint leaves its WAL for the next pass.
+func (x *Index) Optimize(ctx context.Context) (before, after int64, err error) {
+	x.writeMu.Lock()
+	defer x.writeMu.Unlock()
+	before = IndexSize(x.path)
+	err = optimizeDB(ctx, x.db, true)
+	return before, IndexSize(x.path), err
+}
+
+func optimizeDB(ctx context.Context, db *sql.DB, online bool) error {
 	// incremental_vacuum frees one page per step. ExecContext steps it to
 	// the end, which TestOptimizeFreesTheEntriesOfRemovedRows checks by
 	// the freelist.
 	for _, q := range []string{`INSERT INTO fts(fts) VALUES('optimize')`, `PRAGMA incremental_vacuum`} {
 		if _, err := db.ExecContext(ctx, q); err != nil {
-			return before, IndexSize(path), fmt.Errorf("search: optimize: %w", err)
+			return fmt.Errorf("search: optimize: %w", err)
 		}
 	}
-	// The caller holds lake.lock, so a reader here is another process
-	// that opened search.db without it. Its WAL is left for serve's
-	// first reclaim to truncate.
+	// Offline callers hold lake.lock. Online callers serialize index
+	// writes and may have browser readers whose snapshots defer truncation.
 	var busy, logPages, done int64
 	if err := db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &done); err != nil {
-		return before, IndexSize(path), fmt.Errorf("search: optimize: checkpoint: %w", err)
+		return fmt.Errorf("search: optimize: checkpoint: %w", err)
 	}
 	if busy != 0 {
-		return before, IndexSize(path), errors.New("search: optimize: another process is reading search.db, so its WAL was not truncated")
+		if !online {
+			return errors.New("search: optimize: another process is reading search.db, so its WAL was not truncated")
+		}
+		// An online reader may still hold a snapshot. Reclaim will retry.
+		return nil
 	}
-	return before, IndexSize(path), nil
+	return nil
 }
 
 // IndexSize is the bytes of the index file at path and its WAL.

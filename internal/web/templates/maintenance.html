@@ -1,0 +1,12 @@
+{{define "maintenance"}}{{if .Ops.Actions}}{{$o := .Ops}}<section class="panel maintenance" aria-labelledby="maintenance-heading">
+<div class="section-heading"><h2 id="maintenance-heading">Maintenance</h2><span>Admin</span></div>
+{{with $o.Maintenance.Message}}<p role="status">{{.}}</p>{{end}}
+{{if $o.Maintenance.Running}}<p class="hint">One maintenance job runs at a time. This page refreshes while it runs.</p>
+{{else if not $o.Fresh}}<p><a class="button quiet" href="{{$o.FreshURL}}">Sign in again to run maintenance</a></p>
+{{else}}<div class="maintenance-actions">
+{{if $o.SearchAction}}<form method="post" action="/operations/maintenance"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="range" value="{{$o.Range}}"><input type="hidden" name="action" value="search"><button class="quiet" type="submit">Compact search index</button><p class="hint">Merge the index and return unused space. Allow free disk space roughly equal to the index size while it runs.</p></form>{{end}}
+<form method="post" action="/operations/maintenance"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="range" value="{{$o.Range}}"><input type="hidden" name="action" value="uploads"><button class="quiet" type="submit">Clean up old uploads</button><p class="hint">Remove temporary files and unfinished uploads untouched for over a day.</p></form>
+<form method="post" action="/operations/maintenance"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="range" value="{{$o.Range}}"><input type="hidden" name="action" value="sample"><button class="quiet" type="submit">Refresh storage measurements</button><p class="hint">Measure current disk use and update the storage charts.</p></form>
+</div>{{end}}
+<p class="hint">To compact stored blob versions, back up the lake, stop the server, and run <code>terva-lampi serve compact</code> on the lake host.</p>
+</section>{{end}}{{end}}

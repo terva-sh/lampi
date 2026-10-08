@@ -122,8 +122,9 @@ type pageData struct {
 	Session                    catalog.SessionSummary
 	Records                    catalog.Page[catalog.Record]
 	Filters                    catalog.PageRequest
-	Collection, NextURL, AsOf  string
+	Collection, AsOf           string
 	Poll                       bool
+	Pager                      pagerView
 	Transcript                 recall.EventPage
 	// TranscriptBlocks is Transcript's page grouped for display, with
 	// runs of quiet unknown events folded (transcriptBlocks).
@@ -232,14 +233,6 @@ func renderStatus(w http.ResponseWriter, r *http.Request, d pageData, status int
 	w.WriteHeader(status)
 	_ = pages.ExecuteTemplate(w, "layout", d)
 }
-func nextURL(r *http.Request, cursor string) string {
-	if cursor == "" {
-		return ""
-	}
-	q := r.URL.Query()
-	q.Set("cursor", cursor)
-	return r.URL.Path + "?" + q.Encode()
-}
 func pageError(w http.ResponseWriter, r *http.Request, err error) { fail(w, r, err) }
 func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 {
@@ -281,7 +274,12 @@ func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, Filters: p, AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor), Poll: p.Cursor == ""})
+	nav, err := s.catalog.DashboardNavigation(ctx, scopeOf(r), "", "sessions", p)
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor), Poll: p.Cursor == ""})
 }
 func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -317,7 +315,13 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	d := pageData{Title: "Session details", View: "detail", Session: summary, SessionBays: bays, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf, NextURL: nextURL(r, records.NextCursor)}
+	d := pageData{Title: "Session details", View: "detail", Session: summary, SessionBays: bays, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf}
+	nav, err := s.catalog.DashboardNavigation(ctx, scopeOf(r), uid, kind, p)
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	d.Pager = pager(r, nav, nil, records.NextCursor)
 	if kind == "conflicts" {
 		d.Conflicts = s.newConflictsView(ctx, records, p, *r.URL, uid)
 	}
@@ -336,7 +340,12 @@ func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, Conflicts: s.newConflictsView(ctx, v, p, *r.URL, ""), AsOf: v.AsOf, NextURL: nextURL(r, v.NextCursor)})
+	nav, err := s.catalog.DashboardNavigation(ctx, scopeOf(r), "", "conflicts", p)
+	if err != nil {
+		pageError(w, r, err)
+		return
+	}
+	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, Conflicts: s.newConflictsView(ctx, v, p, *r.URL, ""), AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor)})
 }
 
 // transcriptPage shows one page of a session's published events. at
@@ -380,6 +389,12 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 	var unavailable recall.UnavailableError
 	switch {
 	case err == nil:
+		nav, err := s.events.EventNavigation(ctx, scopeOf(r), d.Transcript, req.Limit)
+		if err != nil {
+			pageError(w, r, err)
+			return
+		}
+		d.Pager = pager(r, nav, &d.Transcript.Generation, d.Transcript.NextCursor)
 		d.AsOf = d.Transcript.AsOf
 		d.TranscriptBlocks = transcriptBlocks(d.Transcript.Items, d.Target, d.HasTarget)
 		render(w, r, d)
@@ -432,7 +447,8 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		var page recall.SearchPage
 		req.Scope = scopeOf(r)
-		page, err = s.index.Search(ctx, req)
+		var nav catalog.PageNavigation
+		page, nav, err = s.index.SearchNumbered(ctx, req)
 		if err == nil {
 			for _, h := range page.Items {
 				d.Search.Hits = append(d.Search.Hits, splitHit(h))
@@ -441,7 +457,7 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 				d.Search.Coverage = &page.Coverage
 			}
 			d.AsOf = page.AsOf
-			d.NextURL = nextURL(r, page.NextCursor)
+			d.Pager = pager(r, nav, nil, page.NextCursor)
 			render(w, r, d)
 			return
 		}

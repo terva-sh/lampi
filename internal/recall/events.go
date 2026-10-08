@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -69,6 +70,8 @@ type Reader struct {
 	catalog    *catalog.Catalog
 	normalized string
 	key        []byte
+	navMu      sync.Mutex
+	navCache   map[eventNavigationKey][]cursor
 }
 
 // NewReader reads catalog state from cat and derived files from

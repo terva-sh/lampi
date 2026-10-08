@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -59,6 +60,8 @@ type SearchRequest struct {
 	// Scope reads nothing. A page can then hold fewer hits than Limit,
 	// as it already can when a hit's generation is stale.
 	Scope catalog.Scope
+	// ids bounds a numbered browser page to current, readable hits.
+	ids []int64
 }
 
 // EventTypes and Actors are the values the event filters accept: the
@@ -166,30 +169,11 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 	if !req.Scope.All() {
 		page.Coverage = Coverage{}
 	}
-	if req.Limit == 0 {
-		req.Limit = SearchDefaultLimit
-	}
-	if req.Limit < 1 || req.Limit > SearchMaxLimit || len(req.Project) > 4096 || (req.Unlinked && req.Project != "") {
-		return page, ErrInvalid
-	}
-	if req.Query != "" || !req.hasEventFilter() {
-		if err := ValidateQuery(req.Query); err != nil {
-			return page, err
-		}
-	}
-	if req.Filter().Validate() != nil {
-		return page, ErrInvalid
+	before, err := req.validate(x.reader)
+	if err != nil {
+		return page, err
 	}
 	fp := req.fingerprint()
-	var before int64 = -1
-	if req.Cursor != "" {
-		var c searchCursor
-		body, err := x.reader.verifySigned(req.Cursor)
-		if err != nil || json.Unmarshal(body, &c) != nil || c.V != 1 || c.Filter != fp || c.Before <= 0 {
-			return page, ErrInvalid
-		}
-		before = c.Before
-	}
 	q, args := searchSQL(req, before)
 	rows, err := x.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -275,6 +259,34 @@ func (x *Index) Search(ctx context.Context, req SearchRequest) (SearchPage, erro
 	return page, nil
 }
 
+func (req *SearchRequest) validate(reader *Reader) (int64, error) {
+	if req.Limit == 0 {
+		req.Limit = SearchDefaultLimit
+	}
+	if req.Limit < 1 || req.Limit > SearchMaxLimit || len(req.Project) > 4096 || (req.Unlinked && req.Project != "") {
+		return -1, ErrInvalid
+	}
+	if req.Query != "" || !req.hasEventFilter() {
+		if err := ValidateQuery(req.Query); err != nil {
+			return -1, err
+		}
+	}
+	if req.Filter().Validate() != nil {
+		return -1, ErrInvalid
+	}
+	fp := req.fingerprint()
+	var before int64 = -1
+	if req.Cursor != "" {
+		var c searchCursor
+		body, err := reader.verifySigned(req.Cursor)
+		if err != nil || json.Unmarshal(body, &c) != nil || c.V != 1 || c.Filter != fp || c.Before <= 0 {
+			return -1, ErrInvalid
+		}
+		before = c.Before
+	}
+	return before, nil
+}
+
 // searchSQL builds the page query. It is separate so tests can check
 // its plan.
 func searchSQL(req SearchRequest, before int64) (string, []any) {
@@ -284,6 +296,17 @@ func searchSQL(req SearchRequest, before int64) (string, []any) {
 	from, key := `fts JOIN docs d ON d.id=fts.rowid`, "fts.rowid"
 	var where []string
 	var args []any
+	if req.ids != nil {
+		if len(req.ids) == 0 {
+			where = append(where, "0=1")
+		} else {
+			ids := make([]string, len(req.ids))
+			for i, id := range req.ids {
+				ids[i] = strconv.FormatInt(id, 10)
+			}
+			where = append(where, "d.id IN ("+strings.Join(ids, ",")+")")
+		}
+	}
 	if req.Query != "" {
 		where = append(where, "fts MATCH ?")
 		args = append(args, ftsLiteral(req.Query))

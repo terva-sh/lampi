@@ -720,6 +720,38 @@ A profile no active device uses can be deleted from its page. The default
 cannot. Harness roots and uploading flagged files are not in the editor:
 they stay in each machine's `config.json`.
 
+## Pagination
+
+Paginated sessions, search hits, transcripts, conflicts, artifact history and
+provenance have controls above and below the list. They show the current and
+total page count, nearby page numbers, and first, previous, next and last links.
+Links keep the active filters and page size. Transcript links pin the published
+generation; a changed transcript asks the reader to reload. Large events can
+fill a transcript page's byte budget before its event limit, and page numbers
+follow those actual boundaries. Deep links can start inside a page; clicking
+the highlighted page number opens that whole page.
+
+## Maintenance from Operations
+
+Admins can request maintenance from Operations after a sign-in within the last
+ten minutes. Each request and its result are audited. Jobs run in the background,
+one at a time, and the page refreshes while a job runs. The server cancels and
+waits for maintenance before closing its stores.
+
+- **Compact search index** merges the full-text segments, returns freed pages
+  to the filesystem, and checkpoints the WAL. It runs between indexing passes;
+  a reader holding a snapshot defers the WAL truncate to a later pass. Leave
+  free disk space roughly equal to the search index size while it runs.
+- **Clean up old uploads** removes temporary files and unfinished uploads
+  untouched for over a day. Cleanup and resumed-upload writes share the store
+  lock so a resumed upload cannot race its removal.
+- **Refresh storage measurements** measures the lake and updates the storage
+  charts immediately. Compaction and upload cleanup also take a new sample.
+
+Stored-blob version folding still needs exclusive access: back up the lake,
+stop serve, and run `terva-lampi serve compact` on its host. The dashboard
+keeps that instruction alongside its live maintenance controls.
+
 ## Search index
 
 With web configuration, serve keeps a full-text index of normalized event text
@@ -744,7 +776,8 @@ neither builds nor updates it.
   full-text segments until a merge meets them. After a pass that removed rows
   the index merges a bounded amount and returns the freed pages to the
   filesystem, but that does not reach every old segment. `serve compact`
-  merges the whole index with serve stopped and frees them all.
+  merges the whole index with serve stopped and frees them all. An admin can
+  also use **Compact search index** on Operations while serve runs.
 - **WAL.** `search.db-wal` grows while a pass writes and is cut back to zero at
   the end of the pass. Indexing a whole session writes roughly ten to fifteen
   times its text there, because the index merges older segments in the same
