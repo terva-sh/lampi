@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M4ERWGJ894HBPWJWSC3KSYR3
 title: Deploy dashboard pagination and maintenance to dogfooding
 type: task
-status: blocked
-status_reason: The checksummed, rehearsed operator bundle is ready and deployment is authorized. Root installation is waiting for the owner to run its command because sudo requires a password; this session has no noninteractive root access. Live services remain unchanged on v0.8.0.
+status: in-progress
+status_reason: The owner started the prepared root operator script; backup/install verification is now underway.
 priority: normal
 due_on: null
 labels:
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3code-8afe4a1e
+  branch: ops/dogfood-dashboard-92c2dbe
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8afe4a1e
+  commit: d5f9b5274d8cb9a3e09292ddb4252c87765a61bc
+  session: null
+  claimed_at: 2026-10-08T22:17:25Z
+  expires_at: null
 archive: null
 created_at: 2026-10-08T22:07:04Z
-updated_at: 2026-10-08T22:14:23Z
+updated_at: 2026-10-08T22:17:25Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -74,3 +81,11 @@ The prepared root command was requested from the owner. No completion report exi
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T22:14:22Z
 
 in-progress to blocked: The checksummed, rehearsed operator bundle is ready and deployment is authorized. Root installation is waiting for the owner to run its command because sudo requires a password; this session has no noninteractive root access. Live services remain unchanged on v0.8.0.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:17:25Z
+
+blocked to in-progress: The owner started the prepared root operator script; backup/install verification is now underway.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:17:25Z
+
+The prepared root operator script is now running. Both lake and capture units are paused and the installed binary is still v0.8.0, consistent with the stopped-lake checkpoint stage. The sudo execution blocker is resolved by the owner running the command; live verification criteria remain unticked until the script completion report and independent post-install checks succeed.
