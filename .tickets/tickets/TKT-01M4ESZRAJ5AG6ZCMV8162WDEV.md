@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:26:19Z
-updated_at: 2026-10-08T22:27:29Z
+updated_at: 2026-10-08T22:29:09Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -49,3 +49,9 @@ Lampi currently appears as a generic icon in browser sidebars. Add a recognizabl
 ## Implementation plan
 
 Create a native SVG pond mark using the existing blue and cream palette, and rasterize it for ICO and Apple touch shortcuts. Serve root discovery files publicly and declare the formats in the shared page head. Keep the dashboard wave branding and avoid adding a frontend build or image dependency. Check small-size rendering and existing web coverage; complete Forgejo CI and review before merging.
+
+## Notes
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T22:29:09Z
+
+Implemented a two-wave cream mark on a blue rounded square, matching the existing pond header and palette. The SVG is the source; Chromium canvas rasterization produced 16/32/48 px PNG entries in favicon.ico and the 180 px touch PNG. Both light and dark small-size previews are legible. A running isolated synthetic lake returned unauthenticated 200 responses with correct ICO/SVG/PNG MIME types, and its authenticated page declared all three formats. Existing web and recall tests passed. No manifest or frontend/image dependency was added because this request concerns browser identity, not an installable offline app.
