@@ -212,7 +212,10 @@ func (s *Server) pageRoutes(m *http.ServeMux) {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
-	m.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(assets)))
+	static := http.FileServerFS(assets)
+	m.Handle("GET /assets/", http.StripPrefix("/assets/", static))
+	m.Handle("GET /favicon.ico", static)
+	m.Handle("GET /apple-touch-icon.png", static)
 }
 func render(w http.ResponseWriter, r *http.Request, d pageData) {
 	renderStatus(w, r, d, http.StatusOK)
