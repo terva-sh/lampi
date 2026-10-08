@@ -741,7 +741,11 @@ waits for maintenance before closing its stores.
 - **Compact search index** merges the full-text segments, returns freed pages
   to the filesystem, and checkpoints the WAL. It runs between indexing passes;
   a reader holding a snapshot defers the WAL truncate to a later pass. Leave
-  free disk space roughly equal to the search index size while it runs.
+  free disk space roughly equal to the search index size while it runs. If an
+  older server exhausted FTS5's 2,000 segment IDs, compaction first rebuilds the
+  full-text table from its existing indexed rows. This is transactional and
+  preserves the session catalog, transcripts, and index metadata. A successful
+  compaction also lets sessions with earlier indexing failures retry.
 - **Clean up old uploads** removes temporary files and unfinished uploads
   untouched for over a day. Cleanup and resumed-upload writes share the store
   lock so a resumed upload cannot race its removal.

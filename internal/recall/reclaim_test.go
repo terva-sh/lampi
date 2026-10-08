@@ -64,6 +64,12 @@ func TestReindexingKeepsTheIndexNearItsLiveSize(t *testing.T) {
 		// Every event's text changes, so every row is replaced.
 		publish(t, s, uid, events(first+g*10, func(i int) string { return fmt.Sprint(text[i], " g", g) }))
 		pass(t, x)
+		for i := 0; x.merging; i++ {
+			if i > 50 {
+				t.Fatal("replacement merge did not finish")
+			}
+			pass(t, x)
+		}
 		if g == 0 {
 			live = indexBytes(t, x, path)
 		}
@@ -350,5 +356,162 @@ func TestOnlineOptimizeWaitsForIndexingAndKeepsSearchReadable(t *testing.T) {
 	}
 	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "keepword"}); len(p.Items) != 30 {
 		t.Fatal("live compaction changed search results", len(p.Items))
+	}
+}
+
+// Small FTS pages and a one-page budget make a merge span many steps,
+// without needing the multi-GiB index that exposed the failure.
+func seedLongMerge(t *testing.T, x *Index) {
+	t.Helper()
+	for _, q := range []string{`INSERT INTO fts(fts,rank) VALUES('pgsz',64)`, `INSERT INTO fts(fts,rank) VALUES('automerge',0)`} {
+		if _, err := x.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rng := rand.New(rand.NewPCG(2, 3))
+	for batch := 0; batch < 4; batch++ {
+		tx, err := x.db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 20; i++ {
+			text := make([]byte, 4000)
+			for j := range text {
+				text[j] = byte('a' + rng.IntN(26))
+			}
+			if _, err := tx.Exec(`INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,raw_type,content) VALUES('fixture',?,0,'codex','','message','user','message',?)`, batch*20+i, string(text)); err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func addMergeRow(t *testing.T, x *Index, i int) {
+	t.Helper()
+	if _, err := x.db.Exec(`INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,raw_type,content) VALUES('fixture',?,0,'codex','','message','user','message',?)`, 100+i, fmt.Sprint("new batch ", i)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func segmentCount(t *testing.T, x *Index) int {
+	t.Helper()
+	var n int
+	if err := x.db.QueryRow(`SELECT count(DISTINCT segid) FROM fts_idx`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestForcedMergeContinuesWhileNewSegmentsArrive(t *testing.T) {
+	x := openIndex(t, lake(t))
+	seedLongMerge(t, x)
+	x.forcing = false
+	// New deletions may request another forced merge, but must not
+	// restart an unfinished one when uploads add new segments.
+	for i := 0; i < 100; i++ {
+		addMergeRow(t, x, i)
+		x.deleted = true
+		if _, err := x.reclaimPages(t.Context(), x.deleted, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := segmentCount(t, x); n > 20 {
+		t.Fatalf("restarted merges accumulated %d segments", n)
+	}
+	// Pending deletions are not lost, and finishing the current merge
+	// eventually allows another forced merge to consume that request.
+	for i := 0; x.forcing || x.deleted; i++ {
+		if i > 200 {
+			t.Fatal("pending forced merge did not finish")
+		}
+		if _, err := x.reclaim(t.Context(), x.deleted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := x.db.Exec(`INSERT INTO fts(fts,rank) VALUES('integrity-check',1)`); err != nil {
+		t.Fatal("merge changed indexed content", err)
+	}
+}
+
+func TestOptimizeRecoversSaturatedSegmentsAndRetriesFailedSessions(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "saturated")
+	publish(t, s, uid, events(3, func(i int) string { return fmt.Sprint("keepword ", i) }))
+	x := openIndex(t, s)
+	pass(t, x)
+	seedLongMerge(t, x)
+	// Reach the limit when an upload allocates the last ID, leaving no
+	// ID for the forced merge's output (the production failure).
+	if segmentCount(t, x)%2 == 0 {
+		addMergeRow(t, x, 5000)
+	}
+	// Reproduce the old reclaim: every step starts a negative-budget
+	// merge while a new upload adds a segment. It exhausts FTS5 IDs.
+	for i := 0; segmentCount(t, x) < 2000; i++ {
+		if i > 2000 {
+			t.Fatal("fixture did not saturate")
+		}
+		addMergeRow(t, x, i)
+		if _, err := x.db.Exec(`INSERT INTO fts(fts,rank) VALUES('merge',-1)`); err != nil && segmentCount(t, x) < 2000 {
+			t.Fatal(err)
+		}
+	}
+	if _, err := x.db.Exec(`INSERT INTO fts(fts,rank) VALUES('merge',-1)`); err == nil {
+		t.Fatal("saturated fixture still starts a forced merge")
+	}
+	if _, err := x.db.Exec(`INSERT INTO fts(fts) VALUES('optimize')`); err == nil || !strings.Contains(err.Error(), "full") {
+		t.Fatal("saturated fixture did not fail ordinary optimize", err)
+	}
+	// A canceled attempt must leave the old searchable content intact.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, _, err := x.Optimize(ctx); err == nil {
+		t.Fatal("canceled recovery succeeded")
+	}
+	if n := segmentCount(t, x); n != 2000 {
+		t.Fatal("canceled recovery changed segments", n)
+	}
+	// Fail after rebuild has started clearing/writing shadow tables.
+	// SQLite must roll back the whole statement, preserving the old hits.
+	if _, err := x.db.Exec(`CREATE TRIGGER fail_rebuild BEFORE INSERT ON fts_data BEGIN SELECT RAISE(ABORT,'fixture rebuild failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := x.Optimize(t.Context()); err == nil || !strings.Contains(err.Error(), "rebuild saturated index: constraint failed") {
+		t.Fatal("recovery did not propagate the injected failure", err)
+	}
+	if n := segmentCount(t, x); n != 2000 {
+		t.Fatal("failed rebuild did not roll back segments", n)
+	}
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "keepword"}); len(p.Items) != 3 {
+		t.Fatal("failed rebuild lost existing search hits", len(p.Items))
+	}
+	if _, err := x.db.Exec(`DROP TRIGGER fail_rebuild`); err != nil {
+		t.Fatal(err)
+	}
+	pending := ingest(t, s, "failed-at-saturation")
+	publish(t, s, pending, events(1, func(int) string { return "retryword" }))
+	pass(t, x)
+	if x.Coverage().Failed == 0 {
+		t.Fatal("saturated indexing did not record a failed session")
+	}
+	if _, _, err := x.Optimize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if n := segmentCount(t, x); n != 1 {
+		t.Fatal("recovery did not compact segments", n)
+	}
+	if _, err := x.db.Exec(`INSERT INTO fts(fts,rank) VALUES('integrity-check',1)`); err != nil {
+		t.Fatal("recovery changed indexed content", err)
+	}
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "keepword"}); len(p.Items) != 3 {
+		t.Fatal("recovery lost existing search hits", len(p.Items))
+	}
+	pass(t, x)
+	if p := search(t, x, SearchRequest{Scope: catalog.AllBays(), Query: "retryword"}); len(p.Items) != 1 {
+		t.Fatal("recovery did not retry failed indexing", len(p.Items))
 	}
 }

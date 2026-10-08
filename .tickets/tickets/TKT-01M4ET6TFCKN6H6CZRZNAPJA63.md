@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T22:33:33Z
+updated_at: 2026-10-08T23:07:56Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -49,7 +49,7 @@ The dogfooding dashboard accepted Compact search index but finished with: Mainte
 
 ## Implementation plan
 
-Obtain only the filtered maintenance error from the protected system journal. Separate failures during FTS5 optimize, vacuum/checkpoint, and the post-job storage sample. Reproduce the observed cause using isolated data before changing compaction behavior. Preserve the original data, authenticate admin operations, and add regression coverage for the demonstrated failure. Land the fix through Forgejo CI and review, then prepare a backed-up rollout and verify the user-triggered operation.
+Continue a started forced merge with positive budgets instead of repeatedly restarting it as new uploads arrive. Keep new deletion requests pending until that merge finishes; resume pending merges conservatively after restart. Detect saturated FTS segments before explicit compaction and rebuild only the derived full-text table transactionally from existing docs, then optimize/vacuum/checkpoint. Add regression tests for interrupted merging with writes, saturation recovery, search integrity, and rollback/cancellation. Validate CI and review, then deploy with backups and verify compaction, search and capture on dogfooding.
 
 ## Notes
 
@@ -60,3 +60,11 @@ The user reports the asynchronous failure message, so the action was accepted an
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T22:33:33Z
 
 The user supplied two matching log entries: action=search, search: optimize: database or disk is full (13). This locates the failure in the optimize/vacuum stage, before post-job sampling. Root and temporary filesystems currently have 55 GiB and 5.9 GiB free, respectively; inode space is available. The service uses PrivateTmp=yes and ProtectSystem=strict, with its lake writable. A read-only aggregate diagnostic script was validated against the isolated synthetic lake, then requested for root execution to measure the live index, FTS segment counts and filesystem space in the service namespace. No live cleanup, configuration change or database repair has been attempted.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:02:21Z
+
+Live read-only diagnostics show a 4.54 GiB index, 776 indexed sessions, no freelist pages, and exactly 2000 distinct FTS segment IDs (1 through 2000). Filesystems and page-count limits have ample room. An isolated SQLite fixture reproduced saturation after 997 repeated negative-budget merges interleaved with inserts: merge and optimize both return SQLITE_FULL at 2000 segments, while rebuilding the FTS table from its existing external content succeeds. Repeated forced merge starts are the demonstrated source: new segments arrive between reclaim passes while the deleted flag keeps requesting negative merges.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T23:07:56Z
+
+Implemented merge continuation with positive budgets after one forced start, retaining later deletion requests for a subsequent merge and resuming conservatively after restart. Explicit compaction detects 2000 occupied segment IDs and transactionally rebuilds only FTS from docs before optimizing. Successful online compaction clears transient per-generation failures and schedules reconciliation. The synthetic saturated fixture fails ordinary optimize, and recovery preserves existing hits, passes FTS/content integrity-check, compacts to one segment, and retries a session whose insert failed at saturation. A trigger-injected rebuild failure and canceled request both leave the saturated index and old search hits intact. The earlier bounded-size regression now drains pending reclaim passes before measuring: continuing a merge may defer a new forced request by a pass. Targeted tests, vet and formatting pass; race/CI validation follows.

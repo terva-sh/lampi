@@ -44,9 +44,9 @@ const indexVersion = 4
 // After a pass that only added rows, the merge is FTS5's ordinary one,
 // which merges a level once it holds enough segments. After a pass that
 // deleted rows, it is forced, which merges whatever is there and so
-// drops the deleted rows, until a forced merge finds nothing left. A
-// forced merge after every pass would rewrite mergePages of the index
-// each time, about 8 MiB, even when a pass appended a few events.
+// drops the deleted rows. Start it once with a negative budget, then
+// continue with positive budgets until it finishes. Restarting it as
+// new segments arrive strands unfinished output and exhausts FTS5 IDs.
 const mergePages = 2000
 
 // walLimit is the size SQLite truncates search.db-wal to when it
@@ -134,10 +134,13 @@ type Index struct {
 	// process that stopped may have left work. Only Pass reads and
 	// writes it.
 	merging bool
-	// deleted is set by a pass that deleted rows, and cleared when a
-	// forced merge finds nothing left to merge. Only Pass reads and
-	// writes it.
+	// deleted requests a forced merge. Once started, continue that merge
+	// with positive budgets; another negative budget would abandon its
+	// output when new segments arrive. New deletions stay pending until
+	// the current merge finishes. writeMu protects both flags.
 	deleted bool
+	// Start conservatively: a reopened index may have an unfinished merge.
+	forcing bool
 	// beforeReclaim, when set, runs before a pass reclaims. Tests use
 	// it to stop a pass there.
 	beforeReclaim func()
@@ -153,7 +156,7 @@ func OpenIndex(path string, reader *Reader) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := &Index{db: db, path: path, reader: reader, Interval: 5 * time.Minute, wake: make(chan struct{}, 1), failed: map[string]int64{}, merging: true}
+	x := &Index{db: db, path: path, reader: reader, Interval: 5 * time.Minute, wake: make(chan struct{}, 1), failed: map[string]int64{}, merging: true, forcing: true}
 	x.passed = sync.NewCond(&x.mu)
 	return x, nil
 }
@@ -392,10 +395,7 @@ func (x *Index) Pass(ctx context.Context) error {
 			x.beforeReclaim()
 		}
 		more, err := x.reclaim(ctx, x.deleted)
-		x.merging = more
-		if err == nil && !more {
-			x.deleted = false
-		}
+		x.merging = more || x.deleted
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -586,6 +586,10 @@ func (x *Index) rowSigs(ctx context.Context, uid string) (map[int64]rowSig, erro
 // FTS5 documents a merge that did work as raising total_changes() by
 // two or more on its connection.
 func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error) {
+	return x.reclaimPages(ctx, forced, mergePages)
+}
+
+func (x *Index) reclaimPages(ctx context.Context, forced bool, pages int) (more bool, err error) {
 	conn, err := x.db.Conn(ctx)
 	if err != nil {
 		return true, err
@@ -595,15 +599,22 @@ func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error)
 	if err := conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before); err != nil {
 		return true, err
 	}
-	rank := mergePages
-	if forced {
-		rank = -mergePages
+	rank := pages
+	if forced && !x.forcing {
+		rank = -pages
 	}
 	if _, err := conn.ExecContext(ctx, `INSERT INTO fts(fts, rank) VALUES('merge', ?)`, rank); err != nil {
 		return true, err
 	}
+	if rank < 0 {
+		x.deleted, x.forcing = false, true
+	}
 	if err := conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after); err != nil {
 		return true, err
+	}
+	merged := after-before >= 2
+	if !merged {
+		x.forcing = false
 	}
 	if _, err := conn.ExecContext(ctx, `PRAGMA incremental_vacuum`); err != nil {
 		return true, err
@@ -615,7 +626,7 @@ func (x *Index) reclaim(ctx context.Context, forced bool) (more bool, err error)
 	if err := conn.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &done); err != nil {
 		return true, fmt.Errorf("checkpoint: %w", err)
 	}
-	return after-before >= 2 || busy != 0, nil
+	return merged || busy != 0, nil
 }
 
 // remove drops every row of uid.
@@ -771,10 +782,31 @@ func (x *Index) Optimize(ctx context.Context) (before, after int64, err error) {
 	defer x.writeMu.Unlock()
 	before = IndexSize(x.path)
 	err = optimizeDB(ctx, x.db, true)
+	if err == nil {
+		x.deleted, x.forcing = false, false
+		x.mu.Lock()
+		clear(x.failed)
+		x.mu.Unlock()
+		x.Notify("")
+	}
 	return before, IndexSize(x.path), err
 }
 
 func optimizeDB(ctx context.Context, db *sql.DB, online bool) error {
+	// FTS5 in our SQLite driver has 2000 segment IDs. At saturation even
+	// optimize needs an unavailable ID and returns SQLITE_FULL despite
+	// free disk space. Rebuild only the derived FTS table from docs in one
+	// atomic statement; readers retain their old snapshots if it fails.
+	const maxSegments = 2000
+	var segments int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT DISTINCT segid FROM fts_idx LIMIT 2000)`).Scan(&segments); err != nil {
+		return fmt.Errorf("search: optimize: count segments: %w", err)
+	}
+	if segments >= maxSegments {
+		if _, err := db.ExecContext(ctx, `INSERT INTO fts(fts) VALUES('rebuild')`); err != nil {
+			return fmt.Errorf("search: optimize: rebuild saturated index: %w", err)
+		}
+	}
 	// incremental_vacuum frees one page per step. ExecContext steps it to
 	// the end, which TestOptimizeFreesTheEntriesOfRemovedRows checks by
 	// the freelist.
