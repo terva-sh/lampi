@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T21:52:38Z
-updated_at: 2026-10-08T21:52:38Z
+updated_at: 2026-10-08T21:59:31Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -59,3 +59,9 @@ Before publishing, rehearse the v0.8.0 lake upgrade on isolated synthetic data, 
 - [ ] A scratch v0.8.0 upgrade rehearsal and release gates pass on the synchronized main commit.
 - [ ] The tag is published on both forges and archives, checksums, and images verify the selected tag.
 - [ ] Both release bodies describe features, unchanged schema/normalizers, and rollback.
+
+## Notes
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-08T21:59:31Z
+
+Release preparation: just release-check passed, and a GoReleaser snapshot on 397ca0d built all five archives (Linux and Darwin amd64/arm64; Windows amd64), README/LICENSE, and checksums without publication. The follow-up continuation fix is cleanly reviewed at f832e413f7cda286138eb9524197ce4b545912d6; complete web/recall race tests pass. This remains a draft release candidate for the owner's decision, with upgrade notes in the description. No tag, release, image, or live deployment was published.
