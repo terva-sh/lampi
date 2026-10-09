@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-09T01:35:06Z
-updated_at: 2026-10-09T01:38:19Z
+updated_at: 2026-10-09T01:43:58Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -51,7 +51,7 @@ This is separate from TKT-01M4F4KWYXX399JBZ9GSKFVMKQ — CAS: compact stored blo
 
 - [x] A regression reproduces fresh pooled search readers failing while a WAL writer is active.
 - [x] Numbered searches read committed results during indexing and compaction writes without setup acquiring a write lock.
-- [ ] New and reopened indexes retain incremental vacuum and compaction regression checks pass.
+- [x] New and reopened indexes retain incremental vacuum and compaction regression checks pass.
 - [ ] Dogfooding search is verified after deploying the fix.
 
 ## Implementation plan
@@ -63,3 +63,15 @@ Configure persistent auto_vacuum and WAL mode once at index startup, in that ord
 **agent:codex/t3code-8afe4a1e** at 2026-10-09T01:38:18Z
 
 The standalone synthetic probe and new TestFreshSearchConnectionDuringIndexWrite reproduce SQLITE_BUSY with the original code (regression failed after 5.08 seconds). Moving persistent settings to startup fixes it. The vacuum persistence regression caught an initial ordering error: WAL can allocate the first page before auto_vacuum is configured; the corrected startup preserves the original auto_vacuum-before-WAL order. Both fresh-reader and new/reopened-vacuum regressions pass under the race detector (1.360 seconds). An earlier broader test invocation built against the superseded intermediate change was stopped; validation will run on the final code. No protected data or credentials were accessed.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T01:40:59Z
+
+Clean model review: https://git.local.sothr.com/terva-sh/lampi/pulls/210#issuecomment-28295, run 4dbcc2d0-c2a2-4afc-be39-ea3ba4c2af1c. Reviewed head 547066c2a111c0f1484be275105e8e0423cbafbd against base 10d86676f16f3879162102ac5a7c4d03a354a9af; no findings. Review checked the supplied diff and tests, with broader caller behavior and live deployment outside its evidence. Full recall/web race validation is running separately.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T01:43:57Z
+
+Final source validation passed: go test -trimpath=false -race ./internal/recall ./internal/web (271.048s and 43.961s), including FTS saturation recovery, rollback, online optimize, numbered paging and the fresh-connection regressions. go vet ./internal/recall and git diff --check passed. git ticket check has zero errors and only the existing unrelated long-title warning. AC4 remains pending until a protected dogfooding rollout and authenticated Search verification; this session cannot install with sudo because the terminal password is required.
+
+## Summary
+
+Persistent auto_vacuum and WAL setup moved to index startup in PR #210, preserving initialization order and allowing new pooled readers during index writes. Original SQLITE_BUSY failure reproduced; focused and full recall/web race checks pass, and model review is clean. Merge gates and dogfooding rollout/healthy Search verification remain outstanding. Successful d7dcde1 compaction sizes are recorded separately in TKT-01M4ET6TFCKN6H6CZRZNAPJA63.
