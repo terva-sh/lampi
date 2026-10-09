@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T21:52:38Z
-updated_at: 2026-10-08T21:59:31Z
+updated_at: 2026-10-08T23:55:17Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -45,11 +45,15 @@ Dashboard lists now have matching pagination controls above and below each list,
 
 Operations administrators can request background search-index compaction, old-upload cleanup, and storage measurements. Jobs require a recent sign-in, are audited, run one at a time, and report their state and result. Full stored-blob compaction still requires the offline CLI and an exclusive lake lock; the online search action compacts the derived search index.
 
+Lampi gains a pond icon for browser tabs and saved shortcuts, including SVG, ICO, and Apple touch formats with public discovery routes (PR #206).
+
+Search-index maintenance recovers indexes that exhausted FTS5's 2,000 segment IDs. Repeated forced merge starts previously accumulated unfinished outputs and caused a misleading SQLite disk-full error despite available disk space. Forced merges now continue across uploads and restarts; explicit compaction transactionally rebuilds saturated full-text tables from their existing indexed rows and retries sessions whose indexing failed (PR #207). The catalog, transcripts, and index metadata remain intact.
+
 Upgrading from v0.8.0: no catalog migration (schema remains 21), no normalizer changes or re-normalization, and no ingest/read protocol changes. git diff v0.8.0 -- internal/catalog/catalog.go internal/normalize is empty. Rollback to v0.8.0 is a binary/image swap without restoring a migration backup. Old-upload cleanup removes only expired partial uploads through the existing sweeper; completed maintenance does not undo itself on rollback. Upgrade the lake for the new dashboard; agents need no new configuration.
 
 ### Preparation
 
-The full Go suite and affected-package race checks passed locally. just release-check passed. The feature PR must pass Forgejo CI and terva review, merge, and sync to both main remotes before a tag is selected. Publishing a tag or changing the live installation is not part of the current release assessment request.
+The full Go suite and affected-package race checks passed locally. just release-check passed. Feature PRs #204, #206 and #207 passed Forgejo CI and terva review, merged, and synced to both main remotes. The current dogfooding build is d7dcde1; its installation, authentication, health, public icons and capture were verified. The admin compaction result remains pending. Publishing a tag or changing the live installation is not part of the current release assessment request.
 
 Before publishing, rehearse the v0.8.0 lake upgrade on isolated synthetic data, run the release gates and archive builds, then tag the identical main SHA on both forges. Verify both release workflows, checksums, binary versions, and multi-platform image versions, and place the upgrade notes in both release bodies.
 
