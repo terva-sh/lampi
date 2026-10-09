@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-09T01:35:06Z
-updated_at: 2026-10-09T01:35:32Z
+updated_at: 2026-10-09T01:38:19Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -49,11 +49,17 @@ This is separate from TKT-01M4F4KWYXX399JBZ9GSKFVMKQ — CAS: compact stored blo
 
 ## Acceptance criteria
 
-- [ ] A regression reproduces fresh pooled search readers failing while a WAL writer is active.
-- [ ] Numbered searches read committed results during indexing and compaction writes without setup acquiring a write lock.
+- [x] A regression reproduces fresh pooled search readers failing while a WAL writer is active.
+- [x] Numbered searches read committed results during indexing and compaction writes without setup acquiring a write lock.
 - [ ] New and reopened indexes retain incremental vacuum and compaction regression checks pass.
 - [ ] Dogfooding search is verified after deploying the fix.
 
 ## Implementation plan
 
-Move auto_vacuum out of pooled connection setup and apply it only before creating an empty index. First demonstrate a deterministic new-reader failure while a WAL write is held, then verify numbered search snapshots and persistent vacuum mode after the fix; run recall/web race suites and normal Forgejo CI/review.
+Configure persistent auto_vacuum and WAL mode once at index startup, in that order before schema creation, rather than for every pooled connection. Keep only connection-local pragmas in the DSN. Verify fresh numbered-search readers during a WAL write and vacuum mode across fresh connections/reopens, then run recall/web race suites and Forgejo CI/review.
+
+## Notes
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T01:38:18Z
+
+The standalone synthetic probe and new TestFreshSearchConnectionDuringIndexWrite reproduce SQLITE_BUSY with the original code (regression failed after 5.08 seconds). Moving persistent settings to startup fixes it. The vacuum persistence regression caught an initial ordering error: WAL can allocate the first page before auto_vacuum is configured; the corrected startup preserves the original auto_vacuum-before-WAL order. Both fresh-reader and new/reopened-vacuum regressions pass under the race detector (1.360 seconds). An earlier broader test invocation built against the superseded intermediate change was stopped; validation will run on the final code. No protected data or credentials were accessed.

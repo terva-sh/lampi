@@ -167,7 +167,10 @@ func indexDSN(path string) (string, error) {
 		return "", err
 	}
 	q := url.Values{}
-	for _, p := range []string{"auto_vacuum(INCREMENTAL)", "busy_timeout(5000)", "journal_mode(WAL)", fmt.Sprintf("journal_size_limit(%d)", walLimit), "synchronous(NORMAL)"} {
+	// Persistent file settings are applied once in openIndexDB. In
+	// particular, setting auto_vacuum on a new pooled reader needs a
+	// write lock and fails during a long maintenance/indexing write.
+	for _, p := range []string{"busy_timeout(5000)", fmt.Sprintf("journal_size_limit(%d)", walLimit), "synchronous(NORMAL)"} {
 		q.Add("_pragma", p)
 	}
 	q.Set("_txlock", "immediate")
@@ -186,6 +189,14 @@ func openIndexDB(path string) (*sql.DB, error) {
 		db, err := sql.Open("sqlite", dsn)
 		if err != nil {
 			return nil, fmt.Errorf("search: %w", err)
+		}
+		// Initialize the persistent settings before the pool is shared.
+		// auto_vacuum must precede WAL, which can allocate the first page
+		// of a new database. Subsequent connections inherit both settings.
+		db.SetMaxOpenConns(1)
+		if _, err := db.Exec(`PRAGMA auto_vacuum=INCREMENTAL; PRAGMA journal_mode=WAL;`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("search: configure: %w", err)
 		}
 		db.SetMaxOpenConns(4)
 		var v int

@@ -329,6 +329,57 @@ func TestOptimizeFreesTheEntriesOfRemovedRows(t *testing.T) {
 	}
 }
 
+// Search must also work when the pool opens a new connection during a
+// long-running maintenance/indexing write, not only after it completes.
+func TestFreshSearchConnectionDuringIndexWrite(t *testing.T) {
+	s := lake(t)
+	uid := ingest(t, s, "fresh-reader")
+	publish(t, s, uid, events(8, func(i int) string { return fmt.Sprint("keepword ", i) }))
+	x := openIndex(t, s)
+	pass(t, x)
+	// Drop all idle connections so the search has to initialize a fresh
+	// one while the writer holds its transaction.
+	x.db.SetMaxIdleConns(0)
+	tx, err := x.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE docs SET content='uncommitted replacement' WHERE session_uid=?`, uid); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	p, nav, err := x.SearchNumbered(ctx, SearchRequest{Scope: catalog.AllBays(), Query: "keepword", Limit: 3})
+	if err != nil || len(p.Items) != 3 || len(nav.Cursors) != 3 {
+		t.Fatalf("fresh search reader during write: hits=%d pages=%d err=%v", len(p.Items), len(nav.Cursors), err)
+	}
+	for _, h := range p.Items {
+		if h.SessionUID != uid || !strings.Contains(h.Snippet, "keepword") {
+			t.Fatal("search did not retain the committed snapshot", h)
+		}
+	}
+}
+
+func TestIndexIncrementalVacuumPersistsAcrossConnections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "search.db")
+	for open := 0; open < 2; open++ {
+		db, err := openIndexDB(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A different pooled connection must observe the mode chosen
+		// before schema creation, without setting it on every open.
+		db.SetMaxIdleConns(0)
+		var mode int
+		err = db.QueryRow(`PRAGMA auto_vacuum`).Scan(&mode)
+		db.Close()
+		if err != nil || mode != 2 {
+			t.Fatalf("open %d: auto_vacuum=%d err=%v", open, mode, err)
+		}
+	}
+}
+
 func TestOnlineOptimizeWaitsForIndexingAndKeepsSearchReadable(t *testing.T) {
 	s := lake(t)
 	uid := ingest(t, s, "online-optimize")
