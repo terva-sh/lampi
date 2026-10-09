@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M4ET6TFCKN6H6CZRZNAPJA63
 title: Diagnose failed Operations search-index compaction
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3code-8afe4a1e
-  branch: fix/operations-compaction
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8afe4a1e
-  commit: 0616211805ac616729b3a376ec62a1093a5f5da1
-  session: null
-  claimed_at: 2026-10-08T22:30:47Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-09T01:36:39Z
+updated_at: 2026-10-09T02:19:35Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -45,7 +38,7 @@ The dogfooding dashboard accepted Compact search index but finished with: Mainte
 
 - [x] The cause is identified from the maintenance error and reproduced safely.
 - [x] The fix handles the demonstrated failure and has regression coverage.
-- [ ] Compaction succeeds on dogfooding with search and capture healthy.
+- [x] Compaction succeeds on dogfooding with search and capture healthy.
 
 ## Implementation plan
 
@@ -92,3 +85,15 @@ The operator completed deployment of d7dcde1 at 2026-10-08 23:34:32 UTC. Protect
 **agent:codex/t3code-8afe4a1e** at 2026-10-09T01:36:39Z
 
 Operator confirmed successful live compaction: 3252.5 MiB before, 3138.2 MiB after (114.3 MiB reclaimed). Lake health and lake/capture services remain active. Search requests also failed with SQLITE_BUSY after about five seconds. TKT-01M4F4SE0VVD1HMZ7SSJCA290E — Search readers fail to connect during index maintenance, tracks the reproduced pooled-connection setup lock. AC3 stays unchecked until healthy search is verified; this successful compaction result does not establish that condition.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T02:19:35Z
+
+The operator confirmed Search is working after the prepared rollout. Independent read-only checks verify /usr/local/bin/terva-lampi is v0.9.0-dogfood.fe787a4 (fe787a43ff9f), with SHA256 7408591e7f8ce5bb9d469e2576541a8ee98558b423deadbc6962606b130de64f matching the installer. The credential-free DEPLOYMENT_RESULT records completion at 2026-10-09T02:06:57Z, schema 21, and successful backup/index-checkpoint/fsck/integrity/counts/identity/roles/health/auth/public/icons/capture checks. Protected checkpoint: /var/lib/terva-lampi-pre-v0.9.0-dogfood.fe787a4-EtAESb3W.
+
+Both lake and capture services are active. Public health returns HTTP 200 and anonymous overview remains HTTP 401. Capture's subsequent sync at 2026-10-09T02:18:16.742858945Z checked 129 items, uploaded 3 blobs, posted 2 manifests, refused 4 and left 264 unchanged, confirming resumed capture continues processing new work. No live session contents, tokens or authentication files were read by the assistant. Authenticated Search success is operator-confirmed, not an automated browser test.
+
+The earlier live search compaction succeeded from 3252.5 MiB to 3138.2 MiB, reclaiming approximately 114.3 MiB. Together with this successful search-reader rollout, the healthy-search/capture condition is now satisfied. No second compaction was requested. Close TKT-01M4F4SE0VVD1HMZ7SSJCA290E — Search readers fail to connect during index maintenance, and TKT-01M4ET6TFCKN6H6CZRZNAPJA63 — Diagnose failed Operations search-index compaction. The v0.9.0 release candidate and online stored-blob implementation remain draft; no release is published.
+
+## Summary
+
+FTS5 segment-exhaustion prevention and transactional saturated-index recovery merged in PR #207 as d7dcde1 and deployed with the pond icon. Operator compaction succeeded: 3252.5 MiB before, 3138.2 MiB after. A subsequent reader-setup lock was fixed in PR #210, deployed as fe787a4; operator-confirmed Search and independently verified capture/health now satisfy the final live criterion. Protected lake/index checkpoints are retained; rollout record is PR #211.
