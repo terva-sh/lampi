@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T22:30:11Z
-updated_at: 2026-10-08T23:54:29Z
+updated_at: 2026-10-09T01:36:39Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -88,3 +88,7 @@ PR #207 merged as d7dcde1ab7a337d0cd392fc1515bf9ea9095076a, now on both Forgejo 
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T23:54:29Z
 
 The operator completed deployment of d7dcde1 at 2026-10-08 23:34:32 UTC. Protected checkpoint includes original search index, lake backup, config/state and prior binary. Backup/fsck, unchanged lake identity and role configuration, schema 21, catalog integrity and preserved counts passed: 789 sessions, 44575 artifacts, 44574 provenance rows. Capture resumed with uploaded=0, manifests=0, unchanged=266. Independently verified installed version/hash, both services active, public health 200, anonymous overview and maintenance 401, and exact SVG/ICO/PNG bundle bytes with correct MIME types. The pond icon is now deployed. No stable release or capture-agent upgrade. Admin compaction result is still requested; criterion 3 remains open. Deployment-record PR #208 has a clean review at https://git.local.sothr.com/terva-sh/lampi/pulls/208#issuecomment-28275, run 40c24d57-f0e9-471a-9144-0d5a2c305438, reviewed head 4d8dec42e7680c5ef1123c6e80aa2c0047d40596/base d7dcde1ab7a337d0cd392fc1515bf9ea9095076a. No findings; full CI passed that head.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T01:36:39Z
+
+Operator confirmed successful live compaction: 3252.5 MiB before, 3138.2 MiB after (114.3 MiB reclaimed). Lake health and lake/capture services remain active. Search requests also failed with SQLITE_BUSY after about five seconds. TKT-01M4F4SE0VVD1HMZ7SSJCA290E — Search readers fail to connect during index maintenance, tracks the reproduced pooled-connection setup lock. AC3 stays unchecked until healthy search is verified; this successful compaction result does not establish that condition.
