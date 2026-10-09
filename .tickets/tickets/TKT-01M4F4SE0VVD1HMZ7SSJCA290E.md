@@ -1,0 +1,59 @@
+---
+schema: 3
+id: TKT-01M4F4SE0VVD1HMZ7SSJCA290E
+title: Search readers fail to connect during index maintenance
+type: bug
+status: in-progress
+status_reason: null
+priority: high
+due_on: null
+labels:
+  - area/search
+  - area/server
+assignees: []
+milestone: null
+parent: null
+origin: null
+dependencies: []
+blocks_on: none
+references: []
+claim:
+  actor: agent:codex/t3code-8afe4a1e
+  branch: fix/search-connection-during-maintenance
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8afe4a1e
+  commit: 10d86676f16f3879162102ac5a7c4d03a354a9af
+  session: null
+  claimed_at: 2026-10-09T01:35:31Z
+  expires_at: null
+archive: null
+created_at: 2026-10-09T01:35:06Z
+updated_at: 2026-10-09T01:35:32Z
+created_by:
+  id: agent:codex/t3code-8afe4a1e
+  name: ""
+updated_by:
+  id: agent:codex/t3code-8afe4a1e
+  name: ""
+extensions: {}
+---
+
+## Description
+
+After the d7dcde1 dogfooding upgrade, Operations successfully compacted the search index from 3252.5 MiB to 3138.2 MiB (114.3 MiB reclaimed). Search requests for Corruption also returned read_failed. The operator's filtered journal shows HTTP 500 after approximately five seconds with database is locked (5) (SQLITE_BUSY), rather than evidence of index corruption. Lake health and lake/capture services remain active.
+
+Source inspection and a standalone synthetic SQLite probe reproduce a likely cause: indexDSN configures auto_vacuum(INCREMENTAL) on every pooled connection. Opening a new connection while a WAL writer is active fails with SQLITE_BUSY even though an existing reader reads the committed snapshot. This can happen during compaction or ordinary indexing. The current online optimize test verifies reads after the job, rather than a new pooled reader during a write.
+
+Move the file's persistent auto-vacuum setting to initialization before schema creation, preserve it for current indexes, and keep per-connection settings needed for WAL reads. Add a deterministic regression that opens a fresh numbered-search reader during an uncommitted index write and confirms the committed results and pages remain readable. Verify fresh/reopened indexes retain incremental vacuum and the existing compaction regression suite still passes. No catalog, blob, protocol or search schema change is planned.
+
+This is separate from TKT-01M4F4KWYXX399JBZ9GSKFVMKQ — CAS: compact stored blobs while the lake stays online (draft assessment). The original FTS recovery ticket, TKT-01M4ET6TFCKN6H6CZRZNAPJA63 — Diagnose failed Operations search-index compaction, has a successful live compaction result but its healthy-search criterion remains pending until this problem is resolved.
+
+## Acceptance criteria
+
+- [ ] A regression reproduces fresh pooled search readers failing while a WAL writer is active.
+- [ ] Numbered searches read committed results during indexing and compaction writes without setup acquiring a write lock.
+- [ ] New and reopened indexes retain incremental vacuum and compaction regression checks pass.
+- [ ] Dogfooding search is verified after deploying the fix.
+
+## Implementation plan
+
+Move auto_vacuum out of pooled connection setup and apply it only before creating an empty index. First demonstrate a deterministic new-reader failure while a WAL write is held, then verify numbered search snapshots and persistent vacuum mode after the fix; run recall/web race suites and normal Forgejo CI/review.
