@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-09T01:35:06Z
-updated_at: 2026-10-09T01:43:58Z
+updated_at: 2026-10-09T01:57:19Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -72,6 +72,16 @@ Clean model review: https://git.local.sothr.com/terva-sh/lampi/pulls/210#issueco
 
 Final source validation passed: go test -trimpath=false -race ./internal/recall ./internal/web (271.048s and 43.961s), including FTS saturation recovery, rollback, online optimize, numbered paging and the fresh-connection regressions. go vet ./internal/recall and git diff --check passed. git ticket check has zero errors and only the existing unrelated long-title warning. AC4 remains pending until a protected dogfooding rollout and authenticated Search verification; this session cannot install with sudo because the terminal password is required.
 
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T01:56:50Z
+
+PR #210 merged as fe787a43ff9fbca10f2068a89da727a349e64d49 after full Forgejo CI and clean model review; both Forgejo and GitHub mains were verified at that commit. PR #209 also merged the online-blob source assessment; its implementation ticket remains draft.
+
+Prepared the dogfooding installer at /home/sothr/.local/state/agent-handoffs/lampi/deploy-search-reader-fe787a4-DiC7RPQN, stamped v0.9.0-dogfood.fe787a4 (fe787a43ff9f), built from the exact merged production source. It adapts the previously successful d7dcde1 operator script and requires the verified installed d7dcde1 build. It checks unchanged service configuration, reserves space, pauses capture/serve, protects a lake/config/state/index checkpoint, checks backup fsck and catalog counts, installs, verifies health/authentication and icons, and resumes capture. Binary/service rollback remains available on failure. No schema, normalizer, capture binary, lake-trust or configuration change is made.
+
+Validation passed: checksums, bash syntax, expected version, CLI maintenance/healthcheck entry points, and source-diff equivalence to merged main (excluding ticket records). The inherited backup/restore procedure had succeeded on the operator's preceding deployment. This records preparation, not another execution or a new live restore rehearsal. Installation has not run because this session's noninteractive sudo check requires the user's terminal password. No protected live sessions or authentication files were read by the assistant.
+
+Run sudo bash /home/sothr/.local/state/agent-handoffs/lampi/deploy-search-reader-fe787a4-DiC7RPQN/operator-deploy.sh in the operator's terminal, then retry Search for Corruption and report the outcome. Successful compaction from 3252.5 MiB to 3138.2 MiB is already recorded; another compaction is not requested by this rollout. AC4 and the original recovery ticket's healthy-search condition remain pending until live verification. No stable release is published.
+
 ## Summary
 
-Persistent auto_vacuum and WAL setup moved to index startup in PR #210, preserving initialization order and allowing new pooled readers during index writes. Original SQLITE_BUSY failure reproduced; focused and full recall/web race checks pass, and model review is clean. Merge gates and dogfooding rollout/healthy Search verification remain outstanding. Successful d7dcde1 compaction sizes are recorded separately in TKT-01M4ET6TFCKN6H6CZRZNAPJA63.
+Reader setup fix merged in PR #210 as fe787a43ff9fbca10f2068a89da727a349e64d49 and synced to both forges after full CI/model review. Original lock reproduced; focused and full recall/web race checks pass. Exact-source dogfooding installer prepared and verified; sudo installation and authenticated live Search verification remain pending. AC4 stays open. Successful d7dcde1 compaction sizes are recorded in TKT-01M4ET6TFCKN6H6CZRZNAPJA63.
