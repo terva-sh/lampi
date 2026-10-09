@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-09T01:35:06Z
-updated_at: 2026-10-09T01:57:19Z
+updated_at: 2026-10-09T01:58:29Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -81,6 +81,10 @@ Prepared the dogfooding installer at /home/sothr/.local/state/agent-handoffs/lam
 Validation passed: checksums, bash syntax, expected version, CLI maintenance/healthcheck entry points, and source-diff equivalence to merged main (excluding ticket records). The inherited backup/restore procedure had succeeded on the operator's preceding deployment. This records preparation, not another execution or a new live restore rehearsal. Installation has not run because this session's noninteractive sudo check requires the user's terminal password. No protected live sessions or authentication files were read by the assistant.
 
 Run sudo bash /home/sothr/.local/state/agent-handoffs/lampi/deploy-search-reader-fe787a4-DiC7RPQN/operator-deploy.sh in the operator's terminal, then retry Search for Corruption and report the outcome. Successful compaction from 3252.5 MiB to 3138.2 MiB is already recorded; another compaction is not requested by this rollout. AC4 and the original recovery ticket's healthy-search condition remain pending until live verification. No stable release is published.
+
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T01:58:29Z
+
+Prepared rollout record PR #211: https://git.local.sothr.com/terva-sh/lampi/pulls/211. Clean review https://git.local.sothr.com/terva-sh/lampi/pulls/211#issuecomment-28312 reviewed af747936514456fbf96ff11307e84aac32829d2c against fe787a43ff9fbca10f2068a89da727a349e64d49, run 8c8a5f00-a717-4853-aee4-04197f1bf2ed; no findings. The review covers ticket records, not the external installer or its execution. Forgejo CI for the rollout record and operator installation remain pending. Binary SHA256: 7408591e7f8ce5bb9d469e2576541a8ee98558b423deadbc6962606b130de64f.
 
 ## Summary
 
