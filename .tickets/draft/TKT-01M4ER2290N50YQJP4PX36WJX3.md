@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-08T21:52:38Z
-updated_at: 2026-10-09T01:57:20Z
+updated_at: 2026-10-09T02:20:16Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -49,13 +49,13 @@ Lampi gains a pond icon for browser tabs and saved shortcuts, including SVG, ICO
 
 Search-index maintenance recovers indexes that exhausted FTS5's 2,000 segment IDs. Repeated forced merge starts previously accumulated unfinished outputs and caused a misleading SQLite disk-full error despite available disk space. Forced merges now continue across uploads and restarts; explicit compaction transactionally rebuilds saturated full-text tables from their existing indexed rows and retries sessions whose indexing failed (PR #207). The catalog, transcripts, and index metadata remain intact.
 
-Search remains readable when the connection pool opens readers during index maintenance or indexing writes: persistent database settings are configured once at startup rather than taking a write lock on every connection (PR #210, merged; dogfooding rollout and verification pending).
+Search remains readable when the connection pool opens readers during index maintenance or indexing writes: persistent database settings are configured once at startup rather than taking a write lock on every connection (PR #210, merged and verified on dogfooding).
 
 Upgrading from v0.8.0: no catalog migration (schema remains 21), no normalizer changes or re-normalization, and no ingest/read protocol changes. git diff v0.8.0 -- internal/catalog/catalog.go internal/normalize is empty. Rollback to v0.8.0 is a binary/image swap without restoring a migration backup. Old-upload cleanup removes only expired partial uploads through the existing sweeper; completed maintenance does not undo itself on rollback. Upgrade the lake for the new dashboard; agents need no new configuration.
 
 ### Preparation
 
-The full Go suite and affected-package race checks passed locally. just release-check passed. Feature PRs #204, #206 and #207 passed Forgejo CI and terva review, merged, and synced to both main remotes. The current dogfooding build is d7dcde1; its installation, authentication, health, public icons and capture were verified. The operator confirmed successful compaction from 3252.5 MiB to 3138.2 MiB. Search also encountered SQLITE_BUSY while opening pooled connections during maintenance; PR #210 merged and synced to both forges to address this; its dogfooding installer is prepared, and live healthy-search verification remains pending. Publishing a tag or changing the live installation is not part of the current release assessment request.
+The full Go suite and affected-package race checks passed locally. just release-check passed. Feature PRs #204, #206, #207 and #210 passed Forgejo CI and terva review, merged, and synced to both main remotes. The current dogfooding build is fe787a4; its installed version/hash, protected checkpoint report, authentication, health and capture were verified, and the operator confirms Search works. The report records the public icon checks passing. The operator confirmed successful compaction from 3252.5 MiB to 3138.2 MiB. Search also encountered SQLITE_BUSY while opening pooled connections during maintenance; PR #210 merged and synced to both forges to address this; its rollout completed at 2026-10-09T02:06:57Z and live Search is operator-confirmed working. Both search incident tickets are done; PR #211 records the verified deployment. Publishing a tag or changing the live installation is not part of the current release assessment request.
 
 Before publishing, rehearse the v0.8.0 lake upgrade on isolated synthetic data, run the release gates and archive builds, then tag the identical main SHA on both forges. Verify both release workflows, checksums, binary versions, and multi-platform image versions, and place the upgrade notes in both release bodies.
 

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M4F4SE0VVD1HMZ7SSJCA290E
 title: Search readers fail to connect during index maintenance
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3code-8afe4a1e
-  branch: fix/search-connection-during-maintenance
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-8afe4a1e
-  commit: 10d86676f16f3879162102ac5a7c4d03a354a9af
-  session: null
-  claimed_at: 2026-10-09T01:35:31Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-09T01:35:06Z
-updated_at: 2026-10-09T01:58:29Z
+updated_at: 2026-10-09T02:19:35Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -52,7 +45,7 @@ This is separate from TKT-01M4F4KWYXX399JBZ9GSKFVMKQ — CAS: compact stored blo
 - [x] A regression reproduces fresh pooled search readers failing while a WAL writer is active.
 - [x] Numbered searches read committed results during indexing and compaction writes without setup acquiring a write lock.
 - [x] New and reopened indexes retain incremental vacuum and compaction regression checks pass.
-- [ ] Dogfooding search is verified after deploying the fix.
+- [x] Dogfooding search is verified after deploying the fix.
 
 ## Implementation plan
 
@@ -86,6 +79,14 @@ Run sudo bash /home/sothr/.local/state/agent-handoffs/lampi/deploy-search-reader
 
 Prepared rollout record PR #211: https://git.local.sothr.com/terva-sh/lampi/pulls/211. Clean review https://git.local.sothr.com/terva-sh/lampi/pulls/211#issuecomment-28312 reviewed af747936514456fbf96ff11307e84aac32829d2c against fe787a43ff9fbca10f2068a89da727a349e64d49, run 8c8a5f00-a717-4853-aee4-04197f1bf2ed; no findings. The review covers ticket records, not the external installer or its execution. Forgejo CI for the rollout record and operator installation remain pending. Binary SHA256: 7408591e7f8ce5bb9d469e2576541a8ee98558b423deadbc6962606b130de64f.
 
+**agent:codex/t3code-8afe4a1e** at 2026-10-09T02:19:34Z
+
+The operator confirmed Search is working after the prepared rollout. Independent read-only checks verify /usr/local/bin/terva-lampi is v0.9.0-dogfood.fe787a4 (fe787a43ff9f), with SHA256 7408591e7f8ce5bb9d469e2576541a8ee98558b423deadbc6962606b130de64f matching the installer. The credential-free DEPLOYMENT_RESULT records completion at 2026-10-09T02:06:57Z, schema 21, and successful backup/index-checkpoint/fsck/integrity/counts/identity/roles/health/auth/public/icons/capture checks. Protected checkpoint: /var/lib/terva-lampi-pre-v0.9.0-dogfood.fe787a4-EtAESb3W.
+
+Both lake and capture services are active. Public health returns HTTP 200 and anonymous overview remains HTTP 401. Capture's subsequent sync at 2026-10-09T02:18:16.742858945Z checked 129 items, uploaded 3 blobs, posted 2 manifests, refused 4 and left 264 unchanged, confirming resumed capture continues processing new work. No live session contents, tokens or authentication files were read by the assistant. Authenticated Search success is operator-confirmed, not an automated browser test.
+
+The earlier live search compaction succeeded from 3252.5 MiB to 3138.2 MiB, reclaiming approximately 114.3 MiB. Together with this successful search-reader rollout, the healthy-search/capture condition is now satisfied. No second compaction was requested. Close TKT-01M4F4SE0VVD1HMZ7SSJCA290E — Search readers fail to connect during index maintenance, and TKT-01M4ET6TFCKN6H6CZRZNAPJA63 — Diagnose failed Operations search-index compaction. The v0.9.0 release candidate and online stored-blob implementation remain draft; no release is published.
+
 ## Summary
 
-Reader setup fix merged in PR #210 as fe787a43ff9fbca10f2068a89da727a349e64d49 and synced to both forges after full CI/model review. Original lock reproduced; focused and full recall/web race checks pass. Exact-source dogfooding installer prepared and verified; sudo installation and authenticated live Search verification remain pending. AC4 stays open. Successful d7dcde1 compaction sizes are recorded in TKT-01M4ET6TFCKN6H6CZRZNAPJA63.
+Reader connection setup fix merged in PR #210 as fe787a43ff9fbca10f2068a89da727a349e64d49, synced to both forges and deployed to dogfooding. Original SQLITE_BUSY failure reproduced; focused/full recall-web race suites, CI and model review passed. Installed binary and protected deployment report match, health/auth/capture verified, and the operator confirms Search works. Rollout is recorded in PR #211.
