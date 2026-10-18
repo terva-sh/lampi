@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-18T03:36:34Z
-updated_at: 2026-10-18T03:50:03Z
+updated_at: 2026-10-18T03:55:41Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -65,3 +65,9 @@ Add differential tests against Scan/ScanAppended (all fixtures/rules, JSON escap
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:46:45Z
 
 The prerequisite batching ticket is done at c9e2404 with comparable agent-only measurements via the f6e52a6 runner. docs/performance.md records medians/ranges; scratch artifacts are /home/sothr/.cache/agent-scratch/lampi/implementation-gACllt/batch-agent-profile32 and batch-agent-* JSON reports. In one profiled three-session 32 MiB run, allocation samples attribute about 289 MiB to readArtifacts via os.ReadFile and about 97 MiB to redaction/jsonView during Scan/ScanAppended; the JSON view still clones the scanned text. The profile includes fixture generation (about 76 MiB), so do not present its total as stage allocation. CPU capture covers only agent work after initial corpus generation: SHA-256 block work was 47% of 870 ms samples and redact.find about 8%; this short sample is directional. Removing complete artifact reads alone will not bound the scanner's JSON-unescape clone. Preserve the existing cross-boundary and escaped-JSON secret tests while designing streaming snapshots/scans. One-session RSS was effectively unchanged by batching (152.6→156.3 MiB), while six-session RSS fell 525.3→175.3 MiB; batching solved batch retention, leaving this artifact/scanner work necessary.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:55:41Z
+
+Implemented a bounded ReaderAt scanner alongside the unchanged slice reference API, plus session-owned private snapshots and replayable HTTP byte ranges. Differential tests pass across all rule/context fixtures, buffer/append boundaries, unbounded whitespace/slash/header/escape runs, long PEM bodies, invalid UTF-8 and many hits. A 10-second differential fuzz run completed 141,570 executions without mismatch. Existing upload/accept/runner tests pass after adapting private body types; new tests cover source path replacement after scan during whole/chunk/range upload and tail fallback, snapshot cleanup on success/no-bay/quarantine/failure/cancellation, private permissions, and file-backed range retry.
+
+The first unprofiled three-session 32 MiB probe reduced agent peak RSS to 25.3 MiB and stage allocation to 14.3 MiB, versus prior batching medians 154.8 MiB / 397.1 MiB. This single run is provisional; repeated comparisons and larger inputs follow. Snapshot bytes and JSON view files are private, scoped to one session and removed after its consumer; cleanup errors now propagate. Files are 0600 and directories 0700, all later snapshot opens are read-only. View construction adds temporary disk I/O, while artifact/chunk/discovery metadata remains outside the body-buffer bound. Live config/services remain unchanged. Scratch and the baseline binary are in /home/sothr/.cache/agent-scratch/lampi/agent-stream-n0kc42ns.
