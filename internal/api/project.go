@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 
@@ -45,15 +46,24 @@ import (
 // not an empty success. Other harnesses are rejected before a blob is
 // opened.
 func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.Event, error) {
+	var all []normalize.Event
+	err := s.projectEach(ctx, m, func(ev normalize.Event) error { all = append(all, ev); return nil })
+	if err != nil {
+		return nil, err
+	}
+	return all, nil
+}
+
+func (s *Server) projectEach(ctx context.Context, m protocol.Manifest, sink normalize.EventSink) error {
 	if m.Harness != protocol.HarnessTerva && m.Harness != protocol.HarnessClaude && m.Harness != protocol.HarnessCodex && m.Harness != protocol.HarnessOpenCode && m.Harness != protocol.HarnessCursor && m.Harness != protocol.HarnessCursorCLI && m.Harness != protocol.HarnessGrok && m.Harness != protocol.HarnessGrokBot {
-		return nil, fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
+		return fmt.Errorf("normalize: harness %q is not implemented", m.Harness)
 	}
 	view, ok, err := s.Catalog.Head(ctx, m.Harness, m.NativeSessionID)
 	if err != nil {
-		return nil, transientError{err}
+		return transientError{err}
 	}
 	if !ok {
-		return nil, fmt.Errorf("normalize: session %s/%s is not in the catalog", m.Harness, m.NativeSessionID)
+		return fmt.Errorf("normalize: session %s/%s is not in the catalog", m.Harness, m.NativeSessionID)
 	}
 	arts := headArtifacts(m.Harness, view)
 	var parent string
@@ -62,21 +72,16 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 	}
 	now := s.now()
 	link := protocol.ProjectLinkID(m.Project.GitRemote, m.Project.GitRoot)
-	var all []normalize.Event
 	var projected bool
 	for _, a := range arts {
 		if !projectKind(m.Harness, a.Kind) || codexHistory(m.Harness, a.RelPath) || grokNotTranscript(m.Harness, a.RelPath) {
 			continue
 		}
 		projected = true
-		raw, err := readBlob(s.CAS, a.SHA256)
-		if err != nil {
-			return nil, transientError{err}
-		}
-		var ev []normalize.Event
+		var projector normalize.Normalizer
 		switch m.Harness {
 		case protocol.HarnessClaude:
-			ev, err = (normalize.Claude{
+			projector = (normalize.Claude{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -85,9 +90,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		case protocol.HarnessCodex:
-			ev, err = (normalize.Codex{
+			projector = (normalize.Codex{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -96,9 +101,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		case protocol.HarnessOpenCode:
-			ev, err = (normalize.OpenCode{
+			projector = (normalize.OpenCode{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -107,9 +112,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		case protocol.HarnessCursor:
-			ev, err = (normalize.Cursor{
+			projector = (normalize.Cursor{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -118,9 +123,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		case protocol.HarnessCursorCLI:
-			ev, err = (normalize.CursorCLI{
+			projector = (normalize.CursorCLI{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -129,9 +134,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		case protocol.HarnessGrok:
-			ev, err = (normalize.Grok{
+			projector = (normalize.Grok{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -140,9 +145,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		case protocol.HarnessGrokBot:
-			ev, err = (normalize.GrokBot{
+			projector = (normalize.GrokBot{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -151,9 +156,9 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				GitCommit:      m.Project.GitCommit,
 				ProjectID:      link,
 				Digest:         a.SHA256,
-			}).Normalize(ctx, raw)
+			})
 		default:
-			ev, err = (normalize.Terva{
+			projector = (normalize.Terva{
 				Now:            now,
 				NativeID:       m.NativeSessionID,
 				ParentNativeID: parent,
@@ -163,12 +168,27 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 				ProjectID:      link,
 				Digest:         a.SHA256,
 				Kind:           a.Kind,
-			}).Normalize(ctx, raw)
+			})
 		}
-		if err != nil {
-			return nil, err
+		if streaming, ok := projector.(normalize.StreamNormalizer); ok {
+			if err := s.projectReader(ctx, a.SHA256, streaming, sink); err != nil {
+				return err
+			}
+		} else {
+			raw, err := readBlob(s.CAS, a.SHA256)
+			if err != nil {
+				return transientError{err}
+			}
+			events, err := projector.Normalize(ctx, raw)
+			if err != nil {
+				return err
+			}
+			for _, ev := range events {
+				if err := sink(ev); err != nil {
+					return err
+				}
+			}
 		}
-		all = append(all, ev...)
 	}
 	// Skipping every artifact and publishing nothing is a success for
 	// an empty terva sidecar set. For cursor it means the head is not
@@ -177,15 +197,15 @@ func (s *Server) Project(ctx context.Context, m protocol.Manifest) ([]normalize.
 	// export. An empty event list would clear normalize_error. That is
 	// a failure.
 	if m.Harness == protocol.HarnessCursor && !projected {
-		return nil, fmt.Errorf("normalize: cursor session has no cursor_state_json artifact")
+		return fmt.Errorf("normalize: cursor session has no cursor_state_json artifact")
 	}
 	if m.Harness == protocol.HarnessCursorCLI && !projected {
-		return nil, fmt.Errorf("normalize: cursor-cli session has no cursor_cli_store_json artifact")
+		return fmt.Errorf("normalize: cursor-cli session has no cursor_cli_store_json artifact")
 	}
 	if m.Harness == protocol.HarnessOpenCode && !projected {
-		return nil, fmt.Errorf("normalize: opencode session has no opencode_export_json artifact")
+		return fmt.Errorf("normalize: opencode session has no opencode_export_json artifact")
 	}
-	return all, nil
+	return nil
 }
 
 // transientError is a Project failure of the lake, not of the bytes: a
@@ -332,4 +352,27 @@ func readBlob(store *cas.Store, digest string) ([]byte, error) {
 	// Read follows a logical chunk list. OpenBlob is only the single
 	// object, and a file over the cap is not installed as one.
 	return store.Read(digest)
+}
+
+// CAS reader failures are retryable; invalid harness records are permanent.
+type projectInput struct{ io.Reader }
+
+func (r projectInput) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err != nil && err != io.EOF {
+		err = transientError{err}
+	}
+	return n, err
+}
+func (s *Server) projectReader(ctx context.Context, digest string, n normalize.StreamNormalizer, sink normalize.EventSink) (err error) {
+	r, err := s.CAS.Open(digest)
+	if err != nil {
+		return transientError{err}
+	}
+	defer func() {
+		if e := r.Close(); e != nil {
+			err = errors.Join(err, transientError{e})
+		}
+	}()
+	return n.Stream(ctx, projectInput{r}, sink)
 }

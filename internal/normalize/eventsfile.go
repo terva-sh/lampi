@@ -59,6 +59,18 @@ type frameStart struct {
 
 // WriteEventsFile writes events to w as indexed zstd frames.
 func WriteEventsFile(w io.Writer, events []Event) error {
+	return WriteEventsStream(w, func(sink EventSink) error {
+		for _, ev := range events {
+			if err := sink(ev); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// WriteEventsStream writes indexed frames without retaining the event slice.
+func WriteEventsStream(w io.Writer, produce func(EventSink) error) error {
 	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBetterCompression), zstd.WithEncoderConcurrency(1))
 	if err != nil {
 		return fmt.Errorf("normalize: %w", err)
@@ -88,7 +100,7 @@ func WriteEventsFile(w io.Writer, events []Event) error {
 		return nil
 	}
 	lines := lineEncoder(&raw)
-	for _, ev := range events {
+	if err := produce(func(ev Event) error {
 		if err := lines.Encode(ev); err != nil {
 			return fmt.Errorf("normalize: %w", err)
 		}
@@ -98,6 +110,9 @@ func WriteEventsFile(w io.Writer, events []Event) error {
 				return err
 			}
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if err := flush(); err != nil {
 		return err

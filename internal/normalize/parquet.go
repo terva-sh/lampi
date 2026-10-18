@@ -271,6 +271,21 @@ func stageParquetFile(path string, events []Event, indices []int) (string, error
 }
 
 func writeParquetRows(out io.Writer, events []Event, indices []int) error {
+	return writeParquetStream(out, func(sink func(ParquetRow) error) error {
+		for _, i := range indices {
+			row, err := parquetRow(events[i])
+			if err != nil {
+				return err
+			}
+			if err := sink(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func writeParquetStream(out io.Writer, produce func(func(ParquetRow) error) error) error {
 	w := parquet.NewGenericWriter[ParquetRow](out,
 		parquet.Compression(&parquet.Zstd),
 		parquet.MaxRowsPerRowGroup(parquetRowGroupRows),
@@ -298,11 +313,7 @@ func writeParquetRows(out io.Writer, events []Event, indices []int) error {
 		batchBytes = 0
 		return err
 	}
-	for _, i := range indices {
-		row, err := parquetRow(events[i])
-		if err != nil {
-			return err
-		}
+	if err := produce(func(row ParquetRow) error {
 		size := parquetRowBytes(row)
 		if groupRows > 0 && (groupRows == parquetRowGroupRows || groupBytes+size > parquetRowGroupBytes) {
 			if err := flushBatch(); err != nil {
@@ -322,6 +333,9 @@ func writeParquetRows(out io.Writer, events []Event, indices []int) error {
 		batchBytes += size
 		groupBytes += size
 		groupRows++
+		return nil
+	}); err != nil {
+		return err
 	}
 	if err := flushBatch(); err != nil {
 		return err

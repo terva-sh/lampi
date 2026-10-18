@@ -91,6 +91,8 @@ type Server struct {
 	// beforeProject, when set, runs in the worker before Project.
 	// Tests use it to show that the manifest ACK does not wait.
 	beforeProject func()
+	// beforePublish, when set by tests, runs after private staging finishes.
+	beforePublish func()
 
 	// heavy holds one token per blob PUT or manifest post in a handler.
 	// heavyN, when set, replaces maxHeavy. Tests lower it.

@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sync"
+	"terva.sh/lampi/internal/normalize"
 	"time"
 
 	"terva.sh/lampi/internal/catalog"
@@ -307,7 +310,14 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) (result string) {
 	if !ok {
 		return resultSuperseded
 	}
-	events, nerr := s.Project(ctx, info.Manifest)
+	stage, nerr := normalize.Stage(ctx, filepath.Dir(s.Normalized), job.SessionUID, func(sink normalize.EventSink) error { return s.projectEach(ctx, info.Manifest, sink) })
+	if stage != nil {
+		defer stage.Close()
+	}
+	var outputError normalize.OutputError
+	if errors.As(nerr, &outputError) {
+		nerr = transientError{nerr}
+	}
 	keepJob := false
 	if nerr != nil {
 		if isTransient(nerr) {
@@ -318,6 +328,9 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) (result string) {
 		}
 		s.logger().Warn("normalize failed", "session_uid", job.SessionUID, "err", nerr.Error())
 	}
+	if nerr == nil && s.beforePublish != nil {
+		s.beforePublish()
+	}
 	unlock := s.lockSession(job.SessionUID)
 	defer unlock()
 	gen, currentHead, ok, err := s.Catalog.NormalizeVersion(ctx, job.SessionUID)
@@ -327,7 +340,15 @@ func (s *Server) runNormalize(job catalog.NormalizeJob) (result string) {
 	if !ok || gen != job.Gen || currentHead != head {
 		return resultSuperseded
 	}
-	if err := s.storeGeneration(ctx, job.SessionUID, job.Gen, head, events, nerr); err != nil {
+	if err := func() error {
+		if nerr != nil {
+			return s.storeGeneration(ctx, job.SessionUID, job.Gen, head, nil, nerr)
+		}
+		if err := stage.Publish(s.Normalized, s.Parquet); err != nil {
+			return err
+		}
+		return s.Catalog.MarkPublished(ctx, job.SessionUID, job.Gen, head)
+	}(); err != nil {
 		return retried(s.retryNormalize(job, "store", err))
 	}
 	if keepJob {
