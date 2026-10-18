@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M56GV9BWPGYKMZQ89N221X7X
 title: "Parquet: bound serialization and row-group buffers"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M56GV8XHXWHZ2N41XFP0H8H0
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/memory-e2fc465b
-  branch: t3code/explore-lampi-memory-footprint
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e2fc465b
-  commit: 8456f27e91f5cdfa4888a48146132effe461fc45
-  session: null
-  claimed_at: 2026-10-18T03:33:40Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-18T03:28:22Z
-updated_at: 2026-10-18T03:36:15Z
+updated_at: 2026-10-18T03:37:19Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -46,7 +39,7 @@ Write partitioned Parquet incrementally instead of building a whole-session map 
 
 - [x] Parquet output no longer retains serialized rows for the entire session; temporary writer memory is bounded by a documented batch/row-group budget plus the largest event.
 - [x] Round-trip tests preserve full event JSON, interleaved date/harness ordering, compression, permissions, stale removal and cleanup after failure.
-- [ ] Comparable 32 MiB and 128 MiB measurements record memory, CPU/time and output-size changes; project gates pass.
+- [x] Comparable 32 MiB and 128 MiB measurements record memory, CPU/time and output-size changes; project gates pass.
 
 ## Implementation plan
 
@@ -57,3 +50,11 @@ Group only Event indices by partition, keeping the existing Event slice interfac
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:36:14Z
 
 Implemented one-writer-at-a-time partition staging with 128-row/1 MiB serialized batches and 2048-row/8 MiB row groups (plus a whole oversized event). Retain only event indices rather than all serialized rows, and use a string builder to remove the event JSON copy. Tests cover complete JSON and interleaved ordering, bounded groups, giant events, permissions/compression/stale removal and late serialization failure preserving old files and cleaning temps. Package tests and normalize/tool race tests pass. Three-run median projection RSS falls 182.6 -> 148.5 MiB at 32 MiB and 690.5 -> 591.2 MiB at 128 MiB; Parquet-stage allocation falls 534.3 -> 252.7 MiB at 128 MiB. Output grows 1.4%; retain the 8 MiB budget because it bounds text buffers for little storage loss. Total input events, partition indices and footer metadata remain outside this ticket's buffer bound. A combined sync sample did not improve peak RSS (529.4 -> 543.6 MiB), so document the limitation rather than generalizing the projection win. Full repository tests are running; vet and build pass. Alternatives rejected: processing all partitions with simultaneous writers multiplies buffers; rescanning every event for each partition repeats CPU; serializing all rows first retains the original problem. Full streaming remains the next separate ticket.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:37:18Z
+
+Full repository go test -trimpath=false ./... passes after the Parquet reduction. go vet ./..., gofmt, application build and normalize/tool race tests pass. Source change and measurements are in 2616854 and docs/performance.md. No normalizer reader/schema version changed and no live service was touched.
+
+## Summary
+
+Bounded serialized batches and Parquet row groups landed at 2616854 with complete round-trip and failure cleanup tests. Repeated 128 MiB projection median peak RSS is 591.2 MiB versus 690.5 MiB baseline, with 53% less Parquet-stage allocation and 1.4% larger Parquet files. Whole-sync peak reduction remains unproven and is documented. All repository gates and targeted race checks pass; the next reductions address input/event retention and agent batching.
