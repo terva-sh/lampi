@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-18T03:28:22Z
-updated_at: 2026-10-18T03:40:50Z
+updated_at: 2026-10-18T03:43:53Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -65,3 +65,7 @@ Before coding, split full-artifact file-backed streaming into TKT-01M56HA9EQBBA9
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:40:50Z
 
 The sequential preparation/send implementation and targeted upload/accept/tool tests now pass. New tests cover ACK-before-next-scan ordering, durable pending state after a failed manifest, cross-session shared sidecar deduplication with/without chunking, and no-bay continuation/retry. Corrected writeClaudeCorpus to JSON-escape generated text; its previous embedded quotes produced malformed benchmark JSON and missing CWDs. Fixed-size chunks now share the already immutable snapshot, as splitAt already does, avoiding an extra whole-body copy while the snapshot is necessarily alive. Adding a separate-process synthetic lake mode to lampi-perf so this ticket can report agent-only memory rather than attributing combined normalize/agent RSS to the agent.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:43:53Z
+
+Implementation is committed at c9e2404; the separate-process agent measurement mode is f6e52a6. Full go test -trimpath=false ./..., upload/accept/tool race tests, go vet ./..., formatting and the application build passed. A subsequent tool-only test also passes after adding explicit RUSAGE_SELF CPU accounting to avoid including waited-for lake descendants. Alternating old/new agent measurements are running using identical updated tools in both builds, with production upload code before c9e2404 as the control. No live services or config were changed. Batching intentionally retains a full immutable snapshot of the current session; no per-artifact bounded-memory claim is made.
