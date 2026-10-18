@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-18T03:28:23Z
-updated_at: 2026-10-18T04:15:24Z
+updated_at: 2026-10-18T04:21:54Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -51,3 +51,9 @@ Prevent avoidable overlap of expensive projections for the same session and limi
 ## Implementation plan
 
 Coalesce queued work by session while preserving the catalog's latest durable generation and in-flight/retry accounting. Serialize expensive projection per session using queue admission rather than holding the publication lock across manifest ingest or occupying a worker waiting on a session mutex. Add explicit per-job logical-input weight from catalog current artifacts; admit at most the configured byte budget (oversized jobs run alone), with FIFO reservation so small jobs cannot permanently starve a large job. Defaults retain two workers and a moderate logical-input budget; expose explicit serve flags through validated open options. Preserve delayed retries and restart loading; superseded retries must never replace a newer queued generation. Record admitted bytes, coalesced count and queue wait alongside existing duration/depth metrics. Validate replacement, simultaneous generations, budget/oversize, retry, shutdown/restart and a measured isolated append burst, comparing worker/admission settings before recommendations.
+
+## Notes
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:21:54Z
+
+Implemented pending-generation coalescing at the original queue position, per-session running admission, conservative logical-input weights from current catalog artifacts, configurable workers and a 256 MiB default input budget. Oversized jobs run alone; at most eight smaller jobs bypass a capacity-blocked session before reserving capacity. Held/retry metadata is released when idle; obsolete retry timers cannot replace newer work. Added admission/queue-wait metrics and synthetic undrained append bursts. Targeted API/catalog/normalizer/runner tests pass including budget fairness, same-session serialization, latest generation and isolated combined/separate-process bursts. Existing retry/restart/reload tests remain part of the gate; measurement and documentation remain before closure.

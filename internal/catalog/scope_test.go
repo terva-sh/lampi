@@ -68,7 +68,8 @@ var unscoped = map[string]string{
 	// DashboardSession with its scope.
 	"Alias": "ingest", "Artifacts": "one session, after a scope check or on the lake host",
 	"Current": "ingest", "Head": "ingest and export", "NormalizeError": "normalization",
-	"NormalizeGen": "normalization", "NormalizeVersion": "normalization",
+	"NormalizeWeight": "logical byte estimate for the normalize worker on the lake host",
+	"NormalizeGen":    "normalization", "NormalizeVersion": "normalization",
 	"NormalizationState": "normalization", "OtherDigests": "purge", "Provenance": "one session, after a scope check",
 	"Publication": "recall, after Reader.inScope", "Session": "one session, after a scope check or for an admin",
 	"SessionBays": "one session's bays, after a scope check",

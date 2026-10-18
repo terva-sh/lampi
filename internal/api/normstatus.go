@@ -169,3 +169,37 @@ func (s *Server) NormalizationStatus(ctx context.Context) (protocol.Normalizatio
 	}
 	return out, nil
 }
+
+// AdmissionSnapshot exposes low-cardinality admission observations.
+type AdmissionSnapshot struct {
+	Bytes          int64   `json:"input_bytes"`
+	Budget         int64   `json:"input_budget_bytes"`
+	Coalesced      int64   `json:"coalesced_jobs"`
+	WaitCount      int64   `json:"wait_count"`
+	WaitSeconds    float64 `json:"wait_seconds"`
+	MaxWaitSeconds float64 `json:"max_wait_seconds"`
+}
+
+func (q *normalizeQueue) admission() AdmissionSnapshot {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return AdmissionSnapshot{q.used, q.budget, q.coalesced, q.waitCount, q.waitSeconds, q.maxWaitSeconds}
+}
+func (s *Server) NormalizeAdmission() AdmissionSnapshot {
+	if s.norm == nil {
+		return AdmissionSnapshot{}
+	}
+	return s.norm.admission()
+}
+
+// NormalizeWorkSnapshot has no session identifiers or content.
+type NormalizeWorkSnapshot struct {
+	Admission  AdmissionSnapshot `json:"admission"`
+	Results    map[string]int64  `json:"results"`
+	JobSeconds float64           `json:"job_seconds"`
+}
+
+func (s *Server) NormalizeWork() NormalizeWorkSnapshot {
+	st := s.normStats.snapshot()
+	return NormalizeWorkSnapshot{s.NormalizeAdmission(), st.results, st.sum}
+}

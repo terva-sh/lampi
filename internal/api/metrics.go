@@ -184,6 +184,13 @@ func (s *Server) writeNormalizeMetrics(ctx context.Context, m *metricWriter, sta
 	m.sample("gauge", "lampi_normalize_oldest_pending_age_seconds", "Age of the oldest row in the normalize job table; 0 when none wait.", age)
 	if s.norm != nil {
 		queued, running, retrying := s.norm.depth()
+		admission := s.norm.admission()
+		m.sample("gauge", "lampi_normalize_admitted_input_bytes", "Logical input bytes admitted; an oversized job runs alone.", float64(admission.Bytes))
+		m.sample("gauge", "lampi_normalize_input_budget_bytes", "Concurrent logical input admission budget, not an RSS limit.", float64(admission.Budget))
+		m.sample("counter", "lampi_normalize_coalesced_jobs_total", "Queued generations replaced by newer work for the same session.", float64(admission.Coalesced))
+		m.sample("counter", "lampi_normalize_queue_wait_seconds_sum", "Total ready-queue admission wait; excludes delayed retry timers.", admission.WaitSeconds)
+		m.sample("counter", "lampi_normalize_queue_wait_seconds_count", "Number of jobs admitted by this process.", float64(admission.WaitCount))
+		m.sample("gauge", "lampi_normalize_queue_wait_max_seconds", "Largest ready-queue admission wait since process start.", admission.MaxWaitSeconds)
 		for _, st := range []struct {
 			state string
 			n     int

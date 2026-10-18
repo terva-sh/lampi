@@ -100,3 +100,25 @@ func TestRunnerRefusesExistingOutput(t *testing.T) {
 		t.Fatalf("modified existing data: %q, %v", b, err)
 	}
 }
+
+func TestBurstDrainsLatestGenerations(t *testing.T) {
+	for _, workload := range []string{"sync", "agent"} {
+		t.Run(workload, func(t *testing.T) {
+			r, err := work(options{out: t.TempDir(), workload: workload, sizeMiB: 1, sessions: 2, burst: 4, appendKiB: 8, normalizeWorkers: 2, normalizeBudgetMiB: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			last := r.Stages[len(r.Stages)-1]
+			if last.Name != "burst-drain" || last.Lake == nil || last.Lake.Admission.Bytes != 0 || last.Lake.Results["failed"] != 0 || last.Lake.Results["ok"] < 4 {
+				t.Fatalf("incomplete burst: %+v", last)
+			}
+		})
+	}
+}
+func TestParseInvalidAdmission(t *testing.T) {
+	for _, args := range [][]string{{"--normalize-workers", "-1"}, {"--normalize-workers", "65"}, {"--normalize-input-budget-mib", "-1"}, {"--burst-passes", "-1"}} {
+		if _, err := parse(append([]string{"--out", "unused"}, args...)); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+}

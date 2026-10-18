@@ -20,29 +20,32 @@ import (
 	"strings"
 	"time"
 
+	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/upload"
 )
 
 type options struct {
-	out, workload                         string
-	sizeMiB, sessions, appends, appendKiB int
-	unchanged                             int
-	profiles, keepData, worker            bool
-	lakeWorker                            bool
+	out, workload                               string
+	sizeMiB, sessions, appends, appendKiB       int
+	unchanged                                   int
+	profiles, keepData, worker                  bool
+	lakeWorker                                  bool
+	normalizeWorkers, normalizeBudgetMiB, burst int
 }
 
 type stage struct {
-	Name        string         `json:"name"`
-	Seconds     float64        `json:"seconds"`
-	Allocated   uint64         `json:"allocated_bytes"`
-	GC          uint32         `json:"gc_cycles"`
-	HeapAfter   uint64         `json:"heap_after_bytes"`
-	SampledHeap uint64         `json:"sampled_peak_heap_bytes"`
-	SampledRSS  uint64         `json:"sampled_peak_rss_bytes,omitempty"`
-	Events      int            `json:"events,omitempty"`
-	Sync        *upload.Result `json:"sync,omitempty"`
+	Name        string                     `json:"name"`
+	Seconds     float64                    `json:"seconds"`
+	Allocated   uint64                     `json:"allocated_bytes"`
+	GC          uint32                     `json:"gc_cycles"`
+	HeapAfter   uint64                     `json:"heap_after_bytes"`
+	SampledHeap uint64                     `json:"sampled_peak_heap_bytes"`
+	SampledRSS  uint64                     `json:"sampled_peak_rss_bytes,omitempty"`
+	Events      int                        `json:"events,omitempty"`
+	Lake        *api.NormalizeWorkSnapshot `json:"lake_normalize,omitempty"`
+	Sync        *upload.Result             `json:"sync,omitempty"`
 }
 
 type result struct {
@@ -87,9 +90,15 @@ func parse(args []string) (options, error) {
 	f.BoolVar(&o.profiles, "profiles", false, "capture CPU and final heap/allocation profiles")
 	f.BoolVar(&o.keepData, "keep-data", false, "keep synthetic input and derived data")
 	f.BoolVar(&o.worker, "worker", false, "internal subprocess mode")
+	f.IntVar(&o.normalizeWorkers, "normalize-workers", 2, "lake normalize worker count")
+	f.IntVar(&o.normalizeBudgetMiB, "normalize-input-budget-mib", 256, "lake logical input admission budget")
+	f.IntVar(&o.burst, "burst-passes", 0, "append passes without waiting for normalization, followed by a drain")
 	f.BoolVar(&o.lakeWorker, "lake-worker", false, "internal isolated lake mode")
 	if err := f.Parse(args); err != nil {
 		return o, err
+	}
+	if o.normalizeWorkers < 0 || o.normalizeWorkers > 64 || o.normalizeBudgetMiB < 0 || o.normalizeBudgetMiB > 1<<20 || o.burst < 0 {
+		return o, fmt.Errorf("invalid normalize workers/budget or burst count")
 	}
 	if f.NArg() != 0 || o.out == "" || o.sizeMiB < 1 || o.sizeMiB > 4096 || o.sessions < 1 || o.appends < 0 || o.appendKiB < 1 || o.unchanged < 0 {
 		return o, fmt.Errorf("require --out, 1..4096 --size-mib, positive sessions/append-kib and nonnegative pass counts")
@@ -108,7 +117,7 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 	if o.lakeWorker {
-		return serveLake(o.out, os.Stdin, stdout)
+		return serveLake(o.out, os.Stdin, stdout, api.NormalizeOptions{Workers: o.normalizeWorkers, InputBudgetBytes: int64(o.normalizeBudgetMiB) << 20})
 	}
 	if o.worker {
 		r, err := work(o)
@@ -267,7 +276,8 @@ func projectionWork(data string, paths []string, r *result) error {
 }
 
 func syncWork(o options, data, home string, paths []string, r *result) (err error) {
-	url, wait, closeLake, err := startLake(data, o.workload == "agent")
+	var observation api.NormalizeWorkSnapshot
+	url, wait, closeLake, err := startLake(data, o.workload == "agent", api.NormalizeOptions{Workers: o.normalizeWorkers, InputBudgetBytes: int64(o.normalizeBudgetMiB) << 20}, &observation)
 	if err != nil {
 		return err
 	}
@@ -277,24 +287,28 @@ func syncWork(o options, data, home string, paths []string, r *result) (err erro
 		}
 	}()
 	opt := upload.Options{ServerURL: url, MachineID: "synthetic-perf", ClaudeHome: home, StateDir: filepath.Join(data, "agent"), Memo: upload.NewMemo(), Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/synthetic/lampi"}}}}
-	sync := func(name string) error {
+	sync := func(name string, drain bool) error {
 		var res upload.Result
 		s, err := measure(name, func() (err error) {
 			res, err = upload.Sync(context.Background(), opt)
-			if err == nil {
+			if err == nil && drain {
 				err = wait()
 			}
 			return err
 		})
 		s.Sync = &res
+		if drain {
+			snap := observation
+			s.Lake = &snap
+		}
 		r.Stages = append(r.Stages, s)
 		return err
 	}
-	if err := sync("initial-sync"); err != nil {
+	if err := sync("initial-sync", true); err != nil {
 		return err
 	}
 	for i := 0; i < o.unchanged; i++ {
-		if err := sync(fmt.Sprintf("unchanged-%d", i)); err != nil {
+		if err := sync(fmt.Sprintf("unchanged-%d", i), true); err != nil {
 			return err
 		}
 	}
@@ -304,10 +318,30 @@ func syncWork(o options, data, home string, paths []string, r *result) (err erro
 				return err
 			}
 		}
-		if err := sync(fmt.Sprintf("append-%d", i)); err != nil {
+		if err := sync(fmt.Sprintf("append-%d", i), true); err != nil {
 			return err
 		}
 	}
+	for i := 0; i < o.burst; i++ {
+		for j, path := range paths {
+			if err := writeTranscript(path, fmt.Sprintf("synthetic-%04d", j), int64(o.appendKiB)<<10, uint64(1000+i), true); err != nil {
+				return err
+			}
+		}
+		if err := sync(fmt.Sprintf("burst-%d", i), false); err != nil {
+			return err
+		}
+	}
+	if o.burst > 0 {
+		stage, err := measure("burst-drain", wait)
+		snap := observation
+		stage.Lake = &snap
+		r.Stages = append(r.Stages, stage)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

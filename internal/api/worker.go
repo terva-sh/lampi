@@ -38,7 +38,7 @@ var workerLog = log.New(os.Stderr, "terva-lampi: ", log.LstdFlags)
 type normalizeQueue struct {
 	mu       sync.Mutex
 	cond     *sync.Cond
-	items    []catalog.NormalizeJob
+	items    []queuedNormalizeJob
 	inflight int
 	// delayed counts retries waiting on a timer. waitIdle waits for
 	// them too.
@@ -49,7 +49,20 @@ type normalizeQueue struct {
 	// held counts each job, by session and generation, that is queued,
 	// waiting on a retry timer, or running. pushNew reads it so a
 	// reload of catalog.normalize_jobs does not queue a job twice.
-	held map[jobKey]int
+	held                 map[jobKey]int
+	sessionHeld          map[string]int
+	latest               map[string]int64
+	running              map[string]int64
+	budget, used         int64
+	coalesced, waitCount int64
+	waitSeconds          float64
+	maxWaitSeconds       float64
+}
+
+type queuedNormalizeJob struct {
+	job      catalog.NormalizeJob
+	at       time.Time
+	bypasses int
 }
 
 type jobKey struct {
@@ -58,7 +71,7 @@ type jobKey struct {
 }
 
 func newNormalizeQueue() *normalizeQueue {
-	q := &normalizeQueue{held: map[jobKey]int{}}
+	q := &normalizeQueue{held: map[jobKey]int{}, sessionHeld: map[string]int{}, latest: map[string]int64{}, running: map[string]int64{}, budget: DefaultNormalizeInputBudget}
 	q.cond = sync.NewCond(&q.mu)
 	return q
 }
@@ -66,32 +79,51 @@ func newNormalizeQueue() *normalizeQueue {
 // push adds job. After shutdown it does nothing: no worker will pop
 // again, and the job's row in catalog.normalize_jobs is what the next
 // start loads.
-func (q *normalizeQueue) push(job catalog.NormalizeJob) {
-	q.mu.Lock()
-	if q.closed {
-		q.mu.Unlock()
-		return
-	}
-	q.items = append(q.items, job)
+func (q *normalizeQueue) push(job catalog.NormalizeJob) { q.pushNew(job) }
+
+func (q *normalizeQueue) hold(job catalog.NormalizeJob) {
 	q.held[jobKey{job.SessionUID, job.Gen}]++
-	q.cond.Broadcast()
-	q.mu.Unlock()
+	q.sessionHeld[job.SessionUID]++
+	q.latest[job.SessionUID] = max(q.latest[job.SessionUID], job.Gen)
 }
 
-// pushNew adds job unless the same session and generation is already
-// queued, waiting on a retry, or running, and reports whether it did.
-// A job whose attempts ran out is held by nothing, so a reload runs it
-// again, as a restart would.
+// insert coalesces pending generations in their existing FIFO position. A retry
+// timer already holds its job; new enqueues acquire their hold here.
+func (q *normalizeQueue) insert(job catalog.NormalizeJob, alreadyHeld bool) bool {
+	if q.closed || job.Gen < q.latest[job.SessionUID] {
+		return false
+	}
+	for i, entry := range q.items {
+		if entry.job.SessionUID != job.SessionUID {
+			continue
+		}
+		if entry.job.Gen >= job.Gen {
+			return false
+		}
+		if !alreadyHeld {
+			q.hold(job)
+		}
+		q.release(entry.job)
+		q.items[i].job = job
+		q.coalesced++
+		q.cond.Broadcast()
+		return true
+	}
+	if !alreadyHeld {
+		q.hold(job)
+	}
+	q.items = append(q.items, queuedNormalizeJob{job: job, at: time.Now()})
+	q.cond.Broadcast()
+	return true
+}
+
 func (q *normalizeQueue) pushNew(job catalog.NormalizeJob) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed || q.held[jobKey{job.SessionUID, job.Gen}] > 0 {
+	if q.held[jobKey{job.SessionUID, job.Gen}] > 0 {
 		return false
 	}
-	q.items = append(q.items, job)
-	q.held[jobKey{job.SessionUID, job.Gen}]++
-	q.cond.Broadcast()
-	return true
+	return q.insert(job, false)
 }
 
 // later pushes job after d.
@@ -102,14 +134,12 @@ func (q *normalizeQueue) later(job catalog.NormalizeJob, d time.Duration) {
 		return
 	}
 	q.delayed++
-	q.held[jobKey{job.SessionUID, job.Gen}]++
+	q.hold(job)
 	q.mu.Unlock()
 	time.AfterFunc(d, func() {
 		q.mu.Lock()
 		q.delayed--
-		if !q.closed {
-			q.items = append(q.items, job)
-		} else {
+		if !q.insert(job, true) {
 			q.release(job)
 		}
 		q.cond.Broadcast()
@@ -117,21 +147,47 @@ func (q *normalizeQueue) later(job catalog.NormalizeJob, d time.Duration) {
 	})
 }
 
+// pop admits independent sessions within a logical-input budget. An oversized
+// job runs alone. At most eight smaller jobs may bypass a budget-blocked job;
+// then it reserves the next capacity, bounding starvation in both directions.
 func (q *normalizeQueue) pop() (catalog.NormalizeJob, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for len(q.items) == 0 && !q.closed {
+	for !q.closed {
+		reserved := -1
+		for i, entry := range q.items {
+			job := entry.job
+			if _, running := q.running[job.SessionUID]; running {
+				continue
+			}
+			weight := max(job.Bytes, 1)
+			if q.inflight > 0 && (weight > q.budget || q.used > q.budget-weight) {
+				if reserved < 0 {
+					reserved = i
+				}
+				if entry.bypasses >= 8 {
+					break
+				}
+				continue
+			}
+			if reserved >= 0 {
+				q.items[reserved].bypasses++
+			}
+			copy(q.items[i:], q.items[i+1:])
+			q.items[len(q.items)-1] = queuedNormalizeJob{}
+			q.items = q.items[:len(q.items)-1]
+			q.inflight++
+			q.running[job.SessionUID] = job.Gen
+			q.used += weight
+			wait := time.Since(entry.at).Seconds()
+			q.waitCount++
+			q.waitSeconds += wait
+			q.maxWaitSeconds = max(q.maxWaitSeconds, wait)
+			return job, true
+		}
 		q.cond.Wait()
 	}
-	// A closed queue hands out nothing more. What is left stays in
-	// catalog.normalize_jobs for the next start.
-	if q.closed {
-		return catalog.NormalizeJob{}, false
-	}
-	job := q.items[0]
-	q.items = q.items[1:]
-	q.inflight++
-	return job, true
+	return catalog.NormalizeJob{}, false
 }
 
 // done ends a job pop handed out. A retry of it was counted again by
@@ -141,6 +197,8 @@ func (q *normalizeQueue) done(job catalog.NormalizeJob) (batch bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.inflight--
+	delete(q.running, job.SessionUID)
+	q.used -= max(job.Bytes, 1)
 	q.release(job)
 	q.finished++
 	q.cond.Broadcast()
@@ -155,6 +213,11 @@ func (q *normalizeQueue) done(job catalog.NormalizeJob) (batch bool) {
 // release drops one count of job from held. q.mu is held.
 func (q *normalizeQueue) release(job catalog.NormalizeJob) {
 	k := jobKey{job.SessionUID, job.Gen}
+	q.sessionHeld[job.SessionUID]--
+	if q.sessionHeld[job.SessionUID] <= 0 {
+		delete(q.sessionHeld, job.SessionUID)
+		delete(q.latest, job.SessionUID)
+	}
 	if q.held[k] <= 1 {
 		delete(q.held, k)
 		return
@@ -239,7 +302,7 @@ func (s *Server) ReloadNormalizeJobs(ctx context.Context) (int, error) {
 }
 
 func (s *Server) startNormalizeWorkers() {
-	for range normalizeWorkers {
+	for range s.normalizeOptions.Workers {
 		s.normalizeWG.Add(1)
 		go s.normalizeLoop()
 	}
@@ -266,7 +329,11 @@ func (s *Server) enqueueNormalize(ctx context.Context, sessionUID string) error 
 	if err != nil {
 		return err
 	}
-	s.norm.push(catalog.NormalizeJob{SessionUID: sessionUID, Gen: gen})
+	weight, err := s.Catalog.NormalizeWeight(ctx, sessionUID)
+	if err != nil {
+		return err
+	}
+	s.norm.push(catalog.NormalizeJob{SessionUID: sessionUID, Gen: gen, Bytes: weight})
 	return nil
 }
 

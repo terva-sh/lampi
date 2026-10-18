@@ -16,12 +16,12 @@ import (
 
 // The private stdio channel waits for normalization between stages without
 // exposing a diagnostics endpoint or including lake allocations in the agent.
-func serveLake(data string, input io.Reader, output io.Writer) error {
+func serveLake(data string, input io.Reader, output io.Writer, options api.NormalizeOptions) error {
 	dir := filepath.Join(data, "lake")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		return err
 	}
-	lake, err := api.Open(dir)
+	lake, err := api.OpenWithOptions(dir, options)
 	if err != nil {
 		return err
 	}
@@ -46,30 +46,34 @@ func serveLake(data string, input io.Reader, output io.Writer) error {
 		if err := lake.WaitNormalized(context.Background()); err != nil {
 			return err
 		}
-		if err := enc.Encode("done"); err != nil {
+		if err := enc.Encode(lake.NormalizeWork()); err != nil {
 			return err
 		}
 	}
 }
 
-func startLake(data string, separate bool) (url string, wait func() error, closeLake func() error, err error) {
+func startLake(data string, separate bool, options api.NormalizeOptions, observation *api.NormalizeWorkSnapshot) (url string, wait func() error, closeLake func() error, err error) {
 	if !separate {
-		lake, err := api.Open(filepath.Join(data, "lake"))
+		lake, err := api.OpenWithOptions(filepath.Join(data, "lake"), options)
 		if err != nil {
 			return "", nil, nil, err
 		}
 		srv := httptest.NewServer(lake.Handler())
-		return srv.URL, func() error { return lake.WaitNormalized(context.Background()) }, func() error {
-			srv.Close()
-			return lake.Close()
-		}, nil
+		return srv.URL, func() error {
+				err := lake.WaitNormalized(context.Background())
+				*observation = lake.NormalizeWork()
+				return err
+			}, func() error {
+				srv.Close()
+				return lake.Close()
+			}, nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return "", nil, nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	cmd := exec.CommandContext(ctx, exe, "--lake-worker", "--out", data)
+	cmd := exec.CommandContext(ctx, exe, "--lake-worker", "--out", data, "--normalize-workers", fmt.Sprint(options.Workers), "--normalize-input-budget-mib", fmt.Sprint(options.InputBudgetBytes>>20))
 	cmd.Stderr = os.Stderr
 	in, err := cmd.StdinPipe()
 	if err != nil {
@@ -99,12 +103,8 @@ func startLake(data string, separate bool) (url string, wait func() error, close
 		if err := enc.Encode("wait"); err != nil {
 			return err
 		}
-		var reply string
-		if err := dec.Decode(&reply); err != nil {
+		if err := dec.Decode(observation); err != nil {
 			return fmt.Errorf("wait for isolated lake: %w", err)
-		}
-		if reply != "done" {
-			return fmt.Errorf("unexpected lake reply %q", reply)
 		}
 		return nil
 	}
