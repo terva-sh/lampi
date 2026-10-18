@@ -635,3 +635,38 @@ not a retained-memory budget. The isolated process scopes, unprofiled medians,
 profile overhead, largest-record limit, uncontrolled host load/cache, synthetic
 harness/record mix and absence of production deployment all constrain what can
 be inferred from these results.
+
+## Release readiness
+
+Local release rehearsal at `45fea68` passed:
+
+- Formatting and whitespace checks, `go vet ./...`, and the full
+  `go test -trimpath=false -race ./...` repository suite.
+- Application/tool builds and `goreleaser check`.
+- A non-publishing GoReleaser snapshot for linux/amd64, linux/arm64,
+  darwin/amd64, darwin/arm64 and windows/amd64. All five archives contained
+  the binary, LICENSE and README; every archive matched checksums.txt.
+- Extracted linux/amd64 archive `--version` and healthcheck-help smoke tests.
+- The repository Dockerfile built with Buildah for linux/amd64 and linux/arm64,
+  followed by amd64 container version and healthcheck-help smoke tests.
+
+The only test flag adjustment is the documented host `-trimpath=false` fixture
+lookup requirement. The streaming component measurements read raw fixture files;
+production also incurs CAS decompression and API/catalog work. Tests and release
+builds ran after the timing comparisons. Profiles were separate from unprofiled
+medians. No source changes followed the passing gates; subsequent commits close
+records and add documentation.
+
+Artifacts and logs are private/disposable under the task scratch directory
+above. A scratch copy of `.goreleaser.yaml` only redirected `dist` there; repository
+release configuration is unchanged. `0.8.1-next` is the snapshot archive name,
+not a selected release tag. The archive binary recorded the clean source revision;
+the future tagged version identity check remains part of the actual release CI.
+`git ticket check` has zero errors and one pre-existing long-title warning on
+TKT-01M3K38AAK8Q9P3RB6G8GP9JZ9, outside this epic.
+
+[Prepared release notes](release-notes-memory.md) state that no catalog migration,
+normalizer semantic/schema change or forced re-normalization is introduced.
+Review/merge onto the release branch and the normal tagged release workflow are
+still separate steps. No tag, forge release, image push, installation, live
+restart, configuration change or capture-policy change was performed.
