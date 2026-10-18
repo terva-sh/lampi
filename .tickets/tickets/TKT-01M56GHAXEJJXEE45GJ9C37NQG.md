@@ -2,8 +2,8 @@
 schema: 3
 id: TKT-01M56GHAXEJJXEE45GJ9C37NQG
 title: Bound memory and repeated work for growing transcripts
-type: task
-status: draft
+type: epic
+status: ready
 status_reason: null
 priority: high
 due_on: null
@@ -16,12 +16,12 @@ milestone: null
 parent: null
 origin: null
 dependencies: []
-blocks_on: none
+blocks_on: children
 references: []
 claim: null
 archive: null
 created_at: 2026-10-18T03:22:56Z
-updated_at: 2026-10-18T03:22:56Z
+updated_at: 2026-10-18T03:28:24Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -51,3 +51,9 @@ The live services, configuration, tokens and capture permissions were left uncha
 - [ ] Bound upload preparation memory by a limited batch or file-backed chunks, preserving digest checks, redaction boundaries, retries and rewrite detection.
 - [ ] Stream lake normalization and Parquet output with bounded buffers while preserving event semantics and generation publication safety.
 - [ ] Measure incremental projection or batching choices for small appends; document freshness and CPU tradeoffs without changing capture permissions.
+
+## Notes
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:28:24Z
+
+The user authorized an epic, child tickets, promotion and autonomous implementation on 2026-10-17. Converted the existing investigation follow-up to the epic and promoted its eight scoped children. Dependencies put reproducible tools before reductions and measurement before runtime tuning. Start with the workload runner, then bounded Parquet serialization; continue through shared agent batching and streamed projection. Retain the investigation as baseline evidence. Do not deploy or change live configuration during this work. Child acceptance criteria are intentionally unchecked until implementation and measurement earn them.
