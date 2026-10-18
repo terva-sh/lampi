@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-18T03:28:22Z
-updated_at: 2026-10-18T03:36:36Z
+updated_at: 2026-10-18T03:40:50Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -61,3 +61,7 @@ Refactor the shared preparation loop to deliver one enqueued prepared session to
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:36:35Z
 
 Before coding, split full-artifact file-backed streaming into TKT-01M56HA9EQBBA9KF4Q9B8PSQ1R (Agent: stream verified artifacts from file-backed snapshots). The original second criterion is now the new ticket's acceptance criteria and remains unfulfilled there. This ticket implements the independently useful per-session batch lifetime reduction, retaining full-artifact scanning semantics until the dependency's successor replaces them.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:40:50Z
+
+The sequential preparation/send implementation and targeted upload/accept/tool tests now pass. New tests cover ACK-before-next-scan ordering, durable pending state after a failed manifest, cross-session shared sidecar deduplication with/without chunking, and no-bay continuation/retry. Corrected writeClaudeCorpus to JSON-escape generated text; its previous embedded quotes produced malformed benchmark JSON and missing CWDs. Fixed-size chunks now share the already immutable snapshot, as splitAt already does, avoiding an extra whole-body copy while the snapshot is necessarily alive. Adding a separate-process synthetic lake mode to lampi-perf so this ticket can report agent-only memory rather than attributing combined normalize/agent RSS to the agent.
