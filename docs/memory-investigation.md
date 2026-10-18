@@ -7,8 +7,10 @@ compresses and indexes existing content after a small upload.
 
 Follow-up: TKT-01M56GHAXEJJXEE45GJ9C37NQG (Bound memory and repeated work for
 growing transcripts), initially filed in draft and subsequently promoted to an
-epic with eight implementation tickets at the user's request. The repeatable
-workload runner is documented in [performance.md](performance.md).
+epic at the user's request; splitting batching from artifact streaming brought
+it to nine implementation tickets. The repeatable workload runner and measured
+Parquet, batching and file-backed agent changes are documented in
+[performance.md](performance.md).
 No service, live configuration, token,
 allow rule or capture permission was changed during this investigation.
 

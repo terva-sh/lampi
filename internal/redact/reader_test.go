@@ -113,6 +113,15 @@ type failedReaderAt struct{}
 
 func (failedReaderAt) ReadAt([]byte, int64) (int, error) { return 0, io.ErrClosedPipe }
 
+type failedMatchReaderAt struct{ io.ReaderAt }
+
+func (r failedMatchReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off == 1 {
+		return 0, io.ErrClosedPipe
+	}
+	return r.ReaderAt.ReadAt(p, off)
+}
+
 func TestReaderScanFailsClosedAndCleansUp(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := (Ruleset{}).ScanReaderAt(context.Background(), failedReaderAt{}, 100, 0, dir); !errors.Is(err, io.ErrClosedPipe) {
@@ -122,6 +131,12 @@ func TestReaderScanFailsClosedAndCleansUp(t *testing.T) {
 	cancel()
 	if _, err := (Ruleset{}).ScanReaderAt(ctx, bytes.NewReader([]byte("x")), 1, 0, dir); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation was accepted as a clean scan: %v", err)
+	}
+	// The prefix search succeeds, then the regex RuneReader fails. regexp
+	// treats reader errors like EOF; the scanner must recover the IO error.
+	view := ".secret_access_key=" + strings.Repeat("A", 45)
+	if _, err := scanView(context.Background(), failedMatchReaderAt{strings.NewReader(view)}, int64(len(view)), 0); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("regex read error was accepted as a clean scan: %v", err)
 	}
 	files, err := os.ReadDir(dir)
 	if err != nil || len(files) != 0 {

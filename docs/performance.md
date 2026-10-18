@@ -177,11 +177,11 @@ preparing the next. Only digest and chunk metadata survive between sessions,
 preserving shared-blob deduplication without retaining their bodies. Fixed-size
 chunks also share the immutable input snapshot, matching the existing custom-cut
 path, instead of copying the entire snapshot into a second set of chunk buffers.
-These two changes are measured together. Every current-session artifact is still
-read in full; a tail view can keep that full backing array alive. Discovery and
-chunk metadata also scale with corpus size. File-backed artifact streaming is
-separate work, so this is a bound on session batch retention, not a fixed memory
-ceiling for an arbitrarily large session.
+These two changes were measured together. At this stage, every current-session
+artifact was still read in full; a tail view could keep that full backing array
+alive. Discovery and chunk metadata also scale with corpus size. This bounded
+session batch retention; the file-backed implementation below addresses the
+remaining artifact and scan buffers.
 
 The comparison uses upload production code before `c9e2404` as its control
 (Parquet changes already present), and production code at `c9e2404` as the new
@@ -245,3 +245,111 @@ category in the short agent capture. These support tackling file-backed
 snapshots, bounded scanning and repeated hashing next; removing a safety check
 would not be an acceptable substitute for preserving those checks while
 streaming.
+
+## File-backed agent artifacts and secret scanning
+
+The agent now copies each admitted session's artifacts into private snapshots
+while checking their complete sizes and SHA-256 digests against discovery.
+A changed source skips the session for this pass. Scanning, chunk hashing,
+HTTP retries, redirects and refused-tail fallback all read ranges of these
+verified snapshots; they never reopen the original source path. Full-file
+fallback reuses the verified full digest. Capture permissions, quarantine
+overrides, redaction rules and the wire protocol are unchanged.
+
+Snapshot copying and range hashing use pooled 64 KiB buffers. The scanner
+streams its offset-preserving JSON escape view into another private file,
+using 64 KiB input/output buffers and 4 KiB escape padding. Literal lookup uses
+a 64 KiB block plus fixed lookahead, anchored regular expressions use a 4 KiB
+RuneReader, and append backtracking uses a 64 KiB backward cache. Match state
+depends on the fixed ruleset, with a small pending frontier for overlap
+selection. A single line, key, PEM block or backslash run can exceed these
+buffers without being materialized whole. The existing slice scanner remains
+the differential reference. This is a bound on artifact-body buffers, not on
+all process memory: discovery, manifests, chunk/digest metadata, runtime caches
+and the number of open snapshot descriptors still scale with their counts.
+Current-session artifacts each hold one descriptor until that session finishes.
+
+The cost is temporary disk I/O. Storage during a session is bounded by its raw
+artifact sizes plus the current artifact's scan view (at most its full size);
+an append normally stages only its overlapping suffix as the view, but still
+snapshots and verifies the complete source. Files use mode 0600 inside a 0700
+session directory under the lake-specific agent state. Normal completion,
+quarantine, errors and cancellation close descriptors and remove the directory.
+On Unix, open snapshots and views are unlinked immediately, so process death
+also releases their bytes; an empty session directory can remain. On Windows,
+private named files can remain after a crash. Kernel page cache and memory
+charged to a cgroup are separate from the agent RSS reported here; lower RSS
+does not mean these temporary writes have no memory or storage cost.
+
+Production baseline `680e507` (already batched) and snapshot implementation
+`dca1048` use the same runner and Go/runtime settings as above. Three fresh
+processes per build per workload ran in alternating control/new order, reversing
+the second pair. Each workload included one unchanged pass and two 64 KiB
+appends per session. The figures below are medians; parenthesized RSS and CPU
+values are the full ranges across the three runs.
+
+| Measurement | Three 32 MiB sessions: batched | Three 32 MiB sessions: snapshots | One 128 MiB session: batched | One 128 MiB session: snapshots |
+| --- | --- | --- | --- | --- |
+| Agent peak RSS, MiB | 157.3 (153.4–186.4) | 26.6 (24.9–30.7) | 549.3 (548.6–550.2) | 32.3 (25.6–33.0) |
+| Sampled peak heap, MiB | 133.4 | 3.4 | 527.4 | 3.5 |
+| Stage allocation total, MiB | 397.4 | 14.8 | 532.5 | 21.0 |
+| Agent process CPU, s | 1.92 (1.70–3.08) | 2.19 (1.98–2.23) | 2.55 (2.54–2.75) | 2.70 (2.63–2.77) |
+| Stage wall total, s | 8.82 | 8.92 | 18.07 | 17.84 |
+
+These synthetic agent-only RSS reductions are about 83% and 94% relative to
+the already-batched control. Stage allocation fell about 96% in both cases.
+They are not projected reductions for the deployed agent or combined lake.
+CPU did not improve: median agent CPU rose about 14% and 6%, respectively,
+with overlapping ranges. Small appends still copy and hash the complete
+artifact. Removing that repeated work needs a separate design that preserves
+verification. Lake normalization and search remain separate work.
+
+One three-session control run took 100.59 seconds (other controls 8.65–8.82),
+including long append waits, and allocated 492.5 MiB (others 397.2–397.4).
+It remains in the ranges and medians. Stage wall includes lake normalization
+waits; allocation/CPU include the agent's sampler while waiting, so varying
+machine load can inflate these totals. New-build wall totals ranged
+8.73–9.41 seconds for three sessions and 17.79–18.40 for the single large
+session. No general CPU or latency improvement is established.
+
+Input sizes, runtime settings and all stage transfer counters matched across
+builds and repetitions. Initially the three-session workload uploaded six
+blobs and three manifests. The 128 MiB workload uploaded five blobs (including
+chunks) and one manifest. Unchanged passes uploaded/posted nothing; each append
+uploaded/posted once per session. There were no refusals, quarantine hits,
+skips or no-bay outcomes. Derived lake output stayed about 70.94 and 94.09 MiB,
+respectively, with small generated-ID variation.
+
+Separate before/after agent profiles at three 32 MiB sessions were captured
+and parsed with `go tool pprof`. The control attributed about 289 MiB to
+`readArtifacts` and 97 MiB to the JSON view during scanning. The new scanner
+attributed about 2.6 MiB to `ScanReaderAt`; whole-artifact reads and scan-view
+clones no longer dominate. Allocation profiles also include about 81 MiB of
+fixture generation in both builds; their totals are not stage allocation.
+Short CPU captures still show SHA-256 work, with increased syscall work in
+the new implementation, consistent with the temporary-file tradeoff.
+
+`BenchmarkReaderScanLongSpans` generates a single long key or backslash run
+through `ReaderAt`, without allocating the complete input. Three one-iteration
+runs per case allocated 276–282 KiB per scan for both 1 MiB and 64 MiB inputs,
+and each found the expected single hit. This separately exercises unbounded
+match/escape lengths, beyond the normal-record workload above:
+
+```bash
+TMPDIR="$perf_task_dir" go test -trimpath=false ./internal/redact -run '^$' \
+  -bench '^BenchmarkReaderScanLongSpans$' -benchtime=1x -count=3
+```
+
+Differential tests cover all rules and transcript wrappers, append/block
+boundaries, long spans, published examples, invalid UTF-8 and overlapping hits.
+Two short differential fuzz runs completed 141,570 and 113,398 executions
+without mismatches. Read-error and cancellation tests fail closed, including
+errors that the regular-expression reader would otherwise interpret as EOF.
+Upload tests cover source replacement after scanning, same-size rewrites,
+whole/chunk/range uploads, retries, redirects, full-file fallback, partial
+snapshot failure and cleanup on success, quarantine, no-bay, cancellation and
+network failure. Linux cleanup assertions also check for leaked snapshot file
+descriptors. Full repository tests, targeted upload/redaction/accept/tool race
+tests, vet, formatting and application/tool builds passed. These changes have
+not been deployed; live services, configuration and capture permissions were
+left unchanged.
