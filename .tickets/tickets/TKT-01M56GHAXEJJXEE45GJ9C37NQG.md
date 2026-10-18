@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-18T03:22:56Z
-updated_at: 2026-10-18T03:47:23Z
+updated_at: 2026-10-18T04:05:38Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -71,3 +71,9 @@ Acceptance criteria 1 and 2 are satisfied by synthetic measurements/profiles and
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:47:23Z
 
 Completed additional matching profile captures before finalizing the milestone: pre-batching agent control (batch-agent-control-profile32) and updated 128 MiB projection (batch-projection-profile128) both completed, and CPU/alloc_space profiles parsed successfully. Together with batch-agent-profile32 and baseline-profile128, this leaves before/after attribution artifacts for both workloads. Profiles are separate from the unprofiled timing/memory comparisons. Final tool-only race test passes after the RUSAGE_SELF addition. git ticket check has zero errors, the pre-existing long-title warning, and the expected warning that this in-progress epic is intentionally unclaimed between implementation milestones. No acceptance criteria remain claimed by a stale session.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:05:38Z
+
+Completed TKT-01M56HA9EQBBA9KF4Q9B8PSQ1R (Agent: stream verified artifacts from file-backed snapshots), bringing the promoted epic to four of nine children done. Production implementation dca1048 replaces whole artifact/scan-view allocations with private immutable snapshots and bounded ReaderAt scanning; validation/report commit 024ddc8 adds generated 64 MiB single-match/escape benchmarks and complete before/after results. Against the already-batched 680e507 control, three fresh alternating agent-only runs per workload reduced median RSS 157.3→26.6 MiB for three 32 MiB sessions and 549.3→32.3 MiB for one 128 MiB session; stage allocation fell about 96%. Counters, retry/fallback/rewrite safety, full tests, targeted race checks, vet, builds and differential fuzzing pass. CPU did not improve and median cost rose about 14% / 6%; temporary I/O and full-file hashing/copying on appends remain explicit tradeoffs. Live services/config/capture permissions remain unchanged.
+
+The epic stays in-progress with criteria 3/4 open. Five children remain: opt-in diagnostics, streaming lake normalization, normalize coalescing/budgets, incremental projection/search, and final combined validation. Harness-specific export/discovery memory is outside the shared artifact-body bound. The remaining large memory/CPU opportunity is lake whole-session processing and repeated work on small appends. docs/performance.md is the durable measurement/contract record; the child ticket holds rationale and scratch provenance. No deployment was performed.
