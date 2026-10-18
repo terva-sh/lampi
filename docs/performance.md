@@ -613,3 +613,25 @@ allocation 14.6/22.5 MiB, process CPU 1.91/2.54 s, and stage wall 8.87/19.03 s.
 These confirm the earlier file-backed reduction; they are not an additional
 controlled speed comparison. The agent process excludes lake CPU/heap/RSS but
 its stage wall waits for normalization, so it can vary with lake/machine load.
+
+Six additional retained-data runs (three 32 MiB sessions, three fresh processes
+at default and GOMEMLIMIT=256MiB) measured Linux file residency with `fincore`
+after exit, deduplicating inode identities. About 167.45 MiB of private source,
+CAS, derived and agent-state pages remained resident under either setting
+(42 files per run; sizes are page-rounded). All three sessions in every catalog
+had published gen/head matching current gen/head, no normalization error, and
+zero durable pending jobs. These are cached file pages, separate from the
+process RSS peak; the processes had already exited. They are not a measured
+cgroup peak or exclusive ownership of shared pages. Deleted temporary stages
+are absent from this sample, and no global cache was dropped. A runtime soft
+heap target does not cap these cached file pages. Post-exit cache residency
+and the full per-run runtime/allocation/CPU/wait/transfer observations are in
+[performance-results.json](performance-results.json).
+
+Aggregate stage allocation rates in the combined comparison were roughly
+554→578 MiB/s for three sessions and 275→314 MiB/s for one large session
+(total allocation / summed measured wall). They describe allocation churn,
+not a retained-memory budget. The isolated process scopes, unprofiled medians,
+profile overhead, largest-record limit, uncontrolled host load/cache, synthetic
+harness/record mix and absence of production deployment all constrain what can
+be inferred from these results.

@@ -9078,7 +9078,9 @@
       "file_cache": {
         "files": 42,
         "size_bytes": 175484423,
-        "resident_bytes": 175583232
+        "resident_bytes": 175583232,
+        "ready_sessions": 3,
+        "pending_jobs": 0
       }
     },
     {
@@ -9380,7 +9382,9 @@
       "file_cache": {
         "files": 42,
         "size_bytes": 175484584,
-        "resident_bytes": 175583232
+        "resident_bytes": 175583232,
+        "ready_sessions": 3,
+        "pending_jobs": 0
       }
     },
     {
@@ -9682,7 +9686,9 @@
       "file_cache": {
         "files": 42,
         "size_bytes": 175473758,
-        "resident_bytes": 175570944
+        "resident_bytes": 175570944,
+        "ready_sessions": 3,
+        "pending_jobs": 0
       }
     },
     {
@@ -9984,7 +9990,9 @@
       "file_cache": {
         "files": 42,
         "size_bytes": 175482326,
-        "resident_bytes": 175579136
+        "resident_bytes": 175579136,
+        "ready_sessions": 3,
+        "pending_jobs": 0
       }
     },
     {
@@ -10286,7 +10294,9 @@
       "file_cache": {
         "files": 42,
         "size_bytes": 175484526,
-        "resident_bytes": 175583232
+        "resident_bytes": 175583232,
+        "ready_sessions": 3,
+        "pending_jobs": 0
       }
     },
     {
@@ -10588,7 +10598,9 @@
       "file_cache": {
         "files": 42,
         "size_bytes": 175484820,
-        "resident_bytes": 175583232
+        "resident_bytes": 175583232,
+        "ready_sessions": 3,
+        "pending_jobs": 0
       }
     },
     {
