@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/api"
+	"terva.sh/lampi/internal/recall"
 )
 
 // The private stdio channel waits for normalization between stages without
@@ -52,11 +53,29 @@ func serveLake(data string, input io.Reader, output io.Writer, options api.Norma
 	}
 }
 
-func startLake(data string, separate bool, options api.NormalizeOptions, observation *api.NormalizeWorkSnapshot) (url string, wait func() error, closeLake func() error, err error) {
+func startLake(data string, separate bool, options api.NormalizeOptions, observation *api.NormalizeWorkSnapshot, indexTarget *func() error) (url string, wait func() error, closeLake func() error, err error) {
 	if !separate {
 		lake, err := api.OpenWithOptions(filepath.Join(data, "lake"), options)
 		if err != nil {
 			return "", nil, nil, err
+		}
+		var index *recall.Index
+		if indexTarget != nil {
+			index, err = recall.OpenIndex(filepath.Join(data, "lake", recall.IndexFile), recall.NewReader(lake.Catalog, lake.Normalized))
+			if err != nil {
+				lake.Close()
+				return "", nil, nil, err
+			}
+			*indexTarget = func() error {
+				if err := index.Pass(context.Background()); err != nil {
+					return err
+				}
+				cov := index.Coverage()
+				if cov.Behind != 0 || cov.Failed != 0 || cov.Ready != cov.Indexed {
+					return fmt.Errorf("incomplete search: %+v", cov)
+				}
+				return nil
+			}
 		}
 		srv := httptest.NewServer(lake.Handler())
 		return srv.URL, func() error {

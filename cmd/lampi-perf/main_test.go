@@ -122,3 +122,20 @@ func TestParseInvalidAdmission(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamingComponentsAndSearch(t *testing.T) {
+	for _, workload := range []string{"stream", "sync"} {
+		t.Run(workload, func(t *testing.T) {
+			r, err := work(options{out: t.TempDir(), workload: workload, sizeMiB: 1, sessions: 1, appends: 1, appendKiB: 8, search: workload == "sync"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if workload == "stream" && (len(r.Stages) != 3 || r.Stages[0].Events == 0 || r.OutputBytes["parquet"] == 0) {
+				t.Fatalf("incomplete components: %+v", r)
+			}
+			if workload == "sync" && (len(r.Stages) != 4 || !strings.HasSuffix(r.Stages[3].Name, "/search")) {
+				t.Fatalf("missing append search: %+v", r.Stages)
+			}
+		})
+	}
+}

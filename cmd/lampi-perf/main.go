@@ -22,30 +22,34 @@ import (
 
 	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/diagnostics"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/upload"
 )
 
 type options struct {
-	out, workload                               string
-	sizeMiB, sessions, appends, appendKiB       int
-	unchanged                                   int
-	profiles, keepData, worker                  bool
-	lakeWorker                                  bool
-	normalizeWorkers, normalizeBudgetMiB, burst int
+	out, workload                                   string
+	sizeMiB, sessions, appends, appendKiB           int
+	unchanged                                       int
+	search, diagnostics, profiles, keepData, worker bool
+	lakeWorker                                      bool
+	normalizeWorkers, normalizeBudgetMiB, burst     int
 }
 
 type stage struct {
-	Name        string                     `json:"name"`
-	Seconds     float64                    `json:"seconds"`
-	Allocated   uint64                     `json:"allocated_bytes"`
-	GC          uint32                     `json:"gc_cycles"`
-	HeapAfter   uint64                     `json:"heap_after_bytes"`
-	SampledHeap uint64                     `json:"sampled_peak_heap_bytes"`
-	SampledRSS  uint64                     `json:"sampled_peak_rss_bytes,omitempty"`
-	Events      int                        `json:"events,omitempty"`
-	Lake        *api.NormalizeWorkSnapshot `json:"lake_normalize,omitempty"`
-	Sync        *upload.Result             `json:"sync,omitempty"`
+	Name           string                     `json:"name"`
+	Seconds        float64                    `json:"seconds"`
+	Allocated      uint64                     `json:"allocated_bytes"`
+	CPUSeconds     float64                    `json:"cpu_seconds"`
+	GCPauseSeconds float64                    `json:"gc_pause_seconds"`
+	IO             map[string]uint64          `json:"io,omitempty"`
+	GC             uint32                     `json:"gc_cycles"`
+	HeapAfter      uint64                     `json:"heap_after_bytes"`
+	SampledHeap    uint64                     `json:"sampled_peak_heap_bytes"`
+	SampledRSS     uint64                     `json:"sampled_peak_rss_bytes,omitempty"`
+	Events         int                        `json:"events,omitempty"`
+	Lake           *api.NormalizeWorkSnapshot `json:"lake_normalize,omitempty"`
+	Sync           *upload.Result             `json:"sync,omitempty"`
 }
 
 type result struct {
@@ -87,6 +91,8 @@ func parse(args []string) (options, error) {
 	f.IntVar(&o.appends, "append-passes", 2, "sync passes appending to every transcript")
 	f.IntVar(&o.appendKiB, "append-kib", 64, "approximate KiB appended per session per pass")
 	f.IntVar(&o.unchanged, "unchanged-passes", 1, "sync passes with unchanged transcripts")
+	f.BoolVar(&o.search, "search", false, "measure real search indexing after each drained sync (combined only)")
+	f.BoolVar(&o.diagnostics, "diagnostics", false, "exercise production file-only diagnostic capture in the synthetic worker")
 	f.BoolVar(&o.profiles, "profiles", false, "capture CPU and final heap/allocation profiles")
 	f.BoolVar(&o.keepData, "keep-data", false, "keep synthetic input and derived data")
 	f.BoolVar(&o.worker, "worker", false, "internal subprocess mode")
@@ -103,7 +109,13 @@ func parse(args []string) (options, error) {
 	if f.NArg() != 0 || o.out == "" || o.sizeMiB < 1 || o.sizeMiB > 4096 || o.sessions < 1 || o.appends < 0 || o.appendKiB < 1 || o.unchanged < 0 {
 		return o, fmt.Errorf("require --out, 1..4096 --size-mib, positive sessions/append-kib and nonnegative pass counts")
 	}
-	if o.workload != "projection" && o.workload != "sync" && o.workload != "agent" {
+	if o.search && o.workload != "sync" {
+		return o, fmt.Errorf("--search requires --workload sync")
+	}
+	if o.diagnostics && o.profiles {
+		return o, fmt.Errorf("choose --diagnostics or --profiles")
+	}
+	if o.workload != "stream" && o.workload != "projection" && o.workload != "sync" && o.workload != "agent" {
 		return o, fmt.Errorf("unknown workload %q", o.workload)
 	}
 	var err error
@@ -193,6 +205,13 @@ func work(o options) (result, error) {
 	}
 	r.SetupSeconds = time.Since(start).Seconds()
 	runtime.GC()
+	if o.diagnostics {
+		capture, e := diagnostics.Start(diagnostics.Options{Dir: filepath.Join(o.out, "diagnostics"), Duration: diagnostics.MaxDuration})
+		if e != nil {
+			return r, e
+		}
+		defer capture.Close()
+	}
 	if o.profiles {
 		runtime.MemProfileRate = 64 << 10
 		f, err := os.OpenFile(filepath.Join(o.out, "cpu.pprof"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -212,7 +231,11 @@ func work(o options) (result, error) {
 		}
 		err = syncWork(o, data, home, paths, &r)
 	} else {
-		err = projectionWork(data, paths, &r)
+		if o.workload == "stream" {
+			err = streamWork(data, paths, &r)
+		} else {
+			err = projectionWork(data, paths, &r)
+		}
 	}
 	if err != nil {
 		return r, err
@@ -277,7 +300,13 @@ func projectionWork(data string, paths []string, r *result) error {
 
 func syncWork(o options, data, home string, paths []string, r *result) (err error) {
 	var observation api.NormalizeWorkSnapshot
-	url, wait, closeLake, err := startLake(data, o.workload == "agent", api.NormalizeOptions{Workers: o.normalizeWorkers, InputBudgetBytes: int64(o.normalizeBudgetMiB) << 20}, &observation)
+	var indexPass func() error
+	var indexTarget *func() error
+	if o.search {
+		indexTarget = &indexPass
+		r.Scope = "combined agent and lake including separately timed search"
+	}
+	url, wait, closeLake, err := startLake(data, o.workload == "agent", api.NormalizeOptions{Workers: o.normalizeWorkers, InputBudgetBytes: int64(o.normalizeBudgetMiB) << 20}, &observation, indexTarget)
 	if err != nil {
 		return err
 	}
@@ -302,6 +331,11 @@ func syncWork(o options, data, home string, paths []string, r *result) (err erro
 			s.Lake = &snap
 		}
 		r.Stages = append(r.Stages, s)
+		if err == nil && drain && indexPass != nil {
+			var indexed stage
+			indexed, err = measure(name+"/search", indexPass)
+			r.Stages = append(r.Stages, indexed)
+		}
 		return err
 	}
 	if err := sync("initial-sync", true); err != nil {
@@ -333,10 +367,15 @@ func syncWork(o options, data, home string, paths []string, r *result) (err erro
 		}
 	}
 	if o.burst > 0 {
-		stage, err := measure("burst-drain", wait)
+		drained, err := measure("burst-drain", wait)
 		snap := observation
-		stage.Lake = &snap
-		r.Stages = append(r.Stages, stage)
+		drained.Lake = &snap
+		r.Stages = append(r.Stages, drained)
+		if err == nil && indexPass != nil {
+			var indexed stage
+			indexed, err = measure("burst-drain/search", indexPass)
+			r.Stages = append(r.Stages, indexed)
+		}
 		if err != nil {
 			return err
 		}
@@ -395,6 +434,8 @@ func writeTranscript(path, uid string, size int64, seed uint64, appendFile bool)
 func measure(name string, fn func() error) (stage, error) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
+	userBefore, systemBefore, _ := selfCPU()
+	ioBefore := processIO()
 	stop, done := make(chan struct{}), make(chan [2]uint64)
 	go func() {
 		var peaks [2]uint64
@@ -425,7 +466,12 @@ func measure(name string, fn func() error) (stage, error) {
 	close(stop)
 	peaks := <-done
 	runtime.ReadMemStats(&after)
-	return stage{Name: name, Seconds: elapsed, Allocated: after.TotalAlloc - before.TotalAlloc, GC: after.NumGC - before.NumGC, HeapAfter: after.HeapAlloc, SampledHeap: max(peaks[0], before.HeapAlloc, after.HeapAlloc), SampledRSS: peaks[1]}, err
+	userAfter, systemAfter, _ := selfCPU()
+	ioAfter := processIO()
+	for k, v := range ioAfter {
+		ioAfter[k] = v - ioBefore[k]
+	}
+	return stage{Name: name, Seconds: elapsed, CPUSeconds: userAfter + systemAfter - userBefore - systemBefore, GCPauseSeconds: float64(after.PauseTotalNs-before.PauseTotalNs) / 1e9, IO: ioAfter, Allocated: after.TotalAlloc - before.TotalAlloc, GC: after.NumGC - before.NumGC, HeapAfter: after.HeapAlloc, SampledHeap: max(peaks[0], before.HeapAlloc, after.HeapAlloc), SampledRSS: peaks[1]}, err
 }
 
 // Linux offers a true lifetime RSS high-water mark. Other systems still

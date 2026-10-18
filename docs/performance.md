@@ -394,3 +394,21 @@ To test the production capture implementation without live credentials, run
 `lampi-perf --workload sync --size-mib 1 --out NEW_DIR --diagnostics`.
 The synthetic worker writes a `diagnostics/` directory and stops capture when
 its workload ends. Choose either `--diagnostics` or `--profiles` per run.
+
+The runner also accepts `--burst-passes N` to append and sync without waiting
+between generations, followed by a final drain. `--normalize-workers N` and
+`--normalize-input-budget-mib N` select admission settings for the isolated
+lake. Per-drain results include job outcomes, coalescing and queue wait totals
+and maxima. The workload fails if normalization cannot drain.
+`--workload sync --search` separately times real search reconciliation after
+each drained sync and rejects incomplete index coverage. Per-stage CPU and
+Linux `/proc/self/io` differences distinguish logical read/write characters
+from storage I/O; warm page cache can make `read_bytes` zero even when the
+application reads every byte.
+
+`--workload stream` performs independent parse-only, parse plus indexed-event
+encoding, and full parse/stage/Parquet/publication passes. They repeat parsing
+and overlap in work: their times must not be summed, or subtracted as an exact
+concurrent pipeline decomposition. The older `projection` mode retains the
+slice API for compatibility/control measurements; use `sync` for the actual
+streaming worker. Profile runs are separate from unprofiled comparisons.
