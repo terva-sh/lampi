@@ -2,6 +2,8 @@ package api
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -116,11 +118,15 @@ func TestQueueBudgetOversizeAndBoundedBypass(t *testing.T) {
 
 func TestNormalizeOptionsRefuseInvalidBeforeOpening(t *testing.T) {
 	for _, o := range []NormalizeOptions{{Workers: -1}, {Workers: 65}, {InputBudgetBytes: -1}} {
-		if s, err := OpenWithOptions("", o); err == nil {
+		dir := filepath.Join(t.TempDir(), "must-not-open")
+		if s, err := OpenWithOptions(dir, o); err == nil {
 			if s != nil {
 				s.Close()
 			}
 			t.Fatal("invalid normalize options accepted")
+		}
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatal("invalid options touched lake state", err)
 		}
 	}
 }

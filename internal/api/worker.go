@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sync"
-	"terva.sh/lampi/internal/normalize"
 	"time"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/normalize"
 )
 
 // normalizeWorkers is the in-process pool. Projection reads the CAS
