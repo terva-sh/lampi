@@ -38,6 +38,7 @@ first run. The pages below are grouped by what you are trying to do.
 | Page | What it covers |
 |------|----------------|
 | [Developing lampi](development.md) | Build, tests, dev recipes on a machine that runs lampi, and git-ticket |
+| [Memory and CPU investigation](memory-investigation.md) | Live measurements, synthetic allocation profiles, and proposed reductions for large growing transcripts |
 | [Pull requests and reviews](pr-reviews.md) | Forgejo and GitHub, `terva-review`, and keeping `main` equal |
 | [Dashboard and retrieval plan](web-ui-plan.md) | The design record for the web releases |
 | [e2e/README.md](../e2e/README.md) | The synthetic container, the browser smoke, and the go-live drills |
