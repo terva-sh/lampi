@@ -3,12 +3,12 @@ package normalize
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // OutputError distinguishes retryable staging/storage failures from invalid
@@ -39,8 +39,9 @@ func Stage(ctx context.Context, parent, uid string, produce func(EventSink) erro
 		return nil, OutputError{err}
 	}
 	stage = &Staged{root: root, uid: uid}
+	complete := false
 	defer func() {
-		if err != nil {
+		if !complete {
 			err = errors.Join(err, stage.Close())
 			stage = nil
 		}
@@ -102,7 +103,7 @@ func Stage(ctx context.Context, parent, uid string, produce func(EventSink) erro
 			if e != nil {
 				return e
 			}
-			if e := lineEncoder(buffered).Encode(row); e != nil {
+			if e := writeSpoolRow(buffered, row); e != nil {
 				return OutputError{e}
 			}
 			if e := events(ev); e != nil {
@@ -139,14 +140,17 @@ func Stage(ctx context.Context, parent, uid string, produce func(EventSink) erro
 				return e
 			}
 			defer output.Close()
-			dec := json.NewDecoder(bufio.NewReaderSize(contextInput{ctx, input}, 64<<10))
+			stat, e := input.Stat()
+			if e != nil {
+				return e
+			}
+			dec := bufio.NewReaderSize(contextInput{ctx, input}, 64<<10)
 			e = writeParquetStream(output, func(sink func(ParquetRow) error) error {
 				for {
 					if e := ctx.Err(); e != nil {
 						return e
 					}
-					var row ParquetRow
-					e := dec.Decode(&row)
+					row, e := readSpoolRow(dec, stat.Size())
 					if e == io.EOF {
 						return nil
 					}
@@ -169,6 +173,7 @@ func Stage(ctx context.Context, parent, uid string, produce func(EventSink) erro
 			return stage, OutputError{err}
 		}
 	}
+	complete = true
 	return stage, nil
 }
 
@@ -212,6 +217,26 @@ func (s *Staged) Publish(normalized, parquetRoot string) (err error) {
 	}
 	if err := os.Remove(filepath.Join(normalized, s.uid+LegacyEventsExt)); err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	return nil
+}
+
+// CleanStaging removes abandoned private projections. The caller must hold the
+// exclusive lake lock and call this before starting any normalization workers.
+func CleanStaging(parent string) error {
+	entries, err := os.ReadDir(parent)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".projection-") {
+			if err := os.RemoveAll(filepath.Join(parent, entry.Name())); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

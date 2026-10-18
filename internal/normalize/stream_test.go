@@ -195,3 +195,36 @@ func TestStageFailureLeavesPriorPublication(t *testing.T) {
 		t.Fatal("partial parquet remains")
 	}
 }
+
+func TestStagePanicCleanupAndAbandonedRecovery(t *testing.T) {
+	root := t.TempDir()
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("expected producer panic")
+			}
+		}()
+		_, _ = Stage(t.Context(), root, "panic", func(EventSink) error { panic("producer") })
+	}()
+	entries, _ := os.ReadDir(root)
+	if len(entries) != 0 {
+		t.Fatal("panic leaked private stage")
+	}
+	abandoned := filepath.Join(root, ".projection-abandoned")
+	if err := os.Mkdir(abandoned, 0700); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(root, "normalized")
+	if err := os.Mkdir(keep, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanStaging(root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
+		t.Fatal("abandoned stage retained", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatal("removed unrelated data", err)
+	}
+}

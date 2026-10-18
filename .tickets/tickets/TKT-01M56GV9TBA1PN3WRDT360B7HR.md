@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-18T03:28:22Z
-updated_at: 2026-10-18T04:12:18Z
+updated_at: 2026-10-18T04:21:40Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -52,3 +52,9 @@ Introduce reader-to-event-sink projection for JSONL harnesses, starting with Cla
 ## Implementation plan
 
 Read the existing Claude/Codex/terva per-line parsers, indexed zstd events, bounded Parquet writer and generation publication path. Add reader-to-sink methods reusing exact parser state and line/offset/error semantics; retain the slice entry points as compatibility references. Memory is proportional to the largest input record/event plus bounded output buffers and partition/frame metadata, not transcript length. Stage compressed events, spool partition rows to private disk, and serialize one bounded Parquet partition at a time. Open logical CAS readers rather than materializing entire blobs. Finish all staged outputs before checking generation and publishing, clean cancelled/superseded output, and preserve existing error/removal behavior. Other harnesses keep the compatibility path. Validate semantic fixture parity, malformed/cancelled/read failures, sidecars and supersession, then compare 128 MiB and overlapping sync workloads against the committed pre-streaming build without touching live state. Do not change catalog schema or normalizer semantics versions.
+
+## Notes
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:21:40Z
+
+The initial JSON row spool reduced RSS but increased CPU/allocation; replaced it with a private length-prefixed string spool to avoid escaping and reparsing EventJSON. The stage retains one event/row plus bounded frame/Parquet buffers, with metadata proportional to partitions/frames and input memory proportional to the largest record. Added producer-panic cleanup and abandoned-stage recovery before worker startup under the exclusive CLI lake lock. Refined combined agent/lake control comparisons are running; prototype figures are not final performance claims.
