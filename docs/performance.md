@@ -19,6 +19,8 @@ go build -buildvcs=false -o "$perf_task_dir/lampi-perf" ./cmd/lampi-perf
 
 "$perf_task_dir/lampi-perf" --out "$perf_task_dir/projection32" --size-mib 32
 "$perf_task_dir/lampi-perf" --out "$perf_task_dir/projection128" --size-mib 128
+"$perf_task_dir/lampi-perf" --out "$perf_task_dir/agent" --workload agent \
+  --size-mib 32 --sessions 3
 "$perf_task_dir/lampi-perf" --out "$perf_task_dir/sync" --workload sync \
   --size-mib 32 --sessions 3 --unchanged-passes 2 \
   --append-passes 3 --append-kib 64
@@ -43,6 +45,17 @@ passes, each waiting for normalization to finish. Sync measurements cover the
 **combined agent and lake in one process**, including the lake's two normalize
 workers. They exclude search indexing and are not agent-only memory figures.
 Projection sessions run sequentially; use sync to exercise overlapping workers.
+
+The `agent` workload runs the same sync sequence against a real synthetic lake
+in a **separate subprocess**. RSS, heap, stage allocation and profiles describe
+only the agent worker. The lake and its normalization workers are excluded.
+Stage wall time still includes waiting for normalization after each sync, and
+`output_bytes.lake` still reports the lake's disk output. Linux/macOS agent CPU
+uses `RUSAGE_SELF` inside the worker, excluding the lake subprocess: some exit
+status APIs include waited-for descendants. Agent CPU is reported unavailable
+on other systems; inspect `process_cpu_scope`. The child is controlled through
+private stdio and listens only on ephemeral loopback, with a 15-minute lifetime
+limit. It opens only this run's newly created synthetic lake directory.
 
 ## Interpret the report
 

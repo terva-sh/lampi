@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"terva.sh/lampi/internal/api"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/upload"
@@ -32,6 +30,7 @@ type options struct {
 	sizeMiB, sessions, appends, appendKiB int
 	unchanged                             int
 	profiles, keepData, worker            bool
+	lakeWorker                            bool
 }
 
 type stage struct {
@@ -62,6 +61,7 @@ type result struct {
 	ProcessSeconds   float64           `json:"process_seconds"`
 	ProcessUserCPU   float64           `json:"process_user_cpu_seconds"`
 	ProcessSystemCPU float64           `json:"process_system_cpu_seconds"`
+	ProcessCPUScope  string            `json:"process_cpu_scope"`
 	PeakRSS          uint64            `json:"process_peak_rss_bytes,omitempty"`
 	Profiles         bool              `json:"profiles"`
 	Stages           []stage           `json:"stages"`
@@ -78,7 +78,7 @@ func parse(args []string) (options, error) {
 	var o options
 	f := flag.NewFlagSet("lampi-perf", flag.ContinueOnError)
 	f.StringVar(&o.out, "out", "", "required NEW private output directory")
-	f.StringVar(&o.workload, "workload", "projection", "projection or sync (combined agent/lake)")
+	f.StringVar(&o.workload, "workload", "projection", "projection, sync (combined agent/lake), or agent (separate lake process)")
 	f.IntVar(&o.sizeMiB, "size-mib", 32, "approximate MiB per synthetic transcript")
 	f.IntVar(&o.sessions, "sessions", 1, "number of synthetic sessions")
 	f.IntVar(&o.appends, "append-passes", 2, "sync passes appending to every transcript")
@@ -87,13 +87,14 @@ func parse(args []string) (options, error) {
 	f.BoolVar(&o.profiles, "profiles", false, "capture CPU and final heap/allocation profiles")
 	f.BoolVar(&o.keepData, "keep-data", false, "keep synthetic input and derived data")
 	f.BoolVar(&o.worker, "worker", false, "internal subprocess mode")
+	f.BoolVar(&o.lakeWorker, "lake-worker", false, "internal isolated lake mode")
 	if err := f.Parse(args); err != nil {
 		return o, err
 	}
 	if f.NArg() != 0 || o.out == "" || o.sizeMiB < 1 || o.sizeMiB > 4096 || o.sessions < 1 || o.appends < 0 || o.appendKiB < 1 || o.unchanged < 0 {
 		return o, fmt.Errorf("require --out, 1..4096 --size-mib, positive sessions/append-kib and nonnegative pass counts")
 	}
-	if o.workload != "projection" && o.workload != "sync" {
+	if o.workload != "projection" && o.workload != "sync" && o.workload != "agent" {
 		return o, fmt.Errorf("unknown workload %q", o.workload)
 	}
 	var err error
@@ -105,6 +106,9 @@ func run(args []string, stdout io.Writer) error {
 	o, err := parse(args)
 	if err != nil {
 		return err
+	}
+	if o.lakeWorker {
+		return serveLake(o.out, os.Stdin, stdout)
 	}
 	if o.worker {
 		r, err := work(o)
@@ -134,8 +138,11 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 	r.ProcessSeconds = time.Since(start).Seconds()
-	r.ProcessUserCPU = cmd.ProcessState.UserTime().Seconds()
-	r.ProcessSystemCPU = cmd.ProcessState.SystemTime().Seconds()
+	if o.workload != "agent" {
+		r.ProcessUserCPU = cmd.ProcessState.UserTime().Seconds()
+		r.ProcessSystemCPU = cmd.ProcessState.SystemTime().Seconds()
+		r.ProcessCPUScope = "worker exit status"
+	}
 	b, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
@@ -189,8 +196,11 @@ func work(o options) (result, error) {
 		}
 		defer func() { pprof.StopCPUProfile(); f.Close() }()
 	}
-	if o.workload == "sync" {
+	if o.workload == "sync" || o.workload == "agent" {
 		r.Scope = "combined agent and lake; includes normalization, excludes search"
+		if o.workload == "agent" {
+			r.Scope = "agent process only; separate lake excluded from memory/allocation/CPU; wall time waits for normalization; excludes search"
+		}
 		err = syncWork(o, data, home, paths, &r)
 	} else {
 		err = projectionWork(data, paths, &r)
@@ -219,6 +229,11 @@ func work(o options) (result, error) {
 		}
 	}
 	_, r.PeakRSS = resident()
+	if o.workload == "agent" {
+		// wait4 resource usage can include waited-for descendants. Capture
+		// RUSAGE_SELF inside this worker so the lake's CPU is excluded.
+		r.ProcessUserCPU, r.ProcessSystemCPU, r.ProcessCPUScope = selfCPU()
+	}
 	return r, nil
 }
 
@@ -251,21 +266,23 @@ func projectionWork(data string, paths []string, r *result) error {
 	return nil
 }
 
-func syncWork(o options, data, home string, paths []string, r *result) error {
-	lake, err := api.Open(filepath.Join(data, "lake"))
+func syncWork(o options, data, home string, paths []string, r *result) (err error) {
+	url, wait, closeLake, err := startLake(data, o.workload == "agent")
 	if err != nil {
 		return err
 	}
-	defer lake.Close()
-	srv := httptest.NewServer(lake.Handler())
-	defer srv.Close()
-	opt := upload.Options{ServerURL: srv.URL, Client: srv.Client(), MachineID: "synthetic-perf", ClaudeHome: home, StateDir: filepath.Join(data, "agent"), Memo: upload.NewMemo(), Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/synthetic/lampi"}}}}
+	defer func() {
+		if cerr := closeLake(); err == nil {
+			err = cerr
+		}
+	}()
+	opt := upload.Options{ServerURL: url, MachineID: "synthetic-perf", ClaudeHome: home, StateDir: filepath.Join(data, "agent"), Memo: upload.NewMemo(), Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/synthetic/lampi"}}}}
 	sync := func(name string) error {
 		var res upload.Result
 		s, err := measure(name, func() (err error) {
 			res, err = upload.Sync(context.Background(), opt)
 			if err == nil {
-				err = lake.WaitNormalized(context.Background())
+				err = wait()
 			}
 			return err
 		})

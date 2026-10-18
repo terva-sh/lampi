@@ -5,11 +5,21 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/parquet-go/parquet-go"
 	"terva.sh/lampi/internal/normalize"
 )
+
+func TestMain(m *testing.M) {
+	// Exercise the real separate-process lake protocol using this test binary.
+	if len(os.Args) > 1 && os.Args[1] == "--lake-worker" {
+		main()
+		return
+	}
+	os.Exit(m.Run())
+}
 
 func TestProjectionMeasuresRealOutput(t *testing.T) {
 	o := options{out: t.TempDir(), workload: "projection", sizeMiB: 1, sessions: 2, keepData: true}
@@ -38,17 +48,26 @@ func TestProjectionMeasuresRealOutput(t *testing.T) {
 }
 
 func TestSyncUsesOnlySyntheticHomesAndLake(t *testing.T) {
+	for _, workload := range []string{"sync", "agent"} {
+		t.Run(workload, func(t *testing.T) { testSyncWorkload(t, workload) })
+	}
+}
+
+func testSyncWorkload(t *testing.T, workload string) {
 	// These would break a caller that accidentally resolved live config.
 	t.Setenv("LAMPI_SERVER", "http://127.0.0.1:1")
 	t.Setenv("LAMPI_TOKEN_FILE", filepath.Join(t.TempDir(), "absent"))
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	o := options{out: t.TempDir(), workload: "sync", sizeMiB: 1, sessions: 2, unchanged: 1, appends: 2, appendKiB: 8}
+	o := options{out: t.TempDir(), workload: workload, sizeMiB: 1, sessions: 2, unchanged: 1, appends: 2, appendKiB: 8}
 	r, err := work(o)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(r.Stages) != 4 {
 		t.Fatalf("stages=%d", len(r.Stages))
+	}
+	if workload == "agent" && !strings.Contains(r.Scope, "agent process only") {
+		t.Fatalf("incorrect measurement scope: %s", r.Scope)
 	}
 	for i, s := range r.Stages {
 		if s.Sync == nil || s.Sync.Refused != 0 || s.Sync.Quarantined != 0 || len(s.Sync.Skipped) != 0 {
