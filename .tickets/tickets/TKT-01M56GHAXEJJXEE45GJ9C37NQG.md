@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M56GHAXEJJXEE45GJ9C37NQG
 title: Bound memory and repeated work for growing transcripts
 type: epic
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: children
 references: []
-claim: null
+claim:
+  actor: agent:codex/memory-e2fc465b
+  branch: t3code/explore-lampi-memory-footprint
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e2fc465b
+  commit: 1fb9941c5ae8402da27ec520e51a396a7a09e36b
+  session: null
+  claimed_at: 2026-10-18T03:28:54Z
+  expires_at: null
 archive: null
 created_at: 2026-10-18T03:22:56Z
-updated_at: 2026-10-18T03:28:24Z
+updated_at: 2026-10-18T03:28:54Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
