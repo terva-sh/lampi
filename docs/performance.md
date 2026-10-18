@@ -68,7 +68,8 @@ limit. It opens only this run's newly created synthetic lake directory.
 - Linux process peak RSS comes from the kernel's lifetime `VmHWM`. It includes
   fixture generation and setup. On systems without `/proc/self/status`, RSS
   fields are omitted; Go heap and process CPU figures remain available.
-- Process user/system CPU comes from the worker's exit status. Process wall/CPU
+- Process user/system CPU comes from the worker's exit status, except the
+  `agent` mode uses the self-only sampling described above. Process wall/CPU
   includes setup, fixture appends, teardown, sampling and optional profiling.
   Use stage wall times for pipeline comparisons and process totals for the
   complete run's cost. Page cache charged to a cgroup is not process RSS.
@@ -168,3 +169,70 @@ allocation across its initial/unchanged/two-append passes fell from 5,344.9 to
 process's peak; reducing whole input/event retention and agent batch retention
 remains necessary. The projection improvement must not be advertised as an
 equivalent improvement for the whole deployed service.
+
+## Agent session batching and shared chunk slices
+
+The agent now prepares, scans, enqueues, uploads and ACKs one session before
+preparing the next. Only digest and chunk metadata survive between sessions,
+preserving shared-blob deduplication without retaining their bodies. Fixed-size
+chunks also share the immutable input snapshot, matching the existing custom-cut
+path, instead of copying the entire snapshot into a second set of chunk buffers.
+These two changes are measured together. Every current-session artifact is still
+read in full; a tail view can keep that full backing array alive. Discovery and
+chunk metadata also scale with corpus size. File-backed artifact streaming is
+separate work, so this is a bound on session batch retention, not a fixed memory
+ceiling for an arbitrarily large session.
+
+The comparison uses upload production code before `c9e2404` as its control
+(Parquet changes already present), and production code at `c9e2404` as the new
+build. **Both** builds use the same measurement tool from `f6e52a6`, including
+separate-process agent measurement and the standard agent HTTP transport.
+This avoids attributing a tool/transport change to batching. Go/runtime settings
+match the initial baseline. Three fresh processes per build per workload ran
+in alternating control/new order (reversing order in the second pair).
+Each processed three 32 MiB transcripts, one unchanged pass and two 64 KiB
+appends per transcript. Values below are medians; ranges are process minima
+and maxima across the three runs.
+
+| Measurement | Control | Batching and shared chunks |
+| --- | --- | --- |
+| Agent-only peak RSS | 282.6 MiB (282.4–284.4) | 154.8 MiB (153.5–156.9) |
+| Agent-only sampled peak heap | 230.6 MiB | 129.5 MiB |
+| Agent-only stage allocation total | 493.6 MiB | 397.1 MiB |
+| Agent-only process CPU | 1.71 s (1.70–1.91) | 1.87 s (1.79–1.91) |
+| Combined agent/lake peak RSS | 554.0 MiB (503.5–616.0) | 432.6 MiB (427.5–442.7) |
+| Combined stage allocation total | 4,891.5 MiB (4,763.5–4,903.3) | 4,839.2 MiB (4,828.7–4,839.4) |
+| Combined process CPU | 15.62 s (15.57–15.65) | 15.20 s (15.15–15.67) |
+| Combined stage wall total | 9.38 s | 8.59 s |
+
+Agent-only peak RSS fell about 45% and measured stage allocation about 20%.
+The initial pass accounts for almost all the allocation reduction; appends
+still read complete files. The combined-process RSS reduction is about 22% in
+this workload, with materially variable control peaks. Combined allocation and
+CPU ranges overlap. Agent-only CPU did not improve. These results establish a
+memory reduction on this synthetic case, not a general CPU speedup or an
+expected reduction of the same percentage on the live workstation. Search,
+other harnesses and much larger individual sessions still need validation.
+
+Every measured pass preserved its counters: initially six uploaded blobs and
+three manifests; unchanged passes uploaded/posted nothing and counted three
+unchanged sessions; each append uploaded three blobs and three manifests.
+Derived lake storage remained about 70.94 MiB, with small generated-ID variation.
+Ordering, retry durability, shared sidecars with/without chunking and no-bay
+continuation have dedicated tests. Existing rewrite, tail-prefix fallback,
+quarantine, mixed-refusal and unreadable-file coverage runs through the same
+preparation path.
+
+A separate single-run scaling check, using the same 32 MiB per-session input
+and pass counts, recorded agent-only RSS of 152.6 → 156.3 MiB for one session
+and 525.3 → 175.3 MiB for six sessions. The similar one-session peak and
+reduced growth across sessions support the batch-lifetime result; these single
+runs do not establish a strict memory bound. Kernel RSS also includes the Go
+runtime retaining previously used pages, beyond the currently live bodies.
+
+A separate profiled agent run completed and both CPU and allocation profiles
+were read successfully with `go tool pprof`. Profiles cover only the agent
+worker in `agent` mode; its final heap snapshot is after an explicit GC and
+does not describe the peak working set. Full repository tests, vet, formatting,
+application build and upload/accept/tool race checks passed for the batching
+implementation. Live services and configuration were left unchanged.
