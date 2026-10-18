@@ -118,3 +118,40 @@ The initial runner's unit tests, `go vet` and application build passed. When a
 machine sets `GOFLAGS=-trimpath`, repository tests that use `runtime.Caller` to
 find fixture files need `go test -trimpath=false ./...`; the normal build can
 keep its configured flags. This changes only the invocation, not live settings.
+
+## Bounded Parquet output
+
+The first reduction keeps indices into the existing event slice rather than a
+second full-session collection of serialized rows. One partition writer at a
+time uses batches of at most 128 rows or 1 MiB of payload and row groups of at
+most 2,048 rows or 8 MiB of payload. A single oversized event is allowed whole.
+The input events, small partition-index arrays, compression state and Parquet
+footer metadata are outside these payload budgets; full event streaming is
+separate work. Event JSON now uses a string builder to avoid an extra copy.
+All partitions finish staging before replacement begins, so serialization
+failure leaves the previous partitions intact. Replacement remains atomic per
+file, as before, rather than a transaction over multiple partition files.
+
+Three fresh projection runs at each size, with the same fixture/runtime
+parameters as the baseline, measured the following medians:
+
+| Transcript | Baseline RSS | Bounded Parquet RSS | Baseline Parquet-stage allocation | Bounded Parquet-stage allocation |
+| --- | --- | --- | --- | --- |
+| 32 MiB | 182.6 MiB | 148.5 MiB | 162.5 MiB | 100.5 MiB |
+| 128 MiB | 690.5 MiB | 591.2 MiB | 534.3 MiB | 252.7 MiB |
+
+Total stage allocation at 128 MiB fell from 1,641.2 to 1,359.4 MiB. Median
+process CPU fell from 6.16 to 5.45 seconds, but the runs were sequential groups
+under varying machine load, so this is not a stable CPU speedup claim. Median
+32 MiB process CPU was effectively unchanged (1.41 versus 1.40 seconds).
+Parquet file sizes increased about 1.4%, from 50,650,919 to 51,347,718 bytes at
+128 MiB, as row groups no longer span the entire session. This trades a small
+compression loss for bounded serialized working buffers.
+
+The single combined three-session sync comparison did **not** establish an RSS
+improvement: peak RSS was 529.4 MiB before and 543.6 MiB after. Total measured
+allocation across its initial/unchanged/two-append passes fell from 5,344.9 to
+4,806.4 MiB. Overlapping normalization and GC scheduling still dominate that
+process's peak; reducing whole input/event retention and agent batch retention
+remains necessary. The projection improvement must not be advertised as an
+equivalent improvement for the whole deployed service.

@@ -1,8 +1,12 @@
 package normalize
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,5 +141,151 @@ func TestParquetColumnsAreZstdCompressed(t *testing.T) {
 	}
 	if rows := readParquet(t, path); len(rows) != len(events) {
 		t.Fatalf("read %d rows, want %d", len(rows), len(events))
+	}
+}
+
+func TestParquetInterleavedPartitionsPreserveCompleteEvents(t *testing.T) {
+	root, uid := t.TempDir(), "interleaved"
+	var events []Event
+	for i := 0; i < 600; i++ {
+		ev := sampleEvent([]string{"claude", "codex"}[i%2], fmt.Sprintf("2026-10-%02dT00:00:00Z", 17+i%3), fmt.Sprintf("event %d: <tag> & \"quoted\"\nnext", i))
+		ev.EventID = fmt.Sprint(i)
+		ev.Extra = extraMap{"unknown": map[string]any{"nested": []any{true, "<>&\n"}}}
+		events = append(events, ev)
+	}
+	if err := WriteParquet(root, uid, events); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := SessionParquet(root, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 6 {
+		t.Fatalf("partitions=%d", len(paths))
+	}
+	for _, path := range paths {
+		var expected []string
+		for _, ev := range events {
+			date, err := PartitionDate(ev.RecordedAt, ev.IngestedAt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mustPath(t, root, date, ev.Harness, uid) != path {
+				continue
+			}
+			var buf bytes.Buffer
+			if err := WriteJSONL(&buf, []Event{ev}); err != nil {
+				t.Fatal(err)
+			}
+			expected = append(expected, strings.TrimSuffix(buf.String(), "\n"))
+		}
+		rows := readParquet(t, path)
+		if len(rows) != len(expected) {
+			t.Fatalf("%s: rows=%d want=%d", path, len(rows), len(expected))
+		}
+		for i, row := range rows {
+			if row.EventJSON != expected[i] {
+				t.Fatalf("%s row %d changed JSON or ordering", path, i)
+			}
+			var ev Event
+			if err := json.Unmarshal([]byte(row.EventJSON), &ev); err != nil {
+				t.Fatal(err)
+			}
+			if ev.ContentText == nil || row.ContentText == nil || *row.ContentText != *ev.ContentText {
+				t.Fatalf("%s row %d lost text", path, i)
+			}
+		}
+	}
+	if err := WriteParquet(root, uid, nil); err != nil {
+		t.Fatal(err)
+	}
+	if paths, err := SessionParquet(root, uid); err != nil || len(paths) != 0 {
+		t.Fatalf("empty projection left partitions: %v, %v", paths, err)
+	}
+}
+
+func TestParquetBoundsRowGroupsByRowsAndBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		events []Event
+		groups int
+	}{
+		{"rows", func() []Event {
+			evs := make([]Event, parquetRowGroupRows+5)
+			for i := range evs {
+				evs[i] = sampleEvent("claude", "2026-10-17T00:00:00Z", fmt.Sprint(i))
+			}
+			return evs
+		}(), 2},
+		{"bytes-and-oversized-event", []Event{
+			sampleEvent("claude", "2026-10-17T00:00:00Z", strings.Repeat("a", parquetRowGroupBytes/3)),
+			sampleEvent("claude", "2026-10-17T00:00:00Z", strings.Repeat("b", parquetRowGroupBytes/3)),
+			sampleEvent("claude", "2026-10-17T00:00:00Z", strings.Repeat("c", parquetRowGroupBytes+32)),
+		}, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := WriteParquet(root, "bounded", tc.events); err != nil {
+				t.Fatal(err)
+			}
+			path := mustPath(t, root, "2026-10-17", "claude", "bounded")
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			st, err := f.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			pf, err := parquet.OpenFile(f, st.Size())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pf.RowGroups()) != tc.groups {
+				t.Fatalf("row groups=%d want=%d", len(pf.RowGroups()), tc.groups)
+			}
+			rows := readParquet(t, path)
+			if len(rows) != len(tc.events) {
+				t.Fatalf("rows=%d want=%d", len(rows), len(tc.events))
+			}
+			for i, row := range rows {
+				if row.ContentText == nil || *row.ContentText != *tc.events[i].ContentText {
+					t.Fatalf("row %d was truncated or reordered", i)
+				}
+			}
+		})
+	}
+}
+
+func TestParquetLateFailureKeepsOldPartitionsAndRemovesTemps(t *testing.T) {
+	root, uid := t.TempDir(), "failure"
+	old := []Event{sampleEvent("claude", "2026-10-17T00:00:00Z", "previous complete generation")}
+	if err := WriteParquet(root, uid, old); err != nil {
+		t.Fatal(err)
+	}
+	path := mustPath(t, root, "2026-10-17", "claude", uid)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := sampleEvent("claude", "2026-10-17T00:00:00Z", "unpublished replacement")
+	bad := sampleEvent("codex", "2026-10-18T00:00:00Z", "cannot encode this event")
+	bad.Extra = extraMap{"unsupported": make(chan int)}
+	if err := WriteParquet(root, uid, []Event{first, bad}); err == nil {
+		t.Fatal("accepted an unserializable event")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("replaced old partition before all serialization succeeded: %v", err)
+	}
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && (strings.HasPrefix(d.Name(), ".parquet-") || path != mustPath(t, root, "2026-10-17", "claude", uid)) {
+			t.Errorf("left a temporary or unpublished partition: %s", path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
