@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T21:52:38Z
-updated_at: 2026-10-18T04:49:43Z
+updated_at: 2026-10-18T04:51:14Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -91,3 +91,9 @@ Release preparation: just release-check passed, and a GoReleaser snapshot on 397
 **agent:codex/memory-e2fc465b** at 2026-10-18T04:49:43Z
 
 Release scope now includes the completed memory epic as well as dashboard/search maintenance. v0.9.0 remains unused on both forges; both main branches are synchronized and are ancestors of this branch. The owner explicitly requested publication, which promotes this ticket and authorizes the merge/tag/release steps. docs/release-notes-memory.md is the combined v0.9.0 release body. This supersedes the draft description's older assertion that internal/normalize has no code changes: streaming implementations change, but schema 21, event schema 1 and normalizer semantics remain compatible, and no full requeue is added.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:51:14Z
+
+PR #212 (Bound transcript memory and prepare v0.9.0): https://git.local.sothr.com/terva-sh/lampi/pulls/212. First review at cb97232af5e83a18cf740fc79bc401333c12e550, https://git.local.sothr.com/terva-sh/lampi/pulls/212#issuecomment-30954, found one high-severity issue: final event-frame/index output failures escaped OutputError and could become permanent normalization failures. Fix the actual writer-error sites in WriteEventsStream/writeIndex so producer errors stay unclassified while storage errors remain retryable. Failure-injection tests cover both final-frame and footer writes after the producer completes, plus the invalid-producer control. Request a fresh review after the fix; do not merge the failed verdict.
+
+An isolated synthetic v0.8.0 upgrade rehearsal passed: downloaded old binary checksum verified; schema 21/counts and existing derived-file hashes unchanged at startup; unchanged sync uploaded zero; append projected successfully; fsck checked 3 entries with 0 bad; v0.8.0 reopened the upgraded lake and unchanged sync uploaded zero. No live config, identity or services touched. Scratch evidence: release-v090-v6HXDDxd/rehearse.log under the documented agent-scratch/lampi root. Re-run against the final gated release source after the review fix.

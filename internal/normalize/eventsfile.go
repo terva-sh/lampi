@@ -91,7 +91,7 @@ func WriteEventsStream(w io.Writer, produce func(EventSink) error) error {
 		}
 		frame = enc.EncodeAll(raw.Bytes(), frame[:0])
 		if _, err := w.Write(frame); err != nil {
-			return fmt.Errorf("normalize: %w", err)
+			return OutputError{fmt.Errorf("normalize: %w", err)}
 		}
 		index = append(index, frameStart{Off: off, Line: opened})
 		off += int64(len(frame))
@@ -131,7 +131,7 @@ func writeIndex(w io.Writer, index []frameStart) error {
 	head := binary.LittleEndian.AppendUint32(nil, skippableMagic)
 	head = binary.LittleEndian.AppendUint32(head, uint32(len(data)))
 	if _, err := w.Write(append(head, data...)); err != nil {
-		return fmt.Errorf("normalize: %w", err)
+		return OutputError{fmt.Errorf("normalize: %w", err)}
 	}
 	return nil
 }
