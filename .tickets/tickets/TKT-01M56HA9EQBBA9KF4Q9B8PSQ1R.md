@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M56HA9EQBBA9KF4Q9B8PSQ1R
 title: "Agent: stream verified artifacts from file-backed snapshots"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M56GV9JT00CXN9RE3T6SNRGE
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/memory-e2fc465b
+  branch: t3code/explore-lampi-memory-footprint
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e2fc465b
+  commit: 680e507eb9383c3d853e84702ddce2c001a79b2c
+  session: null
+  claimed_at: 2026-10-18T03:48:49Z
+  expires_at: null
 archive: null
 created_at: 2026-10-18T03:36:34Z
-updated_at: 2026-10-18T03:46:45Z
+updated_at: 2026-10-18T03:50:03Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -44,6 +51,14 @@ Record before/after agent allocation/RSS and small-append CPU. A tail slice reta
 - [ ] Large shared artifact transfers use bounded file-backed/chunk buffers rather than a full transcript allocation; document the largest-record/chunk memory contract.
 - [ ] Preserve complete digest verification, same-size rewrite detection, redaction across boundaries, retries and full-file fallback when a tail is refused.
 - [ ] Isolated large-artifact and boundary/rewrite/retry tests plus comparable profiles demonstrate the memory bound without changing capture permissions.
+
+## Implementation plan
+
+Replace in-memory prepared artifact/tail bodies with immutable private file snapshots and byte-range sources. Copy/hash with fixed buffers and reject a snapshot whose size/digest no longer matches discovery; scan and every retry/fallback read only that snapshot. Scope cleanup to each admitted session, including quarantine, cancellation, enqueue/send failures and ACK. Reuse full verified digests when widening tails, stream HTTP bodies with replayable file ranges and preserve range/chunk resume and custom cuts.
+
+For redaction, keep the existing byte-slice API as the reference and add a file/ReaderAt API. Build its offset-preserving JSON escape view into a second private temporary file using bounded buffers, then scan literal prefixes in blocks. Evaluate anchored regular expressions through a buffered RuneReader for arbitrarily long matches; compare documented examples without retaining key material and select hits with a bounded frontier rather than collecting all spans. Recover append overlap/backtracking from ReaderAt with bounded buffers, preserving existing ScanAppended boundaries exactly. This pays temporary disk I/O to avoid both full transcript and unescape-clone allocations; record that tradeoff and measure CPU rather than assuming it improves.
+
+Add differential tests against Scan/ScanAppended (all fixtures/rules, JSON escapes, long runs, PEM, overlaps/examples, invalid UTF-8, chunk and append boundaries), source mutation/rewrite/retry/fallback/cleanup tests and an isolated large-artifact memory measurement. Use baseline 680e507 with the same runner, repeat interleaved agent workloads at 32 and 128 MiB, retain counter/output comparisons, profiles and full repository/race/vet/build gates. Do not modify live services or capture permissions. Snapshot and scan buffers are fixed-size; artifact/chunk/discovery metadata still scales with counts and is outside the body-buffer contract.
 
 ## Notes
 
