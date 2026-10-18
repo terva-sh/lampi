@@ -15,4 +15,3 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3NM01J4731BSWEA815FWGXS](tickets/TKT-01M3NM01J4731BSWEA815FWGXS.md) | Concise profile rules: wider matches and fewer rules | ready |
 | [TKT-01M3S9TCEE0TKQFGS4DSV15ZAF](draft/TKT-01M3S9TCEE0TKQFGS4DSV15ZAF.md) | Search: a page built for recall | draft |
 | [TKT-01M3W3PZSDCB5FGKJS06MSZH65](draft/TKT-01M3W3PZSDCB5FGKJS06MSZH65.md) | Easy deployment: a personal laptop lake and a lake for a fleet | draft |
-| [TKT-01M56GHAXEJJXEE45GJ9C37NQG](tickets/TKT-01M56GHAXEJJXEE45GJ9C37NQG.md) | Bound memory and repeated work for growing transcripts | in-progress |
