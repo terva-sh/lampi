@@ -506,3 +506,110 @@ includes synthetic source files and CAS, not just derived data, and is not peak
 temporary disk use. The source corpus uses ordinary ~4 KiB Claude JSON records;
 these figures do not establish the working set of a single giant record or of
 other harnesses' compatibility projectors.
+
+## Admission, memory-limit and debounce choices
+
+Three fresh-process repetitions used three 16 MiB sessions, initial sync and
+8 × 64 KiB appends per session without normalize waits, then a final drain.
+The second repetition reversed setting order. Values below are medians; all
+runs had zero failed/retried jobs. Job counts include initial work and
+superseded generations. A superseded job may already have performed projection,
+so coalescing earlier can save substantially more CPU than discarding at publish.
+
+| Setting | RSS MiB | Sampled heap MiB | Allocation MiB | Process CPU s | Stage wall s | Admitted / coalesced jobs | Mean / maximum admission wait s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2 workers, 256 MiB input budget | 318.5 | 265.2 | 8010.6 | 23.44 | 9.13 | 24 / 3 | 0.42 / 0.98 |
+| 1 worker, 256 MiB input budget | 248.3 | 196.3 | 5470.0 | 16.76 | 10.20 | 15 / 12 | 1.02 / 1.68 |
+| 2 workers, 32 MiB input budget | 243.9 | 202.3 | 5518.2 | 16.98 | 10.36 | 15 / 12 | 1.02 / 1.88 |
+| 2 workers, 256 MiB input budget, GOMEMLIMIT=256MiB | 270.0 | 242.8 | 8021.8 | 23.54 | 9.20 | 24 / 3 | 0.42 / 1.01 |
+| 2 workers, one sync after the whole append burst | 233.4 | 209.5 | 1970.3 | 5.95 | 3.21 | 6 / 0 | 0.06 / 0.20 |
+
+One worker or the smaller input budget saved about 28% CPU and 22–23% RSS,
+but increased stage wall time about 12–14% and queue wait. Throughput for this
+fixed 27-submission workload is roughly 3.0 submissions/s at the default and
+2.6 at the smaller budget; admission/job completions alone are misleading
+throughput measures because the number of useful/superseded/coalesced jobs varies.
+The 32 MiB budget admits only one of these slightly-over-16 MiB sessions at a
+time. It is an experimental control, not a universal recommended byte value.
+
+`GOMEMLIMIT=256MiB` reduced burst RSS about 15% at similar CPU/wall time here,
+but RSS still exceeded 256 MiB. It did not remove repeated projection work.
+Use the two-worker default when freshness matters and one worker as the first
+explicit low-resource option when longer queues are acceptable. Consider a
+moderate memory target only after measuring actual record sizes, other harnesses,
+search and cgroup cache. Do not translate the synthetic heap directly into a
+systemd/container hard limit. There is no evidence for imposing a lower cap on
+the agent, whose measured working set is already small.
+
+The last row models coalescing at the source using `--burst-final-only`; it
+appends identical bytes but syncs only after the eighth append. It reduces CPU
+about 75% but delays the first seven appends until the final sync. It is not a
+measurement of a specific watch timer or an arrival schedule. Production keeps
+its 5s quiet window / 30s maximum wait. If an operator chooses 10s/60s for a
+busy session, the possible added quiet/continuous-write delay is 5s/30s before
+network, normalization and search. No measured result here justifies changing
+that default automatically. A tighter debounce does the opposite: more frequent
+visibility with more full-file verification and full-session projection.
+
+Rollback a tuning experiment if oldest pending age grows without recovery,
+latest-session readiness/search coverage lags the chosen freshness objective,
+CPU/GC rises, temporary disk fills, or upload/quarantine counters change.
+Restore the prior worker/budget/GOMEMLIMIT/debounce values together, then verify
+that durable pending jobs drain. Removing the new flags is necessary when
+returning to an older binary. Tuning recommendations are optional; live values
+have not changed.
+
+## Remaining CPU and incremental design
+
+Three independent 128 MiB streaming component runs measured the following
+medians. Each pass rereads and reparses the source; these are overlapping
+experiments, not additive pieces of a single run.
+
+| Pass | Wall s | Process CPU s | Allocation MiB | GC cycles | GC pause s |
+| --- | --- | --- | --- | --- | --- |
+| Parse to discard | 2.22 | 2.54 | 1003.0 | 344 | 0.020 |
+| Parse plus indexed-zstd events | 3.04 | 3.17 | 1050.4 | 51 | 0.004 |
+| Parse, spool, events, Parquet and publish | 4.73 | 4.91 | 1804.5 | 79 | 0.006 |
+
+A representative complete pass read about 400 MiB logically and wrote about
+343 MiB, compared with 128 MiB read by parse-only. Its storage `read_bytes` was
+zero because the fixture and spool were cached. Writes include temporary spool
+and derived output and do not describe retained size. Logical `/proc/self/io`
+counts include sampler/SQLite/network operations where present, and storage
+write counters are not a count of completed physical-device writes. GC pause
+is stop-the-world time, not total concurrent GC CPU.
+
+A separate two-worker CPU profile (three 32 MiB sessions with two appends)
+attributed about 31.7% of samples cumulatively to Claude line parsing, 25.8% to
+zstd encoding, 18.3% to the Parquet stream path, and 9.7% flat to the Linux
+syscall entry. Background GC accounted for about 1.5% cumulatively. These
+categories overlap (Parquet includes zstd and I/O); do not add them. Spool
+writing/reading and repeated event encoding remain measurable costs. Allocation
+profiles still include fixture setup and runtime/codec caches, whereas stage
+allocation totals exclude fixture setup.
+
+Three real 32 MiB sync/search runs measured median append sync+normalization
+CPU of 1.63 and 1.57 s for the two 64 KiB appends; separately timed search passes
+used 0.42 and 0.34 s, allocating about 161 MiB each. Initial indexing used
+2.81 CPU s; an unchanged search reconciliation used 0.11 CPU s with background
+index maintenance. All passes reached complete index coverage. Search already
+skips unchanged SQL row writes, but still decodes the event prefix and can do
+FTS merge/WAL work even in an unchanged pass. This workload does not prove the
+benefit of bypassing a prefix or separate all FTS maintenance from decoding.
+
+The decision and complete checkpoint/search-prefix design are in
+[incremental-projection.md](incremental-projection.md). Transparent prefix reuse
+would change random event IDs, projection ingestion timestamps and source-digest
+references. The memory release keeps those semantics. Two draft design/prototype
+follow-ups specify identity/reference decisions, authenticated prefix proof,
+parser/partial-record/sidecar state, rewrite/truncate invalidation, supersession
+and crash recovery, with 50% append CPU targets. Full projection is retained
+until those proofs and semantic decisions exist.
+
+Current agent-only confirmation, three fresh processes per workload, measured
+median RSS 24.8 MiB (24.2–25.7) for three 32 MiB sessions and 25.4 MiB
+(24.0–26.2) for one 128 MiB session. Sampled heap was 3.4/3.5 MiB, stage
+allocation 14.6/22.5 MiB, process CPU 1.91/2.54 s, and stage wall 8.87/19.03 s.
+These confirm the earlier file-backed reduction; they are not an additional
+controlled speed comparison. The agent process excludes lake CPU/heap/RSS but
+its stage wall waits for normalization, so it can vary with lake/machine load.
