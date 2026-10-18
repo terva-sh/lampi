@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M56GVANEY48KGD9JZSREWKA8
 title: "Perf: validate memory budgets and document deployment choices"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -23,10 +23,17 @@ dependencies:
   - TKT-01M56HA9EQBBA9KF4Q9B8PSQ1R
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/memory-e2fc465b
+  branch: t3code/explore-lampi-memory-footprint
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e2fc465b
+  commit: 1be8f0bf9367dea5ea1937f2efb6623a6a8b99ce
+  session: null
+  claimed_at: 2026-10-18T04:24:16Z
+  expires_at: null
 archive: null
 created_at: 2026-10-18T03:28:23Z
-updated_at: 2026-10-18T03:36:36Z
+updated_at: 2026-10-18T04:24:17Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -45,3 +52,7 @@ Use the isolated runner to compare baseline and improved agent/lake builds under
 - [ ] Repeated before/after measurements cover both processes and distinguish RSS, heap, allocation rate, file cache and CPU/queue latency.
 - [ ] Memory-limit/debounce/admission recommendations follow measured working-set and freshness tradeoffs and include rollback guidance.
 - [ ] Repository gates pass and a reviewable performance report names build revisions and limitations; live deployment remains a separate authorized operation.
+
+## Implementation plan
+
+Finish repeated alternating combined 3x32 MiB and 1x128 MiB control/streaming comparisons; preserve prior isolated agent results and repeat current agent runs. Measure three fresh-process append bursts across worker count/input budget and default/moderate GOMEMLIMIT, reporting coalescing, outcomes, queue waits, stage allocation/heap/RSS and CPU. Compare debounce by identical burst input with one final sync versus syncing every append, explicitly exposing added freshness delay; do not alter defaults from a synthetic result. Keep profiling separate; capture large/multiworker profiles and real search/streaming component measurements. Record revisions, runtime, disk/I/O/cache limits and rollback choices in docs/performance.md, write release notes (no schema/semantic migration), run full race/vet/format/build and release-target validation. Leave publication/deployment separate.
