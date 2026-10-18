@@ -28,12 +28,12 @@ import (
 )
 
 type options struct {
-	out, workload                                   string
-	sizeMiB, sessions, appends, appendKiB           int
-	unchanged                                       int
-	search, diagnostics, profiles, keepData, worker bool
-	lakeWorker                                      bool
-	normalizeWorkers, normalizeBudgetMiB, burst     int
+	out, workload                                                   string
+	sizeMiB, sessions, appends, appendKiB                           int
+	unchanged                                                       int
+	burstFinalOnly, search, diagnostics, profiles, keepData, worker bool
+	lakeWorker                                                      bool
+	normalizeWorkers, normalizeBudgetMiB, burst                     int
 }
 
 type stage struct {
@@ -98,6 +98,7 @@ func parse(args []string) (options, error) {
 	f.BoolVar(&o.worker, "worker", false, "internal subprocess mode")
 	f.IntVar(&o.normalizeWorkers, "normalize-workers", 2, "lake normalize worker count")
 	f.IntVar(&o.normalizeBudgetMiB, "normalize-input-budget-mib", 256, "lake logical input admission budget")
+	f.BoolVar(&o.burstFinalOnly, "burst-final-only", false, "model debounce by syncing only after the last burst append")
 	f.IntVar(&o.burst, "burst-passes", 0, "append passes without waiting for normalization, followed by a drain")
 	f.BoolVar(&o.lakeWorker, "lake-worker", false, "internal isolated lake mode")
 	if err := f.Parse(args); err != nil {
@@ -108,6 +109,9 @@ func parse(args []string) (options, error) {
 	}
 	if f.NArg() != 0 || o.out == "" || o.sizeMiB < 1 || o.sizeMiB > 4096 || o.sessions < 1 || o.appends < 0 || o.appendKiB < 1 || o.unchanged < 0 {
 		return o, fmt.Errorf("require --out, 1..4096 --size-mib, positive sessions/append-kib and nonnegative pass counts")
+	}
+	if o.burstFinalOnly && o.burst == 0 {
+		return o, fmt.Errorf("--burst-final-only requires --burst-passes")
 	}
 	if o.search && o.workload != "sync" {
 		return o, fmt.Errorf("--search requires --workload sync")
@@ -361,6 +365,9 @@ func syncWork(o options, data, home string, paths []string, r *result) (err erro
 			if err := writeTranscript(path, fmt.Sprintf("synthetic-%04d", j), int64(o.appendKiB)<<10, uint64(1000+i), true); err != nil {
 				return err
 			}
+		}
+		if o.burstFinalOnly && i+1 < o.burst {
+			continue
 		}
 		if err := sync(fmt.Sprintf("burst-%d", i), false); err != nil {
 			return err

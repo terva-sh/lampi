@@ -139,3 +139,29 @@ func TestStreamingComponentsAndSearch(t *testing.T) {
 		})
 	}
 }
+
+func TestDebouncedBurstKeepsAllAppends(t *testing.T) {
+	o := options{out: t.TempDir(), workload: "sync", sizeMiB: 1, sessions: 1, burst: 4, burstFinalOnly: true, appendKiB: 8, keepData: true}
+	r, err := work(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Stages) != 3 || r.Stages[1].Sync.Manifests != 1 || r.Stages[2].Lake.Results["ok"] != 2 {
+		t.Fatalf("coalesced input not published: %+v", r.Stages)
+	}
+	paths, err := filepath.Glob(filepath.Join(o.out, "data", "lake", "parquet", "date=*", "harness=*", "*.parquet"))
+	if err != nil || len(paths) != 1 {
+		t.Fatal(paths, err)
+	}
+	rows, err := parquet.ReadFile[normalize.ParquetRow](paths[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(o.out, "data", "claude", "projects", "synthetic-lampi", "synthetic-0000.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != bytes.Count(raw, []byte{'\n'}) {
+		t.Fatal("debounce dropped records")
+	}
+}
