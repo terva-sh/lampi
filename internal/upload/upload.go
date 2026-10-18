@@ -304,21 +304,6 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 		}
 	}
 
-	work, res, err := prepare(ctx, opt, wm, q, bundles)
-	res.Warning = warning
-	res.Skipped = append(skipped, res.Skipped...)
-	var rejected error
-	if r, ok := err.(*Rejected); ok {
-		rejected = r
-		err = nil
-	}
-	if err != nil {
-		return res, err
-	}
-	if len(work) == 0 {
-		return finish(opt, res, rejected)
-	}
-
 	// A file past the lake's cap travels as a tail only to a lake that
 	// lists protocol.FeatureLargeTails. An older lake would try to
 	// install the assembled object and refuse it. Widen first, then
@@ -328,56 +313,68 @@ func syncOnce(ctx context.Context, opt Options) (res Result, err error) {
 		maxBlob = protocol.MaxBlobBytes
 	}
 	largeTails := slices.Contains(hello.Features, protocol.FeatureLargeTails)
-	for i := range work {
-		if sessionOverCap(&work[i], maxBlob, largeTails) {
-			widenToFullFile(&work[i])
-		}
-	}
-	bodies := map[string][]byte{}
-	cuts := map[string][]int64{}
-	var arts []protocol.Artifact
-	for _, w := range work {
-		for d, b := range w.bodies {
-			bodies[d] = b
-		}
-		for d, c := range w.cuts {
-			cuts[d] = c
-		}
-		arts = append(arts, w.manifest.Artifacts...)
-	}
+	// Retain only small digest/chunk metadata between sessions. In particular,
+	// no slice in these maps aliases a complete prepared transcript body.
+	known := map[string]bool{}
 	lists := map[string]chunkPlan{}
-	if err := uploadDigests(ctx, client, opt, maxBlob, &res, arts, bodies, cuts, lists); err != nil {
+	res, err = prepareEach(ctx, opt, wm, q, bundles, func(w *prepared, part *Result) error {
+		return sendPrepared(ctx, client, opt, wm, q, w, part, maxBlob, largeTails, known, lists)
+	})
+	res.Warning = warning
+	res.Skipped = append(skipped, res.Skipped...)
+	if _, ok := err.(*Rejected); err != nil && !ok {
 		return res, err
 	}
-	for i := range work {
-		w := &work[i]
-		if err := requireScanned(w.manifest); err != nil {
-			return res, err
+	return finish(opt, res, err)
+}
+
+// sendPrepared returns before prepareEach reads the next session. The queue
+// and watermark hold metadata; transcript bytes stay local to this call.
+func sendPrepared(ctx context.Context, client *http.Client, opt Options, wm *watermark.DB, q *outbox.DB, w *prepared, res *Result, maxBlob int64, largeTails bool, known map[string]bool, lists map[string]chunkPlan) error {
+	if sessionOverCap(w, maxBlob, largeTails) {
+		widenToFullFile(w)
+	}
+	put := func() error {
+		var arts []protocol.Artifact
+		for _, a := range w.manifest.Artifacts {
+			if !known[putDigest(a)] {
+				arts = append(arts, a)
+			}
+		}
+		if err := uploadDigests(ctx, client, opt, maxBlob, res, arts, w.bodies, w.cuts, lists); err != nil {
+			return err
+		}
+		for _, a := range arts {
+			known[putDigest(a)] = true
+		}
+		return nil
+	}
+	if err := requireScanned(w.manifest); err != nil {
+		return err
+	}
+	if err := put(); err != nil {
+		return err
+	}
+	applyChunkLists(&w.manifest, lists)
+	ack, err := postManifest(ctx, client, opt, w.manifest)
+	if prefixMismatch(err) && widenToFullFile(w) {
+		if err := put(); err != nil {
+			return err
 		}
 		applyChunkLists(&w.manifest, lists)
-		ack, err := postManifest(ctx, client, opt, w.manifest)
-		if prefixMismatch(err) && widenToFullFile(w) {
-			if err := uploadDigests(ctx, client, opt, maxBlob, &res, w.manifest.Artifacts, w.bodies, w.cuts, lists); err != nil {
-				return res, err
-			}
-			applyChunkLists(&w.manifest, lists)
-			ack, err = postManifest(ctx, client, opt, w.manifest)
-		}
-		if noBay(err) {
-			// Pending, not failed: the other sessions still go.
-			res.NoBay = append(res.NoBay, noBayLine(w.manifest))
-			continue
-		}
-		if err != nil {
-			return res, err
-		}
-		res.Manifests++
-		res.Sessions = append(res.Sessions, ack.SessionUID)
-		if err := commitAck(ctx, opt, wm, q, w.root, w.manifest, ack); err != nil {
-			return res, err
-		}
+		ack, err = postManifest(ctx, client, opt, w.manifest)
 	}
-	return finish(opt, res, rejected)
+	if noBay(err) {
+		// Pending, not failed: prepareEach continues with other sessions.
+		res.NoBay = append(res.NoBay, noBayLine(w.manifest))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	res.Manifests++
+	res.Sessions = append(res.Sessions, ack.SessionUID)
+	return commitAck(ctx, opt, wm, q, w.root, w.manifest, ack)
 }
 
 // anyPermitted reports whether the allowlist lets any session through.
@@ -708,7 +705,9 @@ func splitBytes(body []byte, n int) (parts []string, lengths []int64, blobs map[
 		parts = append(parts, d)
 		lengths = append(lengths, int64(len(piece)))
 		if _, ok := blobs[d]; !ok {
-			blobs[d] = append([]byte(nil), piece...)
+			// As in splitAt, the immutable snapshot already outlives this
+			// upload. Copying every piece would duplicate the entire body.
+			blobs[d] = piece
 		}
 	}
 	return parts, lengths, blobs

@@ -36,51 +36,73 @@ type prepared struct {
 // prepare is the local half of the pipeline: allowlist, ruleset v2,
 // watermark plan, outbox. It does not dial the lake.
 func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle) ([]prepared, Result, error) {
+	var work []prepared
+	res, err := prepareEach(ctx, opt, wm, q, bundles, func(item *prepared, _ *Result) error {
+		work = append(work, *item)
+		return nil
+	})
+	if err != nil {
+		if _, ok := err.(*Rejected); !ok {
+			return nil, res, err
+		}
+	}
+	return work, res, err
+}
+
+// prepareEach delivers one scanned and enqueued session at a time. Sync sends
+// and ACKs it before the next session is read, so complete transcript bodies
+// from unrelated sessions do not all remain live for the duration of a pass.
+func prepareEach(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle, consume func(*prepared, *Result) error) (Result, error) {
 	var res Result
 	var reasons []string
-	var work []prepared
 	pending, err := q.Identities(ctx)
 	if err != nil {
-		return nil, res, err
+		return res, err
 	}
 	for _, bundle := range bundles {
-		part, resPart, err := prepareBundle(ctx, opt, wm, q, pending, bundle)
+		resPart, err := prepareBundleEach(ctx, opt, wm, q, pending, bundle, consume)
 		res.Checked += resPart.Checked
+		res.Missing += resPart.Missing
+		res.Uploaded += resPart.Uploaded
+		res.Manifests += resPart.Manifests
 		res.Refused += resPart.Refused
 		res.Quarantined += resPart.Quarantined
 		res.Unchanged += resPart.Unchanged
 		res.Skipped = append(res.Skipped, resPart.Skipped...)
-		work = append(work, part...)
+		res.Sessions = append(res.Sessions, resPart.Sessions...)
+		res.NoBay = append(res.NoBay, resPart.NoBay...)
 		if err != nil {
 			if r, ok := err.(*Rejected); ok {
 				reasons = append(reasons, r.Reasons...)
 				continue
 			}
-			return nil, res, err
+			return res, err
 		}
 	}
 	if len(reasons) == 0 {
-		return work, res, nil
+		return res, nil
 	}
-	return work, res, &Rejected{Reasons: reasons}
+	return res, &Rejected{Reasons: reasons}
 }
 
-func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, pending map[string]bool, bundle adapter.Bundle) ([]prepared, Result, error) {
+func prepareBundleEach(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, pending map[string]bool, bundle adapter.Bundle, consume func(*prepared, *Result) error) (Result, error) {
 	var res Result
 	var reasons []string
-	var work []prepared
 	for _, m := range bundle.Manifests {
+		if err := ctx.Err(); err != nil {
+			return res, err
+		}
 		if !opt.Projects.Permitted(projectID(m)) {
 			res.Refused++
 			reasons = append(reasons, allowlistRefusal(m))
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
-				return nil, res, err
+				return res, err
 			}
 			continue
 		}
 		same, err := unchanged(ctx, opt, wm, pending, bundle.Root, m)
 		if err != nil {
-			return nil, res, err
+			return res, err
 		}
 		if same {
 			res.Unchanged++
@@ -90,7 +112,7 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			res.Quarantined++
 			reasons = append(reasons, hit.Error())
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
-				return nil, res, err
+				return res, err
 			}
 			continue
 		}
@@ -109,21 +131,21 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			continue
 		}
 		if err != nil {
-			return nil, res, err
+			return res, err
 		}
 		if len(next.Artifacts) == 0 && hit == nil {
 			continue
 		}
 		if hit == nil {
 			if hit, err = scanManifest(opt, next); err != nil {
-				return nil, res, err
+				return res, err
 			}
 		}
 		if hit != nil {
 			res.Quarantined++
 			reasons = append(reasons, hit.Error())
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
-				return nil, res, err
+				return res, err
 			}
 			continue
 		}
@@ -139,14 +161,16 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			}
 		}
 		if err := enqueue(ctx, opt, q, item); err != nil {
-			return nil, res, err
+			return res, err
 		}
-		work = append(work, item)
+		if err := consume(&item, &res); err != nil {
+			return res, err
+		}
 	}
 	if len(reasons) == 0 {
-		return work, res, nil
+		return res, nil
 	}
-	return work, res, &Rejected{Reasons: reasons}
+	return res, &Rejected{Reasons: reasons}
 }
 
 // unchanged reports whether every artifact of m is the file its
