@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-18T03:22:56Z
-updated_at: 2026-10-18T03:28:54Z
+updated_at: 2026-10-18T03:36:36Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -64,3 +64,7 @@ The live services, configuration, tokens and capture permissions were left uncha
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:28:24Z
 
 The user authorized an epic, child tickets, promotion and autonomous implementation on 2026-10-17. Converted the existing investigation follow-up to the epic and promoted its eight scoped children. Dependencies put reproducible tools before reductions and measurement before runtime tuning. Start with the workload runner, then bounded Parquet serialization; continue through shared agent batching and streamed projection. Retain the investigation as baseline evidence. Do not deploy or change live configuration during this work. Child acceptance criteria are intentionally unchecked until implementation and measurement earn them.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:36:36Z
+
+Refined the agent work into two independently measurable tickets before coding: per-session batch lifetime reduction and TKT-01M56HA9EQBBA9KF4Q9B8PSQ1R (Agent: stream verified artifacts from file-backed snapshots). There are now nine implementation children. The streaming criterion was moved, not discarded, and final validation depends on both phases.
