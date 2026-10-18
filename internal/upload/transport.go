@@ -1,7 +1,6 @@
 package upload
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -134,14 +133,16 @@ func (w *stallWatch) pause() {
 
 // progressBody is a request body that feeds the watchdog.
 type progressBody struct {
-	r    *bytes.Reader
-	w    *stallWatch
-	once sync.Once
+	r         io.ReadCloser
+	remaining int64
+	w         *stallWatch
+	once      sync.Once
 }
 
 func (p *progressBody) Read(b []byte) (int, error) {
 	n, err := p.r.Read(b)
-	if err != nil || p.r.Len() == 0 {
+	p.remaining -= int64(n)
+	if err != nil || p.remaining <= 0 {
 		p.once.Do(p.w.pause)
 	} else if n > 0 {
 		p.w.touch()
@@ -149,7 +150,7 @@ func (p *progressBody) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func (p *progressBody) Close() error { return nil }
+func (p *progressBody) Close() error { return p.r.Close() }
 
 // progressReader is a response body that feeds the watchdog.
 type progressReader struct {

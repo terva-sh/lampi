@@ -366,17 +366,30 @@ func TestOpenResumesNormalizeJob(t *testing.T) {
 	if _, err := cat.EnqueueNormalize(t.Context(), ack.SessionUID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	// Repeated durable enqueues before restart retain only the latest generation.
+	latest, err := cat.EnqueueNormalize(t.Context(), ack.SessionUID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := cat.ListNormalizeJobs(t.Context())
+	if err != nil || len(saved) != 1 || saved[0].Gen != latest || saved[0].Bytes != int64(len(body)) {
+		t.Fatalf("durable admission metadata: %+v %v", saved, err)
+	}
 	if err := cat.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	s, err := Open(dir)
+	s, err := OpenWithOptions(dir, NormalizeOptions{Workers: 2, InputBudgetBytes: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
 	if err := s.WaitNormalized(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+	snap := s.NormalizeWork()
+	if snap.Admission.WaitCount != 1 || snap.Admission.Bytes != 0 || snap.Results[resultOK] != 1 {
+		t.Fatalf("restart failed oversized admission: %+v", snap)
 	}
 	path, err := normalize.ParquetPath(s.Parquet, "2026-09-22", protocol.HarnessTerva, ack.SessionUID)
 	if err != nil {

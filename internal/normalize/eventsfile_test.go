@@ -3,6 +3,7 @@ package normalize
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -189,4 +190,46 @@ func TestPlainEventsFileStillReads(t *testing.T) {
 	if _, err := OpenEvents(dir, "s"); !os.IsNotExist(err) && !strings.Contains(fmt.Sprint(err), "file does not exist") {
 		t.Fatalf("after remove: %v", err)
 	}
+}
+
+// Small streams write their only frame and index after the producer returns.
+// Storage failures there must remain retryable, just like a mid-stream write.
+func TestWriteEventsStreamFinalizationOutputError(t *testing.T) {
+	for _, failAt := range []int{1, 2} {
+		t.Run(fmt.Sprint(failAt), func(t *testing.T) {
+			storage := errors.New("injected storage failure")
+			w := &failEventWrite{failAt: failAt, err: storage}
+			produced := false
+			err := WriteEventsStream(w, func(sink EventSink) error {
+				if err := sink(manyEvents(1)[0]); err != nil {
+					return err
+				}
+				produced = true
+				return nil
+			})
+			var output OutputError
+			if !produced || !errors.As(err, &output) || !errors.Is(err, storage) {
+				t.Fatalf("produced=%v, error=%v; want retryable finalization error", produced, err)
+			}
+		})
+	}
+	input := errors.New("invalid input")
+	err := WriteEventsStream(io.Discard, func(EventSink) error { return input })
+	var output OutputError
+	if !errors.Is(err, input) || errors.As(err, &output) {
+		t.Fatalf("producer error misclassified: %v", err)
+	}
+}
+
+type failEventWrite struct {
+	writes, failAt int
+	err            error
+}
+
+func (w *failEventWrite) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failAt {
+		return 0, w.err
+	}
+	return len(p), nil
 }

@@ -22,8 +22,10 @@ import (
 	"terva.sh/lampi/internal/auth"
 	"terva.sh/lampi/internal/cas"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/diagnostics"
 	"terva.sh/lampi/internal/identity"
 	"terva.sh/lampi/internal/lakelock"
+	"terva.sh/lampi/internal/normalize"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/registrar"
 	"terva.sh/lampi/internal/release"
@@ -37,6 +39,8 @@ usage:
   terva-lampi serve [--addr 127.0.0.1:8787] [--data DIR] [--token-file PATH]
                     [--web-config PATH]
                     [--metrics-addr ADDR [--metrics-public]] [--behind-proxy]
+                    [--normalize-workers 2] [--normalize-input-budget-mib 256]
+                    [--diagnostics-dir NEW_DIR --diagnostics-duration 30s]
   terva-lampi serve backup --out DIR [--data DIR] [--token-file PATH]
                                  copy the catalog, the CAS, and the token file
   terva-lampi serve backup --archive FILE --recipient age1… [--data DIR] [--token-file PATH]
@@ -197,7 +201,12 @@ func runServe(env Env, args []string) error {
 	}
 	var addr, data, tokenFile, profilesFile, webConfigFile, metricsAddr string
 	var metricsPublic, behindProxy bool
+	var diagnostic diagnostics.Options
+	var normalizeWorkers int
+	var normalizeBudgetMiB int64
 	rest, err := parseFlags(env, args, serveUsage, func(fs *flag.FlagSet) {
+		fs.StringVar(&diagnostic.Dir, "diagnostics-dir", "", "NEW private directory for bounded runtime capture (off when empty)")
+		fs.DurationVar(&diagnostic.Duration, "diagnostics-duration", diagnostics.DefaultDuration, "capture duration (1s..5m)")
 		fs.StringVar(&addr, "addr", "127.0.0.1:8787", "listen address")
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&tokenFile, "token-file", "", "device token file")
@@ -205,6 +214,8 @@ func runServe(env Env, args []string) error {
 		fs.StringVar(&webConfigFile, "web-config", "", "explicit OIDC web configuration file")
 		fs.StringVar(&metricsAddr, "metrics-addr", "", "serve Prometheus metrics on this address (off when empty)")
 		fs.BoolVar(&metricsPublic, "metrics-public", false, "allow --metrics-addr to bind a non-loopback address")
+		fs.IntVar(&normalizeWorkers, "normalize-workers", 2, "maximum normalize workers (1..64)")
+		fs.Int64Var(&normalizeBudgetMiB, "normalize-input-budget-mib", 256, "concurrent logical input budget; oversized jobs run alone")
 		fs.BoolVar(&behindProxy, "behind-proxy", false, "TLS terminates in a proxy in front of serve")
 	})
 	if err != nil {
@@ -213,6 +224,12 @@ func runServe(env Env, args []string) error {
 	if len(rest) > 0 {
 		fmt.Fprint(env.stdout(), serveUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
+	}
+	if err := diagnostic.Validate(); err != nil {
+		return err
+	}
+	if normalizeWorkers < 1 || normalizeWorkers > 64 || normalizeBudgetMiB < 1 || normalizeBudgetMiB > 1<<20 {
+		return fmt.Errorf("normalize workers must be 1..64 and input budget 1..1048576 MiB")
 	}
 	if data == "" {
 		data, err = config.StateDir(env.getenv)
@@ -251,12 +268,24 @@ func runServe(env Env, args []string) error {
 			return fmt.Errorf("web interface requires nonempty device tokens, including on loopback")
 		}
 	}
+	capture, err := diagnostics.Start(diagnostic)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := capture.Close(); err != nil {
+			fmt.Fprintf(env.stderr(), "diagnostic capture: %v\n", err)
+		}
+	}()
 	lock, err := lakelock.Acquire(data)
 	if err != nil {
 		return err
 	}
 	defer lock.Release()
-	lake, err := api.Open(data)
+	if err := normalize.CleanStaging(data); err != nil {
+		return fmt.Errorf("remove abandoned projections: %w", err)
+	}
+	lake, err := api.OpenWithOptions(data, api.NormalizeOptions{Workers: normalizeWorkers, InputBudgetBytes: normalizeBudgetMiB << 20})
 	if err != nil {
 		return err
 	}

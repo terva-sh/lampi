@@ -1,7 +1,6 @@
 package upload
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,66 +20,74 @@ import (
 
 // prepared is one session that passed the allowlist and the scan.
 // bodies is keyed by the digest that will be PUT: the tail hash when
-// the file grew by append, otherwise the full-file hash. full keeps
-// the whole file so a tail the lake rejects can be sent as one blob.
+// the file grew by append, otherwise the full-file hash. Sources name byte
+// ranges of private verified snapshots. full retains the snapshot reference
+// for tail fallback; release removes this session's files after its consumer.
 type prepared struct {
 	root     string
 	manifest protocol.Manifest
-	bodies   map[string][]byte
-	full     map[string][]byte
+	bodies   map[string]bodySource
+	full     map[string]bodySource
 	// cuts is the reader's chunk lengths for a body, by digest, from
 	// adapter.Bundle.Cuts.
-	cuts map[string][]int64
+	cuts    map[string][]int64
+	release func() error
 }
 
-// prepare is the local half of the pipeline: allowlist, ruleset v2,
-// watermark plan, outbox. It does not dial the lake.
-func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle) ([]prepared, Result, error) {
+// prepareEach delivers one scanned and enqueued session at a time. Sync sends
+// and ACKs it before the next session is read, so complete transcript bodies
+// from unrelated sessions do not all remain live for the duration of a pass.
+func prepareEach(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle, consume func(*prepared, *Result) error) (Result, error) {
 	var res Result
 	var reasons []string
-	var work []prepared
 	pending, err := q.Identities(ctx)
 	if err != nil {
-		return nil, res, err
+		return res, err
 	}
 	for _, bundle := range bundles {
-		part, resPart, err := prepareBundle(ctx, opt, wm, q, pending, bundle)
+		resPart, err := prepareBundleEach(ctx, opt, wm, q, pending, bundle, consume)
 		res.Checked += resPart.Checked
+		res.Missing += resPart.Missing
+		res.Uploaded += resPart.Uploaded
+		res.Manifests += resPart.Manifests
 		res.Refused += resPart.Refused
 		res.Quarantined += resPart.Quarantined
 		res.Unchanged += resPart.Unchanged
 		res.Skipped = append(res.Skipped, resPart.Skipped...)
-		work = append(work, part...)
+		res.Sessions = append(res.Sessions, resPart.Sessions...)
+		res.NoBay = append(res.NoBay, resPart.NoBay...)
 		if err != nil {
 			if r, ok := err.(*Rejected); ok {
 				reasons = append(reasons, r.Reasons...)
 				continue
 			}
-			return nil, res, err
+			return res, err
 		}
 	}
 	if len(reasons) == 0 {
-		return work, res, nil
+		return res, nil
 	}
-	return work, res, &Rejected{Reasons: reasons}
+	return res, &Rejected{Reasons: reasons}
 }
 
-func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, pending map[string]bool, bundle adapter.Bundle) ([]prepared, Result, error) {
+func prepareBundleEach(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, pending map[string]bool, bundle adapter.Bundle, consume func(*prepared, *Result) error) (Result, error) {
 	var res Result
 	var reasons []string
-	var work []prepared
 	for _, m := range bundle.Manifests {
+		if err := ctx.Err(); err != nil {
+			return res, err
+		}
 		if !opt.Projects.Permitted(projectID(m)) {
 			res.Refused++
 			reasons = append(reasons, allowlistRefusal(m))
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
-				return nil, res, err
+				return res, err
 			}
 			continue
 		}
 		same, err := unchanged(ctx, opt, wm, pending, bundle.Root, m)
 		if err != nil {
-			return nil, res, err
+			return res, err
 		}
 		if same {
 			res.Unchanged++
@@ -90,13 +97,13 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			res.Quarantined++
 			reasons = append(reasons, hit.Error())
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
-				return nil, res, err
+				return res, err
 			}
 			continue
 		}
 		// Only an admitted session may run git for its root commit.
 		m.Project = adapter.ResolveRoot(m.Project)
-		next, bodies, full, hit, err := scanSession(ctx, opt, wm, bundle, m)
+		item, hit, err := scanSession(ctx, opt, wm, bundle, m)
 		if errors.Is(err, errFileChanged) {
 			// The next write event syncs it again with a fresh digest.
 			continue
@@ -109,44 +116,45 @@ func prepareBundle(ctx context.Context, opt Options, wm *watermark.DB, q *outbox
 			continue
 		}
 		if err != nil {
-			return nil, res, err
-		}
-		if len(next.Artifacts) == 0 && hit == nil {
-			continue
-		}
-		if hit == nil {
-			if hit, err = scanManifest(opt, next); err != nil {
-				return nil, res, err
-			}
+			return res, err
 		}
 		if hit != nil {
 			res.Quarantined++
 			reasons = append(reasons, hit.Error())
 			if err := dropPending(ctx, opt, q, bundle.Root, m); err != nil {
-				return nil, res, err
+				return res, err
 			}
 			continue
 		}
-		// Asked for on every post: the lake routes each one again and
-		// only adds, so a rule added since the last post applies from
-		// the session's next change.
-		next.Bays = opt.Bays.For(next.Harness, projectID(next)).Bays
-		next.BayAware = true
-		item := prepared{root: bundle.Root, manifest: next, bodies: bodies, full: full, cuts: map[string][]int64{}}
-		for d := range bodies {
-			if c, ok := bundle.Cuts[d]; ok {
-				item.cuts[d] = c
+		if len(item.manifest.Artifacts) == 0 {
+			if err := item.release(); err != nil {
+				return res, err
 			}
+			continue
 		}
-		if err := enqueue(ctx, opt, q, item); err != nil {
-			return nil, res, err
+		err = func() (err error) {
+			defer func() { err = errors.Join(err, item.release()) }()
+			// Route again on every post, including a retry after no bay.
+			item.manifest.Bays = opt.Bays.For(item.manifest.Harness, projectID(item.manifest)).Bays
+			item.manifest.BayAware = true
+			for d := range item.bodies {
+				if c, ok := bundle.Cuts[d]; ok {
+					item.cuts[d] = c
+				}
+			}
+			if err := enqueue(ctx, opt, q, item); err != nil {
+				return err
+			}
+			return consume(&item, &res)
+		}()
+		if err != nil {
+			return res, err
 		}
-		work = append(work, item)
 	}
 	if len(reasons) == 0 {
-		return work, res, nil
+		return res, nil
 	}
-	return work, res, &Rejected{Reasons: reasons}
+	return res, &Rejected{Reasons: reasons}
 }
 
 // unchanged reports whether every artifact of m is the file its
@@ -187,16 +195,18 @@ var scanHook func(rel string, clean int64)
 // their scan under this ruleset had no hit. Zero means scan it all.
 // prefix is the sha256 of body[:mark.Size], or empty when body is
 // shorter; stamp uses it for the watermark plan.
-func cleanPrefix(mark watermark.Mark, ok bool, body []byte) (clean int64, prefix string) {
-	if !ok || mark.Size <= 0 || int64(len(body)) < mark.Size {
-		return 0, ""
+func cleanPrefix(ctx context.Context, mark watermark.Mark, ok bool, body bodySource) (clean int64, prefix string, err error) {
+	if !ok || mark.Size <= 0 || body.size < mark.Size {
+		return 0, "", nil
 	}
-	sum := sha256.Sum256(body[:mark.Size])
-	prefix = hex.EncodeToString(sum[:])
+	prefix, err = body.slice(0, mark.Size).digest(ctx)
+	if err != nil {
+		return 0, "", err
+	}
 	if prefix != mark.SHA256 || mark.Ruleset != redact.RulesetV2 || mark.Hits != 0 {
-		return 0, prefix
+		return 0, prefix, nil
 	}
-	return mark.Size, prefix
+	return mark.Size, prefix, nil
 }
 
 type quarantineHit struct {
@@ -286,31 +296,34 @@ func (e *unreadableError) Error() string {
 
 func (e *unreadableError) Unwrap() error { return e.err }
 
-// readArtifacts reads each artifact from the path its own relpath names
+// readArtifacts snapshots each artifact from the path its own relpath names
 // and checks the bytes against the artifact digest. A mismatch means
 // the file changed after hashing, and none of the session is read. A
 // read that fails is an *unreadableError.
-func readArtifacts(bundle adapter.Bundle, m protocol.Manifest) ([][]byte, error) {
-	out := make([][]byte, 0, len(m.Artifacts))
+func readArtifacts(ctx context.Context, bundle adapter.Bundle, m protocol.Manifest, dir string) ([]bodySource, error) {
+	out := make([]bodySource, 0, len(m.Artifacts))
 	for _, a := range m.Artifacts {
 		path := bundle.Paths[a.RelPath]
 		if path == "" && bundle.Load != nil {
 			p, err := bundle.Load(a.RelPath)
 			if err != nil {
-				return nil, &unreadableError{rel: a.RelPath, err: err}
+				return out, &unreadableError{rel: a.RelPath, err: err}
 			}
 			path = p
 		}
 		if path == "" {
-			return nil, fmt.Errorf("upload: %s: no local path", a.RelPath)
+			return out, fmt.Errorf("upload: %s: no local path", a.RelPath)
 		}
-		body, err := os.ReadFile(path)
+		body, err := snapshotBody(ctx, path, dir, a.Size, a.SHA256)
 		if err != nil {
-			return nil, &unreadableError{rel: a.RelPath, err: err}
-		}
-		sum := sha256.Sum256(body)
-		if hex.EncodeToString(sum[:]) != a.SHA256 {
-			return nil, errFileChanged
+			if errors.Is(err, errFileChanged) || ctx.Err() != nil {
+				return out, err
+			}
+			var pe *os.PathError
+			if errors.As(err, &pe) && pe.Path == path {
+				return out, &unreadableError{rel: a.RelPath, err: err}
+			}
+			return out, err
 		}
 		out = append(out, body)
 	}
@@ -351,16 +364,34 @@ func scanManifest(opt Options, m protocol.Manifest) (*quarantineHit, error) {
 	return &quarantineHit{rel: rel, hits: scan.Hits, rules: scan.Rules, manifest: true}, nil
 }
 
-func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adapter.Bundle, m protocol.Manifest) (protocol.Manifest, map[string][]byte, map[string][]byte, *quarantineHit, error) {
-	raws, err := readArtifacts(bundle, m)
+func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adapter.Bundle, m protocol.Manifest) (item prepared, blocked *quarantineHit, err error) {
+	dir, err := os.MkdirTemp(opt.lakeState(), ".upload-*")
 	if err != nil {
-		return protocol.Manifest{}, nil, nil, nil, err
+		return item, nil, err
 	}
-	next := m
-	next.Artifacts = make([]protocol.Artifact, 0, len(m.Artifacts))
-	bodies := make(map[string][]byte, len(m.Artifacts))
-	full := make(map[string][]byte, len(m.Artifacts))
-	var blocked *quarantineHit
+	var raws []bodySource
+	item.release = func() error {
+		var err error
+		for _, raw := range raws {
+			err = errors.Join(err, raw.file.Close())
+		}
+		return errors.Join(err, os.RemoveAll(dir))
+	}
+	defer func() {
+		if err != nil || blocked != nil {
+			err = errors.Join(err, item.release())
+		}
+	}()
+	raws, err = readArtifacts(ctx, bundle, m, dir)
+	if err != nil {
+		return item, nil, err
+	}
+	item.root = bundle.Root
+	item.manifest = m
+	item.manifest.Artifacts = make([]protocol.Artifact, 0, len(m.Artifacts))
+	item.bodies = make(map[string]bodySource, len(m.Artifacts))
+	item.full = make(map[string]bodySource, len(m.Artifacts))
+	item.cuts = map[string][]int64{}
 	seenRules := map[string]bool{}
 	for i, a := range m.Artifacts {
 		body := raws[i]
@@ -368,15 +399,18 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 		digest := a.SHA256
 		mark, ok, err := wm.Get(ctx, markKey(opt, m.Harness, bundle.Root, a.RelPath))
 		if err != nil {
-			return protocol.Manifest{}, nil, nil, nil, err
+			return item, nil, err
 		}
-		clean, prefix := cleanPrefix(mark, ok, body)
+		clean, prefix, err := cleanPrefix(ctx, mark, ok, body)
+		if err != nil {
+			return item, nil, err
+		}
 		if scanHook != nil {
 			scanHook(a.RelPath, clean)
 		}
-		scan, err := (redact.Ruleset{}).ScanAppended(body, int(clean))
+		scan, err := (redact.Ruleset{}).ScanReaderAt(ctx, body.file, body.size, clean, dir)
 		if err != nil {
-			return protocol.Manifest{}, nil, nil, nil, err
+			return item, nil, err
 		}
 		scan = scan.Add(bundle.Hidden[digest])
 		// quarantine allow acknowledges these exact bytes. Anything
@@ -390,7 +424,7 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 				Hits:    scan.Hits,
 				Rules:   scan.Rules,
 			}); err != nil {
-				return protocol.Manifest{}, nil, nil, nil, err
+				return item, nil, err
 			}
 			if blocked == nil {
 				blocked = &quarantineHit{rel: a.RelPath}
@@ -405,42 +439,45 @@ func scanSession(ctx context.Context, opt Options, wm *watermark.DB, bundle adap
 			}
 			continue
 		}
-		art, blob, hold, err := stamp(mark, ok, prefix, a, body, scan)
+		art, blob, hold, err := stamp(ctx, mark, ok, prefix, a, body, scan)
 		if err != nil {
-			return protocol.Manifest{}, nil, nil, nil, err
+			return item, nil, err
 		}
 		if hold {
 			continue
 		}
-		bodies[putDigest(art)] = blob
-		full[art.RelPath] = body
-		next.Artifacts = append(next.Artifacts, art)
+		item.bodies[putDigest(art)] = blob
+		item.full[art.RelPath] = body
+		item.manifest.Artifacts = append(item.manifest.Artifacts, art)
 	}
 	if blocked != nil {
-		return protocol.Manifest{}, nil, nil, blocked, nil
+		return item, blocked, nil
 	}
-	return next, bodies, full, nil, nil
+	if len(item.manifest.Artifacts) > 0 {
+		blocked, err = scanManifest(opt, item.manifest)
+	}
+	return item, blocked, err
 }
 
 // stamp plans the upload of body against mark. prefix, when set, is
 // the sha256 of body[:mark.Size], already taken for the scan.
-func stamp(mark watermark.Mark, ok bool, prefix string, a protocol.Artifact, body []byte, scan redact.Result) (protocol.Artifact, []byte, bool, error) {
+func stamp(ctx context.Context, mark watermark.Mark, ok bool, prefix string, a protocol.Artifact, body bodySource, scan redact.Result) (protocol.Artifact, bodySource, bool, error) {
 	digest := a.SHA256
 	if !ok {
 		mark = watermark.Mark{}
 	}
 	st := watermark.Stat{
-		Size:    int64(len(body)),
+		Size:    body.size,
 		ModTime: a.MTime,
 		FullSHA: digest,
 	}
-	if ok && int64(len(body)) > mark.Offset {
+	if ok && body.size > mark.Offset {
 		if prefix != "" && mark.Offset == mark.Size {
 			st.PrefixSHA = prefix
 		} else {
-			pfx, err := watermark.HashPrefix(bytes.NewReader(body), mark.Offset)
+			pfx, err := body.slice(0, mark.Offset).digest(ctx)
 			if err != nil {
-				return protocol.Artifact{}, nil, false, err
+				return protocol.Artifact{}, bodySource{}, false, err
 			}
 			st.PrefixSHA = pfx
 		}
@@ -449,14 +486,14 @@ func stamp(mark watermark.Mark, ok bool, prefix string, a protocol.Artifact, bod
 	// The lake head is ahead of this file and the local bytes still
 	// match the snapshot already reported. Another manifest would only
 	// repeat that prefix.
-	if mark.Offset > mark.Size && dec.Kind == watermark.KindUnchanged && int64(len(body)) <= mark.Size {
-		return protocol.Artifact{}, nil, true, nil
+	if mark.Offset > mark.Size && dec.Kind == watermark.KindUnchanged && body.size <= mark.Size {
+		return protocol.Artifact{}, bodySource{}, true, nil
 	}
 	status := protocol.RedactionScanned
 	if scan.Hits > 0 {
 		status = protocol.RedactionOverride
 	}
-	a.Size = int64(len(body))
+	a.Size = body.size
 	a.SHA256 = digest
 	a.Redaction = protocol.Redaction{
 		Status:  status,
@@ -469,11 +506,14 @@ func stamp(mark watermark.Mark, ok bool, prefix string, a protocol.Artifact, bod
 	// The tail is one blob, so it stays under the single-object cap.
 	// A file past that cap may still travel as a tail; the upload
 	// widens it when the lake does not list protocol.FeatureLargeTails.
-	if int64(len(body))-dec.Offset <= protocol.MaxBlobBytes && dec.Kind == watermark.KindTail && dec.Offset > 0 && dec.Offset < int64(len(body)) && int64(dec.Offset+dec.Length) == int64(len(body)) {
-		tail := body[dec.Offset:]
-		sum := sha256.Sum256(tail)
+	if body.size-dec.Offset <= protocol.MaxBlobBytes && dec.Kind == watermark.KindTail && dec.Offset > 0 && dec.Offset < body.size && int64(dec.Offset+dec.Length) == body.size {
+		tail := body.slice(dec.Offset, body.size)
+		tailDigest, err := tail.digest(ctx)
+		if err != nil {
+			return protocol.Artifact{}, bodySource{}, false, err
+		}
 		a.ByteWatermarkPrev = dec.Offset
-		a.TailSHA256 = hex.EncodeToString(sum[:])
+		a.TailSHA256 = tailDigest
 		return a, tail, false, nil
 	}
 	a.ByteWatermarkPrev = 0
@@ -494,12 +534,11 @@ func widenToFullFile(w *prepared) bool {
 		if !ok {
 			continue
 		}
-		sum := sha256.Sum256(body)
-		digest := hex.EncodeToString(sum[:])
+		digest := a.SHA256 // The full immutable snapshot was verified before scanning.
 		w.manifest.Artifacts[i].ByteWatermarkPrev = 0
 		w.manifest.Artifacts[i].TailSHA256 = digest
 		w.manifest.Artifacts[i].SHA256 = digest
-		w.manifest.Artifacts[i].Size = int64(len(body))
+		w.manifest.Artifacts[i].Size = body.size
 		w.bodies[digest] = body
 		changed = true
 	}

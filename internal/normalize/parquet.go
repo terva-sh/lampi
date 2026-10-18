@@ -1,9 +1,9 @@
 package normalize
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +15,17 @@ import (
 
 // ParquetRoot is the directory name under the lake data dir.
 const ParquetRoot = "parquet"
+
+// Bound both serialized batches and the column/page buffers retained until a
+// row group is flushed. A single event may exceed either byte budget. Only one
+// partition writer is open at a time; input events, partition indices and file
+// footer metadata are separate from these working buffers.
+const (
+	parquetBatchRows     = 128
+	parquetBatchBytes    = 1 << 20
+	parquetRowGroupRows  = 2048
+	parquetRowGroupBytes = 8 << 20
+)
 
 // ParquetRow is one normalized event inside a partition file.
 // EventJSON is the schema_version 1 object, with the same escaping as
@@ -69,9 +80,10 @@ func WriteParquet(root, sessionUID string, events []Event) error {
 	if err := partitionSegment("session", sessionUID); err != nil {
 		return err
 	}
-	groups := map[string][]ParquetRow{}
+	// Indices preserve order without serializing a second whole-session copy.
+	groups := map[string][]int{}
 	var order []string
-	for _, ev := range events {
+	for i, ev := range events {
 		date, err := PartitionDate(ev.RecordedAt, ev.IngestedAt)
 		if err != nil {
 			return err
@@ -80,28 +92,37 @@ func WriteParquet(root, sessionUID string, events []Event) error {
 		if err != nil {
 			return err
 		}
-		row, err := parquetRow(ev)
-		if err != nil {
-			return err
-		}
 		if _, ok := groups[path]; !ok {
 			order = append(order, path)
 		}
-		groups[path] = append(groups[path], row)
+		groups[path] = append(groups[path], i)
 	}
 	old, err := SessionParquet(root, sessionUID)
 	if err != nil {
 		return err
 	}
-	written := map[string]struct{}{}
+	staged := map[string]string{}
+	defer func() {
+		for _, tmp := range staged {
+			os.Remove(tmp)
+		}
+	}()
+	// Finish all serialization before replacing any existing partition. A bad
+	// event in a later partition must not publish an earlier partial result.
 	for _, path := range order {
-		if err := writeParquetFile(path, groups[path]); err != nil {
+		tmp, err := stageParquetFile(path, events, groups[path])
+		if err != nil {
 			return err
 		}
-		written[path] = struct{}{}
+		staged[path] = tmp
+	}
+	for _, path := range order {
+		if err := os.Rename(staged[path], path); err != nil {
+			return fmt.Errorf("normalize: %w", err)
+		}
 	}
 	for _, path := range old {
-		if _, ok := written[path]; ok {
+		if _, ok := staged[path]; ok {
 			continue
 		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -208,7 +229,7 @@ func parquetRow(ev Event) (ParquetRow, error) {
 }
 
 func eventJSON(ev Event) (string, error) {
-	var buf bytes.Buffer
+	var buf strings.Builder
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(ev); err != nil {
@@ -217,38 +238,124 @@ func eventJSON(ev Event) (string, error) {
 	return strings.TrimRight(buf.String(), "\n"), nil
 }
 
-func writeParquetFile(path string, rows []ParquetRow) error {
+func stageParquetFile(path string, events []Event, indices []int) (string, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("normalize: %w", err)
+		return "", fmt.Errorf("normalize: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".parquet-*")
 	if err != nil {
-		return fmt.Errorf("normalize: %w", err)
+		return "", fmt.Errorf("normalize: %w", err)
 	}
 	tmpName := tmp.Name()
+	complete := false
 	defer func() {
 		tmp.Close()
-		if tmpName != "" {
+		if !complete {
 			os.Remove(tmpName)
 		}
 	}()
 	// The rows repeat their session's fields and carry each event twice,
 	// as text and as JSON, so zstd shrinks them several times over.
-	if err := parquet.Write(tmp, rows, parquet.Compression(&parquet.Zstd)); err != nil {
-		return fmt.Errorf("normalize: %w", err)
+	if err := writeParquetRows(tmp, events, indices); err != nil {
+		return "", fmt.Errorf("normalize: %w", err)
 	}
 	if err := tmp.Chmod(0o600); err != nil {
-		return fmt.Errorf("normalize: %w", err)
+		return "", fmt.Errorf("normalize: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("normalize: %w", err)
+		return "", fmt.Errorf("normalize: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("normalize: %w", err)
+	complete = true
+	return tmpName, nil
+}
+
+func writeParquetRows(out io.Writer, events []Event, indices []int) error {
+	return writeParquetStream(out, func(sink func(ParquetRow) error) error {
+		for _, i := range indices {
+			row, err := parquetRow(events[i])
+			if err != nil {
+				return err
+			}
+			if err := sink(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func writeParquetStream(out io.Writer, produce func(func(ParquetRow) error) error) error {
+	w := parquet.NewGenericWriter[ParquetRow](out,
+		parquet.Compression(&parquet.Zstd),
+		parquet.MaxRowsPerRowGroup(parquetRowGroupRows),
+	)
+	closed := false
+	defer func() {
+		if !closed {
+			_ = w.Close()
+		}
+	}()
+	batch := make([]ParquetRow, 0, parquetBatchRows)
+	batchBytes, groupBytes, groupRows := 0, 0, 0
+	flushBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		n, err := w.Write(batch)
+		if err == nil && n != len(batch) {
+			err = io.ErrShortWrite
+		}
+		// Write copies values into column buffers. Drop serialized strings
+		// immediately rather than keeping them in the reusable batch array.
+		clear(batch)
+		batch = batch[:0]
+		batchBytes = 0
+		return err
 	}
-	tmpName = ""
-	return nil
+	if err := produce(func(row ParquetRow) error {
+		size := parquetRowBytes(row)
+		if groupRows > 0 && (groupRows == parquetRowGroupRows || groupBytes+size > parquetRowGroupBytes) {
+			if err := flushBatch(); err != nil {
+				return err
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			groupBytes, groupRows = 0, 0
+		}
+		if len(batch) > 0 && (len(batch) == parquetBatchRows || batchBytes+size > parquetBatchBytes) {
+			if err := flushBatch(); err != nil {
+				return err
+			}
+		}
+		batch = append(batch, row)
+		batchBytes += size
+		groupBytes += size
+		groupRows++
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := flushBatch(); err != nil {
+		return err
+	}
+	err := w.Close()
+	closed = true
+	return err
+}
+
+// Include text duplicated in event_json as well as the scalar columns. This
+// estimates uncompressed payload, not just row count or compressed file size.
+func parquetRowBytes(r ParquetRow) int {
+	n := len(r.EventJSON) + len(r.EventID) + len(r.SessionID) + len(r.Harness) + len(r.RecordedAt) + len(r.IngestedAt) + len(r.EventType) + len(r.Actor) + len(r.CWDHash) + len(r.RawType)
+	if r.ContentText != nil {
+		n += len(*r.ContentText)
+	}
+	if r.ProjectID != nil {
+		n += len(*r.ProjectID)
+	}
+	return n
 }
 
 func partitionSegment(kind, s string) error {

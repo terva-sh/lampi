@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/diagnostics"
 	"terva.sh/lampi/internal/storage"
 )
 
@@ -184,6 +185,13 @@ func (s *Server) writeNormalizeMetrics(ctx context.Context, m *metricWriter, sta
 	m.sample("gauge", "lampi_normalize_oldest_pending_age_seconds", "Age of the oldest row in the normalize job table; 0 when none wait.", age)
 	if s.norm != nil {
 		queued, running, retrying := s.norm.depth()
+		admission := s.norm.admission()
+		m.sample("gauge", "lampi_normalize_admitted_input_bytes", "Logical input bytes admitted; an oversized job runs alone.", float64(admission.Bytes))
+		m.sample("gauge", "lampi_normalize_input_budget_bytes", "Concurrent logical input admission budget, not an RSS limit.", float64(admission.Budget))
+		m.sample("counter", "lampi_normalize_coalesced_jobs_total", "Queued generations replaced by newer work for the same session.", float64(admission.Coalesced))
+		m.sample("counter", "lampi_normalize_queue_wait_seconds_sum", "Total ready-queue admission wait; excludes delayed retry timers.", admission.WaitSeconds)
+		m.sample("counter", "lampi_normalize_queue_wait_seconds_count", "Number of jobs admitted by this process.", float64(admission.WaitCount))
+		m.sample("gauge", "lampi_normalize_queue_wait_max_seconds", "Largest ready-queue admission wait since process start.", admission.MaxWaitSeconds)
 		for _, st := range []struct {
 			state string
 			n     int
@@ -217,6 +225,18 @@ func unix(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 
 func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo) error {
 	m := &metricWriter{w: w, seen: map[string]bool{}}
+	rt := diagnostics.Read()
+	m.sample("gauge", "lampi_runtime_heap_bytes", "Allocated Go heap; may include garbage awaiting collection.", float64(rt.HeapBytes))
+	m.sample("gauge", "lampi_runtime_memory_bytes", "Go-managed memory minus released heap pages; not RSS.", float64(rt.GoMemoryBytes))
+	m.sample("counter", "lampi_runtime_allocated_bytes_total", "Cumulative Go heap allocation.", float64(rt.AllocatedBytes))
+	m.sample("counter", "lampi_runtime_gc_cycles_total", "Completed garbage collections.", float64(rt.GC))
+	m.sample("counter", "lampi_runtime_gc_pause_seconds_total", "Cumulative stop-the-world GC pause time; excludes concurrent GC CPU.", rt.GCPauseSeconds)
+	if rt.RSSBytes > 0 {
+		m.sample("gauge", "lampi_process_resident_bytes", "Process RSS; excludes cgroup filesystem cache.", float64(rt.RSSBytes))
+	}
+	if rt.CPUAvailable {
+		m.sample("counter", "lampi_process_cpu_seconds_total", "Cumulative process user plus system CPU.", rt.CPUSeconds)
+	}
 	m.sample("gauge", "lampi_build_info", "The running terva-lampi build; always 1.", 1, "version", info.Version)
 	if !info.Started.IsZero() {
 		m.sample("gauge", "lampi_start_time_seconds", "When this serve process started, in Unix seconds.", unix(info.Started))

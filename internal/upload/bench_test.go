@@ -2,6 +2,7 @@ package upload
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"net/http/httptest"
@@ -44,7 +45,11 @@ func writeClaudeCorpus(tb testing.TB, home string, n int, size int) {
 					line.WriteByte(' ')
 				}
 			}
-			fmt.Fprintf(&b, `{"type":"assistant","sessionId":%q,"cwd":"/work/app","message":{"content":[{"type":"text","text":"%s"}]}}`+"\n", id, line.String())
+			text, err := json.Marshal(line.String())
+			if err != nil {
+				tb.Fatal(err)
+			}
+			fmt.Fprintf(&b, `{"type":"assistant","sessionId":%q,"cwd":"/work/app","message":{"content":[{"type":"text","text":%s}]}}`+"\n", id, text)
 		}
 		if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), []byte(b.String()), 0o644); err != nil {
 			tb.Fatal(err)

@@ -81,16 +81,19 @@ type Server struct {
 	// normStats counts what the normalize workers did in this process.
 	normStats normalizeStats
 
-	norm        *normalizeQueue
-	normalizeWG sync.WaitGroup
-	pubMu       sync.Mutex
-	pubs        map[string]*sessionLock
+	normalizeOptions NormalizeOptions
+	norm             *normalizeQueue
+	normalizeWG      sync.WaitGroup
+	pubMu            sync.Mutex
+	pubs             map[string]*sessionLock
 	// retryBase is the first wait before a transient normalize failure
 	// is tried again. Zero is defaultRetryBase. Tests shorten it.
 	retryBase time.Duration
 	// beforeProject, when set, runs in the worker before Project.
 	// Tests use it to show that the manifest ACK does not wait.
 	beforeProject func()
+	// beforePublish, when set by tests, runs after private staging finishes.
+	beforePublish func()
 
 	// heavy holds one token per blob PUT or manifest post in a handler.
 	// heavyN, when set, replaces maxHeavy. Tests lower it.
@@ -186,12 +189,22 @@ func (s *Server) Allow(token string) {
 
 // Open loads a filesystem CAS and a SQLite catalog under dataDir, loads
 // the queued normalize jobs, and starts the workers.
-func Open(dataDir string) (*Server, error) {
+func Open(dataDir string) (*Server, error) { return OpenWithOptions(dataDir, NormalizeOptions{}) }
+
+// OpenWithOptions configures admission before loading durable jobs.
+func OpenWithOptions(dataDir string, options NormalizeOptions) (*Server, error) {
+	var err error
+	options, err = options.resolved()
+	if err != nil {
+		return nil, err
+	}
 	s, err := OpenIdle(dataDir)
 	if err != nil {
 		return nil, err
 	}
+	s.normalizeOptions = options
 	s.norm = newNormalizeQueue()
+	s.norm.budget = options.InputBudgetBytes
 	if err := s.loadNormalizeJobs(context.Background()); err != nil {
 		s.Catalog.Close()
 		return nil, err

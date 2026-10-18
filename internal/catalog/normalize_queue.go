@@ -15,6 +15,7 @@ import (
 type NormalizeJob struct {
 	SessionUID string
 	Gen        int64
+	Bytes      int64 // current logical artifact bytes; computed on enqueue/load
 	Attempt    int
 }
 
@@ -64,8 +65,9 @@ func (c *Catalog) EnqueueNormalize(ctx context.Context, sessionUID string, now t
 // published, so a crash does not drop the session.
 func (c *Catalog) ListNormalizeJobs(ctx context.Context) ([]NormalizeJob, error) {
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT session_uid, gen FROM normalize_jobs
-		ORDER BY enqueued_at, session_uid`)
+		SELECT j.session_uid, j.gen,
+ COALESCE((SELECT SUM(a.size) FROM artifacts a WHERE a.session_uid=j.session_uid AND a.current=1),0)
+ FROM normalize_jobs j ORDER BY j.enqueued_at, j.session_uid`)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
@@ -73,7 +75,7 @@ func (c *Catalog) ListNormalizeJobs(ctx context.Context) ([]NormalizeJob, error)
 	var out []NormalizeJob
 	for rows.Next() {
 		var job NormalizeJob
-		if err := rows.Scan(&job.SessionUID, &job.Gen); err != nil {
+		if err := rows.Scan(&job.SessionUID, &job.Gen, &job.Bytes); err != nil {
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
 		out = append(out, job)
@@ -148,4 +150,12 @@ func (c *Catalog) NormalizeBacklog(ctx context.Context) (NormalizeBacklog, error
 		b.Oldest = t
 	}
 	return b, nil
+}
+
+// NormalizeWeight conservatively includes every current artifact. It is an
+// admission estimate, not an RSS prediction, and requires no schema change.
+func (c *Catalog) NormalizeWeight(ctx context.Context, uid string) (int64, error) {
+	var n int64
+	err := c.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(size),0) FROM artifacts WHERE session_uid=? AND current=1`, uid).Scan(&n)
+	return n, err
 }

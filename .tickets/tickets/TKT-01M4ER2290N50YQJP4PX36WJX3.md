@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M4ER2290N50YQJP4PX36WJX3
 title: "Release v0.9.0: dashboard navigation and lake maintenance"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,15 +18,22 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/memory-e2fc465b
+  branch: t3code/explore-lampi-memory-footprint
+  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e2fc465b
+  commit: e2825e9b7aee6806c92e66e663587b01bfbcd284
+  session: null
+  claimed_at: 2026-10-18T04:49:27Z
+  expires_at: null
 archive: null
 created_at: 2026-10-08T21:52:38Z
-updated_at: 2026-10-09T02:20:16Z
+updated_at: 2026-10-18T04:52:30Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
 updated_by:
-  id: agent:codex/t3code-8afe4a1e
+  id: agent:codex/memory-e2fc465b
   name: ""
 extensions: {}
 ---
@@ -61,13 +68,40 @@ Before publishing, rehearse the v0.8.0 lake upgrade on isolated synthetic data, 
 
 ## Acceptance criteria
 
-- [ ] The owner selects the release version and authorizes publication.
+- [x] The owner selects the release version and authorizes publication.
 - [ ] A scratch v0.8.0 upgrade rehearsal and release gates pass on the synchronized main commit.
 - [ ] The tag is published on both forges and archives, checksums, and images verify the selected tag.
 - [ ] Both release bodies describe features, unchanged schema/normalizers, and rollback.
+
+## Implementation plan
+
+The owner's 2026-10-17 request authorizes completing release publication, including review, merge, main synchronization, and tagging. Select v0.9.0, the existing unused feature-release candidate, now also including TKT-01M56GHAXEJJXEE45GJ9C37NQG — Bound memory and repeated work for growing transcripts. Prepare update scripts after publication; do not execute live updates under this request.
+
+1. Finalize combined dashboard/search/memory notes, correcting the earlier draft's no-normalizer-code-change statement: implementations change, but event semantics/schema remain compatible and no full requeue or catalog migration is introduced.
+2. Rehearse v0.8.0 synthetic lake upgrade. Existing full race/vet/build, five-target archives, checksums, and both image-build rehearsals passed at source-equivalent 45fea68. Open the Forgejo PR, require current CI and terva-review/code, and resolve all findings before merge.
+3. Merge, synchronize both mains, annotate v0.9.0 on the identical main commit, and push the tag to both forges. Verify both publication workflows, all archives/checksums, tagged binary identity, image platforms/provenance, and release bodies.
+4. Record release evidence. Prepare separately tracked, version-pinned local and fleet update scripts with backup, verification and rollback based on documented deployment configuration; no live installation or restart is implied.
 
 ## Notes
 
 **agent:codex/t3code-8afe4a1e** at 2026-10-08T21:59:31Z
 
 Release preparation: just release-check passed, and a GoReleaser snapshot on 397ca0d built all five archives (Linux and Darwin amd64/arm64; Windows amd64), README/LICENSE, and checksums without publication. The follow-up continuation fix is cleanly reviewed at f832e413f7cda286138eb9524197ce4b545912d6; complete web/recall race tests pass. This remains a draft release candidate for the owner's decision, with upgrade notes in the description. No tag, release, image, or live deployment was published.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:49:43Z
+
+Release scope now includes the completed memory epic as well as dashboard/search maintenance. v0.9.0 remains unused on both forges; both main branches are synchronized and are ancestors of this branch. The owner explicitly requested publication, which promotes this ticket and authorizes the merge/tag/release steps. docs/release-notes-memory.md is the combined v0.9.0 release body. This supersedes the draft description's older assertion that internal/normalize has no code changes: streaming implementations change, but schema 21, event schema 1 and normalizer semantics remain compatible, and no full requeue is added.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:51:14Z
+
+PR #212 (Bound transcript memory and prepare v0.9.0): https://git.local.sothr.com/terva-sh/lampi/pulls/212. First review at cb97232af5e83a18cf740fc79bc401333c12e550, https://git.local.sothr.com/terva-sh/lampi/pulls/212#issuecomment-30954, found one high-severity issue: final event-frame/index output failures escaped OutputError and could become permanent normalization failures. Fix the actual writer-error sites in WriteEventsStream/writeIndex so producer errors stay unclassified while storage errors remain retryable. Failure-injection tests cover both final-frame and footer writes after the producer completes, plus the invalid-producer control. Request a fresh review after the fix; do not merge the failed verdict.
+
+An isolated synthetic v0.8.0 upgrade rehearsal passed: downloaded old binary checksum verified; schema 21/counts and existing derived-file hashes unchanged at startup; unchanged sync uploaded zero; append projected successfully; fsck checked 3 entries with 0 bad; v0.8.0 reopened the upgraded lake and unchanged sync uploaded zero. No live config, identity or services touched. Scratch evidence: release-v090-v6HXDDxd/rehearse.log under the documented agent-scratch/lampi root. Re-run against the final gated release source after the review fix.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:52:00Z
+
+The fresh review of c668431 confirmed the finalization-storage finding resolved and raised one medium finding in the optional performance tool: its recall index was left open during teardown. Close the index before the lake and join both close errors; exercise the existing search workload and performance tests. The final-source v0.8.0 upgrade/append/fsck/rollback rehearsal also passed. Corrected the first disposition command to use numeric Forgejo review ID 2526 (the original UUID command did not record a disposition).
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:52:30Z
+
+Normalization/API race suites pass after the storage-error fix. Performance-tool tests and a real 1 MiB initial/unchanged/append search workload pass after closing the index before the lake (9b0d0ea); the first cleanup edit had missed the callback and was caught by the local build, then corrected before requesting another review. Update-script preparation is tracked by TKT-01M56NN116DEAN872R5BM126SE — Prepare v0.9.0 workstation and fleet update scripts. Live lake remains v0.9.0-dogfood.fe787a4 and capture agent v0.8.0, both active; no live changes made.

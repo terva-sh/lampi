@@ -44,7 +44,7 @@ func TestUploadSplitUsesReaderCuts(t *testing.T) {
 		arts := []protocol.Artifact{{RelPath: "acp-sessions/s/store.json", Size: int64(len(body)), SHA256: d}}
 		var res Result
 		lists := map[string]chunkPlan{}
-		if err := uploadDigests(context.Background(), srv.Client(), opt, 1024, &res, arts, map[string][]byte{d: body}, map[string][]int64{d: cuts}, lists); err != nil {
+		if err := uploadDigests(context.Background(), srv.Client(), opt, 1024, &res, arts, map[string]bodySource{d: memoryBody(body)}, map[string][]int64{d: cuts}, lists); err != nil {
 			t.Fatal(err)
 		}
 		return res, lists[d]

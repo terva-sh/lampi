@@ -99,7 +99,7 @@ func TestSlowLinkUploadsBlobAtCap(t *testing.T) {
 		StallTimeout: 200 * time.Millisecond,
 		PieceBytes:   DefaultPieceBytes,
 	}
-	put, err := putBlobResume(context.Background(), opt.Client, opt, digest, body, nil)
+	put, err := putBlobResume(context.Background(), opt.Client, opt, digest, memoryBody(body), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestDeadConnectionIsDetected(t *testing.T) {
 		body := make([]byte, 64<<20)
 		done := make(chan error, 1)
 		go func() {
-			_, err := putBlob(context.Background(), client, opt, strings.Repeat("0", 64), body)
+			_, err := putBlob(context.Background(), client, opt, strings.Repeat("0", 64), memoryBody(body))
 			done <- err
 		}()
 		select {
@@ -357,13 +357,13 @@ func TestRangePutResumesAfterFailure(t *testing.T) {
 	digest := hex.EncodeToString(sum[:])
 	opt := Options{ServerURL: srv.URL, Token: "tok", PieceBytes: 10}
 
-	if _, err := putRanged(context.Background(), srv.Client(), opt, digest, body); err == nil {
+	if _, err := putRanged(context.Background(), srv.Client(), opt, digest, memoryBody(body)); err == nil {
 		t.Fatal("first attempt did not fail")
 	}
 	if got := fmt.Sprint(gate.takeStarts()); got != "[0 10 20]" {
 		t.Fatalf("first attempt ranges %s", got)
 	}
-	put, err := putRanged(context.Background(), srv.Client(), opt, digest, body)
+	put, err := putRanged(context.Background(), srv.Client(), opt, digest, memoryBody(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestRangePutRestartsWhenLakeLostPartial(t *testing.T) {
 	digest := hex.EncodeToString(sum[:])
 	opt := Options{ServerURL: srv.URL, Token: "tok", PieceBytes: 10}
 
-	if _, err := putRanged(context.Background(), srv.Client(), opt, digest, body); err == nil {
+	if _, err := putRanged(context.Background(), srv.Client(), opt, digest, memoryBody(body)); err == nil {
 		t.Fatal("first attempt did not fail")
 	}
 	gate.takeStarts()
@@ -399,7 +399,7 @@ func TestRangePutRestartsWhenLakeLostPartial(t *testing.T) {
 	gate.mu.Lock()
 	gate.lake = second.Handler()
 	gate.mu.Unlock()
-	put, err := putRanged(context.Background(), srv.Client(), opt, digest, body)
+	put, err := putRanged(context.Background(), srv.Client(), opt, digest, memoryBody(body))
 	if err != nil {
 		t.Fatal(err)
 	}
