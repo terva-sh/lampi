@@ -412,3 +412,97 @@ and overlap in work: their times must not be summed, or subtracted as an exact
 concurrent pipeline decomposition. The older `projection` mode retains the
 slice API for compatibility/control measurements; use `sync` for the actual
 streaming worker. Profile runs are separate from unprofiled comparisons.
+
+## Streaming lake contract and admission
+
+The worker now uses logical CAS readers (including chunked objects) and streams
+Claude/Codex/terva transcript JSONL and terva error JSONL. It retains the largest
+record/event and parser state, indexed-zstd frame buffers, one row spool buffer,
+and one bounded Parquet row group. Row batches retain the existing 128-row / 1
+MiB target and row groups the existing 2048-row / 8 MiB target; a single larger
+row is admitted. Frame/partition metadata scales with counts. This is not a
+constant bound for one arbitrarily large JSON record. Other harnesses still use
+their compatibility slice projectors, and callers of the slice `Project` API
+can still collect the complete event list.
+
+Partition rows spool as private length-prefixed strings, avoiding a second JSON
+escape/parse cycle. At most one spool and one Parquet writer are open. Private
+stages contain complete output before generation/head validation under the
+session publication lock. Publication is atomic per file, followed by catalog
+readiness; it is not a transactional directory swap. Failed/cancelled/panicking
+or superseded stages are removed. Failed rename publication removes derived
+outputs and leaves the durable job for retry. CLI startup under lake.lock
+removes abandoned `.projection-*` directories before starting workers.
+Raw CAS data is never modified by projection.
+
+Temporary disk can include row spools plus compressed events and candidate
+Parquet files alongside the old generation. Spools repeat full event JSON and
+searchable text, so input bytes are not an adequate temporary-space quota.
+Files are 0600 under a 0700 stage directory in the lake's own data filesystem.
+Plan disk headroom and observe storage; no temporary disk cap was introduced.
+
+`serve --normalize-workers 2 --normalize-input-budget-mib 256` is the default.
+Admission estimates all current logical artifact bytes conservatively and
+reloads those weights from the catalog after restart. It coalesces pending
+same-session generations in their original queue position and never runs two
+for that session together. Oversized jobs run alone. Up to eight smaller jobs
+can bypass a budget-blocked session before it reserves the next capacity.
+Delayed retries retain their hold; obsolete timers cannot replace newer work.
+Latest-generation/head checks and the durable job table remain authoritative.
+The byte budget controls overlap, not record sizes, codec caches, RSS or cgroup
+memory. Worker count remains an independent upper bound.
+
+Metrics include admitted/budget input bytes, coalesced jobs and queue-wait
+sum/count/maximum. Queue wait is measured from first pending insertion to
+admission (including replaced generations' time in that position), and excludes
+delayed retry timers and projection time. The maximum is since process start.
+An empty queue alone does not prove successful publication: also inspect job
+outcomes and catalog normalization readiness.
+
+## Final lake comparison
+
+The control uses production `10ee962` (file-backed agent, slice lake), and the
+streaming/admission build uses production code committed as `635dea4`. Both
+binaries were built with `-buildvcs=false` while the production changes were
+being committed. The final evaluation tool uses `334cb23` plus the later
+restart-test-only change; diagnostics are disabled unless requested. Binary
+SHA-256s and per-run measurements are preserved in
+[performance-results.json](performance-results.json). Later changes reject
+truncated private spools and add diagnostics; they do not change successful
+normalizer semantics. Private profiles and synthetic fixtures are disposable
+under `~/.cache/agent-scratch/lampi/epic-finish-eh56lo4x/`.
+
+Three fresh processes per build/workload ran in alternating control/new order,
+reversing the second pair. Each included initial sync, one unchanged pass and
+two 64 KiB append passes per session. This is combined agent/lake memory and
+CPU, including normalization and excluding search. Go 1.27.1 linux/amd64,
+GOMAXPROCS=12, default GOGC/GOMEMLIMIT, same machine/corpus. Machine load and
+filesystem cache were not isolated; no host cache was dropped. Brief targeted
+tests and a small diagnostic smoke capture also ran during this series, so
+small CPU differences are not evidence of a speed change. Profiles are separate.
+
+| Measurement | 3 × 32 MiB control | 3 × 32 MiB streaming | 1 × 128 MiB control | 1 × 128 MiB streaming |
+| --- | --- | --- | --- | --- |
+| Peak RSS, MiB, median (range) | 418.2 (404.2–440.3) | 235.2 (223.2–243.4) | 665.1 (663.0–727.0) | 174.2 (145.7–178.4) |
+| Sampled peak heap, MiB | 368.1 | 222.5 | 555.9 | 159.3 |
+| Stage allocation total, MiB | 4520.9 | 4930.9 | 4757.3 | 5606.6 |
+| Process CPU, s, median (range) | 14.98 (14.96–15.02) | 15.26 (15.08–15.48) | 19.31 (18.89–19.44) | 19.44 (19.37–19.54) |
+| Stage wall total, s | 8.16 | 8.54 | 17.29 | 17.88 |
+| Stage GC cycles | 46 | 92 | 30 | 177 |
+| Retained fixture/lake/agent output, MiB | 167.4 | 167.4 | 222.2 | 222.2 |
+
+Median RSS fell about 44% and 74%. Total allocation rose about 9% and 18%, and
+GC cycles increased as the collector worked with a smaller live set. CPU medians
+rose about 2% and 1%, and wall time about 5% and 3%; this establishes memory
+improvement, not general CPU acceleration. The initial JSON row spool prototype
+allocated and consumed substantially more CPU; replacing it with length-prefixed
+strings avoided reparsing/escaping full event JSON. The final implementation
+still performs two event serializations and temporary spool I/O.
+
+Inputs and transfer counters matched: unchanged scans transferred/posted nothing;
+each append posted once per session, with no quarantine/refusal/skip outcomes.
+Small output differences reflect generated IDs/compressed bytes. Retained output
+includes synthetic source files and CAS, not just derived data, and is not peak
+temporary disk use. The source corpus uses ordinary ~4 KiB Claude JSON records;
+these figures do not establish the working set of a single giant record or of
+other harnesses' compatibility projectors.
