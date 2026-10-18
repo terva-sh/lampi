@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-08T21:52:38Z
-updated_at: 2026-10-18T04:52:00Z
+updated_at: 2026-10-18T04:52:30Z
 created_by:
   id: agent:codex/t3code-8afe4a1e
   name: ""
@@ -101,3 +101,7 @@ An isolated synthetic v0.8.0 upgrade rehearsal passed: downloaded old binary che
 **agent:codex/memory-e2fc465b** at 2026-10-18T04:52:00Z
 
 The fresh review of c668431 confirmed the finalization-storage finding resolved and raised one medium finding in the optional performance tool: its recall index was left open during teardown. Close the index before the lake and join both close errors; exercise the existing search workload and performance tests. The final-source v0.8.0 upgrade/append/fsck/rollback rehearsal also passed. Corrected the first disposition command to use numeric Forgejo review ID 2526 (the original UUID command did not record a disposition).
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T04:52:30Z
+
+Normalization/API race suites pass after the storage-error fix. Performance-tool tests and a real 1 MiB initial/unchanged/append search workload pass after closing the index before the lake (9b0d0ea); the first cleanup edit had missed the callback and was caught by the local build, then corrected before requesting another review. Update-script preparation is tracked by TKT-01M56NN116DEAN872R5BM126SE — Prepare v0.9.0 workstation and fleet update scripts. Live lake remains v0.9.0-dogfood.fe787a4 and capture agent v0.8.0, both active; no live changes made.
