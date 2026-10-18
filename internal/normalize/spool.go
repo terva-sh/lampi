@@ -51,6 +51,9 @@ func readSpoolRow(r *bufio.Reader, fileBytes int64) (ParquetRow, error) {
 	for i := range fields {
 		n, err := binary.ReadUvarint(r)
 		if err != nil {
+			if err == io.EOF {
+				err = io.ErrUnexpectedEOF
+			}
 			return ParquetRow{}, err
 		}
 		if n > uint64(fileBytes) || n > uint64(int(^uint(0)>>1)) {
@@ -62,6 +65,9 @@ func readSpoolRow(r *bufio.Reader, fileBytes int64) (ParquetRow, error) {
 			count := int(min(n, uint64(r.Size())))
 			chunk, err := r.Peek(count)
 			if err != nil {
+				if err == io.EOF {
+					err = io.ErrUnexpectedEOF
+				}
 				return ParquetRow{}, err
 			}
 			b.Write(chunk)
