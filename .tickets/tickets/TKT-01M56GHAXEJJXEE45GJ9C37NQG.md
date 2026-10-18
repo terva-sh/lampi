@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: children
 references: []
-claim:
-  actor: agent:codex/memory-e2fc465b
-  branch: t3code/explore-lampi-memory-footprint
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e2fc465b
-  commit: 1fb9941c5ae8402da27ec520e51a396a7a09e36b
-  session: null
-  claimed_at: 2026-10-18T03:28:54Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-18T03:22:56Z
-updated_at: 2026-10-18T03:36:36Z
+updated_at: 2026-10-18T03:47:23Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -50,12 +43,12 @@ An isolated 128 MiB synthetic Claude transcript allocated about 1.4 GiB across n
 
 Prefer bounded processing and removal of repeated work over a low unmeasured memory limit. Measure before changing compression levels or disabling derived stores. Tail-only normalization needs explicit handling of parser state, rewrites, content references and generation atomicity. Existing TKT-01M44DRPS (Cursor CLI: stream the export so large stores need not be capped) covers the Cursor export case; this ticket covers the shared upload and lake pipeline.
 
-The live services, configuration, tokens and capture permissions were left unchanged. This is follow-up implementation work filed in draft, not a claim that the optimizations have landed.
+The live services, configuration, tokens and capture permissions were left unchanged. The user authorized promotion and autonomous implementation of this epic and its nine child tickets. Current implementation and measurement results are in docs/performance.md and the child tickets; this initial investigation remains provenance rather than a claim about deployed improvements.
 
 ## Acceptance criteria
 
-- [ ] Record comparable RSS, live heap, allocation and CPU profiles for agent sync and lake projection on representative growing transcripts.
-- [ ] Bound upload preparation memory by a limited batch or file-backed chunks, preserving digest checks, redaction boundaries, retries and rewrite detection.
+- [x] Record comparable RSS, live heap, allocation and CPU profiles for agent sync and lake projection on representative growing transcripts.
+- [x] Bound upload preparation memory by a limited batch or file-backed chunks, preserving digest checks, redaction boundaries, retries and rewrite detection.
 - [ ] Stream lake normalization and Parquet output with bounded buffers while preserving event semantics and generation publication safety.
 - [ ] Measure incremental projection or batching choices for small appends; document freshness and CPU tradeoffs without changing capture permissions.
 
@@ -68,3 +61,13 @@ The user authorized an epic, child tickets, promotion and autonomous implementat
 **agent:codex/memory-e2fc465b** at 2026-10-18T03:36:36Z
 
 Refined the agent work into two independently measurable tickets before coding: per-session batch lifetime reduction and TKT-01M56HA9EQBBA9KF4Q9B8PSQ1R (Agent: stream verified artifacts from file-backed snapshots). There are now nine implementation children. The streaming criterion was moved, not discarded, and final validation depends on both phases.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:46:46Z
+
+Reached a tested implementation milestone: three of nine promoted children are complete and released. TKT-01M56GV8XHXWHZ2N41XFP0H8H0 (Perf: reproducible memory and CPU workload runner) provides isolated projection, combined sync and now separate-process agent workloads with profiles and private synthetic fixtures. TKT-01M56GV9BWPGYKMZQ89N221X7X (Parquet: bound serialization and row-group buffers) reduced 128 MiB projection median RSS 690.5→591.2 MiB and Parquet-stage allocation 534.3→252.7 MiB, trading about 1.4% more Parquet storage. TKT-01M56GV9JT00CXN9RE3T6SNRGE (Agent: bound upload batches and release transcript buffers) prepares/sends/ACKs one session at a time; repeated agent-only RSS for three 32 MiB sessions fell 282.6→154.8 MiB, and combined RSS 554.0→432.6 MiB versus the Parquet-only control. These are separate workloads and controls, not percentages to add together. Agent CPU did not improve; combined CPU/allocation ranges overlap. Agent CPU and allocation profiles were successfully parsed, supplementing the existing projection profiles. There is no live heap attribution or production deployment claim.
+
+Acceptance criteria 1 and 2 are satisfied by synthetic measurements/profiles and limited session batching. Criteria 3 and 4 remain open: input/event streaming, bounded single-artifact scanning/transfers, normalize job coalescing/budgets and incremental CPU work are still required. Six children remain queued, including final validation. The next ready high-priority reductions are file-backed agent snapshots and streaming JSONL projection; use the measured controls and preserve redaction, rewrite, retry and generation safety. Diagnostics remain an opt-in tool ticket; live services/config/tokens/capture permissions were untouched. Full repository tests, vet, formatting, application build and targeted race checks pass. Implementation commits include 8456f27, 2616854, f6e52a6 and c9e2404; durable measurement methods/results are docs/performance.md. Releasing the epic claim at this milestone, leaving the epic in-progress and its remaining criteria unticked.
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:47:23Z
+
+Completed additional matching profile captures before finalizing the milestone: pre-batching agent control (batch-agent-control-profile32) and updated 128 MiB projection (batch-projection-profile128) both completed, and CPU/alloc_space profiles parsed successfully. Together with batch-agent-profile32 and baseline-profile128, this leaves before/after attribution artifacts for both workloads. Profiles are separate from the unprofiled timing/memory comparisons. Final tool-only race test passes after the RUSAGE_SELF addition. git ticket check has zero errors, the pre-existing long-title warning, and the expected warning that this in-progress epic is intentionally unclaimed between implementation milestones. No acceptance criteria remain claimed by a stale session.

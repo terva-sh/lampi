@@ -236,3 +236,12 @@ worker in `agent` mode; its final heap snapshot is after an explicit GC and
 does not describe the peak working set. Full repository tests, vet, formatting,
 application build and upload/accept/tool race checks passed for the batching
 implementation. Live services and configuration were left unchanged.
+
+Additional pre-batching agent and updated 128 MiB projection captures also
+completed and parsed, providing before/after profile artifacts for both scopes.
+Post-change agent allocation samples still point to full-file reads and the
+JSON-unescape scan view's clone. SHA-256 hashing was the largest CPU sample
+category in the short agent capture. These support tackling file-backed
+snapshots, bounded scanning and repeated hashing next; removing a safety check
+would not be an acceptable substitute for preserving those checks while
+streaming.

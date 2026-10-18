@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-18T03:36:34Z
-updated_at: 2026-10-18T03:36:34Z
+updated_at: 2026-10-18T03:46:45Z
 created_by:
   id: agent:codex/memory-e2fc465b
   name: ""
@@ -44,3 +44,9 @@ Record before/after agent allocation/RSS and small-append CPU. A tail slice reta
 - [ ] Large shared artifact transfers use bounded file-backed/chunk buffers rather than a full transcript allocation; document the largest-record/chunk memory contract.
 - [ ] Preserve complete digest verification, same-size rewrite detection, redaction across boundaries, retries and full-file fallback when a tail is refused.
 - [ ] Isolated large-artifact and boundary/rewrite/retry tests plus comparable profiles demonstrate the memory bound without changing capture permissions.
+
+## Notes
+
+**agent:codex/memory-e2fc465b** at 2026-10-18T03:46:45Z
+
+The prerequisite batching ticket is done at c9e2404 with comparable agent-only measurements via the f6e52a6 runner. docs/performance.md records medians/ranges; scratch artifacts are /home/sothr/.cache/agent-scratch/lampi/implementation-gACllt/batch-agent-profile32 and batch-agent-* JSON reports. In one profiled three-session 32 MiB run, allocation samples attribute about 289 MiB to readArtifacts via os.ReadFile and about 97 MiB to redaction/jsonView during Scan/ScanAppended; the JSON view still clones the scanned text. The profile includes fixture generation (about 76 MiB), so do not present its total as stage allocation. CPU capture covers only agent work after initial corpus generation: SHA-256 block work was 47% of 870 ms samples and redact.find about 8%; this short sample is directional. Removing complete artifact reads alone will not bound the scanner's JSON-unescape clone. Preserve the existing cross-boundary and escaped-JSON secret tests while designing streaming snapshots/scans. One-session RSS was effectively unchanged by batching (152.6→156.3 MiB), while six-session RSS fell 525.3→175.3 MiB; batching solved batch retention, leaving this artifact/scanner work necessary.
