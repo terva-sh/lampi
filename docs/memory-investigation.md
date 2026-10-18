@@ -6,7 +6,10 @@ proportion to large transcripts. The lake also repeatedly parses, serializes,
 compresses and indexes existing content after a small upload.
 
 Follow-up: TKT-01M56GHAXEJJXEE45GJ9C37NQG (Bound memory and repeated work for
-growing transcripts), filed in draft. No service, live configuration, token,
+growing transcripts), initially filed in draft and subsequently promoted to an
+epic with eight implementation tickets at the user's request. The repeatable
+workload runner is documented in [performance.md](performance.md).
+No service, live configuration, token,
 allow rule or capture permission was changed during this investigation.
 
 ## Live observations
