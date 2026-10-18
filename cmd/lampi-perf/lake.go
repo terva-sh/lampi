@@ -85,7 +85,11 @@ func startLake(data string, separate bool, options api.NormalizeOptions, observa
 				return err
 			}, func() error {
 				srv.Close()
-				return lake.Close()
+				var indexErr error
+				if index != nil {
+					indexErr = index.Close()
+				}
+				return errors.Join(indexErr, lake.Close())
 			}, nil
 	}
 	exe, err := os.Executable()
