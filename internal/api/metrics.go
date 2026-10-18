@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/diagnostics"
 	"terva.sh/lampi/internal/storage"
 )
 
@@ -224,6 +225,18 @@ func unix(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 
 func (s *Server) writeMetrics(ctx context.Context, w io.Writer, info MetricsInfo) error {
 	m := &metricWriter{w: w, seen: map[string]bool{}}
+	rt := diagnostics.Read()
+	m.sample("gauge", "lampi_runtime_heap_bytes", "Allocated Go heap; may include garbage awaiting collection.", float64(rt.HeapBytes))
+	m.sample("gauge", "lampi_runtime_memory_bytes", "Go-managed memory minus released heap pages; not RSS.", float64(rt.GoMemoryBytes))
+	m.sample("counter", "lampi_runtime_allocated_bytes_total", "Cumulative Go heap allocation.", float64(rt.AllocatedBytes))
+	m.sample("counter", "lampi_runtime_gc_cycles_total", "Completed garbage collections.", float64(rt.GC))
+	m.sample("counter", "lampi_runtime_gc_pause_seconds_total", "Cumulative stop-the-world GC pause time; excludes concurrent GC CPU.", rt.GCPauseSeconds)
+	if rt.RSSBytes > 0 {
+		m.sample("gauge", "lampi_process_resident_bytes", "Process RSS; excludes cgroup filesystem cache.", float64(rt.RSSBytes))
+	}
+	if rt.CPUAvailable {
+		m.sample("counter", "lampi_process_cpu_seconds_total", "Cumulative process user plus system CPU.", rt.CPUSeconds)
+	}
 	m.sample("gauge", "lampi_build_info", "The running terva-lampi build; always 1.", 1, "version", info.Version)
 	if !info.Started.IsZero() {
 		m.sample("gauge", "lampi_start_time_seconds", "When this serve process started, in Unix seconds.", unix(info.Started))

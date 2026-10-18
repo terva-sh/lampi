@@ -353,3 +353,44 @@ descriptors. Full repository tests, targeted upload/redaction/accept/tool race
 tests, vet, formatting and application/tool builds passed. These changes have
 not been deployed; live services, configuration and capture permissions were
 left unchanged.
+
+## Optional local runtime captures
+
+Both `terva-lampi agent` and `terva-lampi serve` accept
+`--diagnostics-dir NEW_DIR --diagnostics-duration 30s`. The directory must not
+exist; its parent must exist. Capture is off when the directory is omitted.
+Duration must be between 1 second and 5 minutes. Capture stops automatically
+or early on process shutdown, flushing `cpu.pprof`, `heap.pprof` and
+`runtime.json`. Files are mode 0600 in a mode 0700 directory on Unix. An
+existing path, including a symlink, is refused. No listener, HTTP pprof route,
+command-line dump, environment dump, goroutine dump or raw heap dump is added.
+Profiles contain sampled stacks and executable symbols, not allocated object
+contents. Keep them private because code paths and source locations may still
+identify local software. A capture failure is reported at startup or shutdown.
+
+CPU profiling has overhead. Heap/allocation profiles use Go's default sampling
+rate and can be inspected with `go tool pprof -inuse_space` or `-alloc_space`;
+they are estimates, not complete object inventories. No forced GC is performed
+by production capture. `runtime.json` reports start/end cumulative allocation,
+GC cycles/pause time, Go-managed memory, and process CPU (Linux/macOS) and RSS
+(Linux). Fields unavailable on another platform are absent or marked unavailable.
+A capture observes one process, including all its goroutines.
+
+The existing optional lake `/metrics` listener also exposes
+`lampi_runtime_heap_bytes`, `lampi_runtime_memory_bytes`, cumulative allocated
+bytes, GC cycles and GC pause seconds, plus process resident bytes on Linux and
+process CPU seconds on Linux/macOS. These aggregate observations contain no
+session IDs or content. Scrape at the existing recommended interval of 15
+seconds or slower. The diagnostics flags do not enable the metrics listener.
+
+Heap bytes can include unreachable objects awaiting collection. Go-managed
+memory is runtime memory less released heap pages. RSS includes resident Go
+memory, stacks and other mappings; it is not a Go heap limit. A service cgroup
+can additionally charge filesystem page cache from snapshot/spool/CAS writes.
+That cache is reclaimable and is not included in process RSS. `GOMEMLIMIT` is a
+soft Go runtime target, not a hard RSS or cgroup bound.
+
+To test the production capture implementation without live credentials, run
+`lampi-perf --workload sync --size-mib 1 --out NEW_DIR --diagnostics`.
+The synthetic worker writes a `diagnostics/` directory and stops capture when
+its workload ends. Choose either `--diagnostics` or `--profiles` per run.

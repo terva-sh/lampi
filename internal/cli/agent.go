@@ -18,6 +18,7 @@ import (
 
 	"terva.sh/lampi/internal/adapter/cursorcli"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/diagnostics"
 	"terva.sh/lampi/internal/lakestate"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/upload"
@@ -90,6 +91,7 @@ const agentUsage = `terva-lampi agent — local capture
 
 usage:
   terva-lampi agent [--server URL] [--token-file PATH]
+                    [--diagnostics-dir NEW_DIR --diagnostics-duration 30s]
                                  watch session JSONL and upload to every lake
                                  until signalled
   terva-lampi agent discover     list session JSONL files
@@ -246,8 +248,11 @@ func runAgent(env Env, args []string) error {
 }
 
 func runAgentDaemon(env Env, args []string) error {
+	var diagnostic diagnostics.Options
 	var serverFlag, tokenFlag string
 	rest, err := parseFlags(env, args, agentUsage, func(fs *flag.FlagSet) {
+		fs.StringVar(&diagnostic.Dir, "diagnostics-dir", "", "NEW private directory for bounded runtime capture (off when empty)")
+		fs.DurationVar(&diagnostic.Duration, "diagnostics-duration", diagnostics.DefaultDuration, "capture duration (1s..5m)")
 		fs.StringVar(&serverFlag, "server", "", "lake base URL")
 		fs.StringVar(&tokenFlag, "token-file", "", "device token file")
 	})
@@ -258,6 +263,18 @@ func runAgentDaemon(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), agentUsage)
 		return fmt.Errorf("unexpected argument %q", rest[0])
 	}
+	if err := diagnostic.Validate(); err != nil {
+		return err
+	}
+	capture, err := diagnostics.Start(diagnostic)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := capture.Close(); err != nil {
+			fmt.Fprintf(env.stderr(), "diagnostic capture: %v\n", err)
+		}
+	}()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return runAgentLoop(ctx, env, serverFlag, tokenFlag)
