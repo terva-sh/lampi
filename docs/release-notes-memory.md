@@ -1,4 +1,4 @@
-# Unreleased: lower memory use for growing transcripts
+# v0.9.0: lower memory use and lake maintenance
 
 The capture agent prepares one session at a time and streams verified artifacts
 from private file snapshots. The lake streams Claude, Codex and terva JSONL into
@@ -13,7 +13,7 @@ for three 32 MiB sessions and from 665 to 174 MiB for one 128 MiB session.
 These are isolated workloads, not measurements of an upgraded production
 service. CPU is roughly unchanged in that comparison; allocation and GC work
 increase. Full files are still copied/hashed and changed sessions are still
-fully projected. See [performance.md](performance.md) for controls, ranges,
+fully projected. See [performance.md](https://github.com/terva-sh/lampi/blob/v0.9.0/docs/performance.md) for controls, ranges,
 profiles, disk/cache costs and deployment choices.
 
 New optional controls:
@@ -36,18 +36,23 @@ Private temporary files add disk I/O; provision space for current-session agent
 snapshots plus active lake spools/output. Lake startup removes abandoned private
 projection stages while holding lake.lock before starting workers.
 
-Other changes already on main since v0.8.0 include dashboard pagination and
-Operations maintenance controls; include those in the final release description
-when selecting the release commit. The local release checklist and validation
-record are in [performance.md](performance.md).
+Dashboard lists now have pagination above and below each list, including page
+numbers and totals while preserving filters, scopes and transcript generations.
+Operations administrators can run audited background search-index compaction,
+expired-upload cleanup and storage measurements after a recent sign-in. Jobs
+run one at a time and report their results. Full stored-blob compaction remains
+an offline operation. Browser tabs and saved shortcuts gain a pond icon.
+
+Search-index maintenance now recovers tables that exhausted FTS5 segment IDs,
+continues forced merges across uploads/restarts, and retries failed indexing
+after explicit compaction. Opening pooled readers during maintenance no longer
+takes a write lock, keeping search available during indexing writes.
 
 Rollback: remove newly added CLI flags when returning to an older binary, stop
 normally so durable jobs can drain, and retain the existing catalog/CAS and agent
 state. These changes add no incompatible schema or output format. Restore the
 previous worker, memory-limit and debounce settings together with the binary;
 verify normalize readiness, queue age, upload counters and quarantine behavior.
-If a later change on the chosen release commit adds a migration, follow that
-migration's backup/rollback procedure instead.
+From v0.8.0, the catalog remains at schema 21. Rollback requires no migration
+restore. Completed maintenance actions are not undone by swapping the binary.
 
-This document prepares release notes. It does not select a tag, publish archives
-or images, install a binary, restart a live service, or change capture policy.
