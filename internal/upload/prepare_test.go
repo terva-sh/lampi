@@ -2,6 +2,8 @@ package upload
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -14,6 +16,35 @@ import (
 	"terva.sh/lampi/internal/outbox"
 	"terva.sh/lampi/internal/watermark"
 )
+
+func prepare(ctx context.Context, opt Options, wm *watermark.DB, q *outbox.DB, bundles []adapter.Bundle) ([]prepared, Result, error) {
+	var work []prepared
+	res, err := prepareEach(ctx, opt, wm, q, bundles, func(item *prepared, _ *Result) error {
+		copy := *item
+		copy.release = nil
+		copy.bodies = map[string]bodySource{}
+		copy.full = map[string]bodySource{}
+		for d, source := range item.bodies {
+			r, err := source.open()
+			if err != nil {
+				return err
+			}
+			b, err := io.ReadAll(r)
+			r.Close()
+			if err != nil {
+				return err
+			}
+			copy.bodies[d] = memoryBody(b)
+		}
+		work = append(work, copy)
+		return nil
+	})
+	var refused *Rejected
+	if err != nil && !errors.As(err, &refused) {
+		return nil, res, err
+	}
+	return work, res, err
+}
 
 func openQueues(t *testing.T, state string) (*watermark.DB, *outbox.DB) {
 	t.Helper()
@@ -62,7 +93,7 @@ func TestPrepareReadsOnlyTheSessionsOwnPaths(t *testing.T) {
 		t.Fatalf("work %+v", work)
 	}
 	for _, body := range work[0].bodies {
-		if strings.Contains(string(body), "denied session") {
+		if strings.Contains(string(body.data), "denied session") {
 			t.Fatal("the allowed session read the denied session's file")
 		}
 	}

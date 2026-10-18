@@ -39,10 +39,7 @@
 package upload
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -556,7 +553,7 @@ func sessionOverCap(w *prepared, max int64, largeTails bool) bool {
 
 // uploadDigests puts each body the lake is missing. A body over max is
 // sent as chunks, cut where cuts says when those cuts are usable.
-func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string][]byte, cuts map[string][]int64, lists map[string]chunkPlan) error {
+func uploadDigests(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, arts []protocol.Artifact, bodies map[string]bodySource, cuts map[string][]int64, lists map[string]chunkPlan) error {
 	if max <= 0 {
 		max = protocol.MaxBlobBytes
 	}
@@ -565,7 +562,7 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 	type splitJob struct {
 		rel    string
 		digest string
-		body   []byte
+		body   bodySource
 	}
 	var splits []splitJob
 	for _, a := range arts {
@@ -578,7 +575,7 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 		if !ok {
 			return fmt.Errorf("upload: %s: no bytes for %s", a.RelPath, d)
 		}
-		if int64(len(b)) > max {
+		if b.size > max {
 			if a.ByteWatermarkPrev != 0 {
 				return fmt.Errorf("upload: %s: a file over %d bytes is sent whole, not as a tail", a.RelPath, max)
 			}
@@ -616,7 +613,7 @@ func uploadDigests(ctx context.Context, client *http.Client, opt Options, max in
 // The chunks are cut at cuts when each fits and they add up to body,
 // and at fixed offsets otherwise. The logical digest is not PUT. The
 // lake will not install it.
-func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, rel, digest string, body []byte, cuts []int64, lists map[string]chunkPlan) error {
+func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int64, res *Result, rel, digest string, body bodySource, cuts []int64, lists map[string]chunkPlan) error {
 	chunk := max
 	if opt.ChunkBytes > 0 && opt.ChunkBytes < chunk {
 		chunk = opt.ChunkBytes
@@ -624,13 +621,17 @@ func uploadSplit(ctx context.Context, client *http.Client, opt Options, max int6
 	if chunk <= 0 || chunk > int64(^uint(0)>>1) {
 		return fmt.Errorf("upload: %s: chunk size %d is not usable", rel, chunk)
 	}
+	var err error
 	var parts []string
 	var lengths []int64
-	var chunkBody map[string][]byte
-	if usableCuts(cuts, int64(len(body)), chunk) {
-		parts, lengths, chunkBody = splitAt(body, cuts)
+	var chunkBody map[string]bodySource
+	if usableCuts(cuts, body.size, chunk) {
+		parts, lengths, chunkBody, err = splitSource(ctx, body, cuts)
 	} else {
-		parts, lengths, chunkBody = splitBytes(body, int(chunk))
+		parts, lengths, chunkBody, err = splitSource(ctx, body, fixedCuts(body.size, chunk))
+	}
+	if err != nil {
+		return err
 	}
 	if lists != nil {
 		lists[digest] = chunkPlan{Digests: parts, Lengths: lengths}
@@ -669,48 +670,34 @@ func usableCuts(cuts []int64, size, chunk int64) bool {
 	return total == size
 }
 
-// splitAt cuts body into pieces of the given lengths, which usableCuts
-// has checked. The pieces share body's bytes rather than copying them:
-// body is not written to, and it outlives the upload.
-func splitAt(body []byte, lengths []int64) (parts []string, out []int64, blobs map[string][]byte) {
-	blobs = map[string][]byte{}
+// fixedCuts records only lengths; no chunk body is materialized.
+func fixedCuts(size, chunk int64) []int64 {
+	var out []int64
+	for size > 0 {
+		n := min(size, chunk)
+		out = append(out, n)
+		size -= n
+	}
+	return out
+}
+
+func splitSource(ctx context.Context, body bodySource, lengths []int64) (parts []string, out []int64, blobs map[string]bodySource, err error) {
+	blobs = map[string]bodySource{}
 	var start int64
 	for _, n := range lengths {
-		piece := body[start : start+n]
+		piece := body.slice(start, start+n)
 		start += n
-		sum := sha256.Sum256(piece)
-		d := hex.EncodeToString(sum[:])
+		d, err := piece.digest(ctx)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		parts = append(parts, d)
 		out = append(out, n)
 		if _, ok := blobs[d]; !ok {
 			blobs[d] = piece
 		}
 	}
-	return parts, out, blobs
-}
-
-func splitBytes(body []byte, n int) (parts []string, lengths []int64, blobs map[string][]byte) {
-	blobs = map[string][]byte{}
-	if n <= 0 {
-		n = len(body)
-	}
-	for start := 0; start < len(body); start += n {
-		end := start + n
-		if end > len(body) {
-			end = len(body)
-		}
-		piece := body[start:end]
-		sum := sha256.Sum256(piece)
-		d := hex.EncodeToString(sum[:])
-		parts = append(parts, d)
-		lengths = append(lengths, int64(len(piece)))
-		if _, ok := blobs[d]; !ok {
-			// As in splitAt, the immutable snapshot already outlives this
-			// upload. Copying every piece would duplicate the entire body.
-			blobs[d] = piece
-		}
-	}
-	return parts, lengths, blobs
+	return parts, out, blobs, nil
 }
 
 func applyChunkLists(m *protocol.Manifest, lists map[string]chunkPlan) {
@@ -730,8 +717,8 @@ func applyChunkLists(m *protocol.Manifest, lists map[string]chunkPlan) {
 	}
 }
 
-func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string]chunkPlan) (protocol.PutResponse, error) {
-	if opt.ChunkBytes > 0 && int64(len(body)) > opt.ChunkBytes {
+func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest string, body bodySource, lists map[string]chunkPlan) (protocol.PutResponse, error) {
+	if opt.ChunkBytes > 0 && body.size > opt.ChunkBytes {
 		return putChunked(ctx, client, opt, digest, body, lists)
 	}
 	return putBody(ctx, client, opt, digest, body)
@@ -739,8 +726,8 @@ func putBlobResume(ctx context.Context, client *http.Client, opt Options, digest
 
 // putBody is one object: Content-Range pieces when the body is over
 // PieceBytes, otherwise a single PUT.
-func putBody(ctx context.Context, client *http.Client, opt Options, digest string, body []byte) (protocol.PutResponse, error) {
-	if opt.PieceBytes > 0 && int64(len(body)) > opt.PieceBytes {
+func putBody(ctx context.Context, client *http.Client, opt Options, digest string, body bodySource) (protocol.PutResponse, error) {
+	if opt.PieceBytes > 0 && body.size > opt.PieceBytes {
 		return putRanged(ctx, client, opt, digest, body)
 	}
 	return putBlob(ctx, client, opt, digest, body)
@@ -779,9 +766,9 @@ func setResume(key string, next int64) {
 // piece an earlier attempt landed. When every piece has gone and the
 // lake still says incomplete, it no longer holds the earlier spans, and
 // the body is sent once more from byte 0.
-func putRanged(ctx context.Context, client *http.Client, opt Options, digest string, body []byte) (protocol.PutResponse, error) {
+func putRanged(ctx context.Context, client *http.Client, opt Options, digest string, body bodySource) (protocol.PutResponse, error) {
 	var last protocol.PutResponse
-	size := int64(len(body))
+	size := body.size
 	key := resumeKey(opt, digest)
 	start := resumeAt(key)
 	if start >= size {
@@ -796,7 +783,7 @@ func putRanged(ctx context.Context, client *http.Client, opt Options, digest str
 			}
 			header := fmt.Sprintf("bytes %d-%d/%d", start, end, size)
 			last = protocol.PutResponse{}
-			err := doRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body[start:end+1], "application/octet-stream", map[string]string{
+			err := doSourceRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body.slice(start, end+1), "application/octet-stream", map[string]string{
 				"Content-Range": header,
 			}, &last)
 			if err != nil {
@@ -824,12 +811,15 @@ func putRanged(ctx context.Context, client *http.Client, opt Options, digest str
 	}
 }
 
-func putChunked(ctx context.Context, client *http.Client, opt Options, digest string, body []byte, lists map[string]chunkPlan) (protocol.PutResponse, error) {
+func putChunked(ctx context.Context, client *http.Client, opt Options, digest string, body bodySource, lists map[string]chunkPlan) (protocol.PutResponse, error) {
 	n := int(opt.ChunkBytes)
 	if n <= 0 || int64(n) > protocol.MaxBlobBytes {
 		n = int(protocol.MaxBlobBytes)
 	}
-	parts, lengths, chunkBody := splitBytes(body, n)
+	parts, lengths, chunkBody, err := splitSource(ctx, body, fixedCuts(body.size, int64(n)))
+	if err != nil {
+		return protocol.PutResponse{}, err
+	}
 	if lists != nil {
 		lists[digest] = chunkPlan{Digests: parts, Lengths: lengths}
 	}
@@ -1141,9 +1131,9 @@ func postCheckBatch(ctx context.Context, client *http.Client, opt Options, diges
 	return out.Missing, nil
 }
 
-func putBlob(ctx context.Context, client *http.Client, opt Options, digest string, body []byte) (protocol.PutResponse, error) {
+func putBlob(ctx context.Context, client *http.Client, opt Options, digest string, body bodySource) (protocol.PutResponse, error) {
 	var out protocol.PutResponse
-	err := doJSON(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body, &out)
+	err := doSourceRequest(ctx, client, opt, http.MethodPut, "/v1/blobs/"+digest, body, "", nil, &out)
 	return out, err
 }
 
@@ -1162,6 +1152,10 @@ func doJSON(ctx context.Context, client *http.Client, opt Options, method, p str
 }
 
 func doRequest(ctx context.Context, client *http.Client, opt Options, method, p string, body []byte, contentType string, extra map[string]string, dest any) error {
+	return doSourceRequest(ctx, client, opt, method, p, memoryBody(body), contentType, extra, dest)
+}
+
+func doSourceRequest(ctx context.Context, client *http.Client, opt Options, method, p string, body bodySource, contentType string, extra map[string]string, dest any) error {
 	u, err := endpoint(opt.ServerURL, p)
 	if err != nil {
 		return err
@@ -1173,16 +1167,27 @@ func doRequest(ctx context.Context, client *http.Client, opt Options, method, p 
 	stall := opt.stallTimeout()
 	watch := newStallWatch(stall, cancel)
 	defer watch.pause()
-	req, err := http.NewRequestWithContext(rctx, method, u, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(rctx, method, u, nil)
 	if err != nil {
 		return err
 	}
-	if len(body) > 0 {
-		req.Body = &progressBody{r: bytes.NewReader(body), w: watch}
+	req.ContentLength = body.size
+	if body.size > 0 {
 		req.GetBody = func() (io.ReadCloser, error) {
-			return &progressBody{r: bytes.NewReader(body), w: watch}, nil
+			r, err := body.open()
+			if err != nil {
+				return nil, err
+			}
+			watch.touch()
+			return &progressBody{r: r, remaining: body.size, w: watch}, nil
 		}
+		req.Body, err = req.GetBody()
+		if err != nil {
+			return err
+		}
+		defer req.Body.Close()
 	} else {
+		req.Body = http.NoBody
 		watch.pause()
 	}
 	if contentType != "" {
