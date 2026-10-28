@@ -263,9 +263,9 @@ func TestStatsFollowScopeGenerationsAndRemoval(t *testing.T) {
 	}
 }
 
-// A version 4 index is upgraded in place: its rows and their ids are
+// A version 5 index is upgraded in place: its rows and their ids are
 // kept, so search still answers, and the next pass writes the stats.
-func TestVersion4IndexUpgradesInPlace(t *testing.T) {
+func TestVersion5IndexUpgradesInPlace(t *testing.T) {
 	s := lake(t)
 	uid := ingestHarness(t, s, "terva", "old")
 	publish(t, s, uid, events(10, func(i int) string { return fmt.Sprint("old event ", i) }))
@@ -276,7 +276,7 @@ func TestVersion4IndexUpgradesInPlace(t *testing.T) {
 	}
 	pass(t, x)
 	before := rowIDs(t, x, uid)
-	if _, err := x.db.Exec(`DROP TABLE stats; PRAGMA user_version=4;`); err != nil {
+	if _, err := x.db.Exec(`DROP TABLE stats; PRAGMA user_version=5;`); err != nil {
 		t.Fatal(err)
 	}
 	x.Close()

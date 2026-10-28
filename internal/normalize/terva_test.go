@@ -139,6 +139,9 @@ func TestTervaSchemaAndOpaqueFields(t *testing.T) {
 	if toolResult.Tool.IsError == nil || *toolResult.Tool.IsError {
 		t.Fatalf("is_error: %+v", toolResult.Tool)
 	}
+	if toolResult.Tool.Name == nil || *toolResult.Tool.Name != "bash" {
+		t.Fatalf("tool result was not named from its call: %+v", toolResult.Tool)
+	}
 	if toolResult.Extra["mystery"] != true {
 		t.Fatalf("mystery: %#v", toolResult.Extra)
 	}

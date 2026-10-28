@@ -243,6 +243,31 @@ func TestOpenCodeSchemaOpaqueAndUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestOpenCodeToolErrorFromState(t *testing.T) {
+	// state.status error is a failed result; pending and running have
+	// no result yet and emit only the call.
+	raw := []byte(`{"info":{"id":"` + opencodeNative + `","directory":"/work/app"},"messages":[{"info":{"id":"msg_asst","role":"assistant"},"parts":[` +
+		`{"id":"p1","type":"tool","callID":"call_1","tool":"bash","state":{"status":"error","input":{"command":"false"},"error":"exit 1"}},` +
+		`{"id":"p2","type":"tool","callID":"call_2","tool":"read","state":{"status":"running","input":{}}}]}]}`)
+	events, err := (OpenCode{NativeID: opencodeNative}).Normalize(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results []Event
+	for _, ev := range events {
+		if ev.EventType == EventToolResult {
+			results = append(results, ev)
+		}
+	}
+	if len(results) != 1 {
+		t.Fatalf("results %d", len(results))
+	}
+	r := results[0]
+	if r.Tool.IsError == nil || !*r.Tool.IsError || r.Tool.Name == nil || *r.Tool.Name != "bash" || r.ContentText == nil || *r.ContentText != "exit 1" {
+		t.Fatalf("error result %+v text %v", r.Tool, r.ContentText)
+	}
+}
+
 func fileExtra(ev *Event) map[string]any {
 	if ev == nil {
 		return nil

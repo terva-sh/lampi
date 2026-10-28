@@ -136,10 +136,17 @@ func TestGrokCoalescesChunksAndTools(t *testing.T) {
 	if result.Tool.CallID == nil || *result.Tool.CallID != "call-1" || result.Tool.IsError == nil || *result.Tool.IsError {
 		t.Fatalf("completed result %+v", result.Tool)
 	}
+	// The update carries no title or kind; the name comes from its call.
+	if result.Tool.Name == nil || *result.Tool.Name != "Read" {
+		t.Fatalf("completed result name %v", result.Tool.Name)
+	}
 
 	failed := events[6]
 	if textOf(failed) != "boom" || failed.Tool.IsError == nil || !*failed.Tool.IsError || failed.Tool.CallID == nil || *failed.Tool.CallID != "call-2" {
 		t.Fatalf("failed result %+v %q", failed.Tool, textOf(failed))
+	}
+	if failed.Tool.Name == nil || *failed.Tool.Name != "Bash" {
+		t.Fatalf("failed result name %v", failed.Tool.Name)
 	}
 	if events[5].Tool.Name == nil || *events[5].Tool.Name != "Bash" {
 		t.Fatalf("bash call %+v", events[5].Tool)
