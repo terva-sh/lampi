@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 )
 
 func migratePublished(tx *sql.Tx) error {
@@ -154,6 +156,30 @@ type ReadySession struct {
 func (c *Catalog) ReadySessions(ctx context.Context, scope Scope) ([]ReadySession, error) {
 	cond, args := scope.where("s.session_uid")
 	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid,s.published_gen,s.harness,s.project_id FROM sessions s WHERE `+cond+` AND (`+normalizationStateSQL+`)='ready' ORDER BY s.session_uid`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []ReadySession
+	for rows.Next() {
+		var p ReadySession
+		if err := rows.Scan(&p.UID, &p.Gen, &p.Harness, &p.ProjectID); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// RecentReadySessions lists at most limit ready sessions in scope whose
+// head last changed at or after since, newest first, narrowed by
+// harness and project as the sessions list is. The lake-wide diagnosis
+// walks them (TKT-01M61MZNR).
+func (c *Catalog) RecentReadySessions(ctx context.Context, scope Scope, since time.Time, harness, project string, limit int) ([]ReadySession, error) {
+	where, args := sessionFilters(scope, PageRequest{Harness: harness, Project: project, State: "ready"})
+	where = append(where, "s.web_updated_ns>=?")
+	args = append(args, since.UnixNano(), limit)
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid,s.published_gen,s.harness,s.project_id FROM sessions s WHERE `+strings.Join(where, " AND ")+` ORDER BY s.web_updated_ns DESC,s.session_uid DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}

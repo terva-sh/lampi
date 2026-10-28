@@ -39,7 +39,8 @@ const (
 	Error Severity = "error"
 )
 
-func (s Severity) rank() int {
+// Rank orders severities, error highest.
+func (s Severity) Rank() int {
 	switch s {
 	case Error:
 		return 2

@@ -1,11 +1,13 @@
 package recall
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/diagnose"
@@ -49,3 +51,61 @@ func TestDiagnoseOneSession(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// largeResult is a short session whose result at position 2 is too
+// large for context.
+func largeResult() []normalize.Event {
+	evs := events(4, func(i int) string { return fmt.Sprint("line ", i) })
+	big := strings.Repeat("x", 64<<10)
+	evs[1].EventType, evs[1].Tool = normalize.EventToolCall, normalize.Tool{Name: ptr("exec"), CallID: ptr("c1")}
+	evs[2].EventType, evs[2].Tool, evs[2].ContentText = normalize.EventToolResult, normalize.Tool{Name: ptr("exec"), CallID: ptr("c1")}, &big
+	return evs
+}
+
+// TKT-01M61MZNR: the lake-wide walk reads the newest ready sessions in
+// range, groups their findings, and says when it left some unread.
+func TestDiagnoseLake(t *testing.T) {
+	s := lake(t)
+	r := NewReader(s.Catalog, s.Normalized)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	var uids []string
+	for i := range 3 {
+		uid := ingestAt(t, s, "codex", fmt.Sprint("lake-", i), t0.Add(time.Duration(i)*time.Hour))
+		publish(t, s, uid, largeResult())
+		uids = append(uids, uid)
+	}
+	clean := ingestAt(t, s, "codex", "clean", t0.Add(4*time.Hour))
+	publish(t, s, clean, events(3, func(i int) string { return "fine" }))
+	ingestAt(t, s, "codex", "pending", t0.Add(5*time.Hour))
+
+	req := DiagnoseLakeRequest{Scope: catalog.AllBays(), Since: t0.Add(30 * time.Minute), Limit: 10, Now: t0}
+	got, err := r.DiagnoseLake(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The pending session is not ready, and the first is before since.
+	if got.Sessions != 3 || got.Skipped != 0 || got.Truncated || len(got.Groups) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	g := got.Groups[0]
+	if g.Code != diagnose.LargeToolResult || g.Harness != "codex" || g.Sessions != 2 || g.Findings != 2 || g.Events != 2 ||
+		!slices.Equal(g.Examples, []string{uids[2], uids[1]}) || g.Suggestion.Text == "" {
+		t.Errorf("%+v", g)
+	}
+
+	req.Since, req.Limit = t0, 2
+	if got, _ := r.DiagnoseLake(t.Context(), req); got.Sessions != 2 || !got.Truncated || got.TruncatedBy != TruncatedLimit || got.Groups[0].Sessions != 1 {
+		t.Errorf("limit: %+v", got)
+	}
+	req.Scope = catalog.InBays(nil)
+	if got, _ := r.DiagnoseLake(t.Context(), req); got.Sessions != 0 || got.Truncated || len(got.Groups) != 0 {
+		t.Errorf("empty scope: %+v", got)
+	}
+	// Under the margin before the deadline, it stops and says so.
+	ctx, cancel := context.WithTimeout(t.Context(), diagnoseLakeMargin/2)
+	defer cancel()
+	req.Scope = catalog.AllBays()
+	if got, err := r.DiagnoseLake(ctx, req); err != nil || got.Sessions != 0 || got.TruncatedBy != TruncatedTime {
+		t.Errorf("time: %+v %v", got, err)
+	}
+}

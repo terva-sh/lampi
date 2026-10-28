@@ -52,6 +52,7 @@ const mcpInstructions = "Recall past agent sessions stored in this lampi lake, f
 	"Read around a hit with read_events, from a few positions before the hit's position. " +
 	"Use copy_excerpt for a span as plain text to paste into a new session. " +
 	"tool_stats counts tool calls, result sizes, errors and latency per tool or per origin, and lists the largest blocks. " +
+	"diagnose_session lists what went wrong in one session, such as retry loops, error streaks and oversized results, with a suggestion for each; diagnose_lake groups those findings across recent sessions. " +
 	"Every hit and event carries a link that opens it in the lake's web viewer."
 
 // mcpCaller is the request a tool call arrived on and its read token.
@@ -257,9 +258,9 @@ func (s *Server) mcpAudit(limits *mcpLimits) mcp.Middleware {
 
 // mcpArgs is a call's arguments as its browser route's query, and the
 // session it names. The session is a path segment of the events and
-// excerpt routes. Search and tool_stats have no session filter, so
-// there it stays an argument their parsers refuse, rather than being
-// dropped (review 2103).
+// excerpt and diagnosis routes. Search, tool_stats and diagnose_lake
+// have no session filter, so there it stays an argument their parsers
+// refuse, rather than being dropped (review 2103).
 func mcpArgs(tool string, args json.RawMessage) (uid string, q url.Values, err error) {
 	q, err = mcpQuery(args)
 	if sessionTool(tool) {
@@ -316,6 +317,10 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 			stats.Largest[i].Link = s.origin + stats.Largest[i].Link
 		}
 		v, err = stats, err2
+	case "diagnose_session":
+		v, err = s.diagnosis(ctx, scope, uid, q, s.origin)
+	case "diagnose_lake":
+		v, err = s.diagnosisLake(ctx, scope, q)
 	}
 	if err != nil {
 		if status, _ := failure(err); status >= 500 {
@@ -332,7 +337,9 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 
 // sessionTool says whether a tool reads one session, named by its
 // session_uid argument.
-func sessionTool(name string) bool { return name == "read_events" || name == "copy_excerpt" }
+func sessionTool(name string) bool {
+	return name == "read_events" || name == "copy_excerpt" || name == "diagnose_session"
+}
 
 // mcpQuery turns a tool's arguments into the query parameters of its
 // browser route: a string as it is, an integer in decimal, and a
@@ -553,6 +560,32 @@ var mcpTools = []*mcp.Tool{
 			"bucket":      enumProp("Add calls per hour or per day to each group.", []string{catalog.BucketHour, catalog.BucketDay}),
 			"largest":     intProp("List this many of the largest single call inputs and results. The default is 0.", 0, recall.ToolStatsMaxLargest),
 			"context":     prop("boolean", "Add the starting-context correlation hint per harness and origin."),
+		}),
+		Annotations: readOnly,
+	},
+	{
+		Name:  "diagnose_session",
+		Title: "Diagnose a session",
+		Description: "Find what went wrong in one past session: oversized tool results or inputs, error streaks, retry loops, repeated reads, " +
+			"context pressure, unanswered calls, unreadable lines, a noisy MCP server or an unknown tool. Each finding has a code, a severity, " +
+			"measured values, a suggestion, and up to 16 event positions with links; read around one with read_events. " +
+			"Use it on your own past sessions to learn what to do differently. No content is returned.",
+		InputSchema: object([]string{"session_uid"}, map[string]any{
+			"session_uid": prop("string", "The session, as a hit's session_uid."),
+		}),
+		Annotations: readOnly,
+	},
+	{
+		Name:  "diagnose_lake",
+		Title: "Diagnose recent sessions",
+		Description: "Diagnose the most recently updated sessions and group their findings by code, harness and project, " +
+			"with how many sessions each group holds and a few example session_uids for diagnose_session. " +
+			"It reads at most limit sessions within the lake's time budget; truncated says some in range were left unread. No content is returned.",
+		InputSchema: object(nil, map[string]any{
+			"since":   prop("string", "Only sessions updated at or after this UTC time, as RFC 3339 or YYYY-MM-DD. The default is 7 days ago."),
+			"limit":   intProp("Read at most this many sessions, newest first. The default is "+strconv.Itoa(recall.DiagnoseLakeLimit)+".", 1, recall.DiagnoseLakeMaxLimit),
+			"harness": prop("string", "Only sessions from this harness, such as claude, codex, opencode, cursor or grok."),
+			"project": prop("string", "Only sessions in this project, by project_id."),
 		}),
 		Annotations: readOnly,
 	},

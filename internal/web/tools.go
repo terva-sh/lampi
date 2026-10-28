@@ -129,10 +129,18 @@ func (s *Server) readToolRoutes(m *http.ServeMux) {
 }
 
 // readTools is the tool statistics for a read token holding
-// events:read, over the sessions its scope reaches. The audit line is
-// durable before the answer leaves, as for the event stream; it names
-// the parameters, which hold no content.
+// events:read, over the sessions its scope reaches.
 func (s *Server) readTools(w http.ResponseWriter, r *http.Request) {
+	s.readTokenAnswer(w, r, "tools", func(ctx context.Context, scope catalog.Scope, q url.Values) (any, error) {
+		return s.toolStats(ctx, scope, q)
+	})
+}
+
+// readTokenAnswer answers a read token holding events:read with
+// answer's value for the token's scope. The audit line names what and
+// the parameters, which hold no content, and is durable before the
+// answer leaves, as for the event stream.
+func (s *Server) readTokenAnswer(w http.ResponseWriter, r *http.Request, what string, answer func(context.Context, catalog.Scope, url.Values) (any, error)) {
 	now := s.now()
 	t, ok := s.tokenFor(w, r, catalog.PermEventsRead, "lampi-events", now)
 	if !ok {
@@ -147,13 +155,13 @@ func (s *Server) readTools(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	lake := s.reg.Lake()
-	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: "tools query=" + q.Encode()}); err != nil {
-		s.logError(r, "queueing a tool statistics read's audit line failed", err)
+	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: what + " query=" + q.Encode()}); err != nil {
+		s.logError(r, "queueing a read's audit line failed", err)
 		apiError(w, http.StatusInternalServerError, "audit_failed")
 		return
 	}
 	if err := lake.Catalog.FlushAudit(ctx, lake.Dir); err != nil {
-		s.logError(r, "a tool statistics read's audit line stays queued", err)
+		s.logError(r, "a read's audit line stays queued", err)
 	}
 	if err := lake.Catalog.TouchReadToken(ctx, t.ID, now); err != nil {
 		s.logError(r, "recording a read token's use failed", err)
@@ -164,7 +172,7 @@ func (s *Server) readTools(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, err)
 		return
 	}
-	v, err := s.toolStats(ctx, scope, q)
+	v, err := answer(ctx, scope, q)
 	if err != nil {
 		fail(w, r, err)
 		return

@@ -71,11 +71,13 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/sessions/{uid}/{collection}", s.records)
 	get("/api/web/v1/sessions/{uid}/events", s.sessionEvents)
 	get("/api/web/v1/sessions/{uid}/excerpt", s.sessionExcerpt)
+	get("/api/web/v1/sessions/{uid}/diagnosis", s.sessionDiagnosis)
 	get("/api/web/v1/conflicts", s.conflicts)
 	get("/api/web/v1/conflicts/{id}", s.conflictAPI)
 	get("/api/web/v1/search", s.search)
 	get("/api/web/v1/activity", s.activity)
 	get("/api/web/v1/tools", s.tools)
+	get("/api/web/v1/diagnosis", s.lakeDiagnosis)
 	get("/api/web/v1/operations", s.operations)
 	get("/api/web/v1/devices", s.devices)
 	get("/api/web/v1/devices/{id}", s.device)
@@ -87,6 +89,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	s.registrationRoutes(m)
 	s.readEventRoutes(m)
 	s.readToolRoutes(m)
+	s.readDiagnosisRoutes(m)
 	s.mcpRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }
