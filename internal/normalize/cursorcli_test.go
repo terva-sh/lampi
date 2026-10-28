@@ -748,6 +748,72 @@ func TestCursorCLIOrderAfterCompaction(t *testing.T) {
 	if want := "s a1 summary a2 b1"; strings.Join(got, " ") != want {
 		t.Fatalf("order %v, want %s", got, want)
 	}
+	for _, ev := range projectCursorCLI(t, "chats/ab12/sid-1", raw) {
+		if _, ok := ev.Extra["order"]; ok {
+			t.Fatalf("one older branch is placed by the roots, got order on %+v", ev)
+		}
+	}
+}
+
+// After two compactions the two older branches share only the system
+// message, so no root says which came first. Hash order here puts the
+// middle branch before the oldest. Each branch must stay whole and in
+// its own order, the latest root's branch last, and every event of the
+// two older branches must say its place is not established.
+func TestCursorCLIOrderAfterTwoCompactions(t *testing.T) {
+	s := cliBlobID(0x90)
+	a1, a2 := cliBlobID(0x81), cliBlobID(0x80) // oldest branch
+	sum1, b1, b2 := cliBlobID(0x12), cliBlobID(0x11), cliBlobID(0x10)
+	sum2, c1 := cliBlobID(0x51), cliBlobID(0x50)
+	r1, r2, r3 := cliBlobID(0x03), cliBlobID(0x02), cliBlobID(0x01)
+	msg := func(id, role, text string) map[string]any {
+		return map[string]any{"id": id, "data": map[string]any{"role": role, "content": text}}
+	}
+	raw := cursorCLIRaw(t, map[string]any{
+		"harness_version": "1",
+		"confidence":      "low",
+		"source":          "chats/ab12/sid-1/store.db",
+		"scope":           "session",
+		"meta":            []any{map[string]any{"key": "0", "value": map[string]any{"latestRootBlobId": r3}}},
+		"blobs": []any{
+			map[string]any{"id": r3, "data": cliRoot(s, sum2, c1)},
+			map[string]any{"id": r2, "data": cliRoot(s, sum1, b1, b2)},
+			map[string]any{"id": r1, "data": cliRoot(s, a1, a2)},
+			msg(b2, "assistant", "b2"),
+			msg(b1, "user", "b1"),
+			msg(sum1, "user", "sum1"),
+			msg(c1, "user", "c1"),
+			msg(sum2, "user", "sum2"),
+			msg(a2, "assistant", "a2"),
+			msg(a1, "user", "a1"),
+			msg(s, "user", "s"),
+		},
+	})
+	var got []string
+	unsure := map[string]bool{}
+	for _, ev := range projectCursorCLI(t, "chats/ab12/sid-1", raw) {
+		if ev.EventType != EventMessage {
+			continue
+		}
+		got = append(got, *ev.ContentText)
+		if ev.Extra["order"] == "unestablished" {
+			unsure[*ev.ContentText] = true
+		}
+	}
+	order := strings.Join(got, " ")
+	if order != "s sum1 b1 b2 a1 a2 sum2 c1" && order != "s a1 a2 sum1 b1 b2 sum2 c1" {
+		t.Fatalf("order %s: each older branch must stay whole, the latest last", order)
+	}
+	for _, text := range []string{"a1", "a2", "sum1", "b1", "b2"} {
+		if !unsure[text] {
+			t.Errorf("%s is in an older branch whose place no root gives, want order unestablished", text)
+		}
+	}
+	for _, text := range []string{"s", "sum2", "c1"} {
+		if unsure[text] {
+			t.Errorf("%s is in the latest root, its place is known", text)
+		}
+	}
 }
 
 // BenchmarkCursorCLITools projects an export of 600 turns, each an

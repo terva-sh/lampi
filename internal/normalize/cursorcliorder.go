@@ -26,9 +26,19 @@ import (
 // meets it. Blobs that no root lists, roots included, follow in export
 // order. With no root, the order is the export order.
 //
+// Nothing in a store orders two branches that the latest root left
+// behind: a root carries no time of its own and no link to the root
+// before it, so after two compactions the older branches share only
+// the messages both kept. Each such branch stays whole and in its own
+// order, and between them the walk falls back to export order, which is
+// hash order. unsure marks the blobs whose place is that guess: those
+// outside the latest root, when two or more stretches of them meet with
+// no edge between. With one stretch, it precedes the latest root's
+// branch and its place is known.
+//
 // Root bytes are decoded only to read the ids. They are not copied into
 // any event.
-func cursorCLIOrder(doc cursorCLIExport) []int {
+func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 	n := len(doc.Blobs)
 	// index holds the blobs whose id is 64 hex digits, the only ids a
 	// root can name, keyed by the 32 bytes a root holds.
@@ -77,11 +87,11 @@ func cursorCLIOrder(doc cursorCLIExport) []int {
 		}
 	}
 	if roots == 0 {
-		order := make([]int, n)
+		order = make([]int, n)
 		for i := range order {
 			order[i] = i
 		}
-		return order
+		return order, nil
 	}
 
 	// newer sorts the blob that belongs later first: a member of the
@@ -143,16 +153,56 @@ func cursorCLIOrder(doc cursorCLIExport) []int {
 		}
 	}
 
-	order := make([]int, 0, n)
+	order = make([]int, 0, n)
 	for i := len(finished) - 1; i >= 0; i-- {
 		order = append(order, int(finished[i]))
 	}
+	unsure = cursorCLIUnsure(order, adj, latest, n)
 	for i := range doc.Blobs {
 		if !listed[i] {
 			order = append(order, i)
 		}
 	}
-	return order
+	return order, unsure
+}
+
+// cursorCLIUnsure marks the listed blobs whose place between older
+// branches no root establishes, or returns nil when there are none.
+// order is the walk's order of the listed blobs. A stretch starts where
+// two neighbours have no edge between them; a stretch counts when it
+// holds a blob outside the latest root.
+func cursorCLIUnsure(order []int, adj map[int32][]int32, latest map[int32]int, n int) []bool {
+	edge := func(from, to int) bool {
+		for _, m := range adj[int32(from)] {
+			if int(m) == to {
+				return true
+			}
+		}
+		return false
+	}
+	stretch := make([]int, len(order))
+	for k := 1; k < len(order); k++ {
+		stretch[k] = stretch[k-1]
+		if !edge(order[k-1], order[k]) {
+			stretch[k]++
+		}
+	}
+	older := map[int]bool{}
+	for k, i := range order {
+		if _, in := latest[int32(i)]; !in {
+			older[stretch[k]] = true
+		}
+	}
+	if len(older) < 2 {
+		return nil
+	}
+	unsure := make([]bool, n)
+	for k, i := range order {
+		if _, in := latest[int32(i)]; !in && older[stretch[k]] {
+			unsure[i] = true
+		}
+	}
+	return unsure
 }
 
 // cursorCLILatestRoot is latestRootBlobId on the session record, meta
