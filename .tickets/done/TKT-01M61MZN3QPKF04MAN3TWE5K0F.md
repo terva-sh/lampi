@@ -73,6 +73,10 @@ Table test TestToolOrigin has one block per harness, using real built-in names a
 
 Moved at the coordinator's request from internal/recall to the leaf package internal/toolorigin, so session diagnosis (internal/diagnose), which cannot import recall, can share it: toolorigin.Of(harness, name) returns toolorigin.Origin, with kinds toolorigin.Builtin, MCP, Plugin, Extension, Unknown and toolorigin.Kinds. The rules did not change; the comments now follow the final projection contract (Cursor CLI writes its own CallDynamicTool tools by bare name, and Codex writes mcp__<server>__<tool> in and outside code mode). diagnose still has its own MCP-name parser; the coordinator switches it over when merging.
 
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG, 2026-10-28. PR #218 maps tool names to categories at read time in `internal/web/tools.go` (`toolCategories`, `toolCategory`): shell, read, write, edit, search, web, agents, plan, ask, script, and `mcp:<server>` for `mcp__<server>__<tool>`. This is what kind of tool a name is, not where it comes from, so origin can sit beside it as a second derived field. When the origin parser lands, the `mcp:` rule should move into it and the Tools tab can group by origin as well. The ticket TKT-01M61NTM2ZDBCKGA08BJKYM4Q1 lists the tool names seen per harness.
+
 ## Summary
 
 ToolOrigin(harness, name) in internal/recall/origin.go places a tool name as builtin, mcp (server), plugin (plugin and server), extension (namespace) or unknown, at query time, with per-harness rules from the calibration spike and a table test per harness.

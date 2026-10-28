@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:35:44Z
+updated_at: 2026-10-28T17:39:17Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
-  name: Claude Code local agent
+  id: agent:claude-code/d4b24133
+  name: ""
 extensions: {}
 ---
 
@@ -49,3 +49,11 @@ The page should make the noisy-server case obvious: an origin's share of tool re
 - Content: a form (range, harness, project, model, group by tool or origin), a table of groups (calls, sessions, error rate, p50/p95/max size, share of result bytes beside share of calls, p50/p95 latency), a calls-over-time chart reusing buildChart, and a largest-blocks table linking to `/sessions/{uid}#e{pos}` (match the transcript page's anchor scheme).
 - Tests in internal/web for rendering, scope, and empty and search-off states. Extend internal/web/smoketest and e2e/web-smoke.mjs with a Tools check, and run the browser smoke test locally (e2e/README.md).
 - Docs: docs/web-dashboard.md, a Tools section.
+
+## Notes
+
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG, 2026-10-28. The owner chose to keep the Tools tab from PR #218 and extend it from this ticket rather than build a second page.
+
+`/usage/tools` already shows tool calls and failed results over time, categories with calls, failures, failure rate and the names counted, and a category by harness matrix, all from the stats rollup. It shares the range and harness form with the Tokens and Errors tabs. Sizes, latency percentiles, the largest blocks and an origin's share of result bytes are what this ticket adds, from the docs columns. The tab lives in `internal/web/tools.go` and the `tools-tab` template.
