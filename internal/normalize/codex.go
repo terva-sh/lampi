@@ -52,6 +52,10 @@ type codexState struct {
 	// each result takes the name of its own kind of call.
 	calls callNames
 	begun callNames
+	// cell is the call id of the latest code-mode exec cell. An inner
+	// item_completed call names it as its enclosing cell. It stays set
+	// after the cell's output, because a command can outlive its cell.
+	cell string
 }
 
 // Normalize projects raw. raw is not modified. A line that is not a
@@ -247,6 +251,8 @@ func (c Codex) eventMsg(lineNo, offset int, when time.Time, payload map[string]j
 		return c.beginTool(lineNo, offset, when, kind, payload, lineExtra, st)
 	case "exec_command_end", "mcp_tool_call_end", "web_search_end", "patch_apply_end":
 		return c.endTool(lineNo, offset, when, kind, payload, lineExtra, st)
+	case "item_completed":
+		return c.itemCompleted(lineNo, offset, when, payload, lineExtra, st)
 	default:
 		return c.unknownLine(lineNo, offset, when, kind, payload, lineExtra, st)
 	}
@@ -362,11 +368,16 @@ func (c Codex) beginTool(lineNo, offset int, when time.Time, kind string, payloa
 	if s, ok := jsonString(payload["name"]); ok && s != "" {
 		name = s
 	}
+	server := ""
 	if inv := payload["invocation"]; !isNull(inv) {
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(inv, &obj); err == nil && obj != nil {
 			if s, ok := jsonString(obj["tool"]); ok && s != "" {
 				name = s
+				server, _ = jsonString(obj["server"])
+				if n := mcpToolName(server, s); n != "" {
+					name = n
+				}
 			}
 		}
 	}
@@ -381,6 +392,9 @@ func (c Codex) beginTool(lineNo, offset int, when time.Time, kind string, payloa
 	extra, err := codexPayloadExtra(payload, "type", "call_id", "name", "command", "arguments", "input")
 	if err != nil {
 		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
+	}
+	if server != "" {
+		extra["mcp_server"] = server
 	}
 	tool := Tool{Name: strPtr(name), CallID: strPtr(callID)}
 	ev, err := c.emit(st, kind, EventToolCall, ActorAssistant, when, offset, text, tool, Usage{}, mergeExtra(lineExtra, extra))
@@ -403,7 +417,11 @@ func (c Codex) endTool(lineNo, offset int, when time.Time, kind string, payload 
 	if err != nil {
 		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
 	}
-	tool := Tool{Name: strPtr(st.begun.name(callID)), CallID: strPtr(callID), IsError: codexExitError(payload["exit_code"])}
+	isErr := codexExitError(payload["exit_code"])
+	if isErr == nil && kind == "mcp_tool_call_end" {
+		isErr = codexMCPEndError(payload["result"])
+	}
+	tool := Tool{Name: strPtr(st.begun.name(callID)), CallID: strPtr(callID), IsError: isErr}
 	ev, err := c.emit(st, kind, EventToolResult, ActorTool, when, offset, text, tool, Usage{}, mergeExtra(lineExtra, extra))
 	if err != nil {
 		return nil, err
@@ -432,6 +450,232 @@ func codexExitError(raw json.RawMessage) *bool {
 	}
 	err := n != 0
 	return &err
+}
+
+// codexMCPEndError reads an mcp_tool_call_end result: {"Err": ...} is a
+// failure, and {"Ok": {"isError": b}} carries the server's own flag.
+func codexMCPEndError(raw json.RawMessage) *bool {
+	obj := rawObject(raw)
+	if obj == nil {
+		return nil
+	}
+	if hasKey(obj, "Err") {
+		return boolPtr(true)
+	}
+	if inner := rawObject(obj["Ok"]); inner != nil {
+		return jsonBoolPtr(inner["isError"])
+	}
+	return jsonBoolPtr(obj["isError"])
+}
+
+// codexStatusError maps an item status: completed is false and failed or
+// declined is true. Any other status, such as in_progress, is null.
+func codexStatusError(raw json.RawMessage) *bool {
+	s, _ := jsonString(raw)
+	switch s {
+	case "completed":
+		return boolPtr(false)
+	case "failed", "declined":
+		return boolPtr(true)
+	}
+	return nil
+}
+
+// codexInnerKinds are the item_completed items that are tool calls made
+// from inside a code-mode exec cell, with the tool.name each gets. An
+// McpToolCall is named from its server and tool instead. Other items
+// (Reasoning, AgentMessage, UserMessage, SubAgentActivity, Extension,
+// ImageView, ContextCompaction, CollabAgentToolCall) stay unknown: an
+// Extension repeats a top-level function call, and the rest are not
+// tool work.
+var codexInnerKinds = map[string]string{
+	"CommandExecution": "exec_command",
+	"FileChange":       "apply_patch",
+	"McpToolCall":      "mcp_tool_call",
+}
+
+// itemCompleted projects a code-mode inner call as a tool_call and a
+// tool_result, both with raw_type item_completed and the item id as the
+// call id. raw_type is how an inner call is told apart from its exec
+// cell: the cell's own events are custom_tool_call and
+// custom_tool_call_output. extra.cell_call_id names the cell, the latest
+// exec call at the time the item completed. The inner result is not
+// what the model read; the cell output is.
+func (c Codex) itemCompleted(lineNo, offset int, when time.Time, payload map[string]json.RawMessage, lineExtra map[string]any, st *codexState) ([]Event, error) {
+	item := rawObject(payload["item"])
+	kind, _ := jsonString(item["type"])
+	name, inner := codexInnerKinds[kind]
+	if !inner {
+		return c.unknownLine(lineNo, offset, when, "item_completed", payload, lineExtra, st)
+	}
+	callID, _ := jsonString(item["id"])
+	base, err := codexPayloadExtra(payload, "type", "item")
+	if err != nil {
+		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
+	}
+	base = mergeExtra(lineExtra, base)
+	base["item_type"] = kind
+	if st.cell != "" {
+		base["cell_call_id"] = st.cell
+	}
+
+	// callKeys go on the call event and textKeys become content_text;
+	// every other item field goes on the result.
+	var callText, resultText string
+	var callKeys, textKeys []string
+	var isErr *bool
+	var result map[string]json.RawMessage
+	switch kind {
+	case "CommandExecution":
+		callText = codexCommandText(item["command"])
+		resultText, _ = jsonString(item["aggregated_output"])
+		callKeys = []string{"cwd", "parsed_cmd", "process_id", "source"}
+		textKeys = []string{"command", "aggregated_output"}
+		isErr = codexExitError(item["exit_code"])
+	case "McpToolCall":
+		server, _ := jsonString(item["server"])
+		tool, _ := jsonString(item["tool"])
+		if n := mcpToolName(server, tool); n != "" {
+			name = n
+		}
+		if server != "" {
+			base["mcp_server"] = server
+		}
+		callText = argumentsText(item["arguments"])
+		callKeys = []string{"server", "tool", "readOnlyHint"}
+		textKeys = []string{"arguments"}
+		if result = rawObject(item["result"]); result != nil {
+			resultText = mcpContentText(result["content"])
+			isErr = jsonBoolPtr(result["isError"])
+		} else {
+			resultText = argumentsText(item["result"])
+		}
+		if hasKey(item, "error") {
+			if resultText == "" {
+				resultText = codexPlainText(item["error"])
+			}
+			if isErr == nil {
+				isErr = boolPtr(true)
+			}
+		}
+	case "FileChange":
+		callText = argumentsText(item["changes"])
+		textKeys = []string{"changes"}
+		var parts []string
+		for _, key := range []string{"stdout", "stderr"} {
+			if s, ok := jsonString(item[key]); ok && s != "" {
+				parts = append(parts, s)
+				textKeys = append(textKeys, key)
+			}
+		}
+		resultText = strings.Join(parts, "\n")
+	}
+	if isErr == nil {
+		isErr = codexStatusError(item["status"])
+	}
+
+	callExtra, err := extraFrom(pickRaw(item, callKeys...))
+	if err != nil {
+		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
+	}
+	drop := append(append([]string{"type", "id"}, callKeys...), textKeys...)
+	if kind == "McpToolCall" {
+		drop = append(drop, "result")
+	}
+	resultExtra, err := extraFrom(item, drop...)
+	if err != nil {
+		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
+	}
+	if result != nil {
+		// The MCP result's content is the text; its other fields, such
+		// as structuredContent, stay in extra.
+		rest, err := extraFrom(result, "content", "isError")
+		if err != nil {
+			return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
+		}
+		if len(rest) > 0 {
+			resultExtra["result"] = rest
+		}
+	}
+	if ms, ok := codexDurationMS(item["duration"]); ok {
+		resultExtra["duration_ms"] = ms
+	}
+
+	started := when
+	if n, ok := jsonInt64(payload["started_at_ms"]); ok {
+		if t, ok := unixFlexible(n); ok {
+			started = t
+		}
+	}
+	call, err := c.emit(st, "item_completed", EventToolCall, ActorAssistant, started, offset, callText, Tool{Name: strPtr(name), CallID: strPtr(callID)}, Usage{}, mergeExtra(base, callExtra))
+	if err != nil {
+		return nil, err
+	}
+	out, err := c.emit(st, "item_completed", EventToolResult, ActorTool, when, offset, resultText, Tool{Name: strPtr(name), CallID: strPtr(callID), IsError: isErr}, Usage{}, mergeExtra(base, resultExtra))
+	if err != nil {
+		return nil, err
+	}
+	return []Event{call, out}, nil
+}
+
+// rawObject decodes a JSON object, or is nil when raw is not one. It does
+// not check for a base64 wrapper, so it reads the bytes once.
+func rawObject(raw json.RawMessage) map[string]json.RawMessage {
+	if isNull(raw) {
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil
+	}
+	return obj
+}
+
+// mcpContentText joins the text blocks of an MCP result's content in one
+// decode. Content of another shape goes through codexPlainText.
+func mcpContentText(raw json.RawMessage) string {
+	if isNull(raw) {
+		return ""
+	}
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return codexPlainText(raw)
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// pickRaw is the subset of obj with these keys.
+func pickRaw(obj map[string]json.RawMessage, keys ...string) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(keys))
+	for _, k := range keys {
+		if raw, ok := obj[k]; ok {
+			out[k] = raw
+		}
+	}
+	return out
+}
+
+// codexDurationMS reads a Rust Duration, {"secs": s, "nanos": n}, as
+// whole milliseconds.
+func codexDurationMS(raw json.RawMessage) (int64, bool) {
+	obj := rawObject(raw)
+	if obj == nil {
+		return 0, false
+	}
+	secs, okS := jsonInt64(obj["secs"])
+	nanos, okN := jsonInt64(obj["nanos"])
+	if !okS && !okN {
+		return 0, false
+	}
+	return secs*1000 + nanos/1_000_000, true
 }
 
 func (c Codex) responseItem(lineNo, offset int, when time.Time, payload map[string]json.RawMessage, lineExtra map[string]any, st *codexState) ([]Event, error) {
@@ -489,6 +733,9 @@ func (c Codex) functionCall(lineNo, offset int, when time.Time, kind string, pay
 		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
 	}
 	st.calls.remember(callID, name)
+	if kind == "custom_tool_call" && name == "exec" && len(callID) <= callNameMaxBytes {
+		st.cell = callID
+	}
 	tool := Tool{Name: strPtr(name), CallID: strPtr(callID)}
 	ev, err := c.emit(st, kind, EventToolCall, ActorAssistant, when, offset, text, tool, Usage{}, mergeExtra(lineExtra, extra))
 	if err != nil {

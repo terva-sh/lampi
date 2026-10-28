@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T16:35:44Z
+updated_at: 2026-10-28T17:56:59Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -55,3 +55,9 @@ Suggestions are static text keyed by code, in an embedded file versioned like in
 - Input hashing uses sha256 of content_text for tool calls. File paths for repeated reads come from per-harness input fields recorded by the spike. Paths are compared hashed and never returned.
 - The caller in internal/recall pins a generation with Reader.open and streams snapshot.lines, the same as selectSession. Expose `(*Reader).Diagnose(ctx, scope, uid)`, which returns ErrNotFound outside scope.
 - Tests: one fixture per finding, plus a bounded-memory test on a large synthetic transcript (internal/synthetic) checking allocations stay flat.
+
+## Notes
+
+**agent:claude-code/049834bc** at 2026-10-28T17:56:59Z
+
+Cursor CLI events can now carry extra.order = unestablished (PR #220 fix 5780868): their place among older compaction branches is a guess. Sequence rules (retry_loop, error_streak, repeated_read) should skip or reset at those events; orphan rules are already off for Cursor CLI. To do with the diagnosis surfaces work.
