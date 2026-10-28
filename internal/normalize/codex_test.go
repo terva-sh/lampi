@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -377,10 +378,183 @@ func TestCodexResultNamesFollowTheirOwnCall(t *testing.T) {
 		}
 		got = append(got, ev.RawType+"="+name)
 	}
-	want := []string{"exec_command_end=exec_command", "function_call_output=shell", "mcp_tool_call_end=read", "function_call_output=<nil>"}
+	want := []string{"exec_command_end=exec_command", "function_call_output=shell", "mcp_tool_call_end=mcp__pond__read", "function_call_output=<nil>"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("result names %v, want %v", got, want)
 	}
+}
+
+func TestCodexMCPOutsideCodeModeKeepsServer(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_begin","call_id":"call_1","invocation":{"server":"pond docs.v2","tool":"read-page","arguments":{"path":"a"}}}}`,
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_end","call_id":"call_1","result":{"Err":"connection refused"}}}`,
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_begin","call_id":"call_2","invocation":{"server":"pond-docs","tool":"read"}}}`,
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_end","call_id":"call_2","result":{"Ok":{"content":[],"isError":false}}}}`,
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_begin","call_id":"call_3","invocation":{"tool":"read"}}}`,
+	}, "\n") + "\n"
+	events, err := (Codex{NativeID: codexNative}).Normalize(context.Background(), []byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 5 {
+		t.Fatalf("events: %d", len(events))
+	}
+	type want struct {
+		kind, name, server string
+		isErr              *bool
+	}
+	wants := []want{
+		{EventToolCall, "mcp__pond_docs_v2__read-page", "pond docs.v2", nil},
+		{EventToolResult, "mcp__pond_docs_v2__read-page", "", boolPtr(true)},
+		{EventToolCall, "mcp__pond-docs__read", "pond-docs", nil},
+		{EventToolResult, "mcp__pond-docs__read", "", boolPtr(false)},
+		{EventToolCall, "read", "", nil},
+	}
+	for i, w := range wants {
+		ev := events[i]
+		if ev.EventType != w.kind || ev.Tool.Name == nil || *ev.Tool.Name != w.name {
+			t.Fatalf("event %d: %s %v, want %s %s", i, ev.EventType, ev.Tool.Name, w.kind, w.name)
+		}
+		if got, _ := ev.Extra["mcp_server"].(string); got != w.server {
+			t.Fatalf("event %d: mcp_server %q, want %q", i, got, w.server)
+		}
+		if (ev.Tool.IsError == nil) != (w.isErr == nil) || (w.isErr != nil && *ev.Tool.IsError != *w.isErr) {
+			t.Fatalf("event %d: is_error %v, want %v", i, ev.Tool.IsError, w.isErr)
+		}
+	}
+}
+
+func TestCodexCodeModeInnerCalls(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"timestamp":"2026-09-22T16:10:02.000Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"call_cell1","name":"exec","input":"await tools.exec_command({cmd:'ls'})"}}`,
+		`{"timestamp":"2026-09-22T16:10:02.500Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","started_at_ms":1790093402100,"completed_at_ms":1790093402500,"item":{"type":"CommandExecution","id":"exec-aaaa","command":"rg pond","cwd":"/work/app","process_id":"7","source":"unified_exec_startup","status":"failed","aggregated_output":"","stdout":"","exit_code":1,"duration":{"secs":1,"nanos":250000000},"parsed_cmd":[{"type":"search","cmd":"rg pond","query":"pond","path":null}]}}}`,
+		`{"timestamp":"2026-09-22T16:10:03.000Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","item":{"type":"McpToolCall","id":"exec-bbbb","server":"pond-docs","tool":"read","status":"completed","readOnlyHint":true,"arguments":{"path":"main.go"},"result":{"content":[{"type":"text","text":"package main"}],"isError":false,"structuredContent":{"n":1}},"duration":{"secs":0,"nanos":42000000}}}}`,
+		`{"timestamp":"2026-09-22T16:10:03.100Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","item":{"type":"McpToolCall","id":"exec-cccc","server":"pond-docs","tool":"write","status":"failed","arguments":{},"error":{"message":"denied"},"duration":{"secs":0,"nanos":1000000}}}}`,
+		`{"timestamp":"2026-09-22T16:10:03.200Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","item":{"type":"FileChange","id":"exec-dddd","status":"completed","changes":{"main.go":{"type":"update","unified_diff":"@@ -1 +1 @@"}},"stdout":"Success. Updated main.go","stderr":""}}}`,
+		`{"timestamp":"2026-09-22T16:10:03.300Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_cell1","output":"cell done"}}`,
+		`{"timestamp":"2026-09-22T16:10:03.400Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","item":{"type":"Reasoning","id":"rs_1","summary_text":[],"raw_content":[]}}}`,
+		`{"timestamp":"2026-09-22T16:10:03.500Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","item":{"type":"Extension","id":"call_sleep","kind":"clock.sleep","durationMs":10}}}`,
+		`{"timestamp":"2026-09-22T16:10:04.000Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t1","turn_id":"u1","item":{"type":"CommandExecution","id":"exec-eeee","command":"sleep 5","status":"completed","aggregated_output":"late","exit_code":0}}}`,
+	}, "\n") + "\n"
+	events, err := (Codex{NativeID: codexNative}).Normalize(context.Background(), []byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, ev := range events {
+		name, call, isErr := "-", "-", "-"
+		if ev.Tool.Name != nil {
+			name = *ev.Tool.Name
+		}
+		if ev.Tool.CallID != nil {
+			call = *ev.Tool.CallID
+		}
+		if ev.Tool.IsError != nil {
+			isErr = fmt.Sprint(*ev.Tool.IsError)
+		}
+		got = append(got, strings.Join([]string{ev.RawType, ev.EventType, name, call, isErr}, " "))
+	}
+	want := []string{
+		"custom_tool_call tool_call exec call_cell1 -",
+		"item_completed tool_call exec_command exec-aaaa -",
+		"item_completed tool_result exec_command exec-aaaa true",
+		"item_completed tool_call mcp__pond-docs__read exec-bbbb -",
+		"item_completed tool_result mcp__pond-docs__read exec-bbbb false",
+		"item_completed tool_call mcp__pond-docs__write exec-cccc -",
+		"item_completed tool_result mcp__pond-docs__write exec-cccc true",
+		"item_completed tool_call apply_patch exec-dddd -",
+		"item_completed tool_result apply_patch exec-dddd false",
+		"custom_tool_call_output tool_result exec call_cell1 -",
+		"item_completed unknown - - -",
+		"item_completed unknown - - -",
+		"item_completed tool_call exec_command exec-eeee -",
+		"item_completed tool_result exec_command exec-eeee false",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	cmdCall, cmdResult := events[1], events[2]
+	if *cmdCall.ContentText != "rg pond" || cmdResult.ContentText != nil {
+		t.Fatalf("command text: %q / %v", *cmdCall.ContentText, cmdResult.ContentText)
+	}
+	if cmdCall.RecordedAt != "2026-09-22T16:10:02.1Z" || cmdResult.RecordedAt != "2026-09-22T16:10:02.5Z" {
+		t.Fatalf("recorded: %s / %s", cmdCall.RecordedAt, cmdResult.RecordedAt)
+	}
+	for _, ev := range events[1:9] {
+		if ev.Extra["cell_call_id"] != "call_cell1" {
+			t.Fatalf("%s %s: cell_call_id %v", ev.EventType, *ev.Tool.CallID, ev.Extra["cell_call_id"])
+		}
+	}
+	if events[13].Extra["cell_call_id"] != "call_cell1" {
+		t.Fatalf("a command that outlives its cell names the latest cell: %v", events[13].Extra["cell_call_id"])
+	}
+	if cmdCall.Extra["cwd"] != "/work/app" || cmdCall.Extra["parsed_cmd"] == nil || cmdCall.Extra["exit_code"] != nil {
+		t.Fatalf("call extra: %v", cmdCall.Extra)
+	}
+	if cmdResult.Extra["duration_ms"] != int64(1250) || cmdResult.Extra["exit_code"] != float64(1) || cmdResult.Extra["cwd"] != nil || cmdResult.Extra["aggregated_output"] != nil || cmdResult.Extra["command"] != nil {
+		t.Fatalf("result extra: %v", cmdResult.Extra)
+	}
+	if cmdResult.Extra["item_type"] != "CommandExecution" || cmdResult.Extra["turn_id"] != "u1" {
+		t.Fatalf("result extra: %v", cmdResult.Extra)
+	}
+
+	mcpCall, mcpResult := events[3], events[4]
+	if *mcpCall.ContentText != `{"path":"main.go"}` || *mcpResult.ContentText != "package main" {
+		t.Fatalf("mcp text: %q / %q", *mcpCall.ContentText, *mcpResult.ContentText)
+	}
+	if mcpCall.Extra["mcp_server"] != "pond-docs" || mcpResult.Extra["mcp_server"] != "pond-docs" || mcpCall.Extra["readOnlyHint"] != true {
+		t.Fatalf("mcp extra: %v / %v", mcpCall.Extra, mcpResult.Extra)
+	}
+	if res, _ := mcpResult.Extra["result"].(map[string]any); res == nil || res["structuredContent"] == nil || res["content"] != nil {
+		t.Fatalf("mcp result extra: %v", mcpResult.Extra)
+	}
+	if mcpResult.Extra["duration_ms"] != int64(42) {
+		t.Fatalf("mcp duration: %v", mcpResult.Extra["duration_ms"])
+	}
+	if *events[6].ContentText != "denied" {
+		t.Fatalf("mcp error text: %q", *events[6].ContentText)
+	}
+
+	patchCall, patchResult := events[7], events[8]
+	if !strings.Contains(*patchCall.ContentText, "unified_diff") || *patchResult.ContentText != "Success. Updated main.go" {
+		t.Fatalf("patch text: %q / %q", *patchCall.ContentText, *patchResult.ContentText)
+	}
+	if patchCall.Extra["changes"] != nil || patchResult.Extra["changes"] != nil || patchResult.Extra["stdout"] != nil {
+		t.Fatalf("patch extra: %v / %v", patchCall.Extra, patchResult.Extra)
+	}
+	if item, _ := events[11].Extra["item"].(map[string]any); item == nil || item["kind"] != "clock.sleep" {
+		t.Fatalf("an Extension item stays unknown with its item: %v", events[11].Extra)
+	}
+}
+
+// BenchmarkCodexStreamInner projects a 32 MiB code-mode transcript: each
+// exec cell runs one command and one MCP call, so every cell writes two
+// item_completed lines between the call and its output.
+func BenchmarkCodexStreamInner(b *testing.B) {
+	raw := codexInnerTranscript(32 << 20)
+	b.SetBytes(int64(len(raw)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := (Codex{NativeID: codexNative}).Stream(context.Background(), bytes.NewReader(raw), func(Event) error { return nil })
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func codexInnerTranscript(size int) []byte {
+	body := strings.Repeat("pond water ", 400)
+	var buf bytes.Buffer
+	for n := 0; buf.Len() < size; n++ {
+		cell := fmt.Sprintf("call_%08d", n)
+		fmt.Fprintf(&buf, `{"timestamp":"2026-09-22T16:10:02.000Z","type":"response_item","payload":{"type":"custom_tool_call","status":"completed","call_id":"%s","name":"exec","input":"const r = await tools.exec_command({cmd: 'cat main.go'});"}}`+"\n", cell)
+		fmt.Fprintf(&buf, `{"timestamp":"2026-09-22T16:10:02.500Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","started_at_ms":1790000000000,"completed_at_ms":1790000000500,"item":{"type":"CommandExecution","id":"exec-%08d-a","command":"cat main.go","cwd":"/work/app","process_id":"1","source":"unified_exec_startup","status":"completed","aggregated_output":"%s","exit_code":0,"duration":{"secs":0,"nanos":500000000},"parsed_cmd":[{"type":"read","cmd":"cat main.go","name":"main.go","path":"main.go"}]}}}`+"\n", n, body)
+		fmt.Fprintf(&buf, `{"timestamp":"2026-09-22T16:10:03.000Z","type":"event_msg","payload":{"type":"item_completed","thread_id":"t","turn_id":"u","started_at_ms":1790000000500,"completed_at_ms":1790000001000,"item":{"type":"McpToolCall","id":"exec-%08d-b","server":"pond-docs","tool":"read","status":"completed","arguments":{"path":"main.go"},"result":{"content":[{"type":"text","text":"%s"}],"isError":false},"duration":{"secs":0,"nanos":500000000}}}}`+"\n", n, body)
+		fmt.Fprintf(&buf, `{"timestamp":"2026-09-22T16:10:03.100Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"%s","output":"%s"}}`+"\n", cell, body)
+	}
+	return buf.Bytes()
 }
 
 func codexFixture() []byte {
