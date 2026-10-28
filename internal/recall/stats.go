@@ -226,11 +226,16 @@ func (s *sessionStats) addUsage(row *docRow, ev *normalize.Event) {
 		}
 		if cur, ok := codexTotal(ev.Extra); ok {
 			prev := codexTotals{}
-			if s.codexTotal != nil && cur.input >= s.codexTotal.input && cur.cached >= s.codexTotal.cached && cur.output >= s.codexTotal.output {
+			if s.codexTotal != nil {
 				prev = *s.codexTotal
 			}
-			s.codexTotal = &cur
-			d := codexTotals{cur.input - prev.input, cur.cached - prev.cached, cur.output - prev.output}
+			// A total lower in every kind is a new process counting
+			// from zero. Otherwise a kind counts only what it grew by.
+			if cur.input < prev.input && cur.cached < prev.cached && cur.output < prev.output {
+				prev = codexTotals{}
+			}
+			d := codexTotals{max(0, cur.input-prev.input), max(0, cur.cached-prev.cached), max(0, cur.output-prev.output)}
+			s.codexTotal = &codexTotals{prev.input + d.input, prev.cached + d.cached, prev.output + d.output}
 			if d == (codexTotals{}) {
 				// The same total again: no model call happened.
 				return
@@ -242,6 +247,16 @@ func (s *sessionStats) addUsage(row *docRow, ev *normalize.Event) {
 		if t.empty() {
 			return
 		}
+		// A report without a running total still moves the baseline,
+		// so a total that follows and includes it does not count it
+		// again.
+		used := codexTotals{int64(deref0(ev.Usage.Input)), int64(deref0(ev.Usage.CacheRead)), int64(deref0(ev.Usage.Output))}
+		if s.codexTotal == nil {
+			s.codexTotal = &codexTotals{}
+		}
+		s.codexTotal.input += used.input
+		s.codexTotal.cached += used.cached
+		s.codexTotal.output += used.output
 		// Codex counts cached input inside input.
 		if t.Input != nil && t.CacheRead != nil {
 			t.Input = intPtr(max(0, *t.Input-*t.CacheRead))
@@ -253,6 +268,13 @@ func (s *sessionStats) addUsage(row *docRow, ev *normalize.Event) {
 			s.bump(row.recorded, StatUsage, "", 1, t)
 		}
 	}
+}
+
+func deref0(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 func floorHour(ns int64) int64 {
@@ -338,40 +360,101 @@ type HarnessTotals struct {
 type Totals struct {
 	All       HarnessTotals   `json:"all"`
 	Harnesses []HarnessTotals `json:"harnesses"`
-	// Coverage says how much of the lake the totals include. It is
-	// zero for a scope that does not read every bay.
+	// Coverage says how much the totals include: of the lake for a
+	// scope that reads every bay, and otherwise of the sessions the
+	// scope reads, so it tells nothing about the others.
 	Coverage Coverage `json:"coverage"`
 }
 
 // scopeFilter is a condition on stats rows for the sessions scope
 // reads. The index holds no bays, so a scope narrower than the lake is
-// resolved to session uids in the catalog.
-func (x *Index) scopeFilter(ctx context.Context, scope catalog.Scope) (string, []any, error) {
+// resolved to session uids in the catalog; uids is nil for a scope that
+// reads every bay.
+func (x *Index) scopeFilter(ctx context.Context, scope catalog.Scope) (cond string, args []any, uids []string, err error) {
 	if scope.All() {
-		return "1=1", nil, nil
+		return "1=1", nil, nil, nil
 	}
-	uids, err := x.reader.catalog.ScopeSessionUIDs(ctx, scope)
+	uids, err = x.reader.catalog.ScopeSessionUIDs(ctx, scope)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	if len(uids) == 0 {
-		return "0=1", nil, nil
+	if uids == nil {
+		uids = []string{}
 	}
 	b, err := json.Marshal(uids)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
-	return "session_uid IN (SELECT value FROM json_each(?))", []any{string(b)}, nil
+	return "session_uid IN (SELECT value FROM json_each(?))", []any{string(b)}, uids, nil
+}
+
+// scopeCoverage is Coverage over the sessions in uids alone, the way a
+// pass counts the lake, so a viewer who reads some bays learns how much
+// of what it reads is counted and nothing about the rest.
+func (x *Index) scopeCoverage(ctx context.Context, uids []string) (Coverage, error) {
+	cov := Coverage{LastReconcile: x.Coverage().LastReconcile}
+	if len(uids) == 0 {
+		return cov, nil
+	}
+	b, err := json.Marshal(uids)
+	if err != nil {
+		return cov, err
+	}
+	have := map[string]indexedRow{}
+	rows, err := x.db.QueryContext(ctx, `SELECT session_uid,gen,head FROM indexed WHERE session_uid IN (SELECT value FROM json_each(?))`, string(b))
+	if err != nil {
+		return cov, err
+	}
+	for rows.Next() {
+		var uid string
+		var r indexedRow
+		if err := rows.Scan(&uid, &r.gen, &r.head); err != nil {
+			rows.Close()
+			return cov, err
+		}
+		have[uid] = r
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return cov, err
+	}
+	sessions, err := x.reader.catalog.PublishedSessions(ctx)
+	if err != nil {
+		return cov, err
+	}
+	in := make(map[string]bool, len(uids))
+	for _, uid := range uids {
+		in[uid] = true
+	}
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	for _, p := range sessions {
+		if !in[p.UID] || p.State != "ready" {
+			continue
+		}
+		cov.Ready++
+		switch r, ok := have[p.UID]; {
+		case ok && r.gen == p.Gen && r.head == p.Head:
+			cov.Indexed++
+		case x.failed[p.UID] == p.Gen && p.Gen != 0:
+			cov.Failed++
+		default:
+			cov.Behind++
+		}
+	}
+	return cov, nil
 }
 
 // Totals adds up the stats of every indexed session scope reads.
 func (x *Index) Totals(ctx context.Context, scope catalog.Scope) (Totals, error) {
 	out := Totals{Harnesses: []HarnessTotals{}}
-	if scope.All() {
-		out.Coverage = x.Coverage()
-	}
-	cond, args, err := x.scopeFilter(ctx, scope)
+	cond, args, uids, err := x.scopeFilter(ctx, scope)
 	if err != nil {
+		return out, err
+	}
+	if uids == nil {
+		out.Coverage = x.Coverage()
+	} else if out.Coverage, err = x.scopeCoverage(ctx, uids); err != nil {
 		return out, err
 	}
 	rows, err := x.db.QueryContext(ctx, `SELECT harness,kind,COUNT(DISTINCT session_uid),SUM(n),SUM(input),SUM(output),SUM(cache_read),SUM(cache_write),SUM(cost_usd)

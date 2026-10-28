@@ -124,15 +124,18 @@ func TestStatsCodexUsesRunningTotals(t *testing.T) {
 		ev("codex", normalize.EventUsage, 4, func(e *normalize.Event) {
 			e.Usage = normalize.Usage{Input: ip(50), Output: ip(5), CacheRead: ip(20)}
 		}),
+		// A total that includes that report does not count it again.
+		ev("codex", normalize.EventUsage, 5, total(400, 200, 45)),
 	})
 	x := openIndex(t, s)
 	pass(t, x)
 	h := harnessTotals(t, totals(t, x, catalog.AllBays()), "codex")
-	if h.ModelCalls != 3 {
-		t.Fatalf("%d model calls, want 3", h.ModelCalls)
+	if h.ModelCalls != 4 {
+		t.Fatalf("%d model calls, want 4", h.ModelCalls)
 	}
-	// Plain input: (100-40) + (150-100) + (50-20).
-	checkTokens(t, "codex", h.Tokens, "140", "35", "160", "nil")
+	// The last total is the session's: plain input 400-200, cached
+	// 200, output 45.
+	checkTokens(t, "codex", h.Tokens, "200", "45", "200", "nil")
 }
 
 // Other harnesses report one usage per model call with cache apart from
@@ -209,13 +212,22 @@ func TestStatsFollowScopeGenerationsAndRemoval(t *testing.T) {
 	if got := totals(t, x, catalog.AllBays()).All; got.Events != 5 || got.Sessions != 2 {
 		t.Fatalf("all: %+v", got)
 	}
-	if got := totals(t, x, catalog.AllBays().OnlySessions([]string{a})); got.All.Events != 2 || got.Coverage != (Coverage{}) {
+	// A narrowed scope is told the coverage of its own sessions only.
+	if got := totals(t, x, catalog.AllBays().OnlySessions([]string{a})); got.All.Events != 2 || got.Coverage.Ready != 1 || got.Coverage.Indexed != 1 {
 		t.Fatalf("narrowed: %+v", got)
 	}
 	if got := totals(t, x, catalog.InBays(nil)).All; got.Events != 0 {
 		t.Fatalf("empty scope: %+v", got)
 	}
 	publish(t, s, a, msgs(4))
+	// Published and not indexed yet: a viewer of a alone learns that
+	// its totals lag, and a viewer of b alone that its are complete.
+	if got := totals(t, x, catalog.AllBays().OnlySessions([]string{a})).Coverage; got.Ready != 1 || got.Indexed != 0 || got.Behind != 1 {
+		t.Fatalf("narrowed coverage while behind: %+v", got)
+	}
+	if got := totals(t, x, catalog.AllBays().OnlySessions([]string{b})).Coverage; got.Ready != 1 || got.Indexed != 1 {
+		t.Fatalf("other session's coverage: %+v", got)
+	}
 	pass(t, x)
 	if got := totals(t, x, catalog.AllBays()).All; got.Events != 7 {
 		t.Fatalf("after a new generation: %+v", got)

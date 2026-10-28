@@ -269,11 +269,10 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	// or an index that cannot be read, shows the rest of the page.
 	var usage usageView
 	if s.index != nil {
-		scope := scopeOf(r)
-		if t, err := s.index.Totals(ctx, scope); err != nil {
+		if t, err := s.index.Totals(ctx, scopeOf(r)); err != nil {
 			s.logError(r, "reading token totals for the overview failed", err)
 		} else {
-			usage = buildUsageView(t, scope.All())
+			usage = buildUsageView(t)
 		}
 	}
 	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent, Usage: usage})

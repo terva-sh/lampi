@@ -15,8 +15,8 @@ type usageView struct {
 	Total tokenCell
 	Parts []usagePart
 	Rows  []usageRow
-	// Partial says some ready sessions are not indexed yet, so the
-	// totals leave them out.
+	// Partial says some ready sessions the viewer reads are not
+	// indexed yet, so the totals leave them out.
 	Partial          bool
 	Indexed, Ready   int
 	HasCost          bool
@@ -97,7 +97,7 @@ func tokenTotal(t recall.Tokens) *int64 {
 	return sum
 }
 
-func buildUsageView(t recall.Totals, all bool) usageView {
+func buildUsageView(t recall.Totals) usageView {
 	v := usageView{Shown: true, Total: cellOf(tokenTotal(t.All.Tokens)), Calls: humanCount(t.All.ModelCalls), ToolCalls: humanCount(t.All.ToolCalls), Fails: humanCount(t.All.ToolsFailed)}
 	v.Parts = []usagePart{
 		{"Input", "Not read from or written to the cache", cellOf(t.All.Tokens.Input)},
@@ -108,10 +108,8 @@ func buildUsageView(t recall.Totals, all bool) usageView {
 	if t.All.Tokens.CostUSD != nil {
 		v.HasCost, v.Cost = true, costText(t.All.Tokens.CostUSD)
 	}
-	if all {
-		v.Indexed, v.Ready = t.Coverage.Indexed, t.Coverage.Ready
-		v.Partial = t.Coverage.Indexed < t.Coverage.Ready
-	}
+	v.Indexed, v.Ready = t.Coverage.Indexed, t.Coverage.Ready
+	v.Partial = t.Coverage.Indexed < t.Coverage.Ready
 	for _, h := range t.Harnesses {
 		v.Rows = append(v.Rows, usageRow{
 			Harness: h.Harness, Sessions: humanCount(h.Sessions), Calls: humanCount(h.ModelCalls),
