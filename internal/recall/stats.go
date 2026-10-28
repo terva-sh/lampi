@@ -1,0 +1,428 @@
+package recall
+
+import (
+	"cmp"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"slices"
+	"strings"
+
+	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/normalize"
+)
+
+// statsSchema is the rollup of each indexed session by UTC hour, written
+// with the session's docs rows and replaced whole when it is indexed
+// again (TKT-01M61NTE24T6CZN1P92AV7164F). hour is NULL for events that
+// had no recorded time; they count in totals and in no chart.
+const statsSchema = `
+CREATE TABLE stats (
+	session_uid TEXT NOT NULL,
+	harness TEXT NOT NULL,
+	hour INTEGER,
+	kind TEXT NOT NULL,
+	name TEXT NOT NULL,
+	n INTEGER NOT NULL,
+	input INTEGER,
+	output INTEGER,
+	cache_read INTEGER,
+	cache_write INTEGER,
+	cost_usd REAL
+);
+CREATE INDEX stats_session ON stats(session_uid);
+CREATE INDEX stats_hour ON stats(hour);
+`
+
+// Kinds of stats row. Each counts n events in its hour; usage rows also
+// carry token sums.
+const (
+	// StatEvent counts events by event type.
+	StatEvent = "event"
+	// StatError counts error events by raw type. Lines the normalizer
+	// could not read are StatUnreadable instead: they are faults in the
+	// lake's copy, not errors the session met.
+	StatError      = "error"
+	StatUnreadable = "unreadable"
+	// StatToolCall counts tool calls by tool name, and StatToolFailed
+	// the results that reported an error, named by their call.
+	StatToolCall   = "tool_call"
+	StatToolFailed = "tool_failed"
+	// StatUsage counts model calls after deduplication, with their
+	// tokens.
+	StatUsage = "usage"
+)
+
+// Tokens is token usage split four ways that do not overlap: Input is
+// input read neither from nor into the prompt cache. A nil field was
+// reported by no event counted, which is not the same as zero.
+type Tokens struct {
+	Input      *int64   `json:"input"`
+	Output     *int64   `json:"output"`
+	CacheRead  *int64   `json:"cache_read"`
+	CacheWrite *int64   `json:"cache_write"`
+	CostUSD    *float64 `json:"cost_usd"`
+}
+
+func (t *Tokens) add(o Tokens) {
+	addInt := func(dst **int64, v *int64) {
+		if v == nil {
+			return
+		}
+		if *dst == nil {
+			*dst = new(int64)
+		}
+		**dst += *v
+	}
+	addInt(&t.Input, o.Input)
+	addInt(&t.Output, o.Output)
+	addInt(&t.CacheRead, o.CacheRead)
+	addInt(&t.CacheWrite, o.CacheWrite)
+	if o.CostUSD != nil {
+		if t.CostUSD == nil {
+			t.CostUSD = new(float64)
+		}
+		*t.CostUSD += *o.CostUSD
+	}
+}
+
+func (t Tokens) empty() bool {
+	return t.Input == nil && t.Output == nil && t.CacheRead == nil && t.CacheWrite == nil && t.CostUSD == nil
+}
+
+func intPtr(n int64) *int64 { return &n }
+
+func fromUsage(u normalize.Usage) Tokens {
+	var t Tokens
+	conv := func(p *int) *int64 {
+		if p == nil {
+			return nil
+		}
+		return intPtr(int64(*p))
+	}
+	t.Input, t.Output, t.CacheRead, t.CacheWrite = conv(u.Input), conv(u.Output), conv(u.CacheRead), conv(u.CacheWrite)
+	if u.CostUSD != nil {
+		c := *u.CostUSD
+		t.CostUSD = &c
+	}
+	return t
+}
+
+type statKey struct {
+	hour       int64
+	timed      bool
+	kind, name string
+}
+
+type statVal struct {
+	n      int64
+	tokens Tokens
+}
+
+// sessionStats accumulates one session's stats rows while indexSession
+// reads its events. The counting rules for usage differ by harness; see
+// addUsage.
+type sessionStats struct {
+	harness string
+	rows    map[statKey]*statVal
+	// calls names each tool call by its id, so a result that carries
+	// only the id is counted against its tool.
+	calls map[string]string
+	// claude holds the last usage of each Claude message id; Claude
+	// Code repeats a response's usage on each of its content blocks.
+	claude      map[string]claudeUsage
+	claudeOrder []string
+	// codexTotal is the last running total a Codex session reported.
+	codexTotal *codexTotals
+}
+
+type claudeUsage struct {
+	key    statKey
+	tokens Tokens
+}
+
+type codexTotals struct{ input, cached, output int64 }
+
+func newSessionStats(harness string) *sessionStats {
+	return &sessionStats{harness: harness, rows: map[statKey]*statVal{}, calls: map[string]string{}, claude: map[string]claudeUsage{}}
+}
+
+const hourNS = int64(3600) * 1e9
+
+func (s *sessionStats) bump(recorded *int64, kind, name string, n int64, t Tokens) {
+	k := statKey{kind: kind, name: name}
+	if recorded != nil {
+		k.timed, k.hour = true, floorHour(*recorded)
+	}
+	v := s.rows[k]
+	if v == nil {
+		v = &statVal{}
+		s.rows[k] = v
+	}
+	v.n += n
+	v.tokens.add(t)
+}
+
+// add counts one line. ok is false for a line that is not an event.
+func (s *sessionStats) add(row *docRow, ev *normalize.Event, ok bool) {
+	if !ok {
+		s.bump(nil, StatUnreadable, "", 1, Tokens{})
+		return
+	}
+	s.bump(row.recorded, StatEvent, ev.EventType, 1, Tokens{})
+	switch ev.EventType {
+	case normalize.EventError:
+		if _, unreadable := ev.Extra["unreadable_line"]; unreadable {
+			s.bump(row.recorded, StatUnreadable, "", 1, Tokens{})
+		} else {
+			s.bump(row.recorded, StatError, ev.RawType, 1, Tokens{})
+		}
+	case normalize.EventToolCall:
+		name := deref(ev.Tool.Name)
+		if ev.Tool.CallID != nil && name != "" {
+			s.calls[*ev.Tool.CallID] = name
+		}
+		s.bump(row.recorded, StatToolCall, name, 1, Tokens{})
+	case normalize.EventToolResult:
+		if ev.Tool.IsError != nil && *ev.Tool.IsError {
+			name := deref(ev.Tool.Name)
+			if name == "" && ev.Tool.CallID != nil {
+				name = s.calls[*ev.Tool.CallID]
+			}
+			s.bump(row.recorded, StatToolFailed, name, 1, Tokens{})
+		}
+	}
+	s.addUsage(row, ev)
+}
+
+// addUsage counts a model call's tokens once, by the rule for the
+// session's harness. The ticket records the measurements behind each
+// rule.
+func (s *sessionStats) addUsage(row *docRow, ev *normalize.Event) {
+	switch s.harness {
+	case "claude":
+		t := fromUsage(ev.Usage)
+		if t.empty() {
+			return
+		}
+		id, _ := ev.Extra["id"].(string)
+		if id == "" {
+			s.bump(row.recorded, StatUsage, "", 1, t)
+			return
+		}
+		// The last block wins: a streamed response can repeat its
+		// usage with a larger output count.
+		if _, seen := s.claude[id]; !seen {
+			s.claudeOrder = append(s.claudeOrder, id)
+		}
+		k := statKey{kind: StatUsage}
+		if row.recorded != nil {
+			k.timed, k.hour = true, floorHour(*row.recorded)
+		}
+		s.claude[id] = claudeUsage{key: k, tokens: t}
+	case "codex":
+		if ev.EventType != normalize.EventUsage {
+			return
+		}
+		if cur, ok := codexTotal(ev.Extra); ok {
+			prev := codexTotals{}
+			if s.codexTotal != nil && cur.input >= s.codexTotal.input && cur.cached >= s.codexTotal.cached && cur.output >= s.codexTotal.output {
+				prev = *s.codexTotal
+			}
+			s.codexTotal = &cur
+			d := codexTotals{cur.input - prev.input, cur.cached - prev.cached, cur.output - prev.output}
+			if d == (codexTotals{}) {
+				// The same total again: no model call happened.
+				return
+			}
+			s.bump(row.recorded, StatUsage, "", 1, Tokens{Input: intPtr(max(0, d.input-d.cached)), Output: intPtr(d.output), CacheRead: intPtr(d.cached)})
+			return
+		}
+		t := fromUsage(ev.Usage)
+		if t.empty() {
+			return
+		}
+		// Codex counts cached input inside input.
+		if t.Input != nil && t.CacheRead != nil {
+			t.Input = intPtr(max(0, *t.Input-*t.CacheRead))
+		}
+		s.bump(row.recorded, StatUsage, "", 1, t)
+	default:
+		t := fromUsage(ev.Usage)
+		if !t.empty() {
+			s.bump(row.recorded, StatUsage, "", 1, t)
+		}
+	}
+}
+
+func floorHour(ns int64) int64 {
+	h := ns / hourNS * 3600
+	if ns < 0 && ns%hourNS != 0 {
+		h -= 3600
+	}
+	return h
+}
+
+// codexTotal reads extra.info.total_token_usage from a Codex
+// token_count event.
+func codexTotal(extra map[string]any) (codexTotals, bool) {
+	info, _ := extra["info"].(map[string]any)
+	total, _ := info["total_token_usage"].(map[string]any)
+	if total == nil {
+		return codexTotals{}, false
+	}
+	num := func(k string) int64 {
+		f, _ := total[k].(float64)
+		return int64(f)
+	}
+	return codexTotals{input: num("input_tokens"), cached: num("cached_input_tokens"), output: num("output_tokens")}, true
+}
+
+// write replaces uid's stats rows inside tx.
+func (s *sessionStats) write(ctx context.Context, tx *sql.Tx, uid string) error {
+	for _, id := range s.claudeOrder {
+		u := s.claude[id]
+		var rec *int64
+		if u.key.timed {
+			ns := u.key.hour * 1e9
+			rec = &ns
+		}
+		s.bump(rec, StatUsage, "", 1, u.tokens)
+	}
+	s.claude, s.claudeOrder = map[string]claudeUsage{}, nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM stats WHERE session_uid=?`, uid); err != nil {
+		return err
+	}
+	const values = "(?,?,?,?,?,?,?,?,?,?,?)"
+	var args []any
+	rows := 0
+	flush := func() error {
+		if rows == 0 {
+			return nil
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO stats(session_uid,harness,hour,kind,name,n,input,output,cache_read,cache_write,cost_usd) VALUES`+values+strings.Repeat(","+values, rows-1), args...)
+		args, rows = args[:0], 0
+		return err
+	}
+	for k, v := range s.rows {
+		var hour any
+		if k.timed {
+			hour = k.hour
+		}
+		args = append(args, uid, s.harness, hour, k.kind, k.name, v.n, v.tokens.Input, v.tokens.Output, v.tokens.CacheRead, v.tokens.CacheWrite, v.tokens.CostUSD)
+		if rows++; rows == 80 {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+	return flush()
+}
+
+// HarnessTotals is what the indexed sessions of one harness add up to.
+type HarnessTotals struct {
+	Harness  string `json:"harness"`
+	Sessions int64  `json:"sessions"`
+	Events   int64  `json:"events"`
+	Errors   int64  `json:"errors"`
+	// ModelCalls counts the usage reports after deduplication.
+	ModelCalls  int64  `json:"model_calls"`
+	Tokens      Tokens `json:"tokens"`
+	ToolCalls   int64  `json:"tool_calls"`
+	ToolsFailed int64  `json:"tool_results_failed"`
+	Unreadable  int64  `json:"unreadable_lines"`
+}
+
+// Totals is the rollup of every indexed session a scope reads, overall
+// and by harness, busiest first.
+type Totals struct {
+	All       HarnessTotals   `json:"all"`
+	Harnesses []HarnessTotals `json:"harnesses"`
+	// Coverage says how much of the lake the totals include. It is
+	// zero for a scope that does not read every bay.
+	Coverage Coverage `json:"coverage"`
+}
+
+// scopeFilter is a condition on stats rows for the sessions scope
+// reads. The index holds no bays, so a scope narrower than the lake is
+// resolved to session uids in the catalog.
+func (x *Index) scopeFilter(ctx context.Context, scope catalog.Scope) (string, []any, error) {
+	if scope.All() {
+		return "1=1", nil, nil
+	}
+	uids, err := x.reader.catalog.ScopeSessionUIDs(ctx, scope)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(uids) == 0 {
+		return "0=1", nil, nil
+	}
+	b, err := json.Marshal(uids)
+	if err != nil {
+		return "", nil, err
+	}
+	return "session_uid IN (SELECT value FROM json_each(?))", []any{string(b)}, nil
+}
+
+// Totals adds up the stats of every indexed session scope reads.
+func (x *Index) Totals(ctx context.Context, scope catalog.Scope) (Totals, error) {
+	out := Totals{Harnesses: []HarnessTotals{}}
+	if scope.All() {
+		out.Coverage = x.Coverage()
+	}
+	cond, args, err := x.scopeFilter(ctx, scope)
+	if err != nil {
+		return out, err
+	}
+	rows, err := x.db.QueryContext(ctx, `SELECT harness,kind,COUNT(DISTINCT session_uid),SUM(n),SUM(input),SUM(output),SUM(cache_read),SUM(cache_write),SUM(cost_usd)
+		FROM stats WHERE `+cond+` AND kind IN ('event','error','unreadable','tool_call','tool_failed','usage') GROUP BY harness,kind`, args...)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	by := map[string]*HarnessTotals{}
+	for rows.Next() {
+		var harness, kind string
+		var sessions, n int64
+		var t Tokens
+		if err := rows.Scan(&harness, &kind, &sessions, &n, &t.Input, &t.Output, &t.CacheRead, &t.CacheWrite, &t.CostUSD); err != nil {
+			return out, err
+		}
+		h := by[harness]
+		if h == nil {
+			h = &HarnessTotals{Harness: harness}
+			by[harness] = h
+		}
+		for _, dst := range []*HarnessTotals{h, &out.All} {
+			switch kind {
+			case StatEvent:
+				dst.Events += n
+			case StatError:
+				dst.Errors += n
+			case StatUnreadable:
+				dst.Unreadable += n
+			case StatToolCall:
+				dst.ToolCalls += n
+			case StatToolFailed:
+				dst.ToolsFailed += n
+			case StatUsage:
+				dst.ModelCalls += n
+				dst.Tokens.add(t)
+			}
+		}
+		if kind == StatEvent {
+			h.Sessions = sessions
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	for _, h := range by {
+		out.All.Sessions += h.Sessions
+		out.Harnesses = append(out.Harnesses, *h)
+	}
+	slices.SortFunc(out.Harnesses, func(a, b HarnessTotals) int {
+		return cmp.Or(cmp.Compare(b.Sessions, a.Sessions), cmp.Compare(a.Harness, b.Harness))
+	})
+	return out, nil
+}

@@ -34,7 +34,9 @@ const IndexFile = "search.db"
 // generation, so a new generation rewrites only the rows that changed.
 // Version 4 stores no recorded time for an event whose source had none,
 // and rebuilds a file that rewriting those rows grew (TKT-01M3NENNN8).
-const indexVersion = 4
+// Version 5 adds the stats rollup. A version 4 file is upgraded in
+// place rather than rebuilt; see upgradeV4.
+const indexVersion = 5
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -94,7 +96,7 @@ END;
 CREATE TRIGGER docs_ad AFTER DELETE ON docs BEGIN
 	INSERT INTO fts(fts, rowid, content) VALUES ('delete', old.id, old.content);
 END;
-`
+` + statsSchema
 
 // Coverage says how much of the lake search can see. Ready counts
 // sessions whose normalization is ready. Indexed counts those whose
@@ -204,6 +206,13 @@ func openIndexDB(path string) (*sql.DB, error) {
 			db.Close()
 			return nil, fmt.Errorf("search: %w", err)
 		}
+		if v == 4 {
+			if err := upgradeV4(db); err != nil {
+				db.Close()
+				return nil, err
+			}
+			v = indexVersion
+		}
 		if v == indexVersion {
 			return db, os.Chmod(path, 0o600)
 		}
@@ -229,6 +238,24 @@ func openIndexDB(path string) (*sql.DB, error) {
 		}
 	}
 	return nil, errors.New("search: index could not be recreated")
+}
+
+// upgradeV4 adds the stats table to a version 4 index and blanks every
+// indexed head, so the next pass reads each session again and writes
+// its stats. Rows whose signature did not change are kept, so the
+// full-text index is not rewritten and search keeps answering while
+// the stats fill in. Rebuilding instead would empty search on the live
+// lake until every session was indexed again.
+func upgradeV4(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(statsSchema + `UPDATE indexed SET head=''; PRAGMA user_version=` + fmt.Sprint(indexVersion) + `;`); err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	return tx.Commit()
 }
 
 func removeIndexFiles(path string) error {
@@ -444,6 +471,7 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 	}
 	defer tx.Rollback()
 	w := docWriter{tx: tx}
+	st := newSessionStats(s.Harness)
 	br, _, _, err := snap.lines(ctx, 0, 0)
 	if err != nil {
 		return 0, err
@@ -461,7 +489,8 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 			return 0, rerr
 		}
 		row := docRow{uid: s.UID, pos: pos, harness: s.Harness, project: s.ProjectID}
-		row.fill(line)
+		ev, ok := row.fill(line)
+		st.add(&row, &ev, ok)
 		sig := row.sig()
 		prev, had := old[pos]
 		pos++
@@ -494,6 +523,9 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		return 0, err
 	}
 	deleted += gone
+	if err := st.write(ctx, tx, s.UID); err != nil {
+		return 0, err
+	}
 	now, err := x.reader.publication(ctx, s.UID)
 	if err != nil {
 		return 0, err
@@ -645,6 +677,9 @@ func (x *Index) remove(ctx context.Context, uid string) error {
 	if _, err := x.db.ExecContext(ctx, `DELETE FROM indexed WHERE session_uid=?`, uid); err != nil {
 		return err
 	}
+	if _, err := x.db.ExecContext(ctx, `DELETE FROM stats WHERE session_uid=?`, uid); err != nil {
+		return err
+	}
 	return x.deleteDocs(ctx, uid, "1=?", 1)
 }
 
@@ -674,18 +709,17 @@ type docRow struct {
 	hasContent            bool
 }
 
-// fill reads the fields search needs from one JSONL line. A line that
-// is oversized or not JSON still gets a row, with no content, so
-// positions stay dense.
-func (d *docRow) fill(line []byte) {
+// fill reads the fields search needs from one JSONL line and returns
+// the event for the stats. A line that is oversized or not JSON still
+// gets a row, with no content, so positions stay dense; ok is false.
+func (d *docRow) fill(line []byte) (ev normalize.Event, ok bool) {
 	if line == nil {
 		d.eventType = "unreadable"
-		return
+		return ev, false
 	}
-	var ev normalize.Event
 	if json.Unmarshal(line, &ev) != nil {
 		d.eventType = "unreadable"
-		return
+		return ev, false
 	}
 	d.eventType, d.actor, d.raw = ev.EventType, ev.Actor, ev.RawType
 	d.tool, d.toolError = ev.Tool.Name, ev.Tool.IsError
@@ -705,6 +739,7 @@ func (d *docRow) fill(line []byte) {
 	if ev.ContentText != nil {
 		d.content, d.hasContent = truncate(*ev.ContentText, IndexContentMax), true
 	}
+	return ev, true
 }
 
 // sig is a signature of every field of d that the index stores, so a

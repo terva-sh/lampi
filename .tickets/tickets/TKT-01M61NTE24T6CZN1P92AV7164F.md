@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-28T16:34:46Z
-updated_at: 2026-10-28T16:41:30Z
+updated_at: 2026-10-28T16:49:08Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -55,10 +55,10 @@ Codex usage events read `last_token_usage`, falling back to `total_token_usage`.
 
 ## Acceptance criteria
 
-- [ ] Plain input, output, cache read and cache write are stored and shown separately
-- [ ] Claude usage is deduplicated per API message
-- [ ] A spike compares totals against harness figures for sample sessions
-- [ ] Existing sessions are backfilled
+- [x] Plain input, output, cache read and cache write are stored and shown separately
+- [x] Claude usage is deduplicated per API message
+- [x] A spike compares totals against harness figures for sample sessions
+- [x] Existing sessions are backfilled
 
 ## Implementation plan
 
@@ -98,3 +98,17 @@ Index rows carry no bays. A caller that does not read every bay passes the sessi
 
 1. This ticket: stats table, counting rules, migration, `Index.Totals` by harness, overview tiles for tokens per harness.
 2. Usage over time, error trends, tool usage: query functions and pages on top of the same table.
+
+## Notes
+
+**agent:claude-code/d4b24133** at 2026-10-28T16:49:08Z
+
+Spike result, 2026-10-28. Real local transcripts (the newest 8 Claude, 8 Codex and 6 terva sessions on the development workstation) went through the real normalizer and `sessionStats`, then were compared with an independent count. All 22 matched exactly on model calls, input, output, cache read and cache write.
+
+- Codex: compared with the session's final `total_token_usage`, the harness's own figure (plain input = input - cached).
+- terva: compared with the final `cumulative` usage, the harness's own figure.
+- Claude: Claude Code writes no session total. Compared with an independent sum of the last usage per message id.
+
+The throwaway test and scripts were not committed. To repeat, normalize a transcript with `normalize.Claude` / `Codex` / `Terva`, feed each event through `docRow.fill` and `sessionStats.add`, and compare.
+
+Backfill: the version 4 to 5 upgrade blanks `indexed.head`, so the first pass after upgrade re-reads every session and writes its stats. Unchanged docs rows are kept. Coverage reports sessions as behind until that pass reaches them, and the overview says how many are counted so far.
