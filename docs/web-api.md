@@ -295,14 +295,16 @@ read in the token's scope:
 | `read_events` | [`GET /api/web/v1/sessions/{uid}/events`](#transcript-events) | `session_uid`, then the route's `from`, `limit`, `cursor`, `gen`. |
 | `copy_excerpt` | [`GET /api/web/v1/sessions/{uid}/excerpt`](#excerpts) | `session_uid`, then the route's `from`, `count`, `gen`. |
 | `tool_stats` | [`GET /api/web/v1/tools`](#tool-usage) | The route's parameters: `harness`, `project`, `unlinked`, `model`, `tool`, `origin`, `origin_name`, `since`, `until`, `all`, `group_by`, `split`, `bucket`, `largest`, `context`. |
+| `diagnose_session` | [`GET /api/web/v1/sessions/{uid}/diagnosis`](#session-diagnosis) | `session_uid` only. |
+| `diagnose_lake` | [`GET /api/web/v1/diagnosis`](#session-diagnosis) | The route's parameters: `since`, `limit`, `harness`, `project`. |
 
 - The arguments go through the route's own parser: a string as it is, an
   integer in decimal, and a boolean as `true` or `false`. A null argument
   is left out. The limits, defaults and cursors are the route's.
 - The result is one text content block that holds the route's JSON body.
-  The one difference is that `link` values are absolute: the lake's
-  `base_url` comes before the path, so an agent can give the link to a
-  person.
+  The one difference is that `link` and `links` values are absolute:
+  the lake's `base_url` comes before the path, so an agent can give the
+  link to a person.
 - A refused argument or a failed read is a tool result with `isError`
   true. Its text is the route's error body, such as
   `{"error":"invalid_request"}`, with a `hint` that says what to change.
@@ -616,6 +618,79 @@ it.
 | 400 | `too_many_values` | More than 2,500,000 rows or 10,000 distinct tools to read. Narrow the range, harness or project. |
 | 503 | `search_unavailable` | The lake has no search index |
 | 503 | `read_unavailable` | The read took more than five seconds |
+
+## Session diagnosis
+
+`GET /api/web/v1/sessions/{uid}/diagnosis` reads one session's published
+events once and reports what looks wrong with it: oversized tool results
+or inputs, error streaks, retry loops, repeated reads, context pressure,
+unanswered calls, unreadable lines, a noisy MCP server or an unknown
+tool. The same request with a read token holding `events:read` goes to
+`GET /api/read/v1/sessions/{uid}/diagnosis`, which the
+[`diagnose_session`](#mcp-recall-tools) MCP tool and
+[`terva-lampi query diagnose`](cli.md#query-a-lake) use. That route
+writes an `events.read` audit line, `diagnosis session=UID query=`,
+before it answers, with `Cache-Control: no-store`. Both read the
+caller's scope, and neither returns transcript text: only codes, counts,
+sizes, tool and server names, and event positions. The route takes no
+parameters.
+
+The answer is `{session_uid, generation, head_sha256, harness,
+rules_version, events, tool_calls, tool_results, oversized_events,
+findings}`. `generation` is the one read; positions belong to it.
+`oversized_events` counts lines too long for the rules to read.
+`findings` is empty for a clean session, and ordered most severe first,
+then by code. Each finding has:
+
+- `code`, `severity` (`info`, `warn` or `error`), and `cause`, `tool` or
+  `origin` where a code has several rules or names a tool or server.
+- `count`, the events it covers, and `positions`, at most 16 of them,
+  ascending.
+- `links`, one per position in the same order: the event in the
+  transcript viewer, as `/sessions/{uid}/transcript?at=N&gen=G#e-N`.
+  They are relative here and absolute through MCP.
+- `values`, the measurements, named per code. A name ending in `_bytes`
+  is a size, unless it starts with `over_`, which counts events over a
+  size.
+- `suggestion`: `{code, text, link}`, the advice for the code.
+
+The codes, their thresholds and the reasons for them are in
+[Session diagnostics calibration](session-diagnostics-calibration.md).
+
+`GET /api/web/v1/diagnosis` and `GET /api/read/v1/diagnosis` (audited
+as `diagnosis query=…`) diagnose the most recently updated sessions and
+group their findings:
+
+| Parameter | Meaning |
+|---|---|
+| `since` | Only sessions whose head last changed at or after this time, as on `/search`. The default is 7 days ago. |
+| `limit` | 1–1000, default 200: the most sessions to read, newest first. |
+| `harness`, `project` | Only these sessions. |
+
+The answer is `{since, limit, rules_version, sessions, skipped,
+truncated, truncated_by, groups, as_of}`. `sessions` counts those
+diagnosed. `skipped` counts those purged, normalized again or no longer
+ready by the time they were read. `truncated` is true when sessions in
+range were left unread: `truncated_by` is `limit` when there were more
+than `limit`, and `time` when the walk stopped half a second before the
+five-second read budget ran out. A truncated answer is still a correct
+count of the sessions it names. Each group in `groups` is one `code`,
+`harness` and `project_id`, with its `severity`, `sessions` (sessions
+with the code), `findings` (more than `sessions` when a session has one
+per tool), `events` (the findings' counts summed), `example_sessions`
+(up to 3 uids, newest first) and `suggestion`. Groups come most severe
+first, then by sessions.
+
+Findings are computed on request from the published events; nothing is
+cached, so an answer always matches the current generation.
+[Performance](performance.md#session-diagnosis) has the timings.
+
+| Status | Error | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | A parameter on the one-session route, or an unknown, repeated or refused one on the lake-wide route, named in `param` |
+| 404 | `not_found` | No such session in the caller's scope |
+| 409 | `transcript_unavailable` | The session has no readable normalized transcript; `state` says why |
+| 503 | `read_unavailable` | One session's diagnosis took more than five seconds |
 
 ## Excerpts
 
