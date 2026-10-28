@@ -173,3 +173,24 @@ func (c *Catalog) PublishedSessions(ctx context.Context) ([]PublishedSession, er
 	}
 	return out, rows.Err()
 }
+
+// ScopeSessionUIDs lists the uids of every session scope reads, for a
+// derived store that holds no bays and must narrow its own rows, such
+// as the statistics in the search index.
+func (c *Catalog) ScopeSessionUIDs(ctx context.Context, scope Scope) ([]string, error) {
+	cond, args := scope.where("s.session_uid")
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid FROM sessions s WHERE `+cond+` ORDER BY s.session_uid`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
+}

@@ -24,13 +24,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:54:05Z
+updated_at: 2026-10-28T17:39:17Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
-  name: Claude Code local agent
+  id: agent:claude-code/d4b24133
+  name: ""
 extensions: {}
 ---
 
@@ -73,3 +73,13 @@ Largest blocks: top N (max 100) rows by content_bytes, returned as session_uid, 
 Bounds: a 5s read context like other routes, a cap on distinct groups (reuse CountMaxValues semantics with a `too_many_values` error), and a measurement on a synthetic lake recorded in docs/performance.md.
 
 Tests in internal/recall/toolstats_test.go using openIndex/pass helpers: scope filtering (bay-scoped and session-scoped), generation not ready dropped, histogram merge, latency pairing, orphan calls, time buckets, origin folding.
+
+## Notes
+
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG (Dashboard: session statistics for tokens, errors and tools), 2026-10-28. The owner decided the two epics layer rather than compete.
+
+**Summing the token columns overcounts.** The per-event `input_tokens` .. `cache_write_tokens` columns copy each event's usage as normalized. Claude Code repeats a response's `message.usage` on every content-block line: in 30 local sessions, 25,924 of 46,076 usage lines repeated a message id, so a plain SUM roughly doubles Claude tokens. Codex can repeat its running total (236 of 8,508 token_count lines) and counts cached input inside input. Neither the message id nor the Codex running total is a column.
+
+**Use the stats rollup for token totals.** PR #214 adds a `stats` table to search.db at schema 6, written by `indexSession` with the docs rows. It counts each model call once (last usage per Claude message id, increases of the Codex running total), keeps plain input, output, cache read and cache write apart, and checks against the harnesses' own totals on 22 real sessions. `Index.Totals`, `Index.Series`, `Index.Breakdown` and `Index.TopErrorSessions` read it within a catalog Scope. This ticket's per-event size, latency and largest-block work stays on the docs columns, which the rollup does not cover.
