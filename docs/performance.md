@@ -636,6 +636,62 @@ profile overhead, largest-record limit, uncontrolled host load/cache, synthetic
 harness/record mix and absence of production deployment all constrain what can
 be inferred from these results.
 
+## Tool usage statistics
+
+`(*recall.Index).ToolStats` (TKT-01M61MZN8) reads the search index in one
+pass: it walks each session in scope through `docs_session` in position
+order and aggregates the tool rows in Go. `TestToolStatsScale` measures it
+on a synthetic lake. Its tool rows are written straight into `docs`, with no
+content, since the statistics read none:
+
+```sh
+LAMPI_TOOLSTATS_SCALE=2000 GOFLAGS=-mod=mod go test -run TestToolStatsScale -v ./internal/recall/
+```
+
+The fixture has 2,000 sessions with 250 call and result pairs each, spread
+over 30 days: 70% Claude Code sessions with 20 tool names, including MCP and
+plugin servers, and 30% Codex code-mode sessions with up to two inner calls
+per cell. That is 1,299,416 tool rows and 649,708 calls in a 410 MiB
+`search.db`. Each request ran three times on this workstation (12 threads,
+Go 1.27.1), under other load:
+
+| Request | Time | Sessions read |
+| --- | --- | ---: |
+| Every bay, by tool | 2.38 s, 2.28 s, 2.17 s | 2,000 |
+| Every bay, by origin, split by harness | 2.32 s, 2.35 s, 4.58 s | 2,000 |
+| Every bay, 30 days by day, 100 largest blocks | 2.37 s, 2.42 s, 3.04 s | 2,000 |
+| Every bay, MCP only, split by model | 2.37 s, 2.24 s, 2.31 s | 2,000 |
+| Every bay, by origin, with the context hint | 2.34 s, 2.34 s, 2.34 s | 2,000 |
+| Every bay, last 3 days | 321 ms, 275 ms, 245 ms | 129 |
+| One bay holding half the sessions | 1.05 s, 1.01 s, 0.99 s | 1,000 |
+| One named session | 1 ms, 1 ms, 2 ms | 1 |
+
+The rate is about 1.8 µs per row, whatever the grouping. About 45% of it
+is SQLite's walk, about 40% the driver reading and converting each row,
+and the Go aggregation under a tenth, by a CPU profile at 200 sessions. `ToolStatsMaxRows` refuses a request past 2.5
+million rows, about four seconds at this rate, so a request ends inside the
+routes' five-second read context with `too_many_values` rather than a
+timeout. A range with `since` reads only the sessions the lake accepted
+within a day of it, which is what makes the 3-day request fast. The
+internal lake was not measured: this session cannot read it.
+
+Two designs lost on the same fixture at 200 sessions (129,646 rows):
+
+- Grouping in SQL, with each result paired to its call by a lookup through
+  `docs_call`, took 1.2 s for the counts and 0.4 s more for the session
+  counts and shares; the one pass takes 0.35 s. SQLite sorts every row for a
+  `GROUP BY`, and its correlated lookups cost more than reading the rows.
+  Without `INDEXED BY docs_call` the planner, which has no statistics on
+  `search.db`, walked whole sessions through `docs_session` for each lookup.
+- Finding the sessions active in a range through `docs_call_time` cost as
+  much as the walk when the range covered most rows: 1.2 s more on the
+  30-day request at 2,000 sessions. The lake's last-accepted time per
+  session prunes as well for recent ranges and costs nothing.
+
+A covering index of the columns the walk reads would remove the table
+lookups, and so most of SQLite's share, at the cost of another index
+rebuild. It was not added.
+
 ## Release readiness
 
 Local release rehearsal at `45fea68` passed:
