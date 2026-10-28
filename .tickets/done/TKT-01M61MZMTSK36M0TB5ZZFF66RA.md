@@ -19,12 +19,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:40:51Z
+updated_at: 2026-10-28T18:18:52Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-index
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -115,6 +115,10 @@ Always join `indexed i ON i.session_uid=d.session_uid`, as searchSQL does. That 
 - First usage per session: `SELECT session_uid, min(pos) FROM docs WHERE input_tokens IS NOT NULL GROUP BY session_uid` walks docs_tokens with no sort. Join back on (session_uid, pos) for input_tokens + cache_read_tokens + cache_write_tokens.
 - Tool rows with no call id (a harness that writes none) are outside docs_call_time. Count them through docs_tool or docs_type.
 - recorded_ns is null for an event whose source had no time, so a time range never includes those rows.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:18:52Z
+
+Coordinator: index version is now 6 (PR #221, review 2905): indexed gains first_recorded_ns and last_recorded_ns per session, for tool statistics ranges. v5 never shipped in a release, so the extra rebuild costs only main-branch lakes.
 
 ## Summary
 
