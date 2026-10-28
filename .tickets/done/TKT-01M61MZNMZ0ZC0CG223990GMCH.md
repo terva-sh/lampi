@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:28:39Z
+updated_at: 2026-10-28T19:01:41Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -113,6 +113,10 @@ Review 2904 on PR #222 (two medium findings) fixed in 7cc733e. (1) A doubled Cod
 **agent:claude-code/049834bc** at 2026-10-28T18:28:39Z
 
 Review 2906 on PR #222: finding-1 (doubled Codex calls in the retry window) was already fixed in 7cc733e. finding-2, a duplicate usage that did not refresh the gap time, is fixed in 0996390, with a repeated-baseline fixture in TestContextPressureCacheCollapse that fails on the previous code.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:01:41Z
+
+Review 2911 on PR #222 (medium) fixed in 3c19874: eviction from the retry window no longer clears a pending call's link. A test with four repeats separated by four filler calls, results delayed and in reverse, now finds the loop; it fails on the previous code. Memory stays bounded: links join only unsettled calls, which maxOpenCalls caps, and the 1M-event allocation test still passes.
 
 ## Summary
 
