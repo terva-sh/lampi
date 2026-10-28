@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:34:39Z
-updated_at: 2026-10-28T16:38:41Z
+updated_at: 2026-10-28T17:39:17Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -54,3 +54,9 @@ Wherever a harness reports it, keep cache read and cache write apart from plain 
 ### Order
 
 Tool and error work (children 3 and 4) does not depend on the token rollup and can go first. The token rollup carries the most design risk.
+
+## Notes
+
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+2026-10-28: #215 (TKT-01M61MYZ6H6J8MGNPWHS8MTJ1X Session diagnostics, noisy tools and tool usage statistics) merged per-event size, call, model and token columns into search.db at schema 5 while this stack was open. The owner chose to layer the two: this epic's stats rollup becomes schema 6 on top of those columns and stays the source for token totals, time series and errors, because it counts each model call once and the raw columns overcount Claude by about 2x. Tool sizes, latency, largest blocks, tool origin and session diagnosis stay with the other epic. The Tools tab (#218) is kept and the other epic's dashboard ticket extends it. Notes recording this are on TKT-01M61MZN8YEFZ90AZDW62QG2DZ, TKT-01M61MZNFY69TNQJWH0PS2WPKS and TKT-01M61MZN3QPKF04MAN3TWE5K0F.
