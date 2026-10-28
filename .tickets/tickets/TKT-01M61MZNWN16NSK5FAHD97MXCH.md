@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M61MZNWN16NSK5FAHD97MXCH
 title: "Tool usage: estimate starting-context cost of MCP servers"
 type: task
-status: ready
-status_reason: null
+status: blocked
+status_reason: Surfaces and engine done; AC 3 needs Claude Code's offered tool list projected (TKT-01M61SPVY01PVEFT1N9JKBK4HB, draft).
 priority: low
 due_on: null
 labels:
@@ -23,12 +23,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T17:43:12Z
+updated_at: 2026-10-28T18:58:24Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-stats
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -76,6 +76,20 @@ The plan read the first usage row through docs_tokens with a lookup per session.
 ### What is left on this ticket
 
 The surfaces: `--context` on the CLI, the route and MCP argument, and the Tools page column. These were left to the surfaces agent at the coordinator's request. TKT-01M61MZNC and TKT-01M61MZNF do not mention the context block, so this ticket goes back to ready for that work rather than to done.
+
+**agent:claude-code/049834bc-surf** at 2026-10-28T18:09:05Z
+
+The surfaces are done: `terva-lampi query tools --context` (a `context` JSONL line holding the whole block, and "context is a correlation hint: <note>" on stderr), `context=true` on GET /api/web/v1/tools and /api/read/v1/tools and on the MCP tool_stats tool (f12b6e4, tests in internal/web/tools_test.go, mcp_test.go and internal/cli/query_test.go), and the "Starting context by origin" panel on the Tools page with a "Correlation hint, not a finding" badge, the engine's note, per-harness medians, and "too few sessions" for suppressed rows (6b7c04b). Each surface carries `kind` and `note`. Documented in docs/web-api.md (Tool usage), docs/cli.md, docs/reading-the-lake.md and docs/web-dashboard.md.
+
+AC 3 (use a recorded tool list) stays unticked: it waits on TKT-01M61SPVY01PVEFT1N9JKBK4HB, "Project Claude Code's offered tool list for the context hint", still a draft. So this ticket goes to blocked on that rather than done.
+
+**agent:claude-code/049834bc-surf** at 2026-10-28T18:09:05Z
+
+in-progress to blocked: Surfaces and engine done; AC 3 needs Claude Code's offered tool list projected (TKT-01M61SPVY01PVEFT1N9JKBK4HB, draft).
+
+**agent:claude-code/049834bc** at 2026-10-28T18:58:24Z
+
+The Tools page panel described in the previous note was removed with the /tools page (PR #223; the owner chose #218's Usage Tools tab instead). The context hint's dashboard surface moves to that tab under TKT-01M61MZNF. The CLI, route and MCP surfaces are unchanged.
 
 ## Summary
 

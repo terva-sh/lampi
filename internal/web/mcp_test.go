@@ -171,6 +171,11 @@ func TestMCPToolsMatchTheWebAPI(t *testing.T) {
 			for i := range v.Items {
 				v.Items[i].Link = strings.TrimPrefix(v.Items[i].Link, "https://lake.example")
 			}
+		case *recall.ToolStats:
+			v.AsOf = ""
+			for i := range v.Largest {
+				v.Largest[i].Link = strings.TrimPrefix(v.Largest[i].Link, "https://lake.example")
+			}
 		}
 	}
 	same := func(tool, path string, args map[string]any, fresh func() any) string {
@@ -224,6 +229,14 @@ func TestMCPToolsMatchTheWebAPI(t *testing.T) {
 	if !strings.Contains(text, "Read README.md") && !strings.Contains(text, "README.md") {
 		t.Errorf("excerpt lacks its events: %s", text)
 	}
+	stats := func() any { return &recall.ToolStats{} }
+	for _, args := range []map[string]any{
+		{"all": true, "largest": 3},
+		{"since": "2026-09-01", "until": "2026-09-03", "group_by": "origin", "split": "harness", "largest": 1, "context": true},
+		{"harness": "codex", "tool": "Bash", "bucket": "day", "since": "2026-09-01", "until": "2026-09-04", "largest": 2},
+	} {
+		same("tool_stats", "/api/web/v1/tools?"+asQuery(args).Encode(), args, stats)
+	}
 
 	// A bad argument or a failed read is a tool error with the browser
 	// route's code, so the agent can correct the call.
@@ -243,6 +256,10 @@ func TestMCPToolsMatchTheWebAPI(t *testing.T) {
 		{"read_events", map[string]any{"session_uid": "no-such-session"}, "not_found"},
 		{"read_events", map[string]any{"session_uid": a, "gen": 7}, "generation_changed"},
 		{"copy_excerpt", map[string]any{"session_uid": a, "from": 99}, "invalid_request"},
+		{"tool_stats", map[string]any{"session_uid": a}, "invalid_request"},
+		{"tool_stats", map[string]any{"largest": 101}, "invalid_request"},
+		{"tool_stats", map[string]any{"all": true, "since": "2026-09-01"}, "invalid_request"},
+		{"tool_stats", map[string]any{"origin": "server"}, "invalid_request"},
 	} {
 		text, isError := callTool(t, h, token, c.tool, c.args)
 		var body map[string]string
@@ -282,6 +299,11 @@ func TestMCPReadsWithinTheTokenScope(t *testing.T) {
 		if hit.SessionUID != a {
 			t.Errorf("session-scoped search found %s", hit.SessionUID)
 		}
+	}
+	text, isError = callTool(t, h, onlyA, "tool_stats", map[string]any{"all": true})
+	var stats recall.ToolStats
+	if isError || json.Unmarshal([]byte(text), &stats) != nil || stats.Totals.Sessions != 1 || stats.Totals.Calls != 1 || stats.Coverage != (recall.Coverage{}) {
+		t.Errorf("session-scoped tool_stats: %s", text)
 	}
 	for _, tool := range []string{"read_events", "copy_excerpt"} {
 		if text, isError := callTool(t, h, onlyA, tool, map[string]any{"session_uid": b}); !isError || !strings.Contains(text, `"error":"not_found"`) {
@@ -395,6 +417,25 @@ func TestMCPReadsWithinABayScopedToken(t *testing.T) {
 		hits := map[string]bool{}
 		for _, hit := range page.Items {
 			hits[hit.SessionUID] = true
+		}
+		text, isError = callTool(t, h, c2.token, "tool_stats", map[string]any{"all": true, "largest": 10})
+		var stats recall.ToolStats
+		if isError || json.Unmarshal([]byte(text), &stats) != nil || stats.Coverage != (recall.Coverage{}) {
+			t.Fatalf("%s: tool_stats %s", name, text)
+		}
+		for _, block := range stats.Largest {
+			if !c2.want[block.SessionUID] {
+				t.Errorf("%s: tool_stats reached %s", name, block.SessionUID)
+			}
+		}
+		reached := 0
+		for _, want := range c2.want {
+			if want {
+				reached++
+			}
+		}
+		if stats.Totals.Sessions != int64(reached) {
+			t.Errorf("%s: tool_stats counted %d sessions, want %d", name, stats.Totals.Sessions, reached)
 		}
 		for uid, want := range c2.want {
 			if hits[uid] != want {
@@ -536,7 +577,7 @@ func TestMCPProtocolEras(t *testing.T) {
 		}
 	}
 	// The SDK lists tools by name.
-	if !slices.Equal(names, []string{"copy_excerpt", "read_events", "search"}) || string(reply.ID) != "2" {
+	if !slices.Equal(names, []string{"copy_excerpt", "read_events", "search", "tool_stats"}) || string(reply.ID) != "2" {
 		t.Errorf("tools/list: %v id %s", names, reply.ID)
 	}
 	if reply := decodeRPC(t, postRPC(h, token, rpcBody(3, "ping", nil), nil)); reply.Error != nil || len(reply.Result) != 0 {
