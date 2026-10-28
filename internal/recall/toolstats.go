@@ -598,8 +598,12 @@ func (a *toolAgg) session(uid string, gen int64, harness string, rows []trow) er
 	// class count every result in the range, whatever the tool filters
 	// keep, so a share is of the whole session.
 	var start int64 = -1
+	// active is whether any row was recorded in the range. The index's
+	// bounds only say the session's span meets it.
+	active := false
 	for i := range rows {
 		r := &rows[i]
+		active = active || a.inRange(r.at)
 		if r.typ == rowUsage {
 			if start < 0 {
 				start = r.tokens
@@ -624,7 +628,7 @@ func (a *toolAgg) session(uid string, gen int64, harness string, rows []trow) er
 			a.answered[r.call] = true
 		}
 	}
-	if a.ctx != nil {
+	if a.ctx != nil && active {
 		a.ctx.session(uid, harness, start, rows)
 	}
 	split := a.req.Split == ToolSplitModel || a.req.Model != ""
