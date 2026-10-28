@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:19:47Z
-updated_at: 2026-10-28T16:29:50Z
+updated_at: 2026-10-28T17:05:27Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -68,3 +68,9 @@ This came from an exploration on 2026-10-28 (Claude Code session t3-049834bc). T
 - [ ] Operators can find the sessions and MCP servers or extensions with the largest tool blocks.
 - [ ] A session can be diagnosed into coded findings with fixed suggestions, from the CLI, API, MCP and dashboard.
 - [ ] No diagnostic or statistic returns transcript content, and all respect read-token scope.
+
+## Notes
+
+**agent:claude-code/049834bc** at 2026-10-28T17:05:27Z
+
+PR #215 (data phase: TKT-01M61MZMR, TKT-01M61MZMX, TKT-01M61MZMT, TKT-01M61MZN0) merged to main as cef50b4 and synced to GitHub. Reviewed head 4ef8a9a: terva-review clean, request pr215-r1, run 2a74aac3 (Actions run #2022), no findings at any severity. The reviewer's open points match the tickets' unticked criteria: Cursor IDE status spellings lack real fixtures, and internal-lake rebuild and re-normalize costs are to be recorded at rollout. CI Lint and Test and Build Image green on the same head; origin/main was an ancestor of the head at merge.
