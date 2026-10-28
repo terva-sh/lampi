@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -101,20 +102,26 @@ func (f EventFilter) match(d *docRow) bool {
 }
 
 // ParseWhen reads a filter time: RFC 3339, or YYYY-MM-DD in UTC. A
-// date-only end covers that whole day.
+// date-only end covers that whole day. A time outside the years
+// UnixNano can hold (about 1678 to 2262) is refused, since the catalog
+// and the index compare times as nanoseconds and it would wrap.
 func ParseWhen(raw string, end bool) (time.Time, error) {
-	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-		return t.UTC(), nil
-	}
-	t, err := time.Parse("2006-01-02", raw)
-	if err != nil {
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err == nil {
+		t = t.UTC()
+	} else if t, err = time.Parse("2006-01-02", raw); err != nil {
 		return t, err
-	}
-	if end {
+	} else if end {
 		t = t.AddDate(0, 0, 1)
+	}
+	if t.Before(minWhen) || t.After(maxWhen) {
+		return time.Time{}, fmt.Errorf("recall: %s is outside the years a filter time can name", raw)
 	}
 	return t, nil
 }
+
+// minWhen and maxWhen are the times UnixNano can hold.
+var minWhen, maxWhen = time.Unix(0, math.MinInt64).UTC(), time.Unix(0, math.MaxInt64).UTC()
 
 // Fields is a list of event paths to write instead of the whole event.
 // A path is a schema_version 1 field, one field of a nested object such

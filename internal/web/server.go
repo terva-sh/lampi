@@ -71,10 +71,13 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	get("/api/web/v1/sessions/{uid}/{collection}", s.records)
 	get("/api/web/v1/sessions/{uid}/events", s.sessionEvents)
 	get("/api/web/v1/sessions/{uid}/excerpt", s.sessionExcerpt)
+	get("/api/web/v1/sessions/{uid}/diagnosis", s.sessionDiagnosis)
 	get("/api/web/v1/conflicts", s.conflicts)
 	get("/api/web/v1/conflicts/{id}", s.conflictAPI)
 	get("/api/web/v1/search", s.search)
 	get("/api/web/v1/activity", s.activity)
+	get("/api/web/v1/tools", s.tools)
+	get("/api/web/v1/diagnosis", s.lakeDiagnosis)
 	get("/api/web/v1/operations", s.operations)
 	get("/api/web/v1/devices", s.devices)
 	get("/api/web/v1/devices/{id}", s.device)
@@ -85,6 +88,8 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	s.maintenanceRoutes(m)
 	s.registrationRoutes(m)
 	s.readEventRoutes(m)
+	s.readToolRoutes(m)
+	s.readDiagnosisRoutes(m)
 	s.mcpRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }
@@ -129,6 +134,11 @@ func failure(err error) (int, map[string]string) {
 	status, code := 500, "read_failed"
 	body := map[string]string{}
 	var unavailable recall.UnavailableError
+	var filter *recall.FilterError
+	if errors.As(err, &filter) {
+		// The parameter name only, never its value.
+		body["param"] = filter.Param
+	}
 	switch {
 	case errors.As(err, &unavailable):
 		status, code = 409, "transcript_unavailable"
@@ -139,6 +149,8 @@ func failure(err error) (int, map[string]string) {
 		status, code = 409, "generation_changed"
 	case errors.Is(err, recall.ErrInvalid):
 		status, code = 400, "invalid_request"
+	case errors.Is(err, recall.ErrTooManyValues):
+		status, code = 400, "too_many_values"
 	case errors.Is(err, recall.ErrNotFound):
 		status, code = 404, "not_found"
 	case errors.Is(err, catalog.ErrPage):

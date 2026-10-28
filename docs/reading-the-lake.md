@@ -73,13 +73,16 @@ too.
 3. Start a new agent session, and ask it about earlier work, such as
    "find the session where we fixed the search WAL".
 
-The agent gets three tools:
+The agent gets six tools:
 
 | Tool | What it does |
 |------|--------------|
 | `search` | Finds events by text, by filters such as `event_type`, `tool` and time, or both. Each hit names its session and position and links to the event in the dashboard. |
 | `read_events` | Reads consecutive events of one session, for example from a few positions before a hit. |
 | `copy_excerpt` | Renders up to 200 events of one session as plain text to paste into a new session or give to a person. |
+| `tool_stats` | Counts tool calls, errors, result sizes and latency per tool or per MCP server, without content. See [Which tools are used](#which-tools-are-used). |
+| `diagnose_session` | Lists what went wrong in one session, such as a retry loop or an oversized result, each with a suggestion and links to its events. See [What went wrong in a session](#what-went-wrong-in-a-session). |
+| `diagnose_lake` | Groups the findings of recent sessions by code, harness and project, with example sessions. |
 
 The tools read only the sessions in the token's scope. Each call is
 written to the lake's audit log under the token's label. Search text is
@@ -134,6 +137,70 @@ terva-lampi query events --token-file ~/.config/terva-lampi/read-token \
 
 Run it once per harness with `--harness` to split the counts. Free-text
 paths such as `content_text` cannot be counted.
+
+## Which tools are used
+
+`terva-lampi query tools` asks the lake for tool usage statistics:
+calls, sessions, error rate, input and result sizes, and latency, per
+tool or per origin. An origin is built in, an MCP server, a plugin or an
+extension. Only the statistics cross the network, never content:
+
+```sh
+terva-lampi query tools --token-file ~/.config/terva-lampi/read-token \
+  --by origin --largest 5
+```
+
+```text
+{"summary":{"as_of":"...","group_by":"origin","since":"...","totals":{"calls":5120,...},...}}
+{"group":{"origin":{"kind":"builtin"},"calls":4630,"result_share":0.41,...}}
+{"group":{"origin":{"kind":"mcp","name":"pond-docs"},"calls":410,"result_share":0.52,...}}
+{"largest":{"session_uid":"...","position":812,"tool":"mcp__pond-docs__read","bytes":1843210,"link":"/sessions/...",...}}
+```
+
+- The range is the last 7 days unless you pass `--since`, `--until`,
+  `--bucket` or `--all`.
+- `result_share` beside the share of calls shows a noisy server: here
+  `pond-docs` makes 8% of the calls and returns 52% of the result bytes.
+- `--largest N` lists the biggest single inputs and results, each with a
+  link to the event in the dashboard.
+- `--context` adds a hint that compares the starting context of sessions
+  that called each MCP server with sessions that did not. It is a
+  correlation, not a measurement of the server's cost.
+- Sizes are bytes of text, and p50 and p95 are approximate, at most 19%
+  high.
+
+An agent with `terva-lampi mcp` asks the same through `tool_stats`.
+[Tool usage](web-api.md#tool-usage) describes every field.
+
+## What went wrong in a session
+
+`terva-lampi query diagnose` asks the lake to diagnose one session, or
+the recent sessions in your scope. A diagnosis lists findings such as an
+oversized tool result, an error streak, a retry loop, repeated reads of
+one file or a noisy MCP server. Each has a severity, the measured
+values, a suggestion and up to 16 event positions with links. Findings
+carry no content:
+
+```sh
+terva-lampi query diagnose --token-file ~/.config/terva-lampi/read-token SESSION_UID
+```
+
+```text
+{"summary":{"session_uid":"...","generation":3,"harness":"claude","events":1840,...}}
+{"finding":{"code":"retry_loop","severity":"warn","cause":"after_error","tool":"Bash","count":2,"positions":[412,530],"links":["/sessions/...#e-412",...],"values":{"loops":2,"retries":4},"suggestion":{"code":"retry_loop","text":"..."}}}
+```
+
+Without a session uid it reads the sessions updated in the last 7 days,
+at most 200 of them, and writes one `group` line per code, harness and
+project. `--since` and `--limit` change the range and the count.
+`truncated` in the summary says sessions in range were left unread.
+
+An agent can review its own past sessions the same way. Ask it to call
+`diagnose_session` on a session it ran, read around the findings with
+`read_events`, and say what it would do differently. `diagnose_lake`
+finds the codes that recur, with example sessions to start from. The
+transcript page in the dashboard shows the same findings.
+[Session diagnosis](web-api.md#session-diagnosis) describes every field.
 
 ## On the lake host
 
