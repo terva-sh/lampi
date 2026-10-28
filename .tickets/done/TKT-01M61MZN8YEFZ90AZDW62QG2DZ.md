@@ -130,6 +130,14 @@ Review 2905 on PR #221 (two medium findings) fixed, commit 1638856. (1) The 24 h
 
 Review 2908 on PR #221 (medium) fixed in f7d7c6c: with a range, the context comparison takes only sessions that hold a row recorded in it, not every session whose index bounds overlap it. TestToolStatsContextRangeTakesActiveSessions covers a session straddling an empty range; it fails on the previous code. Review 2908 confirmed both 2905 findings resolved.
 
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG (Dashboard: session statistics for tokens, errors and tools), 2026-10-28. The owner decided the two epics layer rather than compete.
+
+**Summing the token columns overcounts.** The per-event `input_tokens` .. `cache_write_tokens` columns copy each event's usage as normalized. Claude Code repeats a response's `message.usage` on every content-block line: in 30 local sessions, 25,924 of 46,076 usage lines repeated a message id, so a plain SUM roughly doubles Claude tokens. Codex can repeat its running total (236 of 8,508 token_count lines) and counts cached input inside input. Neither the message id nor the Codex running total is a column.
+
+**Use the stats rollup for token totals.** PR #214 adds a `stats` table to search.db at schema 6, written by `indexSession` with the docs rows. It counts each model call once (last usage per Claude message id, increases of the Codex running total), keeps plain input, output, cache read and cache write apart, and checks against the harnesses' own totals on 22 real sessions. `Index.Totals`, `Index.Series`, `Index.Breakdown` and `Index.TopErrorSessions` read it within a catalog Scope. This ticket's per-event size, latency and largest-block work stays on the docs columns, which the rollup does not cover.
+
 ## Summary
 
 (*recall.Index).ToolStats in internal/recall/toolstats.go (50c2d87) aggregates calls, results, sessions, errors, size and latency percentiles, session shares, hour or day buckets and the largest blocks per tool or origin. It filters by harness, project, model, range, tool, origin and token scope, in one walk per ready in-scope session that catalog.ReadySessions lists, and is bounded by 2.5 M rows and 10,000 keys. On a synthetic lake of 2,000 sessions and 1.3 M rows a whole-lake request takes about 2.3 s, and a 3-day one 0.25 s (docs/performance.md). Not yet measured on the internal lake, and not yet tested against the projections from TKT-01M61PSX and TKT-01M61PT07Y.

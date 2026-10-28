@@ -802,6 +802,30 @@ neither builds nor updates it.
   the WAL holds about one session's worth at a time.
 - **Backup and purge.** `serve backup` does not copy the index; a restored lake
   rebuilds it. `serve purge` removes the session's index rows first.
+- **Statistics.** While it indexes a session, the index also adds up the
+  session's events, errors, tool calls and failed tool results, and its model
+  calls and tokens, by UTC hour. The overview's **Tokens** panel reads these
+  totals, so it counts the sessions the index has reached and only the ones the
+  viewer's bays allow. Tokens are split four ways that do not overlap: input
+  that was neither read from nor written to the prompt cache, output, cache
+  read and cache write. A dash means the harness does not report that kind.
+  Each harness logs usage differently, and the index counts each model call
+  once:
+  - **Claude Code** repeats a response's usage on every content block. The
+    last usage for each message id counts.
+  - **Codex** can report the same running total twice, and counts cached input
+    inside input. The index counts the increase of the running total, with
+    cached input taken out of input. Codex does not report cache writes.
+  - **terva, OpenCode and Cursor** report one usage per call, which is summed.
+
+  An index at schema 5, which stores per-event sizes, call ids and token
+  counts, or at schema 6, which adds these statistics, is upgraded to schema 7
+  in place on the first start. Schema 7 adds each session's first and last
+  recorded time, which tool usage statistics use to skip sessions outside a
+  range. Search keeps answering, and every session is read once more to fill
+  in what is missing. Rows that did not change are not rewritten. Until a
+  session is read again, a tool statistics request with a range leaves it out.
+  An older index is rebuilt.
 
 ## Validation, backup and rollout
 
