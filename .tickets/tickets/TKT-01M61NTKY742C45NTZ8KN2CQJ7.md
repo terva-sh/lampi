@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61NTKY742C45NTZ8KN2CQJ7
 title: "Usage over time: hourly and daily tokens by harness"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:34:52Z
-updated_at: 2026-10-28T16:34:53Z
+updated_at: 2026-10-28T16:38:41Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
