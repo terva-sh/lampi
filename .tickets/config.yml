@@ -106,6 +106,8 @@ actors:
     name: Claude Code local agent
   - id: agent:claude-code/049834bc-stats
     name: Claude Code local agent
+  - id: agent:claude-code/049834bc-surf
+    name: Claude Code local agent
 labels:
   - area/agent
   - area/server
