@@ -422,6 +422,37 @@ page refreshes every 25 seconds while it is visible.
 The [browser API contract](web-api.md#activity) gives the JSON form, with the
 range limits: at most 14 days by the hour and 90 days by the day.
 
+## Tools
+
+`/tools` shows which tools the indexed sessions call, for the Activity page's
+ranges or for all recorded time, with filters for harness, origin, project and
+model. It reads the search index, so a lake without one says so. It does not
+refresh on its own: a range over a large lake takes seconds to count.
+
+- **By origin** puts each origin's share of tool calls beside its share of
+  tool result bytes. An origin is built in, an MCP server, a plugin or an
+  extension, read from the tool's name. A server with a small share of calls
+  and a large share of bytes is the one filling the context.
+- **Each tool**, or each origin with "Group by: Origin", lists calls,
+  sessions, error rate, result size at p50, p95 and max, both shares, and
+  latency at p50 and p95. The error rate counts only results whose harness
+  recorded whether they failed. Sizes are bytes of text, and the percentiles
+  are approximate, at most 19% high.
+- **Tool calls**, a chart of calls per bucket, appears for every range but all
+  recorded time.
+- **Largest blocks** lists the 20 biggest single call inputs and results. Each
+  links to the event in its transcript.
+- **Starting context by origin** compares the starting context of sessions
+  that called an MCP server, plugin or extension with sessions in the same
+  harness that did not. It is labelled as a correlation hint: a server that
+  is configured but never called is not seen, and sessions differ in other
+  ways. A side with fewer than 5 sessions is not compared.
+
+Codex code-mode calls made inside an `exec` cell are marked inner. Their
+results went to the script, not the model, so their shares are taken among
+inner calls only. The page holds no transcript text. The
+[browser API contract](web-api.md#tool-usage) gives the JSON form.
+
 ## Operations
 
 `/operations` answers two questions: how full the lake is, and whether it

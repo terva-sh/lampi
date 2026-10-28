@@ -3,8 +3,8 @@ package cli
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
