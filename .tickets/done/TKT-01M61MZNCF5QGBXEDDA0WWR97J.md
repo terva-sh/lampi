@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61MZNCF5QGBXEDDA0WWR97J
 title: "CLI, API and MCP: query tool usage statistics"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M61MZN8YEFZ90AZDW62QG2DZ
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc-surf
-  branch: worktree-agent-a363e408d8ea73e0e
-  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-a363e408d8ea73e0e
-  commit: c35ada00cf97e6216c36de9573117dfc6b89aadc
-  session: null
-  claimed_at: 2026-10-28T17:51:59Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T17:52:28Z
+updated_at: 2026-10-28T17:58:51Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -50,11 +43,11 @@ All scoped to the token, all content-free.
 
 ## Acceptance criteria
 
-- [ ] terva-lampi query tools answers the aggregates with the documented filters and groupings.
-- [ ] Read and browser API routes and a tool_stats MCP tool answer the same requests.
-- [ ] docs/cli.md, docs/web-api.md and docs/reading-the-lake.md describe them.
-- [ ] --context on the CLI, and context on the routes and tool_stats, return the starting-context hint (TKT-01M61MZNW) with its kind and note labels.
-- [ ] An end-to-end test runs real Codex code-mode and Claude MCP transcripts through the normalizers, publish and index to the route.
+- [x] terva-lampi query tools answers the aggregates with the documented filters and groupings.
+- [x] Read and browser API routes and a tool_stats MCP tool answer the same requests.
+- [x] docs/cli.md, docs/web-api.md and docs/reading-the-lake.md describe them.
+- [x] --context on the CLI, and context on the routes and tool_stats, return the starting-context hint (TKT-01M61MZNW) with its kind and note labels.
+- [x] An end-to-end test runs real Codex code-mode and Claude MCP transcripts through the normalizers, publish and index to the route.
 
 ## Implementation plan
 
@@ -66,3 +59,25 @@ All scoped to the token, all content-free.
 - CLI: `terva-lampi query tools`. Server and token resolution moves into a helper shared with `query events`. Output is JSONL with one key per line: a `summary` line (as_of, range, grouping, bucket_starts, totals, coverage), one `group` line per group, one `largest` line per block, and with --context one `context` line holding the whole hint with its kind and note. Totals and the context note go to stderr. --out is written only when complete, mode 0600.
 - Tests: route parity (browser, read, MCP), scope (session-scoped and bay-scoped tokens), strict parsing, search off, audit; the CLI against an httptest lake; one end-to-end test that runs real Codex code-mode and Claude MCP transcripts through the normalizers, publish and index Pass.
 - Docs: docs/cli.md, docs/web-api.md, docs/reading-the-lake.md.
+
+## Notes
+
+**agent:claude-code/049834bc-surf** at 2026-10-28T17:58:50Z
+
+Implemented in f12b6e4 (code) and 738a565 (docs).
+
+### Decisions and the alternatives that lost
+
+- Default range: the last 7 days when no since, until or bucket is given, with `all=true` (CLI `--all`) for every recorded time. Defaulting to every recorded time was rejected because a whole-lake read is about 2.3 s on 1.3M rows (docs/performance.md) against a 5 s read context, and an agent calling tool_stats with no arguments should get a cheap answer. A `range=` preset parameter was rejected: since and until already say it, and the dashboard's presets resolve to them.
+- Error bodies: failure() now adds `param` for a recall.FilterError (the parameter name, never its value), and maps ErrTooManyValues to 400 too_many_values. That changes search's and the event routes' bodies only by adding the field. An unknown parameter name is not echoed (plain invalid_request), so a caller cannot reflect arbitrary text through it.
+- CLI output: JSONL with one key per line (`summary`, `group`, `largest`, `context`) rather than the raw JSON body, so it streams into jq like `query events` does and each kind is selectable with `select(.group)`. Units are left to docs/web-api.md instead of a line of their own.
+- Read route links stay relative, like the browser route; only MCP makes them absolute, as for the other tools.
+- MCP: tool_stats names no session, so `session_uid` is refused rather than stripped; `sessionTool()` replaced the `name != "search"` checks.
+
+### Tests
+
+TestReadToolsFromNormalizedTranscripts is the end-to-end case: a Codex code-mode rollout and a Claude Code transcript run through normalize.Codex / normalize.Claude, publishNormalized, index.Pass, then GET /api/read/v1/tools. It asserts exec (outer, code_mode_cell), exec_command and mcp__pond-docs__read (inner, mcp/pond-docs), mcp__pond__read (mcp/pond), Bash error rate 1, no content in the body, browser route parity, session-scoped token, and the audit line. MCP parity, scope and bay tests were extended; TestQueryTools covers the CLI.
+
+## Summary
+
+GET /api/web/v1/tools, GET /api/read/v1/tools (events:read, audited) and the MCP tool_stats tool answer recall.ToolStats for the caller's scope through one strict parser; terva-lampi query tools writes it as JSONL. Range defaults to the last 7 days, all=true reads everything; context=true adds the labelled starting-context hint. Documented in docs/cli.md, docs/web-api.md and docs/reading-the-lake.md.
