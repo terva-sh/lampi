@@ -101,7 +101,10 @@ func TestUsagePageChartsTokensOverTime(t *testing.T) {
 			t.Fatalf("%s answered %d", path, w.Code)
 		}
 	}
-	if w := get(h, "/usage?harness=grokbot", cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "0 model calls") {
+	// A range with no calls is zero of every kind, in the totals and
+	// in every bucket of the table, never "not reported".
+	w = get(h, "/usage?harness=grokbot", cookie)
+	if b := w.Body.String(); w.Code != 200 || !strings.Contains(b, "0 model calls") || strings.Contains(b, "not reported") || !strings.Contains(b, `title="0">0</strong>`) {
 		t.Fatalf("a harness with no sessions: %d", w.Code)
 	}
 }
