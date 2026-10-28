@@ -131,11 +131,12 @@ func buildUsageView(t recall.Totals) usageView {
 // (TKT-01M61NTKY742C45NTZ8KN2CQJ7): the kinds differ by orders of
 // magnitude, since cache reads dwarf the rest, and a stack would hide
 // input and output. Errors charts error events and failed tool results
-// (TKT-01M61NTM0K2TQHX28T2R4HN0TN).
+// (TKT-01M61NTM0K2TQHX28T2R4HN0TN), and Tools the tool calls by
+// category across harnesses (TKT-01M61NTM2ZDBCKGA08BJKYM4Q1).
 type usagePageView struct {
 	// Enabled is false on a lake with no search index.
 	Enabled bool
-	// Tab is "tokens" or "errors"; Path is its URL path.
+	// Tab is "tokens", "errors" or "tools"; Path is its URL path.
 	Tab, Path string
 	Ranges    []activityRange
 	Range     string
@@ -146,6 +147,7 @@ type usagePageView struct {
 	Charts    []chartView
 	Rows      []usageBucketRow
 	Errors    errorsView
+	Tools     toolsView
 	Partial   bool
 	Indexed   int
 	Ready     int
@@ -169,7 +171,7 @@ type usageBucketRow struct {
 }
 
 // usageTabs are the Usage page's tabs by path.
-var usageTabs = map[string]string{"/usage": "tokens", "/usage/errors": "errors"}
+var usageTabs = map[string]string{"/usage": "tokens", "/usage/errors": "errors", "/usage/tools": "tools"}
 
 // validStatsHarness accepts a harness name as the stats store it: short
 // lowercase letters, digits and dashes. A name no session has selects
@@ -244,6 +246,11 @@ func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 	switch v.Tab {
 	case "errors":
 		if err := s.buildErrors(ctx, &v, scope, series, from, until, hourly); err != nil {
+			pageError(w, r, err)
+			return
+		}
+	case "tools":
+		if err := s.buildTools(ctx, &v, scope, series, from, until, hourly); err != nil {
 			pageError(w, r, err)
 			return
 		}
