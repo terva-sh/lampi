@@ -696,6 +696,39 @@ A covering index of the columns the walk reads would remove the table
 lookups, and so most of SQLite's share, at the cost of another index
 rebuild. It was not added.
 
+## Session diagnosis
+
+The diagnosis routes, MCP tools and transcript panel (TKT-01M61MZNR)
+diagnose on request: each reads the published events file once, and
+nothing is cached. `TestDiagnoseScale` measures one large session and the
+lake-wide walk:
+
+```sh
+LAMPI_DIAGNOSE_SCALE=200000 GOFLAGS=-mod=mod go test -run TestDiagnoseScale -v ./internal/recall/
+```
+
+Every event holds 1 KiB of text, and every third is a tool call followed by
+its result. Three runs on this workstation (12 threads, Go 1.27.1):
+
+| Request | Time |
+| --- | --- |
+| One session of 200,000 events | 1.38 s, 1.44 s, 1.43 s |
+| Lake-wide, the default 200 sessions of 2,000 events | 3.32 s, 3.47 s, 3.38 s |
+
+That is about 140,000 events a second for one session, and about 120,000
+a second across many, where each session also costs a scope check and a
+file open. So the one-session routes answer a session of up to about
+700,000 such events within their five-second read context. The
+transcript panel's one-second budget covers about 140,000; a longer
+session shows a notice there, and its pages do not wait longer. The
+lake-wide walk stops half a second before the read deadline and reports
+`truncated_by: time`, so 200 sessions averaging much over 2,500 events
+come back partly read rather than failing.
+
+A per-generation cache of findings would make the lake-wide view cheap,
+but it would need invalidation on every publish and a store to keep. It
+waits until the walk is measured too slow on a real lake.
+
 ## Release readiness
 
 Local release rehearsal at `45fea68` passed:

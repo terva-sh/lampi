@@ -64,8 +64,8 @@ MCP servers by share of result bytes in September:
     --origin mcp --since 2026-09-01 --until 2026-09-30
 `
 
-// queryToolsTimeout bounds one statistics request. The lake gives up
-// on its read after five seconds.
+// queryToolsTimeout bounds one statistics or diagnosis request. The
+// lake gives up on its read after five seconds.
 const queryToolsTimeout = time.Minute
 
 func runQueryTools(env Env, args []string) error {
@@ -122,7 +122,7 @@ func runQueryTools(env Env, args []string) error {
 	if err != nil {
 		return err
 	}
-	body, err := fetchToolStats(server, token, q)
+	body, err := fetchRead(server, token, "/api/read/v1/tools", q, toolsHint)
 	if err != nil {
 		return err
 	}
@@ -130,6 +130,11 @@ func runQueryTools(env Env, args []string) error {
 	if err := writeToolStats(env, body, &out); err != nil {
 		return err
 	}
+	return writeQueryOut(env, outPath, &out)
+}
+
+// writeQueryOut writes out to stdout, or to outPath once it is whole.
+func writeQueryOut(env Env, outPath string, out *bytes.Buffer) error {
 	if outPath == "" || outPath == "-" {
 		_, err := out.WriteTo(env.stdout())
 		return err
@@ -150,12 +155,12 @@ func runQueryTools(env Env, args []string) error {
 	return os.Rename(tmp.Name(), outPath)
 }
 
-// fetchToolStats is the lake's answer to q, or an error saying what the
-// lake refused and what to do about it.
-func fetchToolStats(server, token string, q url.Values) ([]byte, error) {
+// fetchRead is the lake's answer at path to q, or an error saying what
+// the lake refused and what hint says to do about it.
+func fetchRead(server, token, path string, q url.Values, hint func(status int, code, param string) string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), queryToolsTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(server, "/")+"/api/read/v1/tools?"+q.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(server, "/")+path+"?"+q.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +179,7 @@ func fetchToolStats(server, token string, q url.Values) ([]byte, error) {
 			Param string `json:"param"`
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&refusal)
-		return nil, fmt.Errorf("query: lake answered %d %s%s", resp.StatusCode, refusal.Error, toolsHint(resp.StatusCode, refusal.Error, refusal.Param))
+		return nil, fmt.Errorf("query: lake answered %d %s%s", resp.StatusCode, refusal.Error, hint(resp.StatusCode, refusal.Error, refusal.Param))
 	}
 	// The answer is bounded by the lake's group and largest limits.
 	return io.ReadAll(io.LimitReader(resp.Body, 256<<20))

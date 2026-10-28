@@ -818,7 +818,7 @@ func (a *Analyzer) Report() Report {
 	}
 
 	slices.SortStableFunc(rep.Findings, func(x, y Finding) int {
-		return cmp.Or(y.Severity.rank()-x.Severity.rank(), strings.Compare(string(x.Code), string(y.Code)))
+		return cmp.Or(y.Severity.Rank()-x.Severity.Rank(), strings.Compare(string(x.Code), string(y.Code)))
 	})
 	return rep
 }

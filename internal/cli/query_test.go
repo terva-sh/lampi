@@ -254,7 +254,8 @@ func TestQueryTools(t *testing.T) {
 		{SchemaVersion: 1, Harness: "claude", Actor: "assistant", EventType: "tool_call", RecordedAt: day, Tool: normalize.Tool{Name: &bash, CallID: &id1}, ContentText: text("git push")},
 		{SchemaVersion: 1, Harness: "claude", Actor: "tool", EventType: "tool_result", RecordedAt: day, Tool: normalize.Tool{Name: &bash, CallID: &id1}, ContentText: text("Everything up-to-date")},
 		{SchemaVersion: 1, Harness: "claude", Actor: "assistant", EventType: "tool_call", RecordedAt: day, Tool: normalize.Tool{Name: &mcpRead, CallID: &id2}, ContentText: text("{}")},
-		{SchemaVersion: 1, Harness: "claude", Actor: "tool", EventType: "tool_result", RecordedAt: day, Tool: normalize.Tool{Name: &mcpRead, CallID: &id2}, ContentText: text("private pond water")},
+		// Large enough for a diagnosis finding.
+		{SchemaVersion: 1, Harness: "claude", Actor: "tool", EventType: "tool_result", RecordedAt: day, Tool: normalize.Tool{Name: &mcpRead, CallID: &id2}, ContentText: text(strings.Repeat("private pond water ", 4000))},
 	})
 	reader := recall.NewReader(lake.Catalog, lake.Normalized)
 	index, err := recall.OpenIndex(filepath.Join(t.TempDir(), recall.IndexFile), reader)
@@ -280,9 +281,10 @@ func TestQueryTools(t *testing.T) {
 			return map[string]string{"XDG_CONFIG_HOME": t.TempDir(), "XDG_STATE_HOME": t.TempDir()}[k]
 		}}
 	}
+	sub := "tools"
 	run := func(args ...string) (map[string][]map[string]any, string, error) {
 		var out, errw bytes.Buffer
-		err := Run(append([]string{"query", "tools", "--server", srv.URL, "--token-file", token}, args...), env(&out, &errw))
+		err := Run(append([]string{"query", sub, "--server", srv.URL, "--token-file", token}, args...), env(&out, &errw))
 		lines := map[string][]map[string]any{}
 		for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
 			var m map[string]map[string]any
@@ -345,5 +347,40 @@ func TestQueryTools(t *testing.T) {
 	err = Run([]string{"query", "tools", "--server", srv.URL, "--token-file", raw}, env(&bytes.Buffer{}, &errw))
 	if err == nil || !strings.Contains(err.Error(), "404") || !strings.Contains(err.Error(), "events:read") {
 		t.Errorf("raw-only token: %v", err)
+	}
+
+	// TKT-01M61MZNR: query diagnose writes the lake-wide groups, and one
+	// session's findings, as JSONL.
+	sub = "diagnose"
+	lines, stderr, err = run("--since", "2020-01-01", "--limit", "5")
+	if err != nil || len(lines["summary"]) != 1 || len(lines["group"]) != 1 || lines["summary"][0]["sessions"] != 1.0 ||
+		!strings.Contains(stderr, "1 groups from 1 sessions updated since 2020-01-01T00:00:00Z") {
+		t.Fatalf("lake-wide: %v %q %v", lines, stderr, err)
+	}
+	g := lines["group"][0]
+	uid, _ := g["example_sessions"].([]any)[0].(string)
+	if g["code"] != "large_tool_result" || g["harness"] != "claude" || uid == "" {
+		t.Errorf("group %v", g)
+	}
+	lines, stderr, err = run(uid)
+	if err != nil || len(lines["summary"]) != 1 || len(lines["finding"]) != 1 || lines["summary"][0]["session_uid"] != uid ||
+		!strings.Contains(stderr, "1 findings in 4 events of "+uid) {
+		t.Fatalf("one session: %v %q %v", lines, stderr, err)
+	}
+	if f := lines["finding"][0]; f["code"] != "large_tool_result" || len(f["links"].([]any)) != 1 || !strings.HasPrefix(f["links"].([]any)[0].(string), "/sessions/"+uid+"/transcript?") {
+		t.Errorf("finding %v", f)
+	}
+	var out bytes.Buffer
+	if err := Run([]string{"query", "diagnose", uid, "--server", srv.URL, "--token-file", token}, env(&out, &bytes.Buffer{})); err != nil || strings.Contains(out.String(), "private pond") || !strings.Contains(out.String(), `{"finding":`) {
+		t.Errorf("uid first: %v %s", err, out.String())
+	}
+	if _, _, err := run(uid, "--limit", "2"); err == nil || !strings.Contains(err.Error(), "lake-wide view") {
+		t.Errorf("uid with --limit: %v", err)
+	}
+	if _, _, err := run("--limit", "1001"); err == nil || !strings.Contains(err.Error(), "refused the limit value") {
+		t.Errorf("limit: %v", err)
+	}
+	if _, _, err := run("nope"); err == nil || !strings.Contains(err.Error(), "404 not_found") {
+		t.Errorf("unknown session: %v", err)
 	}
 }

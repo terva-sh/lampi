@@ -73,7 +73,7 @@ too.
 3. Start a new agent session, and ask it about earlier work, such as
    "find the session where we fixed the search WAL".
 
-The agent gets four tools:
+The agent gets six tools:
 
 | Tool | What it does |
 |------|--------------|
@@ -81,6 +81,8 @@ The agent gets four tools:
 | `read_events` | Reads consecutive events of one session, for example from a few positions before a hit. |
 | `copy_excerpt` | Renders up to 200 events of one session as plain text to paste into a new session or give to a person. |
 | `tool_stats` | Counts tool calls, errors, result sizes and latency per tool or per MCP server, without content. See [Which tools are used](#which-tools-are-used). |
+| `diagnose_session` | Lists what went wrong in one session, such as a retry loop or an oversized result, each with a suggestion and links to its events. See [What went wrong in a session](#what-went-wrong-in-a-session). |
+| `diagnose_lake` | Groups the findings of recent sessions by code, harness and project, with example sessions. |
 
 The tools read only the sessions in the token's scope. Each call is
 written to the lake's audit log under the token's label. Search text is
@@ -169,6 +171,36 @@ terva-lampi query tools --token-file ~/.config/terva-lampi/read-token \
 
 An agent with `terva-lampi mcp` asks the same through `tool_stats`.
 [Tool usage](web-api.md#tool-usage) describes every field.
+
+## What went wrong in a session
+
+`terva-lampi query diagnose` asks the lake to diagnose one session, or
+the recent sessions in your scope. A diagnosis lists findings such as an
+oversized tool result, an error streak, a retry loop, repeated reads of
+one file or a noisy MCP server. Each has a severity, the measured
+values, a suggestion and up to 16 event positions with links. Findings
+carry no content:
+
+```sh
+terva-lampi query diagnose --token-file ~/.config/terva-lampi/read-token SESSION_UID
+```
+
+```text
+{"summary":{"session_uid":"...","generation":3,"harness":"claude","events":1840,...}}
+{"finding":{"code":"retry_loop","severity":"warn","cause":"after_error","tool":"Bash","count":2,"positions":[412,530],"links":["/sessions/...#e-412",...],"values":{"loops":2,"retries":4},"suggestion":{"code":"retry_loop","text":"..."}}}
+```
+
+Without a session uid it reads the sessions updated in the last 7 days,
+at most 200 of them, and writes one `group` line per code, harness and
+project. `--since` and `--limit` change the range and the count.
+`truncated` in the summary says sessions in range were left unread.
+
+An agent can review its own past sessions the same way. Ask it to call
+`diagnose_session` on a session it ran, read around the findings with
+`read_events`, and say what it would do differently. `diagnose_lake`
+finds the codes that recur, with example sessions to start from. The
+transcript page in the dashboard shows the same findings.
+[Session diagnosis](web-api.md#session-diagnosis) describes every field.
 
 ## On the lake host
 

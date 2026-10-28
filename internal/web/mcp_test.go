@@ -158,6 +158,7 @@ func TestMCPToolsMatchTheWebAPI(t *testing.T) {
 	}
 	admin := signInAs(t, idp, h, "owners")
 	token, _ := mintReadTokenWith(t, h, admin, "agent", "", catalog.PermEventsRead)
+	second, _ := mintReadTokenWith(t, h, admin, "agent 2", "", catalog.PermEventsRead)
 
 	unify := func(v any) {
 		switch v := v.(type) {
@@ -260,8 +261,19 @@ func TestMCPToolsMatchTheWebAPI(t *testing.T) {
 		{"tool_stats", map[string]any{"largest": 101}, "invalid_request"},
 		{"tool_stats", map[string]any{"all": true, "since": "2026-09-01"}, "invalid_request"},
 		{"tool_stats", map[string]any{"origin": "server"}, "invalid_request"},
+		// Past the first token's burst, a second token calls these.
+		{"diagnose_session", map[string]any{}, "invalid_request"},
+		{"diagnose_session", map[string]any{"session_uid": "no-such-session"}, "not_found"},
+		{"diagnose_session", map[string]any{"session_uid": a, "gen": 1}, "invalid_request"},
+		{"diagnose_lake", map[string]any{"session_uid": a}, "invalid_request"},
+		{"diagnose_lake", map[string]any{"limit": 1001}, "invalid_request"},
+		{"diagnose_lake", map[string]any{"since": "yesterday"}, "invalid_request"},
 	} {
-		text, isError := callTool(t, h, token, c.tool, c.args)
+		tok := token
+		if strings.HasPrefix(c.tool, "diagnose_") {
+			tok = second
+		}
+		text, isError := callTool(t, h, tok, c.tool, c.args)
 		var body map[string]string
 		if !isError || json.Unmarshal([]byte(text), &body) != nil || body["error"] != c.code || body["hint"] == "" {
 			t.Errorf("%s %v: error=%v %s, want %s", c.tool, c.args, isError, text, c.code)
@@ -305,7 +317,12 @@ func TestMCPReadsWithinTheTokenScope(t *testing.T) {
 	if isError || json.Unmarshal([]byte(text), &stats) != nil || stats.Totals.Sessions != 1 || stats.Totals.Calls != 1 || stats.Coverage != (recall.Coverage{}) {
 		t.Errorf("session-scoped tool_stats: %s", text)
 	}
-	for _, tool := range []string{"read_events", "copy_excerpt"} {
+	text, isError = callTool(t, h, onlyA, "diagnose_lake", map[string]any{"since": "2020-01-01"})
+	var groups recall.DiagnosisGroups
+	if isError || json.Unmarshal([]byte(text), &groups) != nil || groups.Sessions != 1 {
+		t.Errorf("session-scoped diagnose_lake: %s", text)
+	}
+	for _, tool := range []string{"read_events", "copy_excerpt", "diagnose_session"} {
 		if text, isError := callTool(t, h, onlyA, tool, map[string]any{"session_uid": b}); !isError || !strings.Contains(text, `"error":"not_found"`) {
 			t.Errorf("%s outside the scope: %s", tool, text)
 		}
@@ -437,11 +454,16 @@ func TestMCPReadsWithinABayScopedToken(t *testing.T) {
 		if stats.Totals.Sessions != int64(reached) {
 			t.Errorf("%s: tool_stats counted %d sessions, want %d", name, stats.Totals.Sessions, reached)
 		}
+		text, isError = callTool(t, h, c2.token, "diagnose_lake", map[string]any{"since": "2020-01-01"})
+		var groups recall.DiagnosisGroups
+		if isError || json.Unmarshal([]byte(text), &groups) != nil || groups.Sessions != reached {
+			t.Errorf("%s: diagnose_lake %s, want %d sessions", name, text, reached)
+		}
 		for uid, want := range c2.want {
 			if hits[uid] != want {
 				t.Errorf("%s: search hit %s = %v, want %v", name, uid, hits[uid], want)
 			}
-			for _, tool := range []string{"read_events", "copy_excerpt"} {
+			for _, tool := range []string{"read_events", "copy_excerpt", "diagnose_session"} {
 				text, isError := callTool(t, h, c2.token, tool, map[string]any{"session_uid": uid})
 				if isError == want || (!want && !strings.Contains(text, `"not_found"`)) {
 					t.Errorf("%s: %s %s: error=%v %s", name, tool, uid, isError, text)
@@ -577,7 +599,7 @@ func TestMCPProtocolEras(t *testing.T) {
 		}
 	}
 	// The SDK lists tools by name.
-	if !slices.Equal(names, []string{"copy_excerpt", "read_events", "search", "tool_stats"}) || string(reply.ID) != "2" {
+	if !slices.Equal(names, []string{"copy_excerpt", "diagnose_lake", "diagnose_session", "read_events", "search", "tool_stats"}) || string(reply.ID) != "2" {
 		t.Errorf("tools/list: %v id %s", names, reply.ID)
 	}
 	if reply := decodeRPC(t, postRPC(h, token, rpcBody(3, "ping", nil), nil)); reply.Error != nil || len(reply.Result) != 0 {

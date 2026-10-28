@@ -47,6 +47,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT dataset. See [Export](#export). |
 | `terva-lampi query events` | Read normalized events from a lake with a read token, with export's filters and `--fields`. See [Query a lake](#query-a-lake). |
 | `terva-lampi query tools` | Read tool usage statistics from a lake with a read token: calls, errors, sizes and latency per tool or origin. See [Query a lake](#query-a-lake). |
+| `terva-lampi query diagnose` | Read one session's diagnosis, or recent sessions' findings grouped, from a lake with a read token. See [Query a lake](#query-a-lake). |
 | `terva-lampi mcp` | Serve a lake's recall tools to an agent over stdio, with a read token. See [Serve recall to an agent](#serve-recall-to-an-agent). |
 | `terva-lampi conflicts` | List unresolved `divergent_copy` artifacts from the catalog: session, digests, and machines. `--resolved` adds resolved ones with their resolution. |
 
@@ -73,7 +74,7 @@ project come from the session, and the rest from the event.
 | `--tool NAME` | Events with this tool name, matched exactly. |
 | `--tool-error B` | Tool results that failed (`true`) or succeeded (`false`). A result whose harness recorded neither matches neither. |
 | `--raw-type T` | Events with this harness-native type, matched exactly. |
-| `--since T`, `--until T` | Events recorded in this range, RFC 3339 or `YYYY-MM-DD` in UTC. `--since` is inclusive and `--until` exclusive; a date-only `--until` covers that whole day. An event with no recorded time matches neither. |
+| `--since T`, `--until T` | Events recorded in this range, RFC 3339 or `YYYY-MM-DD` in UTC. `--since` is inclusive and `--until` exclusive; a date-only `--until` covers that whole day. An event with no recorded time matches neither. A time outside 1678 to 2262, which the lake cannot store, is refused. |
 
 `--fields PATH,...` writes one JSON object per event that holds only
 those paths, keyed by the path. A path is an event field
@@ -167,13 +168,30 @@ The output is JSONL with one key a line: a `summary` line with the range
 and totals, then one `group` line per group, one `largest` line per
 block, and with `--context` one `context` line. The totals go to stderr.
 
+`terva-lampi query diagnose SESSION_UID` reads one session's
+[diagnosis](web-api.md#session-diagnosis) with the same token,
+`--server`, `--lake` and `--out`: a `summary` line with the session's
+counts, then one `finding` line per finding, most severe first, each
+with its suggestion and links to its events. Without a uid it reads the
+lake-wide view: a `summary` line with the range, the sessions read and
+`truncated`, then one `group` line per code, harness and project. A
+count goes to stderr, and a truncated walk says so there. It reads no
+content.
+
+| Flag | Meaning |
+|------|---------|
+| `--since T` | Lake-wide: only sessions whose head last changed at or after this UTC time, as RFC 3339 or `YYYY-MM-DD`. The default is 7 days ago. |
+| `--limit N` | Lake-wide: read at most N sessions, newest first. The default is 200, at most 1000. |
+| `--harness H`, `--project ID` | Lake-wide: only these sessions. |
+
 ## Serve recall to an agent
 
 `terva-lampi mcp` is an MCP server on stdin and stdout. An agent such as
 Claude Code or Codex starts it, and it sends each message to the lake's
 [MCP endpoint](web-api.md#mcp-recall-tools) with a read token that holds
 `events:read`. Each answer from the lake goes back on stdout as one line.
-Its tools are `search`, `read_events`, `copy_excerpt` and `tool_stats`.
+Its tools are `search`, `read_events`, `copy_excerpt`, `tool_stats`,
+`diagnose_session` and `diagnose_lake`.
 
 | Flag | Meaning |
 |------|---------|

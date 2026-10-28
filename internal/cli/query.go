@@ -33,6 +33,9 @@ usage:
                            [tool filters] [--by tool|origin] [--split harness|model]
                            [--bucket hour|day] [--largest N] [--context] [--out FILE]
                            (terva-lampi query tools --help lists them)
+  terva-lampi query diagnose [SESSION_UID | --since T --limit N]
+                           [--lake NAME | --server URL] [--token-file FILE] [--out FILE]
+                           (terva-lampi query diagnose --help says more)
 
 Reads the events a lake's event stream (/api/read/v1/events) selects,
 and writes them as JSONL: whole events, the --fields paths, or with
@@ -83,8 +86,11 @@ func runQuery(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), queryUsage)
 		return nil
 	}
-	if args[0] == "tools" {
+	switch args[0] {
+	case "tools":
 		return runQueryTools(env, args[1:])
+	case "diagnose":
+		return runQueryDiagnose(env, args[1:])
 	}
 	if args[0] != "events" {
 		fmt.Fprint(env.stdout(), queryUsage)

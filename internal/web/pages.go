@@ -129,6 +129,8 @@ type pageData struct {
 	// TranscriptBlocks is Transcript's page grouped for display, with
 	// runs of quiet unknown events folded (transcriptBlocks).
 	TranscriptBlocks []transcriptBlock
+	// Diagnosis is the transcript's findings panel.
+	Diagnosis diagnosisView
 	// Unavailable names why a transcript cannot be shown: a
 	// normalization state, "missing", or "stale" for a link to a
 	// generation that is no longer published.
@@ -413,6 +415,8 @@ func (s *Server) transcriptPage(w http.ResponseWriter, r *http.Request) {
 		d.Pager = pager(r, nav, &d.Transcript.Generation, d.Transcript.NextCursor)
 		d.AsOf = d.Transcript.AsOf
 		d.TranscriptBlocks = transcriptBlocks(d.Transcript.Items, d.Target, d.HasTarget)
+		// Computed on request, not cached (TKT-01M61MZNR).
+		d.Diagnosis = s.transcriptDiagnosis(ctx, r, uid, d.Transcript.Generation)
 		render(w, r, d)
 	case errors.As(err, &unavailable):
 		d.Unavailable = unavailable.State
