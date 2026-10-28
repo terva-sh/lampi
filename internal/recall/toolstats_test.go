@@ -513,6 +513,27 @@ func TestToolStatsContext(t *testing.T) {
 	}
 }
 
+// With a range, the context comparison takes only the sessions with a
+// row recorded in it. A session whose span straddles the range with no
+// row inside is not one (review 2908 on #221).
+func TestToolStatsContextRangeTakesActiveSessions(t *testing.T) {
+	s := lake(t)
+	in := ingestAs(t, s, "claude", "in", "")
+	publish(t, s, in, toolSession("claude", usage(7200, 1000, 8000, 1000), call("mcp__docs__search", "m", 7300, 10)))
+	gap := ingestAs(t, s, "claude", "gap", "")
+	publish(t, s, gap, toolSession("claude", usage(0, 1000, 50000, 1000), call("mcp__docs__search", "m", 60, 10), call("Read", "r", 4*3600, 10)))
+	x := openIndex(t, s)
+	pass(t, x)
+	since, until := toolBase.Add(2*time.Hour), toolBase.Add(3*time.Hour)
+	c := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays(), Context: true, Since: &since, Until: &until}).Context
+	if c == nil || len(c.Harnesses) != 1 || c.Harnesses[0].All.Sessions != 1 {
+		t.Fatalf("a session with no row in the range was compared: %+v", c)
+	}
+	if len(c.Rows) != 1 || c.Rows[0].With.Sessions != 1 {
+		t.Fatalf("rows %+v", c.Rows)
+	}
+}
+
 // The walk starts from the sessions in scope and reads each in position
 // order through docs_session, with no sort.
 func TestToolStatsPlans(t *testing.T) {
