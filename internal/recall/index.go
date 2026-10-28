@@ -34,7 +34,12 @@ const IndexFile = "search.db"
 // generation, so a new generation rewrites only the rows that changed.
 // Version 4 stores no recorded time for an event whose source had none,
 // and rebuilds a file that rewriting those rows grew (TKT-01M3NENNN8).
-const indexVersion = 4
+// Version 5 stores each event's content size before truncation, its
+// tool call id, its model id and its token counts, for tool usage
+// statistics (TKT-01M61MZMT). Each enters the signature, so a migration would
+// rewrite every row anyway, deleting each from the full-text index as
+// well; a rebuild writes each row once.
+const indexVersion = 5
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -60,6 +65,17 @@ const walLimit = 64 << 20
 // and searchable. Text past it is still in the transcript.
 const IndexContentMax = 256 << 10
 
+// indexSchema keeps content the last column of docs. SQLite reads a
+// column stored after a large value by walking that value's overflow
+// pages, and content holds up to IndexContentMax.
+//
+// docs_call and docs_call_time hold only rows with a call id, and
+// docs_tokens only rows with an input token count, so they cost little
+// for messages. Search never filters on those columns, so it cannot
+// choose them over the indexes its plans walk newest first. docs_call
+// pairs a call with its result within a session. docs_call_time finds
+// the calls or results recorded in a time range. docs_tokens finds a
+// session's first token count, its starting context.
 const indexSchema = `
 CREATE TABLE indexed (
 	session_uid TEXT PRIMARY KEY,
@@ -81,12 +97,22 @@ CREATE TABLE docs (
 	tool_error INTEGER,
 	raw_type TEXT NOT NULL,
 	recorded_ns INTEGER,
+	content_bytes INTEGER,
+	call_id TEXT,
+	model_id TEXT,
+	input_tokens INTEGER,
+	output_tokens INTEGER,
+	cache_read_tokens INTEGER,
+	cache_write_tokens INTEGER,
 	content TEXT
 );
 CREATE INDEX docs_session ON docs(session_uid, pos);
 CREATE INDEX docs_type ON docs(event_type, id);
 CREATE INDEX docs_tool ON docs(tool_name, id);
 CREATE INDEX docs_error ON docs(tool_error, id);
+CREATE INDEX docs_call ON docs(session_uid, call_id) WHERE call_id IS NOT NULL;
+CREATE INDEX docs_call_time ON docs(event_type, recorded_ns) WHERE call_id IS NOT NULL;
+CREATE INDEX docs_tokens ON docs(session_uid, pos) WHERE input_tokens IS NOT NULL;
 CREATE VIRTUAL TABLE fts USING fts5(content, content='docs', content_rowid='id', tokenize='trigram');
 CREATE TRIGGER docs_ai AFTER INSERT ON docs BEGIN
 	INSERT INTO fts(rowid, content) VALUES (new.id, new.content);
@@ -539,7 +565,7 @@ func (w *docWriter) insert(ctx context.Context, row *docRow, sig int64) error {
 	if row.hasContent {
 		content = row.content
 	}
-	w.ins = append(w.ins, row.uid, row.pos, sig, row.harness, row.project, row.eventType, row.actor, row.tool, row.toolError, row.raw, row.recorded, content)
+	w.ins = append(w.ins, row.uid, row.pos, sig, row.harness, row.project, row.eventType, row.actor, row.tool, row.toolError, row.raw, row.recorded, row.contentBytes, row.callID, row.modelID, row.usage.Input, row.usage.Output, row.usage.CacheRead, row.usage.CacheWrite, content)
 	w.rows++
 	w.bytes += len(row.content)
 	if w.rows >= writeRows || w.bytes >= writeBytes {
@@ -556,8 +582,8 @@ func (w *docWriter) flush(ctx context.Context) error {
 		}
 	}
 	if w.rows > 0 {
-		const values = "(?,?,?,?,?,?,?,?,?,?,?,?)"
-		if _, err := w.tx.ExecContext(ctx, `INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,tool_name,tool_error,raw_type,recorded_ns,content) VALUES`+values+strings.Repeat(","+values, w.rows-1), w.ins...); err != nil {
+		const values = "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+		if _, err := w.tx.ExecContext(ctx, `INSERT INTO docs(session_uid,pos,sig,harness,project_id,event_type,actor,tool_name,tool_error,raw_type,recorded_ns,content_bytes,call_id,model_id,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,content) VALUES`+values+strings.Repeat(","+values, w.rows-1), w.ins...); err != nil {
 			return err
 		}
 	}
@@ -670,11 +696,16 @@ type docRow struct {
 	tool                  *string
 	toolError             *bool
 	recorded              *int64
-	content               string
-	hasContent            bool
+	// contentBytes is the length of content_text before truncation.
+	contentBytes    *int64
+	callID, modelID *string
+	// usage holds the token counts; its cost is not stored.
+	usage      normalize.Usage
+	content    string
+	hasContent bool
 }
 
-// fill reads the fields search needs from one JSONL line. A line that
+// fill reads the fields the index stores from one JSONL line. A line that
 // is oversized or not JSON still gets a row, with no content, so
 // positions stay dense.
 func (d *docRow) fill(line []byte) {
@@ -688,7 +719,8 @@ func (d *docRow) fill(line []byte) {
 		return
 	}
 	d.eventType, d.actor, d.raw = ev.EventType, ev.Actor, ev.RawType
-	d.tool, d.toolError = ev.Tool.Name, ev.Tool.IsError
+	d.tool, d.toolError, d.callID, d.modelID = ev.Tool.Name, ev.Tool.IsError, ev.Tool.CallID, ev.Model.ID
+	d.usage = normalize.Usage{Input: ev.Usage.Input, Output: ev.Usage.Output, CacheRead: ev.Usage.CacheRead, CacheWrite: ev.Usage.CacheWrite}
 	// Projection writes the projection time as recorded_at when the
 	// source line had none, the same instant as ingested_at. It is
 	// not the event's time, and it changes at every generation, so
@@ -703,7 +735,8 @@ func (d *docRow) fill(line []byte) {
 		}
 	}
 	if ev.ContentText != nil {
-		d.content, d.hasContent = truncate(*ev.ContentText, IndexContentMax), true
+		n := int64(len(*ev.ContentText))
+		d.content, d.hasContent, d.contentBytes = truncate(*ev.ContentText, IndexContentMax), true, &n
 	}
 }
 
@@ -734,6 +767,20 @@ func (d *docRow) sig() int64 {
 		rec = fmt.Sprint(*d.recorded)
 	}
 	put(d.recorded != nil, rec)
+	var size string
+	if d.contentBytes != nil {
+		size = fmt.Sprint(*d.contentBytes)
+	}
+	put(d.contentBytes != nil, size)
+	put(d.callID != nil, deref(d.callID))
+	put(d.modelID != nil, deref(d.modelID))
+	for _, n := range []*int{d.usage.Input, d.usage.Output, d.usage.CacheRead, d.usage.CacheWrite} {
+		var v string
+		if n != nil {
+			v = fmt.Sprint(*n)
+		}
+		put(n != nil, v)
+	}
 	put(d.hasContent, d.content)
 	return int64(binary.BigEndian.Uint64(h.Sum(nil)))
 }

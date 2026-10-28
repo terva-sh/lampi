@@ -249,6 +249,32 @@ func TestIndexRebuildsUnknownVersions(t *testing.T) {
 	}
 }
 
+// A version 4 file has no tool usage columns. It is rebuilt, not
+// migrated, so every row is written once with them (TKT-01M61MZMT).
+func TestIndexRebuildsVersion4(t *testing.T) {
+	path := filepath.Join(t.TempDir(), IndexFile)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE docs (id INTEGER PRIMARY KEY, session_uid TEXT NOT NULL, pos INTEGER NOT NULL, sig INTEGER NOT NULL, content TEXT);
+		INSERT INTO docs(session_uid,pos,sig,content) VALUES('old',0,0,'old row');
+		PRAGMA user_version=4`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	s := lake(t)
+	x, err := OpenIndex(path, NewReader(s.Catalog, s.Normalized))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	var rows int
+	if err := x.db.QueryRow(`SELECT COUNT(*) FROM docs WHERE content_bytes IS NULL AND call_id IS NULL AND model_id IS NULL AND input_tokens IS NULL`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatal("version 4 file kept", rows, err)
+	}
+}
+
 func TestSearchFiltersAndPaging(t *testing.T) {
 	s := lake(t)
 	a := ingestAs(t, s, "codex", "a", "git@example.com:org/one.git")
