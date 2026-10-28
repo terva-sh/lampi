@@ -191,6 +191,9 @@ func TestCodexSchemaOpaqueAndUnknownKeys(t *testing.T) {
 	if result == nil || result.Actor != ActorTool || result.Tool.CallID == nil || *result.Tool.CallID != "call_1" || result.Tool.IsError != nil {
 		t.Fatalf("result: %+v", result)
 	}
+	if result.Tool.Name == nil || *result.Tool.Name != "exec_command" {
+		t.Fatalf("result was not named from its call: %+v", result.Tool)
+	}
 	if assistant == nil || assistant.Actor != ActorAssistant || assistant.Role == nil || *assistant.Role != ActorAssistant {
 		t.Fatalf("assistant: %+v", assistant)
 	}
@@ -343,6 +346,40 @@ func TestCodexNormalizeErrorOmitsLine(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "line 1 is not a JSON object") || strings.Contains(err.Error(), "sk-live-secret") || strings.Contains(err.Error(), "[]") {
 			t.Fatalf("%q: %v", bad, err)
 		}
+	}
+}
+
+func TestCodexResultNamesFollowTheirOwnCall(t *testing.T) {
+	// One call id is both a response_item function_call (shell) and an
+	// event_msg exec_command_begin. Each result takes the name of the
+	// call event of its own kind.
+	raw := strings.Join([]string{
+		`{"type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call_1","arguments":"{}"}}`,
+		`{"type":"event_msg","payload":{"type":"exec_command_begin","call_id":"call_1","command":["ls"]}}`,
+		`{"type":"event_msg","payload":{"type":"exec_command_end","call_id":"call_1","stdout":"ok","exit_code":2}}`,
+		`{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"ok"}}`,
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_begin","call_id":"call_2","invocation":{"server":"pond","tool":"read"}}}`,
+		`{"type":"event_msg","payload":{"type":"mcp_tool_call_end","call_id":"call_2","result":{"Ok":{}}}}`,
+		`{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_9","output":"orphan"}}`,
+	}, "\n") + "\n"
+	events, err := (Codex{NativeID: codexNative}).Normalize(context.Background(), []byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, ev := range events {
+		if ev.EventType != EventToolResult {
+			continue
+		}
+		name := "<nil>"
+		if ev.Tool.Name != nil {
+			name = *ev.Tool.Name
+		}
+		got = append(got, ev.RawType+"="+name)
+	}
+	want := []string{"exec_command_end=exec_command", "function_call_output=shell", "mcp_tool_call_end=read", "function_call_output=<nil>"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("result names %v, want %v", got, want)
 	}
 }
 
