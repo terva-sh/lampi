@@ -29,6 +29,10 @@ usage:
   terva-lampi query events [--lake NAME | --server URL] [--token-file FILE]
                            [event filters] [--fields PATH,... | --count-by PATH]
                            [--out FILE]
+  terva-lampi query tools  [--lake NAME | --server URL] [--token-file FILE]
+                           [tool filters] [--by tool|origin] [--split harness|model]
+                           [--bucket hour|day] [--largest N] [--context] [--out FILE]
+                           (terva-lampi query tools --help lists them)
 
 Reads the events a lake's event stream (/api/read/v1/events) selects,
 and writes them as JSONL: whole events, the --fields paths, or with
@@ -79,6 +83,9 @@ func runQuery(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), queryUsage)
 		return nil
 	}
+	if args[0] == "tools" {
+		return runQueryTools(env, args[1:])
+	}
 	if args[0] != "events" {
 		fmt.Fprint(env.stdout(), queryUsage)
 		return fmt.Errorf("unknown query %q", args[0])
@@ -109,26 +116,9 @@ func runQuery(env Env, args []string) error {
 	if filter.IsZero() {
 		return errors.New("query events needs at least one event filter; --fields alone selects every event")
 	}
-	if lake != "" && server != "" {
-		return errors.New("--lake and --server both name the lake; pass one")
-	}
-	if server == "" {
-		if server, err = queryServer(env, lake); err != nil {
-			return err
-		}
-	}
-	if tokenFile == "" {
-		tokenFile = env.getenv("LAMPI_READ_TOKEN_FILE")
-	}
-	if tokenFile == "" {
-		return errors.New("no read token: pass --token-file, or set LAMPI_READ_TOKEN_FILE")
-	}
-	token, err := readReadToken(tokenFile)
+	server, token, err := queryTarget(env, lake, server, tokenFile)
 	if err != nil {
 		return err
-	}
-	if err := upload.CheckToken(server, token); err != nil {
-		return fmt.Errorf("refusing to send the read token over plain http to %s; use an https URL, or http only to a loopback address", server)
 	}
 
 	if outPath == "" || outPath == "-" {
@@ -150,6 +140,33 @@ func runQuery(env Env, args []string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), outPath)
+}
+
+// queryTarget resolves the lake to read and the read token to send it.
+func queryTarget(env Env, lake, server, tokenFile string) (string, string, error) {
+	if lake != "" && server != "" {
+		return "", "", errors.New("--lake and --server both name the lake; pass one")
+	}
+	var err error
+	if server == "" {
+		if server, err = queryServer(env, lake); err != nil {
+			return "", "", err
+		}
+	}
+	if tokenFile == "" {
+		tokenFile = env.getenv("LAMPI_READ_TOKEN_FILE")
+	}
+	if tokenFile == "" {
+		return "", "", errors.New("no read token: pass --token-file, or set LAMPI_READ_TOKEN_FILE")
+	}
+	token, err := readReadToken(tokenFile)
+	if err != nil {
+		return "", "", err
+	}
+	if err := upload.CheckToken(server, token); err != nil {
+		return "", "", fmt.Errorf("refusing to send the read token over plain http to %s; use an https URL, or http only to a loopback address", server)
+	}
+	return server, token, nil
 }
 
 // queryServer is the server of the named config.json lake, or of the
