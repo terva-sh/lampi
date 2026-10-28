@@ -10,12 +10,13 @@ import (
 )
 
 // InnerRawType is the raw_type of a Codex code-mode inner call or
-// result (docs/harnesses.md, "Codex code-mode inner calls"): a tool the script in an exec cell called, recorded by Codex
-// as an item_completed event. Its result went to the script, not to the
-// model, so it is not context: size rules read the cell's result
-// instead, and retry and orphan rules read only the calls the model
-// made. Inner results still count for noisy_tool_origin, in their own
-// pool, because they show which server produced the bulk.
+// result: a tool the script in an exec cell called, recorded by Codex
+// as an item_completed event (docs/harnesses.md, "Codex code-mode inner
+// calls"). Its result went to the script, not to the model, so it is
+// not context: size rules read the cell's result instead, and retry and
+// orphan rules read only the calls the model made. Inner results still
+// count for noisy_tool_origin, in their own pool, because they show
+// which server produced the bulk.
 const InnerRawType = "item_completed"
 
 func inner(harness, rawType string) bool {
