@@ -48,3 +48,27 @@ func (c *callNames) remember(callID, name string) {
 func (c *callNames) name(callID string) string {
 	return c.names[callID]
 }
+
+// mcpToolName is the name Claude Code gives an MCP tool,
+// mcp__<server>__<tool>, for a harness that records the server and the
+// tool apart. Letters, digits, '_' and '-' are kept, so a server keeps
+// its hyphens, and any other byte becomes '_'. It is "" when the server
+// or the tool is empty, and the caller keeps its own name.
+func mcpToolName(server, tool string) string {
+	if server == "" || tool == "" {
+		return ""
+	}
+	return "mcp__" + mcpNamePart(server) + "__" + mcpNamePart(tool)
+}
+
+func mcpNamePart(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '_', c == '-':
+		default:
+			b[i] = '_'
+		}
+	}
+	return string(b)
+}
