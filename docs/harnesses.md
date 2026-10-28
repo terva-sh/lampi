@@ -161,6 +161,14 @@ Blobs that no root lists, the roots among them, follow in export
 order. A root is decoded only to read the ids, and it stays an
 `unknown` event with its base64 value.
 
+A root holds no time of its own and no link to the root before it.
+After two or more compactions, two older branches may share nothing
+but the messages both kept, and then no root says which came first.
+Each branch stays whole and in its own order, but the order between
+them is a guess from export order. Every event of those older branches
+carries `extra.order` set to `unestablished`, so a reader that depends
+on sequence, such as a diagnosis rule, can leave them out.
+
 Cursor writes a new copy of a message blob when the message changes,
 so an older copy can repeat a `tool-result` part. On the local stores
 measured, one session had 366 results for 355 calls and the others had

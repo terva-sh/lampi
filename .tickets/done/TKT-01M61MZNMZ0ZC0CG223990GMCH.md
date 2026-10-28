@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T17:51:46Z
+updated_at: 2026-10-28T18:00:28Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -97,6 +97,10 @@ internal/synthetic and cmd/lampi-perf are test-only or `package main`, so they c
 **agent:claude-code/049834bc** at 2026-10-28T17:51:46Z
 
 Coordinator: diagnose now reads origins through internal/toolorigin (TKT-01M61MZN3) instead of its local parse, and matches Codex inner calls on raw_type == item_completed exactly (TKT-01M61PSX contract). The old parse's fallbacks for unprojected Cursor CLI CallDynamicTool and Codex tools.-prefixed names are gone: both normalizers now emit mcp__<server>__<tool>, so old projections need serve normalize --all, which the release already requires.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:00:28Z
+
+Cursor CLI events can now carry extra.order = unestablished (PR #220 fix 5780868): their place among older compaction branches is a guess. Sequence rules (retry_loop, error_streak, repeated_read) should skip or reset at those events; orphan rules are already off for Cursor CLI. To do with the diagnosis surfaces work.
 
 ## Summary
 

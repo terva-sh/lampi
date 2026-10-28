@@ -26,7 +26,9 @@ import (
 //
 // v1 emits one envelope meta event, then meta rows in export order, then
 // blob rows in conversation order (cursorCLIOrder), which reads the blob
-// ids that the protobuf root blobs list. Meta key "0" is the session
+// ids that the protobuf root blobs list. An event whose place among
+// branches older than the latest root no root establishes carries
+// extra.order "unestablished". Meta key "0" is the session
 // record. Fields on that record, including agentId, latestRootBlobId,
 // mode, and lastUsedModel, stay on the meta event. session_id stays
 // NativeID; it is not agentId. Other meta objects are meta only when
@@ -104,7 +106,8 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		events = append(events, ev)
 	}
 	var calls callNames
-	for _, i := range cursorCLIOrder(doc) {
+	order, unsure := cursorCLIOrder(doc)
+	for _, i := range order {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -115,6 +118,14 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		evs, err := c.projectBlob(at.blobAt(i, row.ID), row, &calls)
 		if err != nil {
 			return nil, err
+		}
+		if unsure != nil && unsure[i] {
+			for k := range evs {
+				if evs[k].Extra == nil {
+					evs[k].Extra = extraMap{}
+				}
+				evs[k].Extra["order"] = "unestablished"
+			}
 		}
 		events = append(events, evs...)
 	}
