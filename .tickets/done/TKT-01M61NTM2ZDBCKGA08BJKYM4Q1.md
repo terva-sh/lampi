@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61NTM2ZDBCKGA08BJKYM4Q1
 title: "Tool usage: top tools, failure rates and a cross-harness map"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M61NTM0K2TQHX28T2R4HN0TN
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: stats/tool-usage
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: fde567677a5225ab4fc226ccde93b0856be417eb
-  session: null
-  claimed_at: 2026-10-28T17:10:03Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:34:53Z
-updated_at: 2026-10-28T17:12:55Z
+updated_at: 2026-10-28T21:47:21Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -80,3 +73,7 @@ Rejected:
 - A chart of tool calls per bucket.
 - Categories by calls, with failed results, failure rate, and the raw names under each.
 - A category by harness matrix, which is the cross-harness view.
+
+## Summary
+
+Landed in #218. /usage/tools charts tool calls and failed tool results over time, lists categories busiest first with calls, failures, failure rate and every harness and name counted (the six busiest shown, the rest folded), and shows a category by harness matrix. Names map to categories at read time in internal/web/tools.go (shell, script, read, write, edit, search, web, agents, plan, ask, and mcp:<server>). The session diagnostics epic's dashboard ticket extends this tab with sizes, latency and origin.
