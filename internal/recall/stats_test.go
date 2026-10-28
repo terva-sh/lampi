@@ -138,6 +138,28 @@ func TestStatsCodexUsesRunningTotals(t *testing.T) {
 	checkTokens(t, "codex", h.Tokens, "200", "45", "200", "nil")
 }
 
+// A Codex process that restarts counts its running total from zero.
+// A total lower in any kind is a restart, even when another kind, such
+// as cached input never used, stays at zero.
+func TestStatsCodexRestartWithAKindAtZero(t *testing.T) {
+	s := lake(t)
+	uid := ingestHarness(t, s, "codex", "codex-restart")
+	total := func(m, in, out int) normalize.Event {
+		return ev("codex", normalize.EventUsage, m, func(e *normalize.Event) {
+			e.EventID = fmt.Sprint("t", m)
+			e.Extra = map[string]any{"info": map[string]any{"total_token_usage": map[string]any{"input_tokens": in, "cached_input_tokens": 0, "output_tokens": out}}}
+		})
+	}
+	publish(t, s, uid, []normalize.Event{total(1, 100, 10), total(2, 20, 2), total(3, 50, 5)})
+	x := openIndex(t, s)
+	pass(t, x)
+	h := harnessTotals(t, totals(t, x, catalog.AllBays()), "codex")
+	if h.ModelCalls != 3 {
+		t.Fatalf("%d model calls, want 3", h.ModelCalls)
+	}
+	checkTokens(t, "codex", h.Tokens, "150", "15", "0", "nil")
+}
+
 // Other harnesses report one usage per model call with cache apart from
 // input, and are summed as normalized. A field never reported stays nil.
 func TestStatsSumOtherHarnessesAndKeepUnreportedNil(t *testing.T) {
