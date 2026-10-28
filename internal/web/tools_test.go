@@ -47,6 +47,20 @@ func TestBuildToolsViewGroupsAcrossHarnesses(t *testing.T) {
 	}
 }
 
+// A category with more names than a row shows keeps the rest, busiest
+// first, rather than counting calls it cannot name.
+func TestBuildToolsViewKeepsEveryName(t *testing.T) {
+	var calls []recall.NameCount
+	for i, name := range []string{"Bash", "bash", "exec_command", "shell", "local_shell_call", "run_terminal_cmd", "terminal", "write_stdin"} {
+		calls = append(calls, nc("h", name, int64(100-i)))
+	}
+	v := buildToolsView(calls, []recall.NameCount{nc("h", "write_stdin", 5)})
+	r := v.Rows[0]
+	if len(r.Names) != toolNamesShown || strings.Join(r.More, ",") != "h terminal,h write_stdin" {
+		t.Fatalf("names %v, more %v", r.Names, r.More)
+	}
+}
+
 func TestUsageToolsTab(t *testing.T) {
 	lake, idp, h, _ := fixture(t)
 	uid, _ := storeSession(t, lake, "native-tools", []byte("{}\n"))

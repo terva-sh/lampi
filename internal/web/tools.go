@@ -74,7 +74,10 @@ type toolsView struct {
 type toolRow struct {
 	Category, Calls, Failed, FailRate string
 	N, Max                            int64
-	Names                             []string
+	// Names are the busiest harness and name pairs counted. More is
+	// the rest, which the page folds away but still lists, so every
+	// call in the row has a name to it.
+	Names, More []string
 }
 
 type toolMatrixRow struct {
@@ -82,11 +85,12 @@ type toolMatrixRow struct {
 	Cells    []string
 }
 
-// toolTopRows bounds the categories listed, and toolMatrixRows the
-// rows of the matrix.
+// toolTopRows bounds the categories listed, toolMatrixRows the rows
+// of the matrix, and toolNamesShown the names a row shows unfolded.
 const (
 	toolTopRows    = 25
 	toolMatrixRows = 12
+	toolNamesShown = 6
 )
 
 type toolAgg struct {
@@ -175,7 +179,7 @@ func buildToolsView(calls, failed []recall.NameCount) toolsView {
 			names = append(names, n)
 		}
 		slices.SortFunc(names, func(x, y string) int { return cmp.Or(cmp.Compare(a.names[y], a.names[x]), cmp.Compare(x, y)) })
-		row.Names = names[:min(len(names), 6)]
+		row.Names, row.More = names[:min(len(names), toolNamesShown)], names[min(len(names), toolNamesShown):]
 		tv.Rows = append(tv.Rows, row)
 	}
 	for h := range harnesses {
