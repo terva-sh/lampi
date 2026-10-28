@@ -42,7 +42,11 @@ const IndexFile = "search.db"
 // Version 6 adds the stats rollup (TKT-01M61NTE24T6CZN1P92AV7164F). A
 // version 5 file is upgraded in place rather than rebuilt; see
 // upgradeV5.
-const indexVersion = 6
+// Version 7 stores each session's first and last recorded time, so a
+// tool statistics range skips a session by its own times rather than by
+// when the lake accepted it (review 2905 on #221). A version 6 file is
+// upgraded in place; see upgradeV6.
+const indexVersion = 7
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -85,7 +89,9 @@ CREATE TABLE indexed (
 	gen INTEGER NOT NULL,
 	head TEXT NOT NULL,
 	events INTEGER NOT NULL,
-	indexed_at TEXT NOT NULL
+	indexed_at TEXT NOT NULL,
+	first_recorded_ns INTEGER,
+	last_recorded_ns INTEGER
 );
 CREATE TABLE docs (
 	id INTEGER PRIMARY KEY,
@@ -238,6 +244,13 @@ func openIndexDB(path string) (*sql.DB, error) {
 				db.Close()
 				return nil, err
 			}
+			v = 6
+		}
+		if v == 6 {
+			if err := upgradeV6(db); err != nil {
+				db.Close()
+				return nil, err
+			}
 			v = indexVersion
 		}
 		if v == indexVersion {
@@ -279,7 +292,26 @@ func upgradeV5(db *sql.DB) error {
 		return fmt.Errorf("search: upgrade: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(statsSchema + `UPDATE indexed SET head=''; PRAGMA user_version=` + fmt.Sprint(indexVersion) + `;`); err != nil {
+	if _, err := tx.Exec(statsSchema + `UPDATE indexed SET head=''; PRAGMA user_version=6;`); err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	return tx.Commit()
+}
+
+// upgradeV6 adds each session's recorded-time bounds to a version 6
+// index and blanks every indexed head, as upgradeV5 does, so the next
+// pass reads each session again and stores them. Until it has, a
+// session's bounds are null and a tool statistics range leaves it out;
+// coverage counts it behind meanwhile.
+func upgradeV6(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`ALTER TABLE indexed ADD COLUMN first_recorded_ns INTEGER;
+		ALTER TABLE indexed ADD COLUMN last_recorded_ns INTEGER;
+		UPDATE indexed SET head=''; PRAGMA user_version=` + fmt.Sprint(indexVersion) + `;`); err != nil {
 		return fmt.Errorf("search: upgrade: %w", err)
 	}
 	return tx.Commit()
@@ -504,6 +536,9 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		return 0, err
 	}
 	var pos int64
+	// first and last bound the session's recorded times, over every
+	// row, changed or not.
+	var first, last *int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -518,6 +553,14 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		row := docRow{uid: s.UID, pos: pos, harness: s.Harness, project: s.ProjectID}
 		ev, ok := row.fill(line)
 		st.add(&row, &ev, ok)
+		if t := row.recorded; t != nil {
+			if first == nil || *t < *first {
+				first = t
+			}
+			if last == nil || *t > *last {
+				last = t
+			}
+		}
 		sig := row.sig()
 		prev, had := old[pos]
 		pos++
@@ -560,9 +603,10 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 	if now != snap.pub {
 		return 0, ErrGenerationChanged
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO indexed(session_uid,gen,head,events,indexed_at) VALUES(?,?,?,?,?)
-		ON CONFLICT(session_uid) DO UPDATE SET gen=excluded.gen,head=excluded.head,events=excluded.events,indexed_at=excluded.indexed_at`,
-		s.UID, gen, head, pos, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO indexed(session_uid,gen,head,events,indexed_at,first_recorded_ns,last_recorded_ns) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(session_uid) DO UPDATE SET gen=excluded.gen,head=excluded.head,events=excluded.events,indexed_at=excluded.indexed_at,
+		first_recorded_ns=excluded.first_recorded_ns,last_recorded_ns=excluded.last_recorded_ns`,
+		s.UID, gen, head, pos, time.Now().UTC().Format(time.RFC3339Nano), first, last); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
