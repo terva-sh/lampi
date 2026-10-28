@@ -46,6 +46,12 @@ type codexState struct {
 	provider string
 	branch   string
 	commit   string
+	// calls names a response_item output from its function call, and
+	// begun names an event_msg *_end from its *_begin. One call id
+	// appears in both with different names (shell and exec_command), so
+	// each result takes the name of its own kind of call.
+	calls callNames
+	begun callNames
 }
 
 // Normalize projects raw. raw is not modified. A line that is not a
@@ -364,6 +370,7 @@ func (c Codex) beginTool(lineNo, offset int, when time.Time, kind string, payloa
 			}
 		}
 	}
+	st.begun.remember(callID, name)
 	text := codexCommandText(payload["command"])
 	if text == "" {
 		text = argumentsText(payload["arguments"])
@@ -396,7 +403,7 @@ func (c Codex) endTool(lineNo, offset int, when time.Time, kind string, payload 
 	if err != nil {
 		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
 	}
-	tool := Tool{CallID: strPtr(callID), IsError: codexExitError(payload["exit_code"])}
+	tool := Tool{Name: strPtr(st.begun.name(callID)), CallID: strPtr(callID), IsError: codexExitError(payload["exit_code"])}
 	ev, err := c.emit(st, kind, EventToolResult, ActorTool, when, offset, text, tool, Usage{}, mergeExtra(lineExtra, extra))
 	if err != nil {
 		return nil, err
@@ -481,6 +488,7 @@ func (c Codex) functionCall(lineNo, offset int, when time.Time, kind string, pay
 	if err != nil {
 		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
 	}
+	st.calls.remember(callID, name)
 	tool := Tool{Name: strPtr(name), CallID: strPtr(callID)}
 	ev, err := c.emit(st, kind, EventToolCall, ActorAssistant, when, offset, text, tool, Usage{}, mergeExtra(lineExtra, extra))
 	if err != nil {
@@ -497,7 +505,7 @@ func (c Codex) functionOutput(lineNo, offset int, when time.Time, kind string, p
 		return nil, fmt.Errorf("normalize: line %d: %w", lineNo, err)
 	}
 	extra = mergeEncrypted(extra, nestedEncrypted(payload["output"]))
-	tool := Tool{CallID: strPtr(callID), IsError: jsonBoolPtr(payload["is_error"])}
+	tool := Tool{Name: strPtr(st.calls.name(callID)), CallID: strPtr(callID), IsError: jsonBoolPtr(payload["is_error"])}
 	ev, err := c.emit(st, kind, EventToolResult, ActorTool, when, offset, text, tool, Usage{}, mergeExtra(lineExtra, extra))
 	if err != nil {
 		return nil, err

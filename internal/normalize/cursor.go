@@ -34,7 +34,9 @@ import (
 // otherwise the JSON of args. A tool_result uses toolFormerData.result
 // when that value is a string; otherwise each toolResults element
 // that has a call id and a result string. A missing name or call id
-// stays on extra. capabilityType and a numeric tool field do not
+// stays on extra. A result of the bubble's own call has is_error from
+// toolFormerData.status: completed is false, error is true, and any
+// other value is null. capabilityType and a numeric tool field do not
 // promote on their own. A composerData usageData object is a sibling
 // usage event when it has a numeric costInCents or a recognizable
 // token count. The live shape is a model name mapped to costInCents
@@ -305,7 +307,7 @@ func (c Cursor) projectBubble(raw []byte, scope string, row cursorKV, composer, 
 		if err != nil {
 			return nil, err
 		}
-		ev.Tool = Tool{Name: strPtr(res.name), CallID: strPtr(res.callID)}
+		ev.Tool = Tool{Name: strPtr(res.name), CallID: strPtr(res.callID), IsError: res.isError}
 		out = append(out, ev)
 	}
 	return out, nil
@@ -687,18 +689,36 @@ func cursorOpaqueField(key string) bool {
 }
 
 // cursorCall is one promoted tool_call. args is already the content_text
-// string: a rawArgs or params JSON string, or the JSON of args.
+// string: a rawArgs or params JSON string, or the JSON of args. isError
+// is the outcome toolFormerData.status records, or nil.
 type cursorCall struct {
-	name   string
-	callID string
-	args   string
+	name    string
+	callID  string
+	args    string
+	isError *bool
 }
 
 // cursorResult is one promoted tool_result. text is the result string.
 type cursorResult struct {
-	name   string
-	callID string
-	text   string
+	name    string
+	callID  string
+	text    string
+	isError *bool
+}
+
+// cursorToolError reads toolFormerData.status. completed is false and
+// error is true. Any other value, such as cancelled or a call still
+// running, is not an outcome and stays nil.
+func cursorToolError(tf map[string]json.RawMessage) *bool {
+	status, _ := jsonString(tf["status"])
+	switch status {
+	case "completed":
+		return boolPtr(false)
+	case "error":
+		return boolPtr(true)
+	default:
+		return nil
+	}
 }
 
 // cursorBubbleTools reads toolFormerData and toolResults. A call needs
@@ -708,6 +728,8 @@ type cursorResult struct {
 // string, is the only tool_result. Otherwise each toolResults element
 // with a call id and a result string is one. An empty toolResults
 // array adds nothing. A malformed call or element is left for extra.
+// An element for the bubble's own call takes the call's name when it
+// has none, and the call's status.
 func cursorBubbleTools(obj map[string]json.RawMessage) (*cursorCall, []cursorResult) {
 	var tf map[string]json.RawMessage
 	if raw, ok := obj["toolFormerData"]; ok {
@@ -718,15 +740,27 @@ func cursorBubbleTools(obj map[string]json.RawMessage) (*cursorCall, []cursorRes
 		name, nameOK := jsonString(tf["name"])
 		callID, idOK := cursorCallID(tf)
 		if nameOK && name != "" && idOK {
-			call = &cursorCall{name: name, callID: callID, args: cursorToolArgs(tf)}
+			call = &cursorCall{name: name, callID: callID, args: cursorToolArgs(tf), isError: cursorToolError(tf)}
 		}
 	}
 	if call != nil {
 		if text, ok := jsonString(tf["result"]); ok {
-			return call, []cursorResult{{name: call.name, callID: call.callID, text: text}}
+			return call, []cursorResult{{name: call.name, callID: call.callID, text: text, isError: call.isError}}
 		}
 	}
-	return call, cursorToolResults(obj["toolResults"])
+	results := cursorToolResults(obj["toolResults"])
+	if call != nil {
+		for i := range results {
+			if results[i].callID != call.callID {
+				continue
+			}
+			if results[i].name == "" {
+				results[i].name = call.name
+			}
+			results[i].isError = call.isError
+		}
+	}
+	return call, results
 }
 
 // cursorCallID is toolCallId when that value is a non-empty string,
