@@ -17,17 +17,18 @@ dependencies:
   - TKT-01M61MZN3QPKF04MAN3TWE5K0F
   - TKT-01M61MZN8YEFZ90AZDW62QG2DZ
   - TKT-01M61MZMTSK36M0TB5ZZFF66RA
+  - TKT-01M61SPVY01PVEFT1N9JKBK4HB
 blocks_on: none
 references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T16:35:44Z
+updated_at: 2026-10-28T17:43:12Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
+  id: agent:claude-code/049834bc-stats
   name: Claude Code local agent
 extensions: {}
 ---
@@ -40,13 +41,42 @@ This only shows a correlation and cannot see a server that is configured but nev
 
 ## Acceptance criteria
 
-- [ ] Starting context tokens are compared across sessions grouped by the servers they use.
-- [ ] The result is labelled as a correlation hint, not a finding.
+- [x] Starting context tokens are compared across sessions grouped by the servers they use.
+- [x] The result is labelled as a correlation hint, not a finding.
 - [ ] Any harness that records its tool list is used directly.
 
 ## Implementation plan
 
-- Uses the token columns added in TKT-01M61MZMT (input_tokens, cache_read_tokens, cache_write_tokens). Starting context per session = input + cache_read + cache_write of the first usage row by position.
-- For each origin, compare the median starting context of in-scope sessions that use it with those that do not, within the same harness. Report sessions on each side and the difference. Suppress a comparison with fewer than M sessions on either side.
-- Exposed as an optional `context` block in the tool stats response (`--context` on the CLI, a column on the Tools page), labelled as a correlation.
-- Check whether Codex rollouts record the tool list (the spike looks). If they do, report a server's defined-tool count directly for that harness.
+Engine (done, internal/recall/toolcontext.go): `ToolStatsRequest.Context` adds `ToolStats.Context`, a `ToolContext` with `kind: "correlation_hint"`, a fixed `note`, and `min_sessions`. Its `harnesses[]` hold all sessions with a starting context per harness, and its `rows[]` hold one entry per (harness, origin) with `with`/`without` `{sessions, median_tokens}`, `difference_tokens` and `suppressed`.
+
+- Starting context is the first usage row by position: input + cache_read + cache_write, or input alone for Codex, whose input already holds cached input (calibration doc). It is read in the same walk as the statistics, so it costs no extra query.
+- A session uses an origin when it made at least one call (inner calls included) whose toolorigin is mcp, plugin or extension.
+- Medians are exact and nearest-rank. A row is suppressed when either side has fewer than ToolContextMinSessions (5) sessions.
+- Sessions: the ones the request walks. That means in scope and passing the harness and project filters, and with a range, accepted within a day of since. The tool, origin and model filters do not apply, because the comparison is between sessions.
+
+Left for the surfaces agent: `--context` on `terva-lampi query tools`, `context=1` on the read and browser routes and the MCP tool, and a column or panel on the Tools page. Each must show the `kind` and `note` labels so the hint is not read as a finding.
+
+Tool lists: Codex rollouts record none. Claude Code records offered tool names in attachment lines, which are not projected; TKT-01M61SPVY covers that.
+
+## Notes
+
+**agent:claude-code/049834bc-stats** at 2026-10-28T17:43:03Z
+
+The engine part is implemented in 50c2d87, internal/recall/toolcontext.go, inside `(*Index).ToolStats` (request field `Context`, response field `context`). TestToolStatsContext covers it. It runs with 12 Claude Code sessions, 6 calling an MCP server: the medians differ and the difference is reported. Three Codex sessions with nothing to compare against are suppressed. A zero scope reads nothing. At 2,000 synthetic sessions, the context block added nothing measurable (2.34 s with it, 2.3 s without; docs/performance.md).
+
+### Deviation
+
+The plan read the first usage row through docs_tokens with a lookup per session. It now comes from the same walk as the statistics, which reads each session's usage rows when Context is set. A separate per-session probe would add a query, and the walk already visits every row.
+
+### Tool lists (AC 3, unticked)
+
+- Codex: rollouts record no tool list. On recent rollouts, by key names only, `session_meta` has base_instructions, cli_version, context_window, cwd, git, id, model_provider and similar, and `turn_context` has model, sandbox and approval settings. Neither has a tools or servers field.
+- Claude Code does record offered tools. Its transcripts carry `attachment` lines of type `deferred_tools_delta` (`addedNames`, `removedNames`, and MCP server status lists) and `prompt_snapshot` (with a `tools` key). The normalizer projects these as unknown events and keeps the payload only in `extra`, which the index does not store. So the engine cannot use them yet. I filed TKT-01M61SPVY01PVEFT1N9JKBK4HB, "Project Claude Code's offered tool list for the context hint" (draft), for that.
+
+### What is left on this ticket
+
+The surfaces: `--context` on the CLI, the route and MCP argument, and the Tools page column. These were left to the surfaces agent at the coordinator's request. TKT-01M61MZNC and TKT-01M61MZNF do not mention the context block, so this ticket goes back to ready for that work rather than to done.
+
+## Summary
+
+Engine part landed in 50c2d87: ToolStatsRequest.Context returns a correlation_hint block comparing median starting context of sessions that called each MCP, plugin or extension origin with those that did not, per harness, suppressed under 5 sessions a side. Left: the --context CLI flag, the route and MCP argument, and the Tools page column (surfaces agent), and using Claude Code's recorded tool list (TKT-01M61SPVY).

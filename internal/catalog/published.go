@@ -138,6 +138,37 @@ func (c *Catalog) Publication(ctx context.Context, uid string) (Publication, err
 	return p, nil
 }
 
+// ReadySession is a session whose normalization is ready.
+type ReadySession struct {
+	UID       string
+	Gen       int64
+	Harness   string
+	ProjectID string
+}
+
+// ReadySessions lists every session in scope whose normalization is
+// ready, with its published generation, by uid. An aggregate over a
+// derived view keeps a session's rows only when that view holds this
+// generation, so it counts nothing stale and nothing outside scope
+// (TKT-01M61MZN8).
+func (c *Catalog) ReadySessions(ctx context.Context, scope Scope) ([]ReadySession, error) {
+	cond, args := scope.where("s.session_uid")
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid,s.published_gen,s.harness,s.project_id FROM sessions s WHERE `+cond+` AND (`+normalizationStateSQL+`)='ready' ORDER BY s.session_uid`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: %w", err)
+	}
+	defer rows.Close()
+	var out []ReadySession
+	for rows.Next() {
+		var p ReadySession
+		if err := rows.Scan(&p.UID, &p.Gen, &p.Harness, &p.ProjectID); err != nil {
+			return nil, fmt.Errorf("catalog: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // PublishedSession is one session's publication, for a reader that
 // keeps its own derived view in step with the catalog.
 type PublishedSession struct {

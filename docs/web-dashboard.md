@@ -803,7 +803,8 @@ neither builds nor updates it.
   its type, actor, tool name, tool error, raw type, recorded time and text. It
   also holds the text's size before truncation, the tool call id, the model id
   and the input, output, cache read and cache write token counts, for tool usage
-  statistics. Search results do not report those.
+  statistics, and each session's first and last recorded time. Search results do
+  not report those.
 - **Coverage.** Search results report how many ready sessions are indexed, how
   many are behind, and how many the index could not read. A session it could not
   read is retried when a new generation is published.
@@ -849,9 +850,13 @@ neither builds nor updates it.
   - **terva, OpenCode and Cursor** report one usage per call, which is summed.
 
   An index at schema 5, which stores per-event sizes, call ids and token
-  counts, is upgraded to schema 6 in place on the first start: search keeps
-  answering, and every session is read once more to fill in its statistics.
-  Rows that did not change are not rewritten. An older index is rebuilt.
+  counts, or at schema 6, which adds these statistics, is upgraded to schema 7
+  in place on the first start. Schema 7 adds each session's first and last
+  recorded time, which tool usage statistics use to skip sessions outside a
+  range. Search keeps answering, and every session is read once more to fill
+  in what is missing. Rows that did not change are not rewritten. Until a
+  session is read again, a tool statistics request with a range leaves it out.
+  An older index is rebuilt.
 
 ## Validation, backup and rollout
 

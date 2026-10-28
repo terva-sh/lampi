@@ -263,8 +263,9 @@ func TestStatsFollowScopeGenerationsAndRemoval(t *testing.T) {
 	}
 }
 
-// A version 5 index is upgraded in place: its rows and their ids are
-// kept, so search still answers, and the next pass writes the stats.
+// A version 5 index is upgraded in place, through version 6: its rows
+// and their ids are kept, so search still answers, and the next pass
+// writes the stats and each session's recorded-time bounds.
 func TestVersion5IndexUpgradesInPlace(t *testing.T) {
 	s := lake(t)
 	uid := ingestHarness(t, s, "terva", "old")
@@ -276,7 +277,8 @@ func TestVersion5IndexUpgradesInPlace(t *testing.T) {
 	}
 	pass(t, x)
 	before := rowIDs(t, x, uid)
-	if _, err := x.db.Exec(`DROP TABLE stats; PRAGMA user_version=5;`); err != nil {
+	if _, err := x.db.Exec(`DROP TABLE stats; ALTER TABLE indexed DROP COLUMN first_recorded_ns;
+		ALTER TABLE indexed DROP COLUMN last_recorded_ns; PRAGMA user_version=5;`); err != nil {
 		t.Fatal(err)
 	}
 	x.Close()
@@ -304,8 +306,12 @@ func TestVersion5IndexUpgradesInPlace(t *testing.T) {
 		t.Fatalf("stats after the upgrade: %+v", got)
 	}
 	var head sql.NullString
-	if err := x.db.QueryRow(`SELECT head FROM indexed WHERE session_uid=?`, uid).Scan(&head); err != nil || head.String == "" {
+	var first, last sql.NullInt64
+	if err := x.db.QueryRow(`SELECT head,first_recorded_ns,last_recorded_ns FROM indexed WHERE session_uid=?`, uid).Scan(&head, &first, &last); err != nil || head.String == "" {
 		t.Fatalf("head not restored: %q (%v)", head.String, err)
+	}
+	if !first.Valid || !last.Valid || first.Int64 > last.Int64 {
+		t.Fatalf("recorded-time bounds after the upgrade: %v %v", first, last)
 	}
 }
 
