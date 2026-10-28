@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:00:28Z
+updated_at: 2026-10-28T18:03:56Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -101,6 +101,10 @@ Coordinator: diagnose now reads origins through internal/toolorigin (TKT-01M61MZ
 **agent:claude-code/049834bc** at 2026-10-28T18:00:28Z
 
 Cursor CLI events can now carry extra.order = unestablished (PR #220 fix 5780868): their place among older compaction branches is a guess. Sequence rules (retry_loop, error_streak, repeated_read) should skip or reset at those events; orphan rules are already off for Cursor CLI. To do with the diagnosis surfaces work.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:03:56Z
+
+Review 2903 on PR #222 (two medium findings), fixed in 6fc2cc8. (1) retry_loop summed repeats per tool across the session; it now counts loops, meaning chains of repeats each within the window of the previous one that reach the threshold. Values are loops and retries (the longest chain), with one position per loop. A negative test covers separated pairs with their own inputs, and another covers two loops. (2) Compaction dedupe was reset only by tool events; message events now reset it too. A test covers three compactions in a tool-free Codex conversation, with usage between one compaction's two records. Also done here: events with extra.order unestablished are skipped by error_streak, retry_loop and repeated_read.
 
 ## Summary
 
