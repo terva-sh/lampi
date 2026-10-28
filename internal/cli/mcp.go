@@ -29,9 +29,9 @@ or Codex. Each message the agent sends goes to the lake's MCP endpoint
 on stdout. The agent's MCP configuration names the token file, so the
 token is never in it.
 
-The tools are the lake's: search, read_events and copy_excerpt. They
-read the sessions the token's scope holds, on every machine that
-uploaded to the lake.
+The tools are the lake's: search, read_events, copy_excerpt, tool_stats,
+diagnose_session and diagnose_lake. They read the sessions the token's
+scope holds, on every machine that uploaded to the lake.
 
 The read token is one an admin minted on the lake's Read tokens page
 with the events:read permission. It is read from --token-file, or from
