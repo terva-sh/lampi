@@ -88,7 +88,7 @@ that the tool succeeded.
 | Harness | `tool.name` on a result | `tool.is_error` on a result |
 |---------|-------------------------|-----------------------------|
 | `claude` | From the earlier `tool_use` with the same id | `is_error` on the `tool_result` block. A `web_search_tool_result` error is true |
-| `codex` | From the earlier call event of the same kind with the same `call_id` | `exit_code` on a `*_end` event: zero is false. `is_error` on a `function_call_output`. Usually null |
+| `codex` | From the earlier call event of the same kind with the same `call_id`. An inner call's result has the name of its item | `exit_code` on a `*_end` event: zero is false. On an `mcp_tool_call_end` with no exit code, an `Err` result is true and `Ok.isError` is used. `is_error` on a `function_call_output`; a code-mode `exec` cell output has none. For inner calls, see below |
 | `terva` | From the earlier `tool_call` block with the same id | `is_error` on the `tool_result` block |
 | `opencode` | `tool` on the tool part | `state.status`: `completed` is false and `error` is true. A part with any other status has no result |
 | `grok` | `title`, then `_meta` `x.ai/tool`, then `kind` on the update. If none is set, the name of the earlier `tool_call` | `status`: `completed` is false and `failed` is true |
@@ -103,9 +103,70 @@ come from a table that keeps the 4096 most recent calls of a session.
 A table does not keep an id or a name longer than 256 bytes. A result
 whose call is not in the table has a null name.
 
-Sessions that a lake normalized before this change keep null names
-until they are normalized again. A session that grows is normalized
-again on its next upload. To fill in the others, run
+### MCP tool names
+
+A harness that records an MCP server and tool apart gets the name
+Claude Code gives the same call: `mcp__<server>__<tool>`. Letters,
+digits, `_` and `-` are kept, so a server keeps its hyphens, and any
+other character becomes `_`. The server as recorded is in
+`extra.mcp_server`.
+
+- `codex`: an `mcp_tool_call_begin` with `invocation.server`, and an
+  inner `McpToolCall` with `server` and `tool`. An invocation with no
+  server keeps the bare `invocation.tool`.
+
+### Codex code-mode inner calls
+
+In code mode the model calls one tool, a `custom_tool_call` named
+`exec` whose input is a script. Codex writes each tool call the script
+makes as an `event_msg` line of type `item_completed`. Three item kinds
+become a `tool_call` event and then a `tool_result` event, both from
+the same line:
+
+| Item | `tool.name` | Call text | Result text | `tool.is_error` |
+|------|-------------|-----------|-------------|-----------------|
+| `CommandExecution` | `exec_command` | `command` | `aggregated_output` | `exit_code`: zero is false. With no exit code, `status` |
+| `McpToolCall` | `mcp__<server>__<tool>` | `arguments` | The text blocks of `result.content`, else `error` | `result.isError`. Else an `error` field is true. Else `status` |
+| `FileChange` | `apply_patch` | `changes` | `stdout` and `stderr` | `status` |
+
+A `status` of `completed` is false, and `failed` or `declined` is true.
+Any other status is null.
+
+These fields mark an inner call, and a statistic can rely on them:
+
+- `raw_type` is `item_completed` on both events, and `event_type` is
+  `tool_call` or `tool_result`. No other Codex tool event has this
+  `raw_type`. The cell's own events keep `custom_tool_call` and
+  `custom_tool_call_output`.
+- `tool.call_id` is the item `id`, such as `exec-<uuid>`. It is not the
+  cell's call id.
+- `extra.cell_call_id` is the call id of the latest `exec` cell when the
+  item completed. A command that outlives its cell completes after the
+  cell's output and still names that cell, or a later one if the model
+  started one.
+- `extra.item_type` is the item kind.
+- `extra.duration_ms` on the result is the item `duration` in whole
+  milliseconds. The call's `recorded_at` is `started_at_ms` when the
+  line has it.
+
+The model reads the cell output, not the inner results. Count context
+bytes from `custom_tool_call_output` and tool work from the inner
+calls.
+
+Other items stay one `unknown` event with `raw_type` `item_completed`:
+`Reasoning`, `AgentMessage`, `UserMessage`, `SubAgentActivity`,
+`ContextCompaction`, `ImageView`, `CollabAgentToolCall`, and
+`Extension`. An `Extension` item has the call id of a top-level
+function call, such as `sleep`, that already has its own events.
+
+### Normalizing older sessions again
+
+Sessions that a lake normalized before these changes keep null names,
+and Codex code-mode sessions keep their inner calls as `unknown`
+events, until they are normalized again. A Codex code-mode line that
+held an inner call now gives two events instead of one, so the
+positions after it in that session move. A session that grows is
+normalized again on its next upload. To fill in the others, run
 `terva-lampi serve normalize --all` after the upgrade. See
 [cli.md](cli.md).
 
