@@ -105,3 +105,36 @@ func TestUsagePageChartsTokensOverTime(t *testing.T) {
 		t.Fatalf("a harness with no sessions: %d", w.Code)
 	}
 }
+
+// The Errors tab charts errors and failed results, names the failing
+// tool, and links the sessions with the most.
+func TestUsageErrorsTab(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid, _ := storeSession(t, lake, "native-errors", []byte("{}\n"))
+	now := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	yes := true
+	name, id := "shell", "call-1"
+	base := normalize.Event{SchemaVersion: 1, SessionID: "s", Harness: "codex", RecordedAt: now, IngestedAt: time.Now().UTC().Format(time.RFC3339Nano), Redaction: normalize.Redaction{Status: "none"}}
+	call, result, failure := base, base, base
+	call.EventID, call.EventType, call.Actor, call.Tool = "c", normalize.EventToolCall, normalize.ActorAssistant, normalize.Tool{Name: &name, CallID: &id}
+	result.EventID, result.EventType, result.Actor, result.Tool = "r", normalize.EventToolResult, normalize.ActorTool, normalize.Tool{CallID: &id, IsError: &yes}
+	failure.EventID, failure.EventType, failure.RawType, failure.Actor = "e", normalize.EventError, "stream_error", normalize.ActorHarness
+	publishNormalized(t, lake, uid, []normalize.Event{call, result, failure})
+	if err := indexes[lake].Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	w := get(h, "/usage/errors?range=24h", cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{"<h2>Error events</h2>", "<h2>Failed tool results</h2>", "native-errors", `<span class="mono">shell</span>`, `<span class="mono">stream_error</span>`, "100.0%", `href="/usage/errors?range=24h" aria-current="page"`, `action="/usage/errors"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("errors tab lacks %q", want)
+		}
+	}
+	if w := get(h, "/usage/errors?q=1", cookie); w.Code != 400 {
+		t.Fatalf("an unknown parameter answered %d", w.Code)
+	}
+}

@@ -329,3 +329,56 @@ func TestStatsSeriesBucketsByTime(t *testing.T) {
 		t.Fatal("a range of part of a bucket was accepted")
 	}
 }
+
+// Breakdown counts a kind by harness and name, and TopErrorSessions
+// ranks sessions by errors and failed results, both over a range and
+// within the scope.
+func TestStatsBreakdownAndTopErrorSessions(t *testing.T) {
+	s := lake(t)
+	a := ingestHarness(t, s, "claude", "errs-a")
+	b := ingestHarness(t, s, "claude", "errs-b")
+	call := func(m int, id, name string) normalize.Event {
+		return ev("claude", normalize.EventToolCall, m, func(e *normalize.Event) {
+			e.EventID = id + "c"
+			e.Tool = normalize.Tool{Name: sp(name), CallID: sp(id)}
+		})
+	}
+	fail := func(m int, id string) normalize.Event {
+		return ev("claude", normalize.EventToolResult, m, func(e *normalize.Event) {
+			e.EventID = id + "r"
+			e.Tool = normalize.Tool{CallID: sp(id), IsError: bp(true)}
+		})
+	}
+	apiErr := func(m int) normalize.Event {
+		return ev("claude", normalize.EventError, m, func(e *normalize.Event) { e.EventID = fmt.Sprint("e", m); e.RawType = "api_error" })
+	}
+	publish(t, s, a, []normalize.Event{call(1, "1", "Bash"), fail(2, "1"), call(3, "2", "Bash"), fail(4, "2"), call(5, "3", "Read"), fail(6, "3"), apiErr(7)})
+	publish(t, s, b, []normalize.Event{apiErr(1)})
+	x := openIndex(t, s)
+	pass(t, x)
+	from := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	until := from.Add(24 * time.Hour)
+	got, err := x.Breakdown(t.Context(), catalog.AllBays(), "", from, until, StatToolFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != (NameCount{"claude", "Bash", 2}) || got[1] != (NameCount{"claude", "Read", 1}) {
+		t.Fatalf("failed tools: %+v", got)
+	}
+	top, err := x.TopErrorSessions(t.Context(), catalog.AllBays(), "", from, until, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(top) != 2 || top[0].SessionUID != a || top[0].Errors != 1 || top[0].ToolsFailed != 3 || top[0].NativeID != "errs-a" || top[1].SessionUID != b {
+		t.Fatalf("top sessions: %+v", top)
+	}
+	if top, err := x.TopErrorSessions(t.Context(), catalog.AllBays().OnlySessions([]string{b}), "", from, until, 10); err != nil || len(top) != 1 || top[0].SessionUID != b {
+		t.Fatalf("narrowed top sessions: %+v %v", top, err)
+	}
+	if got, err := x.Breakdown(t.Context(), catalog.AllBays(), "codex", from, until, StatError); err != nil || len(got) != 0 {
+		t.Fatalf("another harness: %+v %v", got, err)
+	}
+	if got, err := x.Breakdown(t.Context(), catalog.AllBays(), "", until, until.Add(time.Hour), StatError); err != nil || len(got) != 0 {
+		t.Fatalf("a later range: %+v %v", got, err)
+	}
+}

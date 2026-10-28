@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -578,4 +579,111 @@ func (x *Index) Series(ctx context.Context, scope catalog.Scope, harness string,
 		}
 	}
 	return out, rows.Err()
+}
+
+// NameCount is the count of one name of a kind, such as a tool or an
+// error's raw type, in one harness.
+type NameCount struct {
+	Harness string `json:"harness"`
+	Name    string `json:"name"`
+	N       int64  `json:"n"`
+}
+
+// rangeFilter is the condition shared by reads over a time range: the
+// scope, the harness when one is given, and hours in [from, until).
+func (x *Index) rangeFilter(ctx context.Context, scope catalog.Scope, harness string, from, until time.Time) (string, []any, error) {
+	if !from.Before(until) {
+		return "", nil, ErrInvalid
+	}
+	cond, args, _, err := x.scopeFilter(ctx, scope)
+	if err != nil {
+		return "", nil, err
+	}
+	cond = "hour>=? AND hour<? AND " + cond
+	args = append([]any{from.Unix(), until.Unix()}, args...)
+	if harness != "" {
+		cond += " AND harness=?"
+		args = append(args, harness)
+	}
+	return cond, args, nil
+}
+
+// Breakdown counts kind by harness and name over a range, largest
+// first.
+func (x *Index) Breakdown(ctx context.Context, scope catalog.Scope, harness string, from, until time.Time, kind string) ([]NameCount, error) {
+	cond, args, err := x.rangeFilter(ctx, scope, harness, from, until)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := x.db.QueryContext(ctx, `SELECT harness,name,SUM(n) FROM stats WHERE kind=? AND `+cond+` GROUP BY harness,name ORDER BY 3 DESC,1,2`, append([]any{kind}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []NameCount{}
+	for rows.Next() {
+		var c NameCount
+		if err := rows.Scan(&c.Harness, &c.Name, &c.N); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// SessionErrors is one session's errors and failed tool results over a
+// range. NativeID and ProjectLabel are the catalog's display labels.
+type SessionErrors struct {
+	SessionUID   string `json:"session_uid"`
+	NativeID     string `json:"native_session_id"`
+	ProjectLabel string `json:"project_label"`
+	Harness      string `json:"harness"`
+	Errors       int64  `json:"errors"`
+	ToolsFailed  int64  `json:"tool_results_failed"`
+}
+
+// TopErrorSessions ranks the sessions scope reads by errors and failed
+// tool results over a range, at most limit of them.
+func (x *Index) TopErrorSessions(ctx context.Context, scope catalog.Scope, harness string, from, until time.Time, limit int) ([]SessionErrors, error) {
+	if limit < 1 || limit > 100 {
+		return nil, ErrInvalid
+	}
+	cond, args, err := x.rangeFilter(ctx, scope, harness, from, until)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := x.db.QueryContext(ctx, `SELECT session_uid,harness,COALESCE(SUM(CASE kind WHEN 'error' THEN n END),0),COALESCE(SUM(CASE kind WHEN 'tool_failed' THEN n END),0)
+		FROM stats WHERE kind IN ('error','tool_failed') AND `+cond+` GROUP BY session_uid,harness ORDER BY SUM(n) DESC,session_uid LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	out := []SessionErrors{}
+	for rows.Next() {
+		var e SessionErrors
+		if err := rows.Scan(&e.SessionUID, &e.Harness, &e.Errors, &e.ToolsFailed); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	// The labels come from the catalog under the same scope, so a
+	// session that left it since the filter was read is dropped.
+	kept := out[:0]
+	for _, e := range out {
+		summary, err := x.reader.catalog.DashboardSession(ctx, scope, e.SessionUID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		e.NativeID, e.ProjectLabel = summary.NativeID, summary.ProjectLabel
+		kept = append(kept, e)
+	}
+	return kept, nil
 }

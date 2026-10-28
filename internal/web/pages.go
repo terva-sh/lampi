@@ -27,6 +27,9 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"sliceHarnesses": func() []string {
 		return []string{"terva", "claude", "codex", "opencode", "cursor", "cursor-cli", "grok"}
 	},
+	"nameTable": func(title, label string, rows []nameRow) nameTableView {
+		return nameTableView{Title: title, Label: label, Rows: rows}
+	},
 	"sliceStates":     func() []string { return []string{"pending", "failed", "ready", "unknown"} },
 	"sliceEventTypes": func() []string { return recall.EventTypes },
 	"sliceActors":     func() []string { return recall.Actors },
@@ -213,7 +216,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/usage": s.usagePage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/usage": s.usagePage, "/usage/errors": s.usagePage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")

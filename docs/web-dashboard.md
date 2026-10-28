@@ -440,6 +440,19 @@ input and output in a stacked bar. "Show as a table" lists the same numbers.
 - The counting rules, and which sessions are counted, are the same as the
   overview's. See [Statistics](#search-index) under Search index.
 
+The **Errors** tab, at `/usage/errors`, keeps the range and harness and charts
+error events and failed tool results per bucket. It lists the sessions with the
+most of both, each linked to its page, and two breakdowns: error events by
+the harness's record type, and failed tool results by tool.
+
+- **An error event** is a line the harness recorded as an error, such as a
+  failed API request. Lines the lake could not read are faults in the lake's
+  copy and are left out.
+- **A failed tool result** reported an error. Claude Code and Codex name only
+  the call a result answers, so the index counts it against that call's tool.
+  Codex reports failure only for shell commands, by their exit code.
+- **The failure rate** is failed results per tool call in the range.
+
 ## Operations
 
 `/operations` answers two questions: how full the lake is, and whether it
