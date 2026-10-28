@@ -140,6 +140,11 @@ type call struct {
 	// that reaches the retries threshold; repeats that do not chain are
 	// not one.
 	sameRun, errorRun int64
+	// settled is set once the call's result arrived and its place in its
+	// chain is known. A result can arrive before the result of the call
+	// it repeats; next is then the repeat waiting on this call.
+	settled bool
+	next    *call
 	// done, result and failed describe the result once it arrived.
 	done   bool
 	result hash
@@ -350,6 +355,19 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 		}
 		writePaths(a.harness, tool, text, a.write)
 	}
+	id := ""
+	if ev.Tool.CallID != nil {
+		id = *ev.Tool.CallID
+	}
+	if id != "" && len(id) <= maxNameBytes {
+		// Codex writes some calls twice under one id, as a response item
+		// and as a begin event; each has its own result. The second
+		// record is the same call, so it takes no place in the window.
+		if prev, ok := a.open[id]; ok {
+			prev.pending++
+			return
+		}
+	}
 	c := &call{pos: pos, tool: tool, input: sum(tool, text), inner: in}
 	if org := origin(a.harness, tool); len(org) <= maxNameBytes {
 		c.origin = org
@@ -372,17 +390,7 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 		a.recent[a.recentNext] = c
 		a.recentNext = (a.recentNext + 1) % len(a.recent)
 	}
-	id := ""
-	if ev.Tool.CallID != nil {
-		id = *ev.Tool.CallID
-	}
 	if id == "" || len(id) > maxNameBytes {
-		return
-	}
-	// Codex writes some calls twice under one id, as a response item
-	// and as a begin event; each has its own result.
-	if prev, ok := a.open[id]; ok {
-		prev.pending++
 		return
 	}
 	a.seq++
@@ -497,33 +505,58 @@ func (a *Analyzer) toolResult(pos int64, ev *event, text string) {
 	}
 	if !c.done {
 		c.done, c.result, c.failed = true, sum(text), failed
-		if p := c.retry; p != nil && p.done && c.tool != "" {
-			r := a.retries[c.tool]
-			if r == nil && len(a.retries) < maxNames {
-				r = &toolRetries{}
-				a.retries[c.tool] = r
-			}
-			need := a.rules.t(RetryLoop, "retries")
-			switch {
-			case p.failed:
-				c.errorRun = p.errorRun + 1
-			case p.result == c.result:
-				c.sameRun = p.sameRun + 1
-			}
-			if r != nil {
-				if c.errorRun == need {
-					r.afterError.add(c.pos)
-				}
-				if c.sameRun == need {
-					r.sameOutput.add(c.pos)
-				}
-				r.errorMax = max(r.errorMax, c.errorRun)
-				r.sameMax = max(r.sameMax, c.sameRun)
-			}
-		}
-		c.retry = nil
+		a.settle(c)
 	}
 	a.close(id, c)
+}
+
+// settle places c in its retry chain once c and the call it repeats
+// both have results, in whichever order they arrived, then settles the
+// repeat that was waiting on c.
+func (a *Analyzer) settle(c *call) {
+	for c != nil && c.done && !c.settled {
+		if p := c.retry; p != nil {
+			if !p.settled {
+				p.next = c
+				return
+			}
+			a.retried(c, p)
+		}
+		c.settled, c.retry = true, nil
+		n := c.next
+		c.next = nil
+		c = n
+	}
+}
+
+// retried extends p's chain to c, its repeat, and records a loop when
+// the chain reaches the threshold.
+func (a *Analyzer) retried(c, p *call) {
+	switch {
+	case p.failed:
+		c.errorRun = p.errorRun + 1
+	case p.result == c.result:
+		c.sameRun = p.sameRun + 1
+	default:
+		return
+	}
+	r := a.retries[c.tool]
+	if r == nil {
+		if len(a.retries) >= maxNames {
+			return
+		}
+		r = &toolRetries{}
+		a.retries[c.tool] = r
+	}
+	need := a.rules.t(RetryLoop, "retries")
+	if c.errorRun == need {
+		r.afterError.add(c.pos)
+	}
+	if c.sameRun == need {
+		r.sameOutput.add(c.pos)
+	}
+	r.errorMax = max(r.errorMax, c.errorRun)
+	r.sameMax = max(r.sameMax, c.sameRun)
 }
 
 func (a *Analyzer) close(id string, c *call) {

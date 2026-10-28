@@ -229,6 +229,19 @@ func TestRetryLoop(t *testing.T) {
 	}
 	mustNotFind(t, s.run(t), RetryLoop)
 
+	// Results that arrive in reverse call order still chain (review
+	// 2904 on #222).
+	s = newSession(protocol.HarnessClaude)
+	for i := range 4 {
+		s.call(fmt.Sprint("o", i), "Grep", `{"pattern":"x"}`)
+	}
+	for i := 3; i >= 0; i-- {
+		s.result(fmt.Sprint("o", i), "Grep", "no match", nil)
+	}
+	if f := mustFind(t, s.run(t), RetryLoop, "same_output"); f.Values["retries"] != 3 || f.Values["loops"] != 1 {
+		t.Fatalf("%+v", f)
+	}
+
 	// Two separate loops of one tool are two loops.
 	s = newSession(protocol.HarnessClaude)
 	var ends []int64
@@ -430,9 +443,11 @@ func TestOrphanCall(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 
-	// Codex writes a call twice under one id, each with a result.
+	// Codex writes a call twice under one id, each with a result. The
+	// second record is the same call, so four such calls in a row are
+	// still a retry loop (review 2904 on #222).
 	s = newSession(protocol.HarnessCodex)
-	for i := range 3 {
+	for i := range 4 {
 		id := fmt.Sprint("d", i)
 		s.call(id, "shell", "ls")
 		s.call(id, "shell", "ls")
@@ -443,6 +458,9 @@ func TestOrphanCall(t *testing.T) {
 	rep := s.run(t)
 	mustNotFind(t, rep, OrphanCall)
 	mustNotFind(t, rep, OrphanResult)
+	if f := mustFind(t, rep, RetryLoop, "same_output"); f.Values["retries"] != 3 {
+		t.Fatalf("%+v", f)
+	}
 
 	// Off for Cursor CLI, whose store does not keep the order.
 	s = newSession(protocol.HarnessCursorCLI)
