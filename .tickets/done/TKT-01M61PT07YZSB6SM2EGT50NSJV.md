@@ -19,12 +19,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:52:01Z
-updated_at: 2026-10-28T17:34:07Z
+updated_at: 2026-10-28T17:56:59Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-norm2
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -77,6 +77,10 @@ Real-store run (local, read-only snapshot through the adapter's own export, stor
 Timing on the largest exportable store (270 MiB export, 2,576 calls): old projection 2.33 s, new 3.16 s, under machine load average 8 to 12. Benchmark `BenchmarkCursorCLITools` (600 turns, a root per turn, 19 MB export), back to back: old 137-141 ms/op, 124 MB/op, 145k allocs; new 207-216 ms/op before keying ids as [32]byte (541k allocs), then 228-275 ms/op, 148 MB/op, 176k allocs under a busier machine. The added cost is decoding every root's base64 once, which is most of a store's bytes, and the tool-part split. Memory stays the whole-document model the projector already has: the order adds an id index, an edge set and one list buffer, all proportional to the number of blobs and distinct edges, not to root bytes.
 
 Not done: text and reasoning parts are still not promoted to message events (outside this ticket), and `mcpDetails` on CallDynamicTool args is left in the call text, not parsed.
+
+**agent:claude-code/049834bc** at 2026-10-28T17:56:59Z
+
+Review 2902 on PR #220 (medium): older compaction branches were ordered by hash. Fixed in 5780868: branch order that no root establishes is no longer presented as conversation order. Each older branch stays whole and in order, and when two or more such stretches meet with no edge, their events carry extra.order unestablished. Added TestCursorCLIOrderAfterTwoCompactions with hash order opposing chronology. A field probe of local stores (field numbers and types only) found nothing in a root that orders roots. A real ordering source is filed as a draft follow-up (Cursor CLI adapter: export blob rowid to order compacted branches).
 
 ## Summary
 
