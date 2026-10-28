@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -234,5 +235,152 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 	}
 	if err := Run([]string{"query", "events", "--server", srv.URL, "--token-file", bad, "--tool", "x"}, Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Getenv: func(string) string { return "" }}); err == nil || strings.Contains(err.Error(), strings.Repeat("d", 64)) || !strings.Contains(err.Error(), "does not hold a read token") {
 		t.Fatalf("device token file: %v", err)
+	}
+}
+
+// TKT-01M61MZNC: query tools writes the lake's tool statistics as
+// JSONL, one key a line, with the totals on stderr.
+func TestQueryTools(t *testing.T) {
+	dir := t.TempDir()
+	lake, err := api.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lake.Close()
+	text := func(s string) *string { return &s }
+	day := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	bash, mcpRead, id1, id2 := "Bash", "mcp__pond__read", "c1", "c2"
+	publishEvents(t, lake, "claude", "sid-a", "", []normalize.Event{
+		{SchemaVersion: 1, Harness: "claude", Actor: "assistant", EventType: "tool_call", RecordedAt: day, Tool: normalize.Tool{Name: &bash, CallID: &id1}, ContentText: text("git push")},
+		{SchemaVersion: 1, Harness: "claude", Actor: "tool", EventType: "tool_result", RecordedAt: day, Tool: normalize.Tool{Name: &bash, CallID: &id1}, ContentText: text("Everything up-to-date")},
+		{SchemaVersion: 1, Harness: "claude", Actor: "assistant", EventType: "tool_call", RecordedAt: day, Tool: normalize.Tool{Name: &mcpRead, CallID: &id2}, ContentText: text("{}")},
+		// Large enough for a diagnosis finding.
+		{SchemaVersion: 1, Harness: "claude", Actor: "tool", EventType: "tool_result", RecordedAt: day, Tool: normalize.Tool{Name: &mcpRead, CallID: &id2}, ContentText: text(strings.Repeat("private pond water ", 4000))},
+	})
+	reader := recall.NewReader(lake.Catalog, lake.Normalized)
+	index, err := recall.OpenIndex(filepath.Join(t.TempDir(), recall.IndexFile), reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer index.Close()
+	if err := index.Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	idp := testidp.New()
+	defer idp.Close()
+	cfg := webconfig.Config{BaseURL: "https://lake.example", OIDC: webconfig.OIDC{Issuer: idp.URL(), ClientID: "lake", RoleMap: map[string]string{"owners": "admin"}}}
+	reg := &web.Registrations{Lake: func() registrar.Lake { return registrar.Lake{Catalog: lake.Catalog, Dir: dir} }, Blobs: lake.CAS}
+	if lake.Web, err = web.New(cfg, lake.Catalog, reader, index, reg, nil, idp.Client()); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(lake.Handler())
+	defer srv.Close()
+	token := tokenFile(t, lake, catalog.PermEventsRead)
+	env := func(out, errw *bytes.Buffer) Env {
+		return Env{Stdout: out, Stderr: errw, Getenv: func(k string) string {
+			return map[string]string{"XDG_CONFIG_HOME": t.TempDir(), "XDG_STATE_HOME": t.TempDir()}[k]
+		}}
+	}
+	sub := "tools"
+	run := func(args ...string) (map[string][]map[string]any, string, error) {
+		var out, errw bytes.Buffer
+		err := Run(append([]string{"query", sub, "--server", srv.URL, "--token-file", token}, args...), env(&out, &errw))
+		lines := map[string][]map[string]any{}
+		for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+			var m map[string]map[string]any
+			if l == "" {
+				continue
+			}
+			if json.Unmarshal([]byte(l), &m) != nil || len(m) != 1 {
+				t.Fatalf("not one key a line: %q", l)
+			}
+			for k, v := range m {
+				lines[k] = append(lines[k], v)
+			}
+		}
+		return lines, errw.String(), err
+	}
+
+	lines, stderr, err := run("--all", "--largest", "2", "--context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines["summary"]) != 1 || len(lines["group"]) != 2 || len(lines["largest"]) != 2 || len(lines["context"]) != 1 {
+		t.Fatalf("lines %v", lines)
+	}
+	if totals, _ := lines["summary"][0]["totals"].(map[string]any); totals["calls"] != 2.0 || totals["sessions"] != 1.0 {
+		t.Errorf("summary %v", lines["summary"][0])
+	}
+	if c := lines["context"][0]; c["kind"] != recall.ToolContextKind || c["note"] == "" {
+		t.Errorf("context %v", c)
+	}
+	if !strings.Contains(stderr, "2 tool calls and 2 results in 1 sessions, every recorded time; 2 groups") || !strings.Contains(stderr, "correlation hint") {
+		t.Errorf("stderr %q", stderr)
+	}
+	lines, _, err = run("--by", "origin", "--origin", "mcp", "--since", "2026-09-01", "--until", "2026-09-03")
+	if err != nil || len(lines["group"]) != 1 || lines["group"][0]["origin"].(map[string]any)["name"] != "pond" {
+		t.Errorf("by origin: %v %v", lines, err)
+	}
+	if lines, _, err = run(); err != nil || lines["summary"][0]["since"] == nil || len(lines["group"]) != 0 {
+		t.Errorf("default range: %v %v", lines, err)
+	}
+
+	outPath := filepath.Join(t.TempDir(), "tools.jsonl")
+	if _, _, err := run("--all", "--out", outPath); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(outPath); err != nil || strings.Contains(string(b), "private pond water") || !strings.Contains(string(b), `{"group":`) {
+		t.Errorf("--out: %s %v", b, err)
+	}
+	if fi, err := os.Stat(outPath); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("--out mode: %v %v", fi, err)
+	}
+
+	if _, _, err := run("--origin", "server"); err == nil || !strings.Contains(err.Error(), "refused the origin value") {
+		t.Errorf("bad origin: %v", err)
+	}
+	if _, _, err := run("--all", "--since", "2026-09-01"); err == nil || !strings.Contains(err.Error(), "refused the all value") {
+		t.Errorf("all with since: %v", err)
+	}
+	raw := tokenFile(t, lake, catalog.PermRawRead)
+	var errw bytes.Buffer
+	err = Run([]string{"query", "tools", "--server", srv.URL, "--token-file", raw}, env(&bytes.Buffer{}, &errw))
+	if err == nil || !strings.Contains(err.Error(), "404") || !strings.Contains(err.Error(), "events:read") {
+		t.Errorf("raw-only token: %v", err)
+	}
+
+	// TKT-01M61MZNR: query diagnose writes the lake-wide groups, and one
+	// session's findings, as JSONL.
+	sub = "diagnose"
+	lines, stderr, err = run("--since", "2020-01-01", "--limit", "5")
+	if err != nil || len(lines["summary"]) != 1 || len(lines["group"]) != 1 || lines["summary"][0]["sessions"] != 1.0 ||
+		!strings.Contains(stderr, "1 groups from 1 sessions updated since 2020-01-01T00:00:00Z") {
+		t.Fatalf("lake-wide: %v %q %v", lines, stderr, err)
+	}
+	g := lines["group"][0]
+	uid, _ := g["example_sessions"].([]any)[0].(string)
+	if g["code"] != "large_tool_result" || g["harness"] != "claude" || uid == "" {
+		t.Errorf("group %v", g)
+	}
+	lines, stderr, err = run(uid)
+	if err != nil || len(lines["summary"]) != 1 || len(lines["finding"]) != 1 || lines["summary"][0]["session_uid"] != uid ||
+		!strings.Contains(stderr, "1 findings in 4 events of "+uid) {
+		t.Fatalf("one session: %v %q %v", lines, stderr, err)
+	}
+	if f := lines["finding"][0]; f["code"] != "large_tool_result" || len(f["links"].([]any)) != 1 || !strings.HasPrefix(f["links"].([]any)[0].(string), "/sessions/"+uid+"/transcript?") {
+		t.Errorf("finding %v", f)
+	}
+	var out bytes.Buffer
+	if err := Run([]string{"query", "diagnose", uid, "--server", srv.URL, "--token-file", token}, env(&out, &bytes.Buffer{})); err != nil || strings.Contains(out.String(), "private pond") || !strings.Contains(out.String(), `{"finding":`) {
+		t.Errorf("uid first: %v %s", err, out.String())
+	}
+	if _, _, err := run(uid, "--limit", "2"); err == nil || !strings.Contains(err.Error(), "lake-wide view") {
+		t.Errorf("uid with --limit: %v", err)
+	}
+	if _, _, err := run("--limit", "1001"); err == nil || !strings.Contains(err.Error(), "refused the limit value") {
+		t.Errorf("limit: %v", err)
+	}
+	if _, _, err := run("nope"); err == nil || !strings.Contains(err.Error(), "404 not_found") {
+		t.Errorf("unknown session: %v", err)
 	}
 }
