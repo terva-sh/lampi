@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:35:44Z
+updated_at: 2026-10-28T17:39:17Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
-  name: Claude Code local agent
+  id: agent:claude-code/d4b24133
+  name: ""
 extensions: {}
 ---
 
@@ -47,3 +47,9 @@ The rules are per harness and come from the calibration spike. Claude Code's `mc
 - Rules per harness come from the calibration spike (TKT-01M61MZN0, docs/session-diagnostics-calibration.md). Known case: Claude Code `mcp__<server>__<tool>`, plugin servers `mcp__plugin_<plugin>_<server>__<tool>`.
 - Compute at query time from `tool_name` rather than storing a column: it avoids a second index rewrite and lets rules change without a rebuild. The aggregation groups by `(harness, tool_name)` in SQL and folds into origins in Go, which is cheap because distinct names are few.
 - Table tests with real name shapes (placeholders for private server names), one block per harness, plus unknown and empty names.
+
+## Notes
+
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG, 2026-10-28. PR #218 maps tool names to categories at read time in `internal/web/tools.go` (`toolCategories`, `toolCategory`): shell, read, write, edit, search, web, agents, plan, ask, script, and `mcp:<server>` for `mcp__<server>__<tool>`. This is what kind of tool a name is, not where it comes from, so origin can sit beside it as a second derived field. When the origin parser lands, the `mcp:` rule should move into it and the Tools tab can group by origin as well. The ticket TKT-01M61NTM2ZDBCKGA08BJKYM4Q1 lists the tool names seen per harness.
