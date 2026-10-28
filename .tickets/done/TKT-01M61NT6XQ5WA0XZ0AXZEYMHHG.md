@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG
 title: "Dashboard: session statistics for tokens, errors and tools"
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:34:39Z
-updated_at: 2026-10-28T17:39:17Z
+updated_at: 2026-10-28T21:47:22Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -60,3 +60,7 @@ Tool and error work (children 3 and 4) does not depend on the token rollup and c
 **agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
 
 2026-10-28: #215 (TKT-01M61MYZ6H6J8MGNPWHS8MTJ1X Session diagnostics, noisy tools and tool usage statistics) merged per-event size, call, model and token columns into search.db at schema 5 while this stack was open. The owner chose to layer the two: this epic's stats rollup becomes schema 6 on top of those columns and stays the source for token totals, time series and errors, because it counts each model call once and the raw columns overcount Claude by about 2x. Tool sizes, latency, largest blocks, tool origin and session diagnosis stay with the other epic. The Tools tab (#218) is kept and the other epic's dashboard ticket extends it. Notes recording this are on TKT-01M61MZN8YEFZ90AZDW62QG2DZ, TKT-01M61MZNFY69TNQJWH0PS2WPKS and TKT-01M61MZN3QPKF04MAN3TWE5K0F.
+
+## Summary
+
+Landed in #214, #216, #217, #218 and #219 on 2026-10-28, with #225 raising the CI race timeout so they could pass. The lake now keeps a stats rollup in search.db that counts each model call once and keeps plain input, output, cache read and cache write apart. The overview shows token totals by harness. A Usage page shows tokens over time (Tokens), errors and failed tool results over time with their names and the worst sessions (Errors), and tool categories with a cross-harness matrix (Tools). Operations charts the normalize queue and index lag. The session diagnostics epic (TKT-01M61MYZ6H6J8MGNPWHS8MTJ1X) layers on top for tool sizes, latency, origin and diagnosis. Left open: TKT-01M61PR95P8T812MKP5C2TK40P, harness filters that refuse grokbot.

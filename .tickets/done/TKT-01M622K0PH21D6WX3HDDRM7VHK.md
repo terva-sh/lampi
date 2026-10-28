@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M622K0PH21D6WX3HDDRM7VHK
 title: "CI: race tests time out on a shared runner"
 type: bug
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: ci/race-timeout
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: f217fcbb44c5ceeaa7df4e629608fe51a24bb3f6
-  session: null
-  claimed_at: 2026-10-28T20:17:55Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T20:17:55Z
-updated_at: 2026-10-28T20:18:18Z
+updated_at: 2026-10-28T21:24:00Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -66,3 +59,7 @@ Timing under go test -race -count=1 ./internal/recall on the development worksta
 **agent:claude-code/d4b24133** at 2026-10-28T20:18:18Z
 
 Correction to the timing note: the main measurement ran on 39a2bea itself, not on its parent.
+
+## Summary
+
+Landed in #225. The race step passes -timeout 25m. After it, #216 and #217 passed Lint and Test on the first try where #216 had timed out four times. The slow Optimize test's timing is in the notes for whoever makes internal/recall faster.
