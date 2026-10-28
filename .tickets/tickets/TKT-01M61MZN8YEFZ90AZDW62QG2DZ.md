@@ -17,12 +17,14 @@ dependencies:
   - TKT-01M61MZMR6EHF8BAC5F4VNK9VN
   - TKT-01M61MZMTSK36M0TB5ZZFF66RA
   - TKT-01M61MZN3QPKF04MAN3TWE5K0F
+  - TKT-01M61PSX6JF6TP9HE9BXEWMMV6
+  - TKT-01M61PT07YZSB6SM2EGT50NSJV
 blocks_on: none
 references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:35:44Z
+updated_at: 2026-10-28T16:54:05Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent

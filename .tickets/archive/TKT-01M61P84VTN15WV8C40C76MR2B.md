@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61P84VTN15WV8C40C76MR2B
 title: "Normalize: promote Cursor CLI tool-call and tool-result parts"
 type: task
-status: draft
+status: archived
 status_reason: null
 priority: normal
 due_on: null
@@ -17,14 +17,17 @@ dependencies: []
 blocks_on: none
 references: []
 claim: null
-archive: null
+archive:
+  archived_at: 2026-10-28T16:54:05Z
+  from_status: draft
+  reason: "Duplicate of TKT-01M61PT07Y (Normalize: project Cursor CLI tool-call and tool-result parts), filed in parallel by the spike; that ticket carries the fuller description and absorbs this one's error-field finding."
 created_at: 2026-10-28T16:42:16Z
-updated_at: 2026-10-28T16:42:16Z
+updated_at: 2026-10-28T16:54:05Z
 created_by:
   id: agent:claude-code/049834bc-norm
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-norm
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -41,3 +44,9 @@ Promote those parts into `tool_call` and `tool_result` events with `tool.name` a
 
 - [ ] A Cursor CLI tool-call part becomes a tool_call event with tool.name and tool.call_id.
 - [ ] A Cursor CLI tool-result part becomes a tool_result event with tool.name and tool.call_id, and is_error stays null unless the source records a failure.
+
+## Notes
+
+**agent:claude-code/049834bc** at 2026-10-28T16:54:05Z
+
+archived from draft: Duplicate of TKT-01M61PT07Y (Normalize: project Cursor CLI tool-call and tool-result parts), filed in parallel by the spike; that ticket carries the fuller description and absorbs this one's error-field finding.

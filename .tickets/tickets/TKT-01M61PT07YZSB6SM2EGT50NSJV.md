@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61PT07YZSB6SM2EGT50NSJV
 title: "Normalize: project Cursor CLI tool-call and tool-result parts"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,12 +19,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:52:01Z
-updated_at: 2026-10-28T16:52:01Z
+updated_at: 2026-10-28T16:54:05Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-spike
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -44,3 +44,14 @@ Parts carry no timestamps, so latency stays unavailable.
 - [ ] tool-call and tool-result parts become tool_call and tool_result events with name and call id
 - [ ] CallDynamicTool calls carry the MCP server and tool, and cursor-namespace tools are marked built-in
 - [ ] Events come out in conversation order, not blob rowid order
+- [ ] is_error stays null unless the source records a failure, and docs/harnesses.md says so
+
+## Notes
+
+**agent:claude-code/049834bc** at 2026-10-28T16:54:05Z
+
+Absorbs TKT-01M61P84VTN15WV8C40C76MR2B (Normalize: promote Cursor CLI tool-call and tool-result parts), filed in parallel by the normalizer agent; that one's finding is that no error field exists on tool-result parts, captured as AC 4.
+
+**agent:claude-code/049834bc** at 2026-10-28T16:54:05Z
+
+Promoted into the session-diagnostics data work by the coordinating agent: without it the tool usage statistics (TKT-01M61MZN8) are blank for this harness. Lands with the tool statistics PR, not the first data PR, so the first PR is not held up.

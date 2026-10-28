@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61PSX6JF6TP9HE9BXEWMMV6
 title: "Normalize: project Codex code-mode inner tool calls"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,12 +19,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:51:58Z
-updated_at: 2026-10-28T16:51:58Z
+updated_at: 2026-10-28T16:54:05Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-spike
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -44,3 +44,9 @@ Outside code mode, `beginTool` sets `tool.name` from `invocation.tool` only and 
 - [ ] McpToolCall, CommandExecution and FileChange items become tool_call and tool_result events with name, call id, is_error and duration
 - [ ] Inner calls are marked so they can be told apart from the exec cell
 - [ ] Codex MCP calls keep the server in both modes
+
+## Notes
+
+**agent:claude-code/049834bc** at 2026-10-28T16:54:05Z
+
+Promoted into the session-diagnostics data work by the coordinating agent: without it the tool usage statistics (TKT-01M61MZN8) are blank for this harness. Lands with the tool statistics PR, not the first data PR, so the first PR is not held up.
