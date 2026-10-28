@@ -85,6 +85,50 @@ func TestMemoryBounded(t *testing.T) {
 	runtime.KeepAlive(a)
 }
 
+// Identical calls whose results never come, or whose first result
+// never comes while the rest do, keep a bounded number of retry links
+// (review 2913 on #222).
+func TestMemoryBoundedRepeats(t *testing.T) {
+	if testing.Short() {
+		t.Skip("large transcript")
+	}
+	head := `{"schema_version":1,"harness":"claude","recorded_at":"2026-10-17T00:00:00Z","parent_session_id":null,`
+	call := func(id string) []byte {
+		return []byte(head + `"event_type":"tool_call","content_text":"{\"pattern\":\"x\"}","tool":{"name":"Grep","call_id":"` + id + `"}}`)
+	}
+	result := func(id string) []byte {
+		return []byte(head + `"event_type":"tool_result","content_text":"no match","tool":{"name":"Grep","call_id":"` + id + `","is_error":false}}`)
+	}
+	for name, line := range map[string]func(i int) [][]byte{
+		"never answered": func(i int) [][]byte { return [][]byte{call(fmt.Sprint("n", i))} },
+		"first never answered": func(i int) [][]byte {
+			id := fmt.Sprint("a", i)
+			if i == 0 {
+				return [][]byte{call(id)}
+			}
+			return [][]byte{call(id), result(id)}
+		},
+	} {
+		a := New(nil)
+		const warm, total = 50_000, 500_000
+		var at uint64
+		for i := range total {
+			if i == warm {
+				at = heapAfterGC()
+			}
+			for _, l := range line(i) {
+				a.Line(l)
+			}
+		}
+		end := heapAfterGC()
+		if growth := int64(end) - int64(at); growth > 4<<20 {
+			t.Fatalf("%s: heap grew %d KiB between %d and %d calls", name, growth>>10, warm, total)
+		}
+		t.Logf("%s: heap %d KiB after %d calls, %d KiB after %d", name, at>>10, warm, end>>10, total)
+		runtime.KeepAlive(a)
+	}
+}
+
 // Steady-state allocation per line does not grow with the session.
 func TestAllocsFlat(t *testing.T) {
 	filler := strings.Repeat("w", 512)
