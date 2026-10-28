@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T18:18:52Z
+updated_at: 2026-10-28T18:34:53Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -125,6 +125,10 @@ Per-request work is bounded: ToolStatsMaxRows is 2.5 M rows, ToolStatsMaxGroups 
 **agent:claude-code/049834bc** at 2026-10-28T18:18:52Z
 
 Review 2905 on PR #221 (two medium findings) fixed, commit 1638856. (1) The 24 h accepted-time skip could drop rows recorded in range. Index version 6 stores first and last recorded ns per session in indexed, and the walk filters on them in its join; tested by TestToolStatsRangeReadsRecordedTimes. (2) A paired result now counts under its call's name; tested by TestToolStatsCodexResultTakesItsCallsName. Scale fixture re-measured: last 3 days 161 to 169 ms (was 245 to 321 ms), other requests unchanged.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:34:53Z
+
+Review 2908 on PR #221 (medium) fixed in f7d7c6c: with a range, the context comparison takes only sessions that hold a row recorded in it, not every session whose index bounds overlap it. TestToolStatsContextRangeTakesActiveSessions covers a session straddling an empty range; it fails on the previous code. Review 2908 confirmed both 2905 findings resolved.
 
 ## Summary
 
