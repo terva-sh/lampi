@@ -213,72 +213,16 @@ func TestToolsWithoutAnIndex(t *testing.T) {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body.String())
 		}
 	}
-	if w := get(h, "/tools", admin); w.Code != 503 || !strings.Contains(w.Body.String(), "Tool statistics are not enabled") {
-		t.Errorf("page: %d", w.Code)
-	}
 }
 
-// TKT-01M61MZNF: the Tools page shows the groups, each origin's share
-// of calls beside its share of result bytes, the largest blocks linked
-// to their events, and the starting-context hint labelled as one.
-func TestToolsPage(t *testing.T) {
-	lake, idp, h, _, index := mcpLake(t)
-	codex, _ := normalizedSessions(t, lake, index)
-	admin := signInAs(t, idp, h, "owners")
-
-	w := get(h, "/tools?range=all", admin)
-	body := w.Body.String()
-	if w.Code != 200 {
-		t.Fatalf("page %d: %s", w.Code, body)
-	}
-	for _, want := range []string{
-		`<a href="/tools" aria-current="page">Tools</a>`,
-		"mcp__pond-docs__read", "MCP server pond", "exec_command", ">inner</span>",
-		`aria-label="MCP server pond share of calls"`, `aria-label="MCP server pond share of result bytes"`,
-		`href="/sessions/` + codex + `/transcript?at=`, "#e-",
-		"Correlation hint, not a finding", "100.0%",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("page lacks %q", want)
-		}
-	}
-	for _, private := range []string{"package main", "private pond water", "secret-notes", "cell done"} {
-		if strings.Contains(body, private) {
-			t.Errorf("page holds %q", private)
-		}
-	}
-	if strings.Contains(body, `<figure class="panel chart">`) {
-		t.Error("every recorded time has no buckets to chart")
-	}
-	if w := get(h, "/tools?range=all&group_by=origin&harness=claude", admin); w.Code != 200 || !strings.Contains(w.Body.String(), "Each origin") || strings.Contains(w.Body.String(), "exec_command") {
-		t.Errorf("by origin: %d", w.Code)
-	}
-	// The default range is the last 7 days, charted daily, and holds
-	// nothing from September.
-	if w := get(h, "/tools", admin); w.Code != 200 || !strings.Contains(w.Body.String(), "No tool calls in this range") || !strings.Contains(w.Body.String(), `<figure class="panel chart">`) {
-		t.Errorf("default range: %d", w.Code)
-	}
-	if w := get(h, "/tools?range=all&harness=nope", admin); w.Code != 400 || !strings.Contains(w.Body.String(), "These filters cannot be used") {
-		t.Errorf("bad harness: %d", w.Code)
-	}
-	for _, q := range []string{"?range=week", "?range=all&range=7d", "?largest=5"} {
-		if w := get(h, "/tools"+q, admin); w.Code != 400 {
-			t.Errorf("%s: %d", q, w.Code)
-		}
-	}
-}
-
-// A viewer's Tools page and route count only the bays the viewer reads.
-// A query that does not decode is refused before either browser
-// handler reads it, so a malformed filter cannot fall away and widen
-// the answer (review 2910 on #223).
+// A query that does not decode is refused before the browser handler
+// reads it, so a malformed filter cannot fall away and widen the answer
+// (review 2910 on #223).
 func TestToolsRefuseMalformedQueries(t *testing.T) {
 	lake, idp, h, _, index := mcpLake(t)
 	normalizedSessions(t, lake, index)
 	admin := signInAs(t, idp, h, "owners")
 	for _, path := range []string{
-		"/tools?range=all&model=%ZZ",
-		"/tools?range=all&model=a&model=%ZZ",
 		"/api/web/v1/tools?all=true&model=%ZZ",
 		"/api/web/v1/tools?all=true&model=a&model=%ZZ",
 	} {
@@ -302,12 +246,12 @@ func TestToolsReadTheViewersBays(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookie, _ := signIn(t, idp, h)
-	for _, p := range []string{"/tools?range=all", "/api/web/v1/tools?all=true&largest=20&context=true"} {
+	for _, p := range []string{"/api/web/v1/tools?all=true&largest=20&context=true"} {
 		w := get(h, p, cookie)
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "exec_command") {
 			t.Fatalf("%s: %d %s", p, w.Code, w.Body.String())
 		}
-		for _, leak := range []string{claude, "mcp__pond__read", "MCP server pond<"} {
+		for _, leak := range []string{claude, "mcp__pond__read"} {
 			if strings.Contains(w.Body.String(), leak) {
 				t.Errorf("%s shows %q from a bay the viewer does not read", p, leak)
 			}

@@ -159,30 +159,6 @@ try {
   }
   assert.ok(reachedRange, 'keyboard cannot reach the activity range');
   await page.setViewportSize({width: 1440, height: 1100});
-  // Tools: origins with their shares, and a largest block opens its event.
-  await page.goto(live.url + '/tools?range=all');
-  await page.getByRole('heading', {name: 'By origin', exact: true}).waitFor();
-  const origins = await page.locator('.origins-table tbody').innerText();
-  assert.match(origins, /built in/);
-  assert.match(origins, /MCP server synthetic-docs/);
-  assert.ok(await page.locator('.origins-table meter').count() >= 4, 'no share meters');
-  assert.match(await page.locator('.toolstats-table tbody').innerText(), /Bash[\s\S]*mcp__synthetic-docs__read/);
-  assert.match(await page.locator('.tool-context').innerText(), /Correlation hint, not a finding/i);
-  await page.screenshot({path: join(artifacts, 'tools-desktop.png'), fullPage: true});
-  const block = page.locator('.largest-table tbody a').first();
-  const blockAt = (await block.getAttribute('href')).match(/#e-(\d+)$/)[1];
-  await block.click();
-  await page.waitForFunction(id => document.activeElement && document.activeElement.id === 'e-' + id, blockAt);
-  await page.goto(live.url + '/tools');
-  await page.getByLabel('Group by', {exact: true}).selectOption('origin');
-  await page.getByRole('button', {name: 'Show', exact: true}).click();
-  await page.waitForURL(/group_by=origin/);
-  await page.getByRole('heading', {name: 'Each origin', exact: true}).waitFor();
-  await page.goto(live.url + '/tools?range=all');
-  await page.setViewportSize({width: 390, height: 844});
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile tools overflows');
-  await page.screenshot({path: join(artifacts, 'tools-mobile.png'), fullPage: true});
-  await page.setViewportSize({width: 1440, height: 1100});
   await page.goto(live.url);
   await page.clock.install();
   let refreshes = 0;
@@ -267,7 +243,7 @@ try {
   await emptyPage.getByRole('heading', {name: 'No accepted updates in this range'}).waitFor();
   assert.equal(await emptyPage.locator('figure.chart').count(), 2, 'empty range dropped the charts');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake', 'activity charts/table/filters/mobile/keyboard/no-JS/empty', 'tools origins/shares/largest link/group by/mobile']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake', 'activity charts/table/filters/mobile/keyboard/no-JS/empty']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));

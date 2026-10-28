@@ -167,9 +167,8 @@ terva-lampi query tools --token-file ~/.config/terva-lampi/read-token \
 - Sizes are bytes of text, and p50 and p95 are approximate, at most 19%
   high.
 
-An agent with `terva-lampi mcp` asks the same through `tool_stats`, and
-the dashboard's Tools page shows it. [Tool usage](web-api.md#tool-usage)
-describes every field.
+An agent with `terva-lampi mcp` asks the same through `tool_stats`.
+[Tool usage](web-api.md#tool-usage) describes every field.
 
 ## On the lake host
 
