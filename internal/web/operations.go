@@ -112,6 +112,13 @@ type opsPoint struct {
 	Start string `json:"start"`
 	Total *int64 `json:"total_bytes"`
 	Free  *int64 `json:"free_bytes"`
+	// The queues' depths at the bucket's last sample. Nil when that
+	// sample did not record them: before the release that does, or,
+	// for the index, on a lake that runs none.
+	NormalizePending *int64 `json:"normalize_pending"`
+	NormalizeFailed  *int64 `json:"normalize_failed"`
+	IndexBehind      *int64 `json:"index_behind"`
+	IndexFailed      *int64 `json:"index_failed"`
 }
 
 type opsQueues struct {
@@ -327,6 +334,17 @@ func buildGrowth(rg opsRange, samples []catalog.StorageSample, start, until time
 		}
 		st := storageOf(s)
 		g.Points[i].Total = st.Total
+		p := &g.Points[i]
+		for _, q := range []struct {
+			measure string
+			dst     **int64
+		}{{catalog.MeasureNormalizePending, &p.NormalizePending}, {catalog.MeasureNormalizeFailed, &p.NormalizeFailed}, {catalog.MeasureIndexBehind, &p.IndexBehind}, {catalog.MeasureIndexFailed, &p.IndexFailed}} {
+			*q.dst = nil
+			if u, ok := s.Measures[q.measure]; ok {
+				n := u.Files
+				*q.dst = &n
+			}
+		}
 		if st.Filesystem != nil {
 			free := int64(st.Filesystem.Free)
 			g.Points[i].Free = &free
@@ -450,7 +468,12 @@ type opsView struct {
 	Disk                       chartView
 	Free                       chartView
 	HasFree                    bool
-	MachineCap                 int
+	// Pending and Behind chart the normalize queue and the search
+	// index's lag over the range; HasBehind is false on a lake whose
+	// samples never measured the index.
+	Pending, Behind chartView
+	HasBehind       bool
+	MachineCap      int
 }
 
 type storageRow struct {
@@ -517,11 +540,17 @@ func buildOpsView(o operations, now time.Time) opsView {
 	starts := make([]time.Time, len(o.Growth.Points))
 	disk := make([]*int64, len(starts))
 	free := make([]*int64, len(starts))
+	pending := make([]*int64, len(starts))
+	behind := make([]*int64, len(starts))
 	for i, p := range o.Growth.Points {
 		starts[i], _ = time.Parse(time.RFC3339, p.Start)
 		disk[i], free[i] = p.Total, p.Free
+		pending[i], behind[i] = p.NormalizePending, p.IndexBehind
 		if p.Free != nil {
 			v.HasFree = true
+		}
+		if p.IndexBehind != nil {
+			v.HasBehind = true
 		}
 	}
 	hourly := o.range_.Hourly
@@ -529,6 +558,10 @@ func buildOpsView(o operations, now time.Time) opsView {
 	v.Disk.Summary = levelSummary(v.Disk.Title, starts, disk, hourly)
 	v.Free = buildChart("free", "Free space on the lake's filesystem", starts, free, hourly, bytesIEC, niceBytes)
 	v.Free.Summary = levelSummary(v.Free.Title, starts, free, hourly)
+	v.Pending = buildChart("pending", "Sessions waiting to normalize", starts, pending, hourly, humanCount, niceCeil)
+	v.Pending.Summary = levelSummary(v.Pending.Title, starts, pending, hourly)
+	v.Behind = buildChart("behind", "Sessions the search index is behind on", starts, behind, hourly, humanCount, niceCeil)
+	v.Behind.Summary = levelSummary(v.Behind.Title, starts, behind, hourly)
 	return v
 }
 

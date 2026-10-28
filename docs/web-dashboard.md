@@ -498,6 +498,12 @@ hourly.
 - **Growth charts** show the lake directory's disk use and the filesystem's
   free space: hourly over the last 7 days, or daily over 30 or 90. Hours or
   days with no sample are hatched and read "not measured".
+- **Queue charts** show, at each sample, the sessions waiting to normalize and
+  the sessions the search index is behind on. A queue that stays high, rather
+  than rising and draining, means the lake is not keeping up. The token,
+  error and tool statistics on the overview and Usage come from the search
+  index, so while it is behind they leave out the newest work. Samples from
+  before the release that records the queues are hatched.
 - **Machines** lists each device with its last contact and its last new data.
   - A machine that is running but has nothing new to upload still makes
     contact.

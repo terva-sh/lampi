@@ -51,9 +51,25 @@ func TestSampleStorageRecords(t *testing.T) {
 	if got.Measures[catalog.MeasureReferenced] != want || got.Measures[catalog.MeasureUnique] != want {
 		t.Errorf("referenced %+v unique %+v, want %+v", got.Measures[catalog.MeasureReferenced], got.Measures[catalog.MeasureUnique], want)
 	}
+	// The queues are sampled too: nothing is pending once normalized,
+	// and with no index the index measures are left out.
+	if u, ok := got.Measures[catalog.MeasureNormalizePending]; !ok || u.Files != 0 {
+		t.Errorf("normalize pending %+v %v", u, ok)
+	}
+	if _, ok := got.Measures[catalog.MeasureIndexBehind]; ok {
+		t.Error("a lake with no index sampled its lag")
+	}
 	latest, ok, err := s.Catalog.LatestStorage(t.Context())
 	if err != nil || !ok || !latest.At.Equal(got.At) || len(latest.Measures) != len(got.Measures) {
 		t.Fatalf("latest %+v %v %v", latest, ok, err)
+	}
+	s.IndexLag = func() (int, int) { return 3, 1 }
+	got, err = s.SampleStorage(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Measures[catalog.MeasureIndexBehind].Files != 3 || got.Measures[catalog.MeasureIndexFailed].Files != 1 {
+		t.Errorf("index lag %+v %+v", got.Measures[catalog.MeasureIndexBehind], got.Measures[catalog.MeasureIndexFailed])
 	}
 }
 

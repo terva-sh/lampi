@@ -621,8 +621,8 @@ other parameter is `400 invalid_filters_or_cursor`.
     "unique": {"bytes": 6291456, "files": 8560}
   },
   "growth": {"range": "7d", "bucket": "hour", "points": [
-    {"start": "2026-09-21T14:00:00Z", "total_bytes": null, "free_bytes": null},
-    {"start": "2026-09-28T13:00:00Z", "total_bytes": 15728640, "free_bytes": 53687091200}
+    {"start": "2026-09-21T14:00:00Z", "total_bytes": null, "free_bytes": null, "normalize_pending": null, "normalize_failed": null, "index_behind": null, "index_failed": null},
+    {"start": "2026-09-28T13:00:00Z", "total_bytes": 15728640, "free_bytes": 53687091200, "normalize_pending": 0, "normalize_failed": 0, "index_behind": 2, "index_failed": 0}
   ]},
   "queues": {"audit_pending": 0, "normalize_pending": 0, "normalize_failed": 2,
              "search": {"ready_sessions": 91, "indexed_sessions": 91, "behind_sessions": 0, "failed_sessions": 0, "last_reconcile": "..."},
@@ -660,6 +660,12 @@ The example shortens `components`, `points` and `machines`.
 - **`growth`** has one point per bucket in the range. Each point carries the
   last sample taken in that bucket. A bucket with no sample is `null`, and a
   `null` means not measured, not zero.
+  - `normalize_pending` and `normalize_failed` count the sessions in those
+    states when the sample was taken. `index_behind` and `index_failed` count
+    the ready sessions the search index had not yet indexed at their latest
+    version, and those it could not read. Each is `null` in a bucket whose
+    sample predates the release that records them, and the index counts are
+    `null` on a lake without web configuration, which runs no index.
 - **`queues`**
   - `audit_pending` is audit events committed to the catalog but not yet in
     `audit.jsonl`.

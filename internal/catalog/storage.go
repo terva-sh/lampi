@@ -45,6 +45,14 @@ const (
 	// versions once. What it falls short of MeasureCurrent by is files
 	// that are byte-for-byte copies of another, stored once.
 	MeasureCurrentUnique = "artifacts.current_unique"
+	// The queues' depths when the sample was taken, as a count in Files
+	// with zero Bytes, so Operations can chart work behind over time
+	// (TKT-01M61NTM5CHJTF47M4QDNWTEEB). The index measures are absent
+	// when serve runs no search index.
+	MeasureNormalizePending = "queue.normalize_pending"
+	MeasureNormalizeFailed  = "queue.normalize_failed"
+	MeasureIndexBehind      = "queue.index_behind"
+	MeasureIndexFailed      = "queue.index_failed"
 )
 
 // StorageUse is one measure in a sample.

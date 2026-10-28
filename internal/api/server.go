@@ -67,6 +67,10 @@ type Server struct {
 	// workers stop and before the catalog closes, so a background
 	// reader of the catalog can stop first.
 	BeforeClose func()
+	// IndexLag, when set, reports how many ready sessions the search
+	// index is behind on and could not read, for the storage sample.
+	// serve sets it when it runs the index.
+	IndexLag func() (behind, failed int)
 
 	// limits, when set, replaces defaultDeadlines. Tests shorten it.
 	limits *deadlines
