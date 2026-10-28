@@ -22,12 +22,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T17:07:05Z
+updated_at: 2026-10-28T17:51:46Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-diag
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -93,6 +93,10 @@ The raw_type is one constant, `diagnose.InnerRawType = "item_completed"`, matche
 ### Memory test
 
 internal/synthetic and cmd/lampi-perf are test-only or `package main`, so they cannot be imported. memory_test.go therefore generates a 1,000,000-event transcript in the perf workloads' shape (filler text messages), with hostile tool traffic added: unanswered calls, orphan results, a new path and a new MCP server per call, usage, compactions and errors. Heap after GC grew 30 KiB between 100k and 1M events, under a 4 MiB limit. Allocations per line stayed flat (15 early, 14 late).
+
+**agent:claude-code/049834bc** at 2026-10-28T17:51:46Z
+
+Coordinator: diagnose now reads origins through internal/toolorigin (TKT-01M61MZN3) instead of its local parse, and matches Codex inner calls on raw_type == item_completed exactly (TKT-01M61PSX contract). The old parse's fallbacks for unprojected Cursor CLI CallDynamicTool and Codex tools.-prefixed names are gone: both normalizers now emit mcp__<server>__<tool>, so old projections need serve normalize --all, which the release already requires.
 
 ## Summary
 
