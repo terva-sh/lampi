@@ -10,8 +10,9 @@ import (
 	"terva.sh/lampi/internal/storage"
 )
 
-// SampleStorage measures the lake directory, its filesystem and the
-// bytes the catalog references, and records the sample. It walks every
+// SampleStorage measures the lake directory, its filesystem, the bytes
+// the catalog references and the depth of the queues, and records the
+// sample. It walks every
 // file under the lake directory, so it belongs on a timer, never on a
 // request. A platform that cannot report filesystem capacity records
 // the rest.
@@ -44,6 +45,17 @@ func (s *Server) SampleStorage(ctx context.Context) (catalog.StorageSample, erro
 	sample.Measures[catalog.MeasureUnique] = art.Unique
 	sample.Measures[catalog.MeasureCurrent] = art.Current
 	sample.Measures[catalog.MeasureCurrentUnique] = art.CurrentUnique
+	states, err := s.Catalog.NormalizationCounts(ctx)
+	if err != nil {
+		return catalog.StorageSample{}, err
+	}
+	sample.Measures[catalog.MeasureNormalizePending] = catalog.StorageUse{Files: int64(states["pending"])}
+	sample.Measures[catalog.MeasureNormalizeFailed] = catalog.StorageUse{Files: int64(states["failed"])}
+	if s.IndexLag != nil {
+		behind, failed := s.IndexLag()
+		sample.Measures[catalog.MeasureIndexBehind] = catalog.StorageUse{Files: int64(behind)}
+		sample.Measures[catalog.MeasureIndexFailed] = catalog.StorageUse{Files: int64(failed)}
+	}
 	if err := s.Catalog.RecordStorage(ctx, sample); err != nil {
 		return catalog.StorageSample{}, err
 	}

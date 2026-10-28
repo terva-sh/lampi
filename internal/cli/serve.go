@@ -714,6 +714,10 @@ func startWeb(cfg webconfig.Config, data, profilesFile string, lake *api.Server)
 		index.Run(ctx)
 	}()
 	lake.OnPublished(index.Notify)
+	lake.IndexLag = func() (int, int) {
+		c := index.Coverage()
+		return c.Behind, c.Failed
+	}
 	lake.BeforeClose = func() {
 		stop()
 		<-done

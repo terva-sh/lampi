@@ -71,7 +71,7 @@ func TestOperationsFromIngestToPage(t *testing.T) {
 	if got.Storage.Referenced.Files != 1 {
 		t.Errorf("referenced %+v", got.Storage.Referenced)
 	}
-	if got.Growth.Range != "7d" || got.Growth.Bucket != "hour" || len(got.Growth.Points) != 7*24 || got.Growth.Points[len(got.Growth.Points)-1].Total == nil {
+	if got.Growth.Range != "7d" || got.Growth.Bucket != "hour" || len(got.Growth.Points) != 7*24 || got.Growth.Points[len(got.Growth.Points)-1].Total == nil || got.Growth.Points[len(got.Growth.Points)-1].NormalizePending == nil {
 		t.Errorf("growth %s/%s with %d points", got.Growth.Range, got.Growth.Bucket, len(got.Growth.Points))
 	}
 	// Search coverage counts the whole lake, so a viewer is not told it.
@@ -104,7 +104,9 @@ func TestOperationsFromIngestToPage(t *testing.T) {
 			t.Errorf("page lacks %q", want)
 		}
 	}
-	if strings.Count(body, `<figure class="panel chart">`) != 2 {
+	// Disk, free space, the normalize queue, and the index's lag, which
+	// this lake without IndexLag shows as not measured.
+	if strings.Count(body, `<figure class="panel chart">`) != 4 || !strings.Contains(body, "No search index figures in this range.") {
 		t.Errorf("page has %d charts", strings.Count(body, `<figure class="panel chart">`))
 	}
 	for _, bad := range []string{"/operations?range=1y", "/operations?range=7d&range=30d", "/operations?x=1", "/api/web/v1/operations?range=1y"} {
@@ -145,6 +147,18 @@ func TestGrowthBucketsTakeTheLastSample(t *testing.T) {
 	}
 	if p := g.Points[len(g.Points)-2]; p.Total != nil || p.Free != nil {
 		t.Fatalf("yesterday was not sampled: %+v", p)
+	}
+	// Queue depths come from the bucket's last sample that has them; a
+	// sample from before they were recorded leaves them unmeasured.
+	if last.NormalizePending != nil {
+		t.Fatalf("queues from samples that never recorded them: %+v", last)
+	}
+	queued := sample(now.Add(-30*time.Minute), 400, 600)
+	queued.Measures[catalog.MeasureNormalizePending] = catalog.StorageUse{Files: 7}
+	queued.Measures[catalog.MeasureIndexBehind] = catalog.StorageUse{Files: 2}
+	q := buildGrowth(rg, append(samples, queued), start, until, step)
+	if last := q.Points[len(q.Points)-1]; last.NormalizePending == nil || *last.NormalizePending != 7 || *last.IndexBehind != 2 || last.IndexFailed != nil {
+		t.Fatalf("queues today %+v", last)
 	}
 	starts := make([]time.Time, len(g.Points))
 	totals := make([]*int64, len(g.Points))
