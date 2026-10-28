@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -335,6 +338,9 @@ func TestCursorCLIContentPartsStayUnknown(t *testing.T) {
 	}
 }
 
+// latestRootBlobId names a blob that is not a protobuf root, so no
+// order is read from it: export order stays, and the root stays an
+// opaque unknown event whose bytes are not decoded into any event.
 func TestCursorCLIMetaDoesNotFollowBlobGraph(t *testing.T) {
 	const (
 		native    = "chats/ab12/sid-1"
@@ -587,6 +593,217 @@ func TestCursorCLIAuthAbsent(t *testing.T) {
 			t.Fatalf("secret surfaced:\n%s", out)
 		}
 	})
+}
+
+// cliBlobID is a 64-hex-digit blob id, the shape Cursor's content hash
+// ids have, so that a root can list it.
+func cliBlobID(n int) string {
+	return strings.Repeat(fmt.Sprintf("%02x", n), 32)
+}
+
+// cliRoot is a base64 wrapper around a protobuf root: field 1 once per
+// listed id, and a varint field 10 a reader must skip.
+func cliRoot(ids ...string) map[string]any {
+	var b []byte
+	for _, id := range ids {
+		raw, err := hex.DecodeString(id)
+		if err != nil || len(raw) != 32 {
+			panic("bad blob id " + id)
+		}
+		b = append(b, 0x0a, 0x20)
+		b = append(b, raw...)
+	}
+	b = append(b, 0x50, 0x01)
+	return map[string]any{"base64": base64.StdEncoding.EncodeToString(b)}
+}
+
+func TestCursorCLIToolPartsInConversationOrder(t *testing.T) {
+	user, asst, tool, stray := cliBlobID(0x30), cliBlobID(0x10), cliBlobID(0x20), cliBlobID(0x05)
+	early, latest := cliBlobID(0x40), cliBlobID(0x01)
+	raw := cursorCLIRaw(t, map[string]any{
+		"harness_version": "1",
+		"confidence":      "low",
+		"source":          "chats/ab12/sid-1/store.db",
+		"scope":           "session",
+		"meta": []any{
+			map[string]any{"key": "0", "value": map[string]any{"name": "pond", "latestRootBlobId": latest}},
+		},
+		// Export order is id order, which is not the conversation.
+		"blobs": []any{
+			map[string]any{"id": latest, "data": cliRoot(user, asst, tool)},
+			map[string]any{"id": stray, "data": map[string]any{"role": "user", "content": "not in any root"}},
+			map[string]any{"id": asst, "data": map[string]any{"role": "assistant", "id": "m2", "content": []any{
+				map[string]any{"type": "text", "text": "reading"},
+				map[string]any{"type": "tool-call", "toolCallId": "tc-1", "toolName": "Read", "args": map[string]any{"path": "main.go"}},
+				map[string]any{"type": "tool-call", "toolCallId": "tc-2", "toolName": "CallDynamicTool", "args": `{"namespace":"pond-docs","toolName":"search","arguments":{"q":"pond"}}`},
+				map[string]any{"type": "tool-call", "toolCallId": "tc-3", "toolName": "CallDynamicTool", "args": map[string]any{"namespace": "cursor", "toolName": "AwaitShell", "arguments": map[string]any{}}},
+			}}},
+			map[string]any{"id": tool, "data": map[string]any{"role": "tool", "id": "m3", "content": []any{
+				map[string]any{"type": "tool-result", "toolCallId": "tc-1", "toolName": "Read", "result": "package main", "experimental_content": []any{}},
+				map[string]any{"type": "tool-result", "toolCallId": "tc-2", "toolName": "CallDynamicTool", "result": map[string]any{"hits": 1}},
+				map[string]any{"type": "tool-result", "toolCallId": "tc-3", "toolName": "CallDynamicTool", "result": "done"},
+				map[string]any{"type": "tool-result", "toolCallId": "tc-9", "toolName": "Grep", "result": "orphan"},
+			}}},
+			map[string]any{"id": user, "data": map[string]any{"role": "user", "content": "read main.go"}},
+			map[string]any{"id": early, "data": cliRoot(user, asst)},
+		},
+	})
+	events := projectCursorCLI(t, "chats/ab12/sid-1", raw)
+	var got []string
+	for _, ev := range events {
+		line := ev.EventType + " " + ev.RawType
+		if len(ev.RawType) == 64 {
+			line = ev.EventType + " " + ev.RawType[:2]
+		}
+		if ev.Tool.Name != nil {
+			line += " " + *ev.Tool.Name + " " + *ev.Tool.CallID
+		}
+		if ev.Tool.IsError != nil {
+			t.Fatalf("is_error set from a part with no error field: %+v", ev)
+		}
+		got = append(got, line)
+	}
+	want := []string{
+		"meta cursor_cli_store_json",
+		"meta 0",
+		"message 30",
+		"unknown 10",
+		"tool_call tool-call Read tc-1",
+		"tool_call tool-call mcp__pond-docs__search tc-2",
+		"tool_call tool-call AwaitShell tc-3",
+		"unknown 20",
+		"tool_result tool-result Read tc-1",
+		"tool_result tool-result mcp__pond-docs__search tc-2",
+		"tool_result tool-result AwaitShell tc-3",
+		"tool_result tool-result Grep tc-9",
+		"unknown 01",
+		"message 05",
+		"unknown 40",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	asstEv := events[3]
+	content, _ := asstEv.Extra["content"].([]any)
+	if len(content) != 1 || asstEv.Extra["blob_id"] != asst || asstEv.Extra["id"] != "m2" {
+		t.Fatalf("assistant blob keeps its other parts only: %#v", asstEv.Extra)
+	}
+	read, mcp, await := events[4], events[5], events[6]
+	if *read.ContentText != `{"path":"main.go"}` || read.Extra["builtin"] != true || read.Extra["blob_id"] != asst || read.Actor != ActorAssistant {
+		t.Fatalf("read call: %+v", read)
+	}
+	if !strings.Contains(*mcp.ContentText, `"namespace":"pond-docs"`) || mcp.Extra["mcp_server"] != "pond-docs" || mcp.Extra["cursor_tool_name"] != "CallDynamicTool" || mcp.Extra["builtin"] != nil {
+		t.Fatalf("mcp call: %+v", mcp)
+	}
+	if await.Extra["builtin"] != true || await.Extra["cursor_tool_name"] != "CallDynamicTool" || await.Extra["mcp_server"] != nil {
+		t.Fatalf("cursor-namespace call: %+v", await)
+	}
+	readResult, mcpResult := events[8], events[9]
+	if *readResult.ContentText != "package main" || readResult.Actor != ActorTool || readResult.Extra["blob_id"] != tool || readResult.Extra["experimental_content"] == nil {
+		t.Fatalf("read result: %+v", readResult)
+	}
+	if *mcpResult.ContentText != `{"hits":1}` || mcpResult.Extra["cursor_tool_name"] != "CallDynamicTool" {
+		t.Fatalf("mcp result: %+v", mcpResult)
+	}
+	if content, _ := events[7].Extra["content"].([]any); content == nil || len(content) != 0 {
+		t.Fatalf("tool blob content: %#v", events[7].Extra["content"])
+	}
+	if root := events[12]; root.Extra["value"] == nil || root.ContentText != nil {
+		t.Fatalf("root blob stays an opaque unknown event: %+v", root)
+	}
+}
+
+// After a compaction the latest root starts a new branch from the
+// system message. The old branch comes first, then the summary, then
+// what both kept, then what is new.
+func TestCursorCLIOrderAfterCompaction(t *testing.T) {
+	s, a1, a2, sum, b1 := cliBlobID(0x50), cliBlobID(0x40), cliBlobID(0x30), cliBlobID(0x20), cliBlobID(0x10)
+	before, after := cliBlobID(0x02), cliBlobID(0x01)
+	msg := func(id, role, text string) map[string]any {
+		return map[string]any{"id": id, "data": map[string]any{"role": role, "content": text}}
+	}
+	raw := cursorCLIRaw(t, map[string]any{
+		"harness_version": "1",
+		"confidence":      "low",
+		"source":          "chats/ab12/sid-1/store.db",
+		"scope":           "session",
+		"meta":            []any{map[string]any{"key": "0", "value": map[string]any{"latestRootBlobId": after}}},
+		"blobs": []any{
+			map[string]any{"id": after, "data": cliRoot(s, sum, a2, b1)},
+			map[string]any{"id": before, "data": cliRoot(s, a1, a2)},
+			msg(b1, "user", "b1"),
+			msg(sum, "user", "summary"),
+			msg(a2, "assistant", "a2"),
+			msg(a1, "user", "a1"),
+			msg(s, "user", "s"),
+		},
+	})
+	var got []string
+	for _, ev := range projectCursorCLI(t, "chats/ab12/sid-1", raw) {
+		if ev.EventType == EventMessage {
+			got = append(got, *ev.ContentText)
+		}
+	}
+	if want := "s a1 summary a2 b1"; strings.Join(got, " ") != want {
+		t.Fatalf("order %v, want %s", got, want)
+	}
+}
+
+// BenchmarkCursorCLITools projects an export of 600 turns, each an
+// assistant blob with one tool call and a tool blob with a 4 KiB result.
+// Cursor writes a root per turn that lists every message so far, so the
+// roots grow with the square of the turns, as they do in a real store.
+func BenchmarkCursorCLITools(b *testing.B) {
+	raw := cursorCLIToolExport(b, 600)
+	b.SetBytes(int64(len(raw)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := (CursorCLI{NativeID: "chats/ab12/sid-1"}).Normalize(context.Background(), raw); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func cursorCLIToolExport(b *testing.B, turns int) []byte {
+	body := strings.Repeat("pond water ", 400)
+	var blobs []any
+	var chain []string
+	n := 1
+	next := func() string {
+		n++
+		return fmt.Sprintf("%064x", n)
+	}
+	latest := ""
+	for i := 0; i < turns; i++ {
+		asst, tool, root := next(), next(), next()
+		call := fmt.Sprintf("tc-%d", i)
+		blobs = append(blobs,
+			map[string]any{"id": asst, "data": map[string]any{"role": "assistant", "content": []any{
+				map[string]any{"type": "text", "text": "reading"},
+				map[string]any{"type": "tool-call", "toolCallId": call, "toolName": "Read", "args": map[string]any{"path": "main.go"}},
+			}}},
+			map[string]any{"id": tool, "data": map[string]any{"role": "tool", "content": []any{
+				map[string]any{"type": "tool-result", "toolCallId": call, "toolName": "Read", "result": body},
+			}}},
+		)
+		chain = append(chain, asst, tool)
+		blobs = append(blobs, map[string]any{"id": root, "data": cliRoot(chain...)})
+		latest = root
+	}
+	sort.Slice(blobs, func(i, j int) bool {
+		return blobs[i].(map[string]any)["id"].(string) < blobs[j].(map[string]any)["id"].(string)
+	})
+	raw, err := json.Marshal(map[string]any{
+		"harness_version": "1", "confidence": "low", "source": "store.db", "scope": "session",
+		"meta":  []any{map[string]any{"key": "0", "value": map[string]any{"latestRootBlobId": latest}}},
+		"blobs": blobs,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	return raw
 }
 
 func projectCursorCLI(t *testing.T, native string, raw []byte) []Event {

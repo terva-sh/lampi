@@ -455,14 +455,14 @@ func codexExitError(raw json.RawMessage) *bool {
 // codexMCPEndError reads an mcp_tool_call_end result: {"Err": ...} is a
 // failure, and {"Ok": {"isError": b}} carries the server's own flag.
 func codexMCPEndError(raw json.RawMessage) *bool {
-	obj := codexObject(raw)
+	obj := rawObject(raw)
 	if obj == nil {
 		return nil
 	}
 	if hasKey(obj, "Err") {
 		return boolPtr(true)
 	}
-	if inner := codexObject(obj["Ok"]); inner != nil {
+	if inner := rawObject(obj["Ok"]); inner != nil {
 		return jsonBoolPtr(inner["isError"])
 	}
 	return jsonBoolPtr(obj["isError"])
@@ -502,7 +502,7 @@ var codexInnerKinds = map[string]string{
 // exec call at the time the item completed. The inner result is not
 // what the model read; the cell output is.
 func (c Codex) itemCompleted(lineNo, offset int, when time.Time, payload map[string]json.RawMessage, lineExtra map[string]any, st *codexState) ([]Event, error) {
-	item := codexObject(payload["item"])
+	item := rawObject(payload["item"])
 	kind, _ := jsonString(item["type"])
 	name, inner := codexInnerKinds[kind]
 	if !inner {
@@ -544,7 +544,7 @@ func (c Codex) itemCompleted(lineNo, offset int, when time.Time, payload map[str
 		callText = argumentsText(item["arguments"])
 		callKeys = []string{"server", "tool", "readOnlyHint"}
 		textKeys = []string{"arguments"}
-		if result = codexObject(item["result"]); result != nil {
+		if result = rawObject(item["result"]); result != nil {
 			resultText = mcpContentText(result["content"])
 			isErr = jsonBoolPtr(result["isError"])
 		} else {
@@ -618,8 +618,9 @@ func (c Codex) itemCompleted(lineNo, offset int, when time.Time, payload map[str
 	return []Event{call, out}, nil
 }
 
-// codexObject decodes a JSON object, or is nil when raw is not one.
-func codexObject(raw json.RawMessage) map[string]json.RawMessage {
+// rawObject decodes a JSON object, or is nil when raw is not one. It does
+// not check for a base64 wrapper, so it reads the bytes once.
+func rawObject(raw json.RawMessage) map[string]json.RawMessage {
 	if isNull(raw) {
 		return nil
 	}
@@ -665,7 +666,7 @@ func pickRaw(obj map[string]json.RawMessage, keys ...string) map[string]json.Raw
 // codexDurationMS reads a Rust Duration, {"secs": s, "nanos": n}, as
 // whole milliseconds.
 func codexDurationMS(raw json.RawMessage) (int64, bool) {
-	obj := codexObject(raw)
+	obj := rawObject(raw)
 	if obj == nil {
 		return 0, false
 	}

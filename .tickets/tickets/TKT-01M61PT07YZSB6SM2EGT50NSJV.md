@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-28T16:52:01Z
-updated_at: 2026-10-28T17:00:57Z
+updated_at: 2026-10-28T17:30:55Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
@@ -48,10 +48,20 @@ Parts carry no timestamps, so latency stays unavailable.
 
 ## Acceptance criteria
 
-- [ ] tool-call and tool-result parts become tool_call and tool_result events with name and call id
-- [ ] CallDynamicTool calls carry the MCP server and tool, and cursor-namespace tools are marked built-in
-- [ ] Events come out in conversation order, not blob rowid order
-- [ ] is_error stays null unless the source records a failure, and docs/harnesses.md says so
+- [x] tool-call and tool-result parts become tool_call and tool_result events with name and call id
+- [x] CallDynamicTool calls carry the MCP server and tool, and cursor-namespace tools are marked built-in
+- [x] Events come out in conversation order, not blob rowid order
+- [x] is_error stays null unless the source records a failure, and docs/harnesses.md says so
+
+## Implementation plan
+
+Measured the local stores (structure only, read through a read-only snapshot): the export lists blobs by id (`ORDER BY id`), and ids are content hashes, so export order is random with respect to the conversation. Protobuf root blobs (base64 wrappers in the export) hold field 1 once per message blob id (32 raw bytes) in conversation order; `latestRootBlobId` on meta key "0" names the newest root. A root exists per conversation change (11,746 in the largest store), each extending the previous one except across compactions, where a new list restarts from the system message. Every JSON blob is listed by some root.
+
+1. `cursorCLIOrder` (new file `cursorcliorder.go`): decode every root's field-1 ids, add an edge between consecutive ids of each list (deduplicated), and emit a reverse-postorder depth-first walk: a topological order, so each list's order holds and a call precedes its result. Successors and walk starts are visited newest first (latest-root members by position, then export index), which puts the latest root's branch last after a compaction. Cycles are broken where met. Unlisted blobs (roots included) follow in export order; no roots means export order. Ids are keyed as `[32]byte` so lookups do not allocate.
+2. `projectBlob` returns events: a parts blob stays one `unknown` event with the tool parts removed from `extra.content`, followed by one `tool_call` (raw_type `tool-call`) or `tool_result` (raw_type `tool-result`) per tool part, in part order, with `extra.blob_id`.
+3. Names: `CallDynamicTool` reads `args` (object or JSON string): namespace `cursor` gives the bare `args.toolName`, any other namespace gives `mcp__<namespace>__<toolName>` via the shared `mcpToolName` with `extra.mcp_server`; `extra.cursor_tool_name` keeps `CallDynamicTool`. `extra.builtin` is true on every non-MCP call. Results take the call's name from a bounded `callNames` table, else the part's own toolName.
+4. `is_error` stays null (no source field); `recorded_at` stays ingest time (no part timestamps).
+5. Docs: "Cursor CLI tool parts" under "Tool names and errors on results" in docs/harnesses.md, re-normalize note extended. Benchmark `BenchmarkCursorCLITools` before/after, plus a run over the local stores under the 256 MiB export cap to count orphans.
 
 ## Notes
 
@@ -62,3 +72,15 @@ Absorbs TKT-01M61P84VTN15WV8C40C76MR2B (Normalize: promote Cursor CLI tool-call 
 **agent:claude-code/049834bc** at 2026-10-28T16:54:05Z
 
 Promoted into the session-diagnostics data work by the coordinating agent: without it the tool usage statistics (TKT-01M61MZN8) are blank for this harness. Lands with the tool statistics PR, not the first data PR, so the first PR is not held up.
+
+**agent:claude-code/049834bc-norm2** at 2026-10-28T17:30:50Z
+
+Findings and measurements.
+
+The ticket's "rowid order" is in practice id order: the adapter exports `SELECT id, data FROM blobs ORDER BY id`, and ids are content hashes. The normalizer never sees rowid, so the order has to come from the roots. Roots form one list per conversation state; the walk merges them (see plan). `latestRootBlobId` alone is not enough: in the largest store it lists 156 of 18,271 message blobs, because compaction drops older messages from the current context.
+
+Real-store run (local, read-only snapshot through the adapter's own export, stores under the 256 MiB export cap, 9 stores with tables): every tool-call and tool-result part became an event, and no result came before its call in any session (0 orphan results; the spike measured orphans in 7 of 8 sessions in rowid order). One store had 366 results for 355 calls: Cursor rewrites a message blob when it changes, and an older copy repeats a result part. Those duplicates are emitted as they are; deduplicating them by call id would hide the blob history and was left out.
+
+Timing on the largest exportable store (270 MiB export, 2,576 calls): old projection 2.33 s, new 3.16 s, under machine load average 8 to 12. Benchmark `BenchmarkCursorCLITools` (600 turns, a root per turn, 19 MB export), back to back: old 137-141 ms/op, 124 MB/op, 145k allocs; new 207-216 ms/op before keying ids as [32]byte (541k allocs), then 228-275 ms/op, 148 MB/op, 176k allocs under a busier machine. The added cost is decoding every root's base64 once, which is most of a store's bytes, and the tool-part split. Memory stays the whole-document model the projector already has: the order adds an id index, an edge set and one list buffer, all proportional to the number of blobs and distinct edges, not to root bytes.
+
+Not done: text and reasoning parts are still not promoted to message events (outside this ticket), and `mcpDetails` on CallDynamicTool args is left in the call text, not parsed.

@@ -25,19 +25,21 @@ import (
 // document.
 //
 // v1 emits one envelope meta event, then meta rows in export order, then
-// blob rows in export order. Meta key "0" is the session record. Fields
-// on that record, including agentId, latestRootBlobId, mode, and
-// lastUsedModel, stay on the meta event. The projector does not follow
-// latestRootBlobId or any other blob id. session_id stays NativeID; it
-// is not agentId. Other meta objects are meta only when every field is a
-// session-shell name or timestamp. A blob is a message only when its
-// data is a JSON object, cleartext is a string from content, then text,
-// then rawText, and the role is user or assistant or the numeric type is
-// 1 or 2. A content value that is not a string, including a parts array
-// of text, reasoning, or tool blocks, stays one unknown event with the
-// object on extra. Those parts are not walked into tool_call or
-// tool_result. Tool calls, tool results, usage, compaction, summaries,
-// base64 wrappers, and protobuf roots stay unknown and are not decoded.
+// blob rows in conversation order (cursorCLIOrder), which reads the blob
+// ids that the protobuf root blobs list. Meta key "0" is the session
+// record. Fields on that record, including agentId, latestRootBlobId,
+// mode, and lastUsedModel, stay on the meta event. session_id stays
+// NativeID; it is not agentId. Other meta objects are meta only when
+// every field is a session-shell name or timestamp. A blob is a message
+// only when its data is a JSON object, cleartext is a string from
+// content, then text, then rawText, and the role is user or assistant or
+// the numeric type is 1 or 2. A content value that is not a string,
+// including a parts array of text, reasoning, or tool blocks, stays one
+// unknown event with the object on extra. The AI SDK tool-call and
+// tool-result parts of such an array leave that object and become
+// tool_call and tool_result events after it. Other parts are not
+// promoted. Usage, compaction, summaries, base64 wrappers, and protobuf
+// roots stay unknown; a root is decoded only to read its blob ids.
 // encrypted, cipher, and sealed fields are copied into extra and are not
 // written into content_text. They are not decrypted. Credential keys the
 // adapter already drops stay absent.
@@ -101,18 +103,20 @@ func (c CursorCLI) Normalize(ctx context.Context, raw []byte) ([]Event, error) {
 		}
 		events = append(events, ev)
 	}
-	for i, row := range doc.Blobs {
+	var calls callNames
+	for _, i := range cursorCLIOrder(doc) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		row := doc.Blobs[i]
 		if cliAuthKey(row.ID) {
 			continue
 		}
-		ev, err := c.projectBlob(at.blobAt(i, row.ID), row)
+		evs, err := c.projectBlob(at.blobAt(i, row.ID), row, &calls)
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, ev)
+		events = append(events, evs...)
 	}
 	return events, nil
 }
@@ -384,43 +388,175 @@ func (c CursorCLI) projectMetaUnknown(offset int, row cursorCLIMeta) (Event, err
 	return c.emit(row.Key, EventUnknown, "", time.Time{}, offset, "", extra)
 }
 
-func (c CursorCLI) projectBlob(offset int, row cursorCLIBlob) (Event, error) {
+func (c CursorCLI) projectBlob(offset int, row cursorCLIBlob, calls *callNames) ([]Event, error) {
+	one := func(ev Event, err error) ([]Event, error) {
+		if err != nil {
+			return nil, err
+		}
+		return []Event{ev}, nil
+	}
 	if isBase64Wrapper(row.Data) || !jsonIsObject(row.Data) {
-		return c.projectBlobUnknown(offset, row)
+		return one(c.projectBlobUnknown(offset, row))
 	}
 	obj, ok := jsonObject(row.Data)
 	if !ok {
-		return c.projectBlobUnknown(offset, row)
+		return one(c.projectBlobUnknown(offset, row))
 	}
 	// A non-string content value is a parts array or another structure.
-	// v1 does not read strings out of it and does not fall through to
-	// text or rawText.
+	// Its tool parts become tool events. Its other parts are not read
+	// for text, and text or rawText is not a fallback.
 	if cliNonStringContent(obj) {
-		return c.projectBlobObjectUnknown(offset, row, obj)
+		return c.projectBlobParts(offset, row, obj, calls)
 	}
 	role, roleOK := cliMessageRole(obj)
 	text, textOK := cliCleartext(obj)
 	if !roleOK || !textOK {
-		return c.projectBlobUnknown(offset, row)
+		return one(c.projectBlobUnknown(offset, row))
 	}
 	extra, err := cliObjectExtra(obj)
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
 	extra["blob_id"] = row.ID
-	return c.emit(row.ID, EventMessage, role, cursorWhen(obj), offset, text, extra)
+	return one(c.emit(row.ID, EventMessage, role, cursorWhen(obj), offset, text, extra))
 }
 
-// projectBlobObjectUnknown keeps the blob as one unknown event. The
-// object fields, including a content parts array, sit on extra. Parts
-// are not promoted.
-func (c CursorCLI) projectBlobObjectUnknown(offset int, row cursorCLIBlob, obj map[string]json.RawMessage) (Event, error) {
+// projectBlobParts keeps the blob as one unknown event, with the object
+// fields on extra, and then gives each tool-call part a tool_call event
+// and each tool-result part a tool_result event, in part order. The
+// tool parts leave the unknown event's content; text, reasoning and
+// other parts stay there and are not promoted.
+func (c CursorCLI) projectBlobParts(offset int, row cursorCLIBlob, obj map[string]json.RawMessage, calls *callNames) ([]Event, error) {
+	var parts []json.RawMessage
+	if err := json.Unmarshal(obj["content"], &parts); err != nil {
+		parts = nil
+	}
+	var tools []map[string]json.RawMessage
+	rest := []json.RawMessage{}
+	for _, raw := range parts {
+		part := rawObject(raw)
+		kind, _ := jsonString(part["type"])
+		if kind == "tool-call" || kind == "tool-result" {
+			tools = append(tools, part)
+			continue
+		}
+		rest = append(rest, raw)
+	}
+	if len(tools) > 0 {
+		kept, err := json.Marshal(rest)
+		if err != nil {
+			return nil, err
+		}
+		trimmed := make(map[string]json.RawMessage, len(obj))
+		for k, v := range obj {
+			trimmed[k] = v
+		}
+		trimmed["content"] = kept
+		obj = trimmed
+	}
 	extra, err := cliObjectExtra(obj)
+	if err != nil {
+		return nil, err
+	}
+	extra["blob_id"] = row.ID
+	blob, err := c.emit(row.ID, EventUnknown, "", time.Time{}, offset, "", extra)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Event, 0, 1+len(tools))
+	out = append(out, blob)
+	for _, part := range tools {
+		ev, err := c.toolPart(offset, row.ID, part, calls)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	return out, nil
+}
+
+// toolPart projects one AI SDK tool-call or tool-result part. raw_type
+// is the part type and extra.blob_id names the blob. A part carries no
+// time and no error flag, so recorded_at is the ingest time and
+// tool.is_error stays null.
+func (c CursorCLI) toolPart(offset int, blobID string, part map[string]json.RawMessage, calls *callNames) (Event, error) {
+	kind, _ := jsonString(part["type"])
+	callID, _ := jsonString(part["toolCallId"])
+	toolName, _ := jsonString(part["toolName"])
+	if kind == "tool-call" {
+		name, server, builtin := cursorCLIToolName(toolName, part["args"])
+		extra, err := extraFrom(part, "type", "toolCallId", "toolName", "args")
+		if err != nil {
+			return Event{}, err
+		}
+		extra = cursorCLIToolExtra(stripCLIAuthMap(extra), blobID, toolName, name, server, builtin)
+		calls.remember(callID, name)
+		ev, err := c.emit("tool-call", EventToolCall, ActorAssistant, time.Time{}, offset, argumentsText(part["args"]), extra)
+		ev.Tool = Tool{Name: strPtr(name), CallID: strPtr(callID)}
+		return ev, err
+	}
+	name := calls.name(callID)
+	if name == "" {
+		name = toolName
+	}
+	extra, err := extraFrom(part, "type", "toolCallId", "toolName", "result")
 	if err != nil {
 		return Event{}, err
 	}
-	extra["blob_id"] = row.ID
-	return c.emit(row.ID, EventUnknown, "", time.Time{}, offset, "", extra)
+	extra = stripCLIAuthMap(extra)
+	extra["blob_id"] = blobID
+	if toolName != "" && toolName != name {
+		extra["cursor_tool_name"] = toolName
+	}
+	ev, err := c.emit("tool-result", EventToolResult, ActorTool, time.Time{}, offset, argumentsText(part["result"]), extra)
+	ev.Tool = Tool{Name: strPtr(name), CallID: strPtr(callID)}
+	return ev, err
+}
+
+// cursorCLIToolName names a Cursor CLI tool call. CallDynamicTool
+// carries the real tool in args, an object or a JSON-encoded string:
+// args.namespace "cursor" is one of Cursor's own tools and keeps the
+// bare args.toolName, and any other namespace is an MCP server, named
+// mcp__<server>__<tool>. Every other call keeps its toolName.
+func cursorCLIToolName(toolName string, args json.RawMessage) (name, server string, builtin bool) {
+	if toolName != "CallDynamicTool" {
+		return toolName, "", true
+	}
+	obj, ok := jsonObject(args)
+	if !ok {
+		if s, isString := jsonString(args); isString {
+			obj, ok = jsonObject(json.RawMessage(s))
+		}
+	}
+	if !ok {
+		return toolName, "", false
+	}
+	namespace, _ := jsonString(obj["namespace"])
+	inner, _ := jsonString(obj["toolName"])
+	if inner == "" {
+		return toolName, "", false
+	}
+	if namespace == "cursor" {
+		return inner, "", true
+	}
+	if n := mcpToolName(namespace, inner); n != "" {
+		return n, namespace, false
+	}
+	return toolName, "", false
+}
+
+func cursorCLIToolExtra(extra map[string]any, blobID, toolName, name, server string, builtin bool) map[string]any {
+	extra["blob_id"] = blobID
+	if toolName != name {
+		extra["cursor_tool_name"] = toolName
+	}
+	if server != "" {
+		extra["mcp_server"] = server
+	}
+	if builtin {
+		extra["builtin"] = true
+	}
+	return extra
 }
 
 func (c CursorCLI) projectBlobUnknown(offset int, row cursorCLIBlob) (Event, error) {
