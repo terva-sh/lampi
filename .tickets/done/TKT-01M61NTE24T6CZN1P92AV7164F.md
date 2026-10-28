@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61NTE24T6CZN1P92AV7164F
 title: "Usage rollup: lake and harness token totals with cache split"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: t3/overview-operations-stats
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: 6a552827fe4fa020d8af6710203ee8a125104db8
-  session: null
-  claimed_at: 2026-10-28T16:41:30Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:34:46Z
-updated_at: 2026-10-28T16:49:08Z
+updated_at: 2026-10-28T21:23:59Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -112,3 +105,7 @@ Spike result, 2026-10-28. Real local transcripts (the newest 8 Claude, 8 Codex a
 The throwaway test and scripts were not committed. To repeat, normalize a transcript with `normalize.Claude` / `Codex` / `Terva`, feed each event through `docRow.fill` and `sessionStats.add`, and compare.
 
 Backfill: the version 4 to 5 upgrade blanks `indexed.head`, so the first pass after upgrade re-reads every session and writes its stats. Unchanged docs rows are kept. Coverage reports sessions as behind until that pass reaches them, and the overview says how many are counted so far.
+
+## Summary
+
+Landed in #214. indexSession writes a per-session, per-UTC-hour stats rollup into search.db, in the same transaction as the docs rows, at schema 6 (now 7 after #221). Tokens are counted once per model call: the last usage per Claude message id, increases of the Codex running total with restarts detected, and a plain sum for the other harnesses. Plain input, output, cache read and cache write stay separate. Index.Totals reads it within a catalog Scope, and the overview shows a Tokens panel by harness with a note when some ready sessions are not indexed yet. The spike matched harness-reported totals on 22 real sessions. A schema 5 index upgrades in place; older ones are rebuilt, which is the backfill.

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61NTM0K2TQHX28T2R4HN0TN
 title: "Error trends: error events and failed tool results over time"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: stats/error-trends
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: e79ebb0819d312bd1292314b9d34b2791bff06b2
-  session: null
-  claimed_at: 2026-10-28T16:59:11Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:34:53Z
-updated_at: 2026-10-28T17:03:40Z
+updated_at: 2026-10-28T21:24:00Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
@@ -54,3 +47,7 @@ Show error trends from data the lake already indexes.
 ## Implementation plan
 
 Read the stats rollup; no new ingestion. Index.Breakdown sums a kind by harness and name over a range (error raw types, failed tools), and Index.TopSessions ranks sessions by errors plus failed tool results, labelled through Catalog.DashboardSession so scope holds. A /usage/errors tab beside Tokens shares the range and harness form: charts of error events and failed tool results per bucket (from Series), the sessions with the most, and tables of error kinds and failing tools. Failed results are named through their call id at index time. Unreadable lines are lake faults and are left out. Sub-tabs under Usage rather than a new nav item, because the top nav already overflows at 1280px.
+
+## Summary
+
+Landed in #217. /usage/errors charts error events, failed tool results and unreadable lines over time, lists them by raw type and by failing tool name (failed results are named through their call_id), and lists the sessions with the most errors. Same range and harness form as the Tokens tab.
