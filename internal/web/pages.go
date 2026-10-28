@@ -149,6 +149,9 @@ type pageData struct {
 	Activity    activityView
 	Tools       toolStatsView
 	Ops         opsView
+	// Usage is the overview's token panel, when the lake has a search
+	// index to read it from.
+	Usage usageView
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
 	Operator bool
@@ -272,7 +275,17 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		urgent = dv.Urgent
 	}
-	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent})
+	// The token totals come from the search index. A lake without one,
+	// or an index that cannot be read, shows the rest of the page.
+	var usage usageView
+	if s.index != nil {
+		if t, err := s.index.Totals(ctx, scopeOf(r)); err != nil {
+			s.logError(r, "reading token totals for the overview failed", err)
+		} else {
+			usage = buildUsageView(t)
+		}
+	}
+	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent, Usage: usage})
 }
 func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), true, "")

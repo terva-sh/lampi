@@ -75,6 +75,12 @@ The Tools section was run on its own (the script's login prologue plus the new T
 
 Coordinator: renamed this branch's internal/web/tools.go, tools_page.go and tools_test.go to toolstats.go, toolstats_page.go and toolstats_test.go; toolRow and toolsView to toolStatsRow and toolStatsView; and the page's table class to toolstats-table. PR #218 (Tool usage: a Tools tab with a cross-harness map, from TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG) adds files and names that collide with these. The owner decided the two epics layer. /usage/tools groups calls by category from the stats rollup; /tools shows origin, sizes, latency and largest blocks. The dashboard will then show both a top-level Tools page and a Tools tab under Usage, a navigation choice left to the owner.
 
+**agent:claude-code/d4b24133** at 2026-10-28T17:39:17Z
+
+From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG, 2026-10-28. The owner chose to keep the Tools tab from PR #218 and extend it from this ticket rather than build a second page.
+
+`/usage/tools` already shows tool calls and failed results over time, categories with calls, failures, failure rate and the names counted, and a category by harness matrix, all from the stats rollup. It shares the range and harness form with the Tokens and Errors tabs. Sizes, latency percentiles, the largest blocks and an origin's share of result bytes are what this ticket adds, from the docs columns. The tab lives in `internal/web/tools.go` and the `tools-tab` template.
+
 ## Summary
 
 /tools shows tool usage for the Activity ranges or all time, filtered by harness, origin, project and model: origin share of calls beside share of result bytes, a per-tool or per-origin table with error rate, sizes and latency, calls over time, the 20 largest blocks linked to their transcript events, and the starting-context correlation hint. Tests cover rendering, bay scope, empty, refused and search-off states; the Tools browser smoke passes in isolation (the full smoke has an unrelated pre-existing search-coverage failure).
