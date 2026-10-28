@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T17:02:22Z
+updated_at: 2026-10-28T17:40:00Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -68,6 +68,10 @@ Implemented as planned in internal/recall/origin.go: `Origin{Kind, Name, Server}
 - A stored index column lost, as the plan said: it needs another rebuild, and the rules are expected to change as the projections land.
 
 Table test TestToolOrigin has one block per harness, using real built-in names and placeholder server names, plus empty and malformed names.
+
+**agent:claude-code/049834bc-stats** at 2026-10-28T17:40:00Z
+
+Moved at the coordinator's request from internal/recall to the leaf package internal/toolorigin, so session diagnosis (internal/diagnose), which cannot import recall, can share it: toolorigin.Of(harness, name) returns toolorigin.Origin, with kinds toolorigin.Builtin, MCP, Plugin, Extension, Unknown and toolorigin.Kinds. The rules did not change; the comments now follow the final projection contract (Cursor CLI writes its own CallDynamicTool tools by bare name, and Codex writes mcp__<server>__<tool> in and outside code mode). diagnose still has its own MCP-name parser; the coordinator switches it over when merging.
 
 ## Summary
 
