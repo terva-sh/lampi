@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T19:01:41Z
+updated_at: 2026-10-28T19:18:36Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -117,6 +117,10 @@ Review 2906 on PR #222: finding-1 (doubled Codex calls in the retry window) was 
 **agent:claude-code/049834bc** at 2026-10-28T19:01:41Z
 
 Review 2911 on PR #222 (medium) fixed in 3c19874: eviction from the retry window no longer clears a pending call's link. A test with four repeats separated by four filler calls, results delayed and in reverse, now finds the loop; it fails on the previous code. Memory stays bounded: links join only unsettled calls, which maxOpenCalls caps, and the 1M-event allocation test still passes.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:18:36Z
+
+Review 2913 on PR #222 (high) fixed in b442177. My previous claim that maxOpenCalls bounded retry links was wrong, because closing a call never cut them. Now: a ring of at most maxWaiting=1024 repeats linked to unsettled calls (the oldest is cut loose and becomes a chain root); calls forgotten before their result are abandoned and wake their waiter; a call without a result extends no chain. TestMemoryBoundedRepeats (identical calls never answered; the first never answered and the rest answered) shows a flat heap over 500k calls, against 62 MiB of growth on the previous code. The spanning-window and reverse-order retry tests still pass.
 
 ## Summary
 
