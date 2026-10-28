@@ -269,6 +269,25 @@ func TestToolsPage(t *testing.T) {
 }
 
 // A viewer's Tools page and route count only the bays the viewer reads.
+// A query that does not decode is refused before either browser
+// handler reads it, so a malformed filter cannot fall away and widen
+// the answer (review 2910 on #223).
+func TestToolsRefuseMalformedQueries(t *testing.T) {
+	lake, idp, h, _, index := mcpLake(t)
+	normalizedSessions(t, lake, index)
+	admin := signInAs(t, idp, h, "owners")
+	for _, path := range []string{
+		"/tools?range=all&model=%ZZ",
+		"/tools?range=all&model=a&model=%ZZ",
+		"/api/web/v1/tools?all=true&model=%ZZ",
+		"/api/web/v1/tools?all=true&model=a&model=%ZZ",
+	} {
+		if w := get(h, path, admin); w.Code != 400 {
+			t.Errorf("%s: %d, want 400", path, w.Code)
+		}
+	}
+}
+
 func TestToolsReadTheViewersBays(t *testing.T) {
 	lake, idp, h, _ := fixture(t)
 	_, claude := normalizedSessions(t, lake, indexes[lake])
