@@ -33,7 +33,7 @@ const (
 	toolsPageLargest = 20
 )
 
-type toolsView struct {
+type toolStatsView struct {
 	Ranges []activityRange
 	Range  string
 	// Form holds the filters as submitted, for the form and the links.
@@ -48,14 +48,14 @@ type toolsView struct {
 	// time, which has no buckets.
 	Chart    chartView
 	HasChart bool
-	Rows     []toolRow
+	Rows     []toolStatsRow
 	Hidden   int
 	Origins  []originRow
 	Largest  []blockRow
 	Coverage *recall.Coverage
 }
 
-type toolRow struct {
+type toolStatsRow struct {
 	Name, Origin                  string
 	Inner                         bool
 	Calls, Sessions, Errors       string
@@ -103,7 +103,7 @@ func (s *Server) toolsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, catalog.ErrPage)
 		return
 	}
-	v := toolsView{Ranges: toolsRanges, Range: key, Form: form, Enabled: s.index != nil}
+	v := toolStatsView{Ranges: toolsRanges, Range: key, Form: form, Enabled: s.index != nil}
 	d := pageData{Title: "Tools", View: "tools"}
 	if !v.Enabled {
 		d.Tools = v
@@ -151,7 +151,7 @@ func (s *Server) toolsPage(w http.ResponseWriter, r *http.Request) {
 	renderStatus(w, r, d, status)
 }
 
-func (v *toolsView) build(st recall.ToolStats) {
+func (v *toolStatsView) build(st recall.ToolStats) {
 	v.Stats = st
 	if st.Bucket != "" {
 		starts := make([]time.Time, len(st.BucketStarts))
@@ -205,7 +205,7 @@ func (v *toolsView) build(st recall.ToolStats) {
 			v.Hidden++
 			continue
 		}
-		row := toolRow{Name: cmp.Or(g.Tool, originLabel(g.Origin)), Origin: originLabel(g.Origin), Inner: g.Inner,
+		row := toolStatsRow{Name: cmp.Or(g.Tool, originLabel(g.Origin)), Origin: originLabel(g.Origin), Inner: g.Inner,
 			Calls: humanCount(g.Calls), Sessions: humanCount(g.Sessions), Errors: "not recorded", Sizes: "none", Latency: "not recorded",
 			CallShare: share(g.Calls, classCalls[c]), ByteShare: share(g.Output.Total, classBytes[c])}
 		row.CallPercent, row.BytePercent = percent(row.CallShare), percent(row.ByteShare)

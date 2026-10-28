@@ -166,7 +166,7 @@ try {
   assert.match(origins, /built in/);
   assert.match(origins, /MCP server synthetic-docs/);
   assert.ok(await page.locator('.origins-table meter').count() >= 4, 'no share meters');
-  assert.match(await page.locator('.tools-table tbody').innerText(), /Bash[\s\S]*mcp__synthetic-docs__read/);
+  assert.match(await page.locator('.toolstats-table tbody').innerText(), /Bash[\s\S]*mcp__synthetic-docs__read/);
   assert.match(await page.locator('.tool-context').innerText(), /Correlation hint, not a finding/i);
   await page.screenshot({path: join(artifacts, 'tools-desktop.png'), fullPage: true});
   const block = page.locator('.largest-table tbody a').first();

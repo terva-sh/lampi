@@ -147,7 +147,7 @@ type pageData struct {
 	HasTarget   bool
 	Search      searchView
 	Activity    activityView
-	Tools       toolsView
+	Tools       toolStatsView
 	Ops         opsView
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
