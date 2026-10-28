@@ -662,7 +662,7 @@ Go 1.27.1), under other load:
 | Every bay, 30 days by day, 100 largest blocks | 2.37 s, 2.42 s, 3.04 s | 2,000 |
 | Every bay, MCP only, split by model | 2.37 s, 2.24 s, 2.31 s | 2,000 |
 | Every bay, by origin, with the context hint | 2.34 s, 2.34 s, 2.34 s | 2,000 |
-| Every bay, last 3 days | 321 ms, 275 ms, 245 ms | 129 |
+| Every bay, last 3 days | 166 ms, 169 ms, 161 ms | 129 |
 | One bay holding half the sessions | 1.05 s, 1.01 s, 0.99 s | 1,000 |
 | One named session | 1 ms, 1 ms, 2 ms | 1 |
 
@@ -671,8 +671,12 @@ is SQLite's walk, about 40% the driver reading and converting each row,
 and the Go aggregation under a tenth, by a CPU profile at 200 sessions. `ToolStatsMaxRows` refuses a request past 2.5
 million rows, about four seconds at this rate, so a request ends inside the
 routes' five-second read context with `too_many_values` rather than a
-timeout. A range with `since` reads only the sessions the lake accepted
-within a day of it, which is what makes the 3-day request fast. The
+timeout. A range reads only the sessions with a row recorded in it, by the
+first and last recorded time the index stores for each session, which is
+what makes the 3-day request fast; its row was measured again after that
+change, the others before it. An earlier version skipped sessions by
+when the lake last accepted them, allowing a day of clock skew; that could
+leave out rows recorded in the range (review 2905 on #221). The
 internal lake was not measured: this session cannot read it.
 
 Two designs lost on the same fixture at 200 sessions (129,646 rows):

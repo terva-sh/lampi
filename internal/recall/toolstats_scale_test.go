@@ -53,7 +53,9 @@ func TestToolStatsScale(t *testing.T) {
 		}
 		starts[i] = month + order.Int64N(int64(29*24*time.Hour))
 		uids[i] = ingestAt(t, s, harness[i], fmt.Sprint("scale-", i), time.Unix(0, starts[i]+span))
-		publish(t, s, uids[i], toolSession(harness[i], usage(0, 1000, 20000+i, 500)))
+		// The seed usage row is undated, so the session's recorded times
+		// are its tool rows', as in a real session.
+		publish(t, s, uids[i], toolSession(harness[i], usage(-1, 1000, 20000+i, 500)))
 	}
 	if _, err := s.Catalog.CreateBay(ctx, "half", "admin", time.Now()); err != nil {
 		t.Fatal(err)
@@ -130,6 +132,13 @@ func TestToolStatsScale(t *testing.T) {
 		}
 	}
 	flush()
+	// The rows went in past the pass, so set the recorded-time bounds a
+	// pass would have stored for them.
+	if _, err := tx.Exec(`UPDATE indexed SET
+		first_recorded_ns=(SELECT min(recorded_ns) FROM docs d WHERE d.session_uid=indexed.session_uid),
+		last_recorded_ns=(SELECT max(recorded_ns) FROM docs d WHERE d.session_uid=indexed.session_uid)`); err != nil {
+		t.Fatal(err)
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}

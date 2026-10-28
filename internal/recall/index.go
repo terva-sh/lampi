@@ -38,8 +38,11 @@ const IndexFile = "search.db"
 // tool call id, its model id and its token counts, for tool usage
 // statistics (TKT-01M61MZMT). Each enters the signature, so a migration would
 // rewrite every row anyway, deleting each from the full-text index as
-// well; a rebuild writes each row once.
-const indexVersion = 5
+// well; a rebuild writes each row once. Version 6 stores each session's
+// first and last recorded time, so a tool statistics range skips a
+// session by its own times rather than by when the lake accepted it
+// (review 2905 on #221).
+const indexVersion = 6
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -82,7 +85,9 @@ CREATE TABLE indexed (
 	gen INTEGER NOT NULL,
 	head TEXT NOT NULL,
 	events INTEGER NOT NULL,
-	indexed_at TEXT NOT NULL
+	indexed_at TEXT NOT NULL,
+	first_recorded_ns INTEGER,
+	last_recorded_ns INTEGER
 );
 CREATE TABLE docs (
 	id INTEGER PRIMARY KEY,
@@ -475,6 +480,9 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		return 0, err
 	}
 	var pos int64
+	// first and last bound the session's recorded times, over every
+	// row, changed or not.
+	var first, last *int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -488,6 +496,14 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		}
 		row := docRow{uid: s.UID, pos: pos, harness: s.Harness, project: s.ProjectID}
 		row.fill(line)
+		if t := row.recorded; t != nil {
+			if first == nil || *t < *first {
+				first = t
+			}
+			if last == nil || *t > *last {
+				last = t
+			}
+		}
 		sig := row.sig()
 		prev, had := old[pos]
 		pos++
@@ -527,9 +543,10 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 	if now != snap.pub {
 		return 0, ErrGenerationChanged
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO indexed(session_uid,gen,head,events,indexed_at) VALUES(?,?,?,?,?)
-		ON CONFLICT(session_uid) DO UPDATE SET gen=excluded.gen,head=excluded.head,events=excluded.events,indexed_at=excluded.indexed_at`,
-		s.UID, gen, head, pos, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO indexed(session_uid,gen,head,events,indexed_at,first_recorded_ns,last_recorded_ns) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(session_uid) DO UPDATE SET gen=excluded.gen,head=excluded.head,events=excluded.events,indexed_at=excluded.indexed_at,
+		first_recorded_ns=excluded.first_recorded_ns,last_recorded_ns=excluded.last_recorded_ns`,
+		s.UID, gen, head, pos, time.Now().UTC().Format(time.RFC3339Nano), first, last); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {

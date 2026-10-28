@@ -638,8 +638,12 @@ func (a *toolAgg) session(uid string, gen int64, harness string, rows []trow) er
 		if j, ok := a.calls[r.call]; ok && r.typ == rowResult {
 			c = &rows[j]
 		}
+		// A paired result counts under its call's name. A harness can
+		// write one operation's call and result under different names,
+		// as Codex does with a shell call and its exec_command_end, and
+		// the call's is the one its calls are counted under.
 		k := toolKey{harness: harness, tool: r.tool, inner: r.kind == kindInner}
-		if k.tool == "" && c != nil {
+		if c != nil && c.tool != "" {
 			k.tool = c.tool
 		}
 		if split {
@@ -886,16 +890,13 @@ func (x *Index) walkTools(ctx context.Context, req *ToolStatsRequest, a *toolAgg
 		if req.Harness != "" && s.Harness != req.Harness || req.Project != "" && s.ProjectID != req.Project || req.Unlinked && s.ProjectID != "" {
 			continue
 		}
-		if req.Since != nil && s.UpdatedNS < a.since-int64(toolStatsClockSlack) {
-			continue
-		}
 		pick = append(pick, scopeSession{uid: s.UID, harness: s.Harness, gen: s.Gen})
 	}
 	if err := fillToolScope(ctx, conn, pick); err != nil {
 		return err
 	}
 	defer conn.ExecContext(context.WithoutCancel(ctx), `DELETE FROM temp.tool_scope`)
-	res, err := conn.QueryContext(ctx, toolRowsSQL(req))
+	res, err := conn.QueryContext(ctx, toolRowsSQL(req), toolRowsArgs(req, a)...)
 	if err != nil {
 		return err
 	}
@@ -959,20 +960,32 @@ func toolRowsSQL(req *ToolStatsRequest) string {
 		types = "(" + types + " OR d.input_tokens IS NOT NULL)"
 		tokens = "CASE WHEN d.harness='codex' THEN d.input_tokens ELSE d.input_tokens+ifnull(d.cache_read_tokens,0)+ifnull(d.cache_write_tokens,0) END"
 	}
+	// With a range, a session none of whose rows was recorded in it is
+	// skipped by its own first and last recorded time. A session with no
+	// recorded time holds only undated rows, which a range leaves out.
+	// The bounds are the query's arguments, toolRowsArgs.
+	span := ""
+	if req.Since != nil || req.Until != nil {
+		span = " AND i.last_recorded_ns >= ? AND i.first_recorded_ns < ?"
+	}
 	return `SELECT s.n, d.pos,
 		(CASE d.event_type WHEN 'tool_call' THEN 0 WHEN 'tool_result' THEN 1 ELSE 2 END)*16
 		+ (CASE WHEN d.harness='codex' AND d.raw_type='` + codexInnerRawType + `' THEN 1 WHEN d.harness='codex' AND (d.raw_type GLOB '*_begin' OR d.raw_type GLOB '*_end') THEN 2 ELSE 0 END)*4
 		+ (CASE WHEN d.tool_error IS NULL THEN 0 WHEN d.tool_error THEN 2 ELSE 1 END),
 		d.tool_name, d.call_id, ` + model + `, d.content_bytes, d.recorded_ns, ` + tokens + `
-		FROM temp.tool_scope s CROSS JOIN indexed i ON i.session_uid=s.uid AND i.gen=s.gen
+		FROM temp.tool_scope s CROSS JOIN indexed i ON i.session_uid=s.uid AND i.gen=s.gen` + span + `
 		CROSS JOIN docs d ON d.session_uid=s.uid
 		WHERE ` + types + ` ORDER BY s.n, d.pos`
 }
 
-// toolStatsClockSlack is how far a harness's clock may run ahead of the
-// lake's. A session the lake last accepted more than this before Since
-// holds no row recorded at or after it, so the walk skips it.
-const toolStatsClockSlack = 24 * time.Hour
+// toolRowsArgs is the arguments toolRowsSQL takes for req: the range's
+// bounds when it has one.
+func toolRowsArgs(req *ToolStatsRequest, a *toolAgg) []any {
+	if req.Since == nil && req.Until == nil {
+		return nil
+	}
+	return []any{a.since, a.until}
+}
 
 // fillToolScope loads the sessions into the connection's temporary scope
 // table, emptied first, numbered by their place in sessions. A

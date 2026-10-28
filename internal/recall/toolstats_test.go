@@ -291,23 +291,34 @@ func ingestAt(t testing.TB, s *api.Server, harness, native string, at time.Time)
 
 // A session the lake last accepted a day or more before Since holds no
 // row recorded since, so a range does not read it.
-func TestToolStatsSkipsSessionsAcceptedBeforeTheRange(t *testing.T) {
+func TestToolStatsRangeReadsRecordedTimes(t *testing.T) {
 	s := lake(t)
-	// Rows recorded after the lake accepted them are impossible, so they
-	// show which sessions the walk read.
-	old := ingestAt(t, s, "claude", "old", toolBase.Add(-25*time.Hour))
-	skewed := ingestAt(t, s, "claude", "skewed", toolBase.Add(-23*time.Hour))
-	for _, uid := range []string{old, skewed} {
-		publish(t, s, uid, toolSession("claude", call("Read", "r1", 60, 10)))
-	}
+	// The lake accepted these sessions long before the range, but a
+	// range filters on recorded time, so their rows in it count
+	// (review 2905 on #221). One session's rows are all before the
+	// range and one's all after it; the walk skips both by the times the
+	// index stores for them.
+	inside := ingestAt(t, s, "claude", "inside", toolBase.Add(-30*24*time.Hour))
+	publish(t, s, inside, toolSession("claude", call("Read", "r1", 9000, 10)))
+	before := ingestAt(t, s, "claude", "before", toolBase.Add(-30*24*time.Hour))
+	publish(t, s, before, toolSession("claude", call("Read", "r1", 60, 10)))
+	after := ingestAt(t, s, "claude", "after", toolBase.Add(-30*24*time.Hour))
+	publish(t, s, after, toolSession("claude", call("Read", "r1", 18000, 10)))
 	x := openIndex(t, s)
 	pass(t, x)
-	since := toolBase
-	if st := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays(), Since: &since}); st.Totals.Sessions != 1 || st.Totals.Calls != 1 {
-		t.Fatalf("since %+v", st.Totals)
+	since, until := toolBase.Add(2*time.Hour), toolBase.Add(3*time.Hour)
+	if st := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays(), Since: &since, Until: &until}); st.Totals.Sessions != 1 || st.Totals.Calls != 1 {
+		t.Fatalf("range %+v", st.Totals)
 	}
-	if st := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays()}); st.Totals.Sessions != 2 {
+	if st := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays()}); st.Totals.Sessions != 3 {
 		t.Fatalf("no range %+v", st.Totals)
+	}
+	var first, last int64
+	if err := x.db.QueryRow(`SELECT first_recorded_ns,last_recorded_ns FROM indexed WHERE session_uid=?`, inside).Scan(&first, &last); err != nil {
+		t.Fatal(err)
+	}
+	if want := toolBase.Add(9000 * time.Second).UnixNano(); first != want || last != want {
+		t.Fatalf("bounds %d %d, want %d", first, last, want)
 	}
 }
 
@@ -362,6 +373,32 @@ func TestToolStatsCodex(t *testing.T) {
 	byOrigin := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays(), GroupBy: ToolGroupOrigin})
 	if len(byOrigin.Groups) != 3 {
 		t.Fatalf("origins: outer built-in, inner built-in, inner mcp: %+v", byOrigin.Groups)
+	}
+}
+
+// When only the event_msg record of a Codex result remains, the result
+// still counts under the name its call was counted under (review 2905
+// on #221).
+func TestToolStatsCodexResultTakesItsCallsName(t *testing.T) {
+	s := lake(t)
+	uid := ingestAs(t, s, "codex", "a", "")
+	with := func(e tev, raw string) tev { e.raw = raw; return e }
+	publish(t, s, uid, toolSession("codex",
+		with(call("shell", "c1", 0, 10), "function_call"),
+		with(call("exec_command", "c1", 0, 10), "exec_command_begin"),
+		with(result("exec_command", "c1", 1, 100, nil), "exec_command_end"),
+	))
+	x := openIndex(t, s)
+	pass(t, x)
+	st := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays()})
+	if len(st.Groups) != 1 {
+		t.Fatalf("one operation split across groups: %+v", st.Groups)
+	}
+	if g := st.Groups[0]; g.Tool != "shell" || g.Calls != 1 || g.Results != 1 || g.Output.Total != 100 || g.Latency == nil {
+		t.Fatalf("shell %+v", g)
+	}
+	if st := toolStats(t, x, ToolStatsRequest{Scope: catalog.AllBays(), Tool: "shell"}); st.Totals.Results != 1 {
+		t.Fatalf("Tool shell leaves out its result: %+v", st.Totals)
 	}
 }
 
