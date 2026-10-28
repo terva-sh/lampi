@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:03:56Z
+updated_at: 2026-10-28T18:22:20Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -105,6 +105,10 @@ Cursor CLI events can now carry extra.order = unestablished (PR #220 fix 5780868
 **agent:claude-code/049834bc** at 2026-10-28T18:03:56Z
 
 Review 2903 on PR #222 (two medium findings), fixed in 6fc2cc8. (1) retry_loop summed repeats per tool across the session; it now counts loops, meaning chains of repeats each within the window of the previous one that reach the threshold. Values are loops and retries (the longest chain), with one position per loop. A negative test covers separated pairs with their own inputs, and another covers two loops. (2) Compaction dedupe was reset only by tool events; message events now reset it too. A test covers three compactions in a tool-free Codex conversation, with usage between one compaction's two records. Also done here: events with extra.order unestablished are skipped by error_streak, retry_loop and repeated_read.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:22:20Z
+
+Review 2904 on PR #222 (two medium findings) fixed in 7cc733e. (1) A doubled Codex call entered the retry window before its id check; the id is now checked first, and the doubled-call fixture asserts a retry_loop over four doubled calls. (2) Retry chains were compared only when results arrived in call order; calls now settle when both results are in, in either order, and wake the repeat waiting on them. A reverse-order fixture asserts the loop. Both new assertions fail on the previous code.
 
 ## Summary
 
