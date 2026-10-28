@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T18:54:31Z
+updated_at: 2026-10-28T18:57:42Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -38,17 +38,24 @@ The page should make the noisy-server case obvious: an origin's share of tool re
 
 ## Acceptance criteria
 
-- [x] The page shows most-used tools and origins, calls over time, error rate, size and latency.
-- [x] The largest blocks link into the transcript at the event.
-- [x] An origin's share of tool result bytes is shown beside its share of calls.
+- [ ] The page shows most-used tools and origins, calls over time, error rate, size and latency.
+- [ ] The largest blocks link into the transcript at the event.
+- [ ] An origin's share of tool result bytes is shown beside its share of calls.
 
 ## Implementation plan
 
-- `/tools` in internal/web/tools_page.go, registered in pageRoutes, with `tools` and `tools-form` template blocks, a nav link and a lead line. Data comes from `(*Server).toolStats`, the function behind the browser route, with the browser session's scope, largest=20 and context=true.
-- Ranges reuse the Activity presets (so the calls chart stays inside a bucket's widest range) plus "All recorded time", which has no chart. Default 7d, as the API.
-- Sections: a status line with totals and (admins) index coverage; the calls chart via buildChart; "By origin" folded from the groups in Go, with share of calls beside share of result bytes as meters, shares taken within the context or inner class as the engine does; the per-tool or per-origin table (first 100 groups); the largest blocks with the engine's EventLink into the transcript; the starting-context hint labelled "Correlation hint, not a finding"; notes on what the numbers are.
-- States: no index 503, refused filter 400 in page, too many rows or a timeout in page, unknown or repeated parameter 400 like the other pages. No polling: a large range costs seconds.
-- Tests in internal/web/tools_test.go; smoke fixture gains one MCP call per transcript, and e2e/web-smoke.mjs a Tools check. Docs: docs/web-dashboard.md, Tools.
+### Revised 2026-10-28
+
+The owner chose to keep the Tools tab from PR #218 (`/usage/tools`, from TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG) and extend it from this ticket rather than build a second page. The separate `/tools` page built here was removed from PR #223 before it merged; its code is at 528c22a (`internal/web/tools_page.go`, the `tools` and `tools-form` templates), for reuse.
+
+Once #218 is on main, extend the tab with what the stats rollup does not cover, from `(*recall.Index).ToolStats`:
+
+- Each origin's share of calls beside its share of result bytes. `toolorigin` gives the origin, and #218's `mcp:<server>` category rule should move into it.
+- Size p50, p95 and max, and latency p50 and p95, per tool or category.
+- The largest blocks, linked to their transcript events.
+- The starting-context hint, labelled as a correlation.
+
+Keep the tab's shared range and harness form, and add an origin or group-by control only if it fits that form. Run the work through the tab's own data path, together with the rollup, inside one 5 s read.
 
 ## Notes
 
