@@ -72,3 +72,36 @@ func TestShortCount(t *testing.T) {
 		}
 	}
 }
+
+// The Usage page charts each kind of token, counts only the viewer's
+// sessions, and refuses parameters it does not know.
+func TestUsagePageChartsTokensOverTime(t *testing.T) {
+	lake, idp, h, _ := fixture(t)
+	uid, _ := storeSession(t, lake, "native-usage", []byte("{}\n"))
+	input, output, cached := 4200, 300, 200
+	now := time.Now().UTC()
+	publishNormalized(t, lake, uid, []normalize.Event{{SchemaVersion: 1, EventID: "u", SessionID: "s", Harness: "codex", RecordedAt: now.Add(-2 * time.Hour).Format(time.RFC3339), IngestedAt: now.Format(time.RFC3339Nano),
+		Actor: normalize.ActorHarness, EventType: normalize.EventUsage, Usage: normalize.Usage{Input: &input, Output: &output, CacheRead: &cached}, Redaction: normalize.Redaction{Status: "none"}}})
+	if err := indexes[lake].Pass(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	w := get(h, "/usage?range=24h&harness=codex", cookie)
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{"<h2>Input tokens</h2>", "<h2>Cache write tokens</h2>", `title="4,000">4.00K`, "1 model calls in this range for codex", `<option value="codex" selected>`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("usage page lacks %q", want)
+		}
+	}
+	for _, path := range []string{"/usage?range=1y", "/usage?harness=Codex", "/usage?x=1", "/usage?range=24h&range=7d"} {
+		if w := get(h, path, cookie); w.Code != 400 {
+			t.Fatalf("%s answered %d", path, w.Code)
+		}
+	}
+	if w := get(h, "/usage?harness=grokbot", cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "0 model calls") {
+		t.Fatalf("a harness with no sessions: %d", w.Code)
+	}
+}

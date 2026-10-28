@@ -307,3 +307,47 @@ func TestVersion4IndexUpgradesInPlace(t *testing.T) {
 		t.Fatalf("head not restored: %q (%v)", head.String, err)
 	}
 }
+
+// Series puts each hour's stats in its bucket, filters by harness and
+// scope, and returns every bucket of the range, empty ones too.
+func TestStatsSeriesBucketsByTime(t *testing.T) {
+	s := lake(t)
+	a := ingestHarness(t, s, "terva", "series-a")
+	b := ingestHarness(t, s, "opencode", "series-b")
+	at := func(harness string, day, hour, in int) normalize.Event {
+		return ev(harness, normalize.EventUsage, 0, func(e *normalize.Event) {
+			e.EventID = fmt.Sprint(harness, day, hour)
+			e.RecordedAt = time.Date(2026, 9, day, hour, 30, 0, 0, time.UTC).Format(time.RFC3339)
+			e.Usage = normalize.Usage{Input: ip(in), Output: ip(1)}
+		})
+	}
+	publish(t, s, a, []normalize.Event{at("terva", 26, 1, 10), at("terva", 26, 23, 20), at("terva", 28, 5, 40)})
+	publish(t, s, b, []normalize.Event{at("opencode", 26, 2, 100)})
+	x := openIndex(t, s)
+	pass(t, x)
+	from := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	series := func(scope catalog.Scope, harness string) []SeriesBucket {
+		t.Helper()
+		got, err := x.Series(t.Context(), scope, harness, from, from.Add(3*24*time.Hour), 24*time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 3 || !got[1].Start.Equal(from.Add(24*time.Hour)) {
+			t.Fatalf("buckets %+v", got)
+		}
+		return got
+	}
+	got := series(catalog.AllBays(), "")
+	if val(got[0].Tokens.Input) != "130" || got[0].ModelCalls != 3 || got[1].ModelCalls != 0 || got[1].Tokens.Input != nil || val(got[2].Tokens.Input) != "40" {
+		t.Fatalf("all harnesses: %+v", got)
+	}
+	if got := series(catalog.AllBays(), "terva"); val(got[0].Tokens.Input) != "30" {
+		t.Fatalf("terva: %+v", got[0])
+	}
+	if got := series(catalog.AllBays().OnlySessions([]string{b}), ""); val(got[0].Tokens.Input) != "100" || got[2].ModelCalls != 0 {
+		t.Fatalf("narrowed: %+v", got)
+	}
+	if _, err := x.Series(t.Context(), catalog.AllBays(), "", from, from.Add(90*time.Minute), time.Hour); err == nil {
+		t.Fatal("a range of part of a bucket was accepted")
+	}
+}
