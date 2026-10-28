@@ -36,6 +36,11 @@ const (
 	// recently closed either; maxClosed is that memory.
 	maxOpenCalls = 4096
 	maxClosed    = 4096
+	// maxWaiting is the repeats held while the call each repeats has
+	// no settled place in its chain yet. Past it the oldest is cut
+	// loose and starts a chain of its own, so a run of repeats whose
+	// results never come cannot hold the session in memory.
+	maxWaiting = 1024
 	// maxReads is the distinct path and range pairs counted.
 	maxReads = 4096
 	// maxNames is the distinct tool names and origins that get their
@@ -211,7 +216,11 @@ type Analyzer struct {
 	closedNext int
 	recent     []*call
 	recentNext int
-	retries    map[string]*toolRetries
+	// waiting holds the repeats linked to a call that has not settled,
+	// oldest first, at most maxWaiting.
+	waiting     []*call
+	waitingNext int
+	retries     map[string]*toolRetries
 
 	reads    map[hash]*readCount
 	byPath   map[hash][]hash
@@ -343,6 +352,7 @@ func name(s *string) string {
 func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 	in := inner(a.harness, ev.RawType)
 	tool := name(ev.Tool.Name)
+	builtin := builtinName(a.harness, tool)
 	unsure := ev.Extra.Order == "unestablished"
 	if !in {
 		a.sawCall = true
@@ -350,10 +360,10 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 			a.inputs.add(pos)
 			a.maxInput = max(a.maxInput, n)
 		}
-		if path, rng, ok := readArgs(a.harness, tool, text); ok && !unsure {
+		if path, rng, ok := readArgs(a.harness, builtin, text); ok && !unsure {
 			a.read(pos, path, rng)
 		}
-		writePaths(a.harness, tool, text, a.write)
+		writePaths(a.harness, builtin, text, a.write)
 	}
 	id := ""
 	if ev.Tool.CallID != nil {
@@ -372,7 +382,7 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 	if org := origin(a.harness, tool); len(org) <= maxNameBytes {
 		c.origin = org
 	}
-	if !in && tool != "" && !a.polling[tool] && !unsure {
+	if !in && tool != "" && !a.polling[builtin] && !unsure {
 		for i := range a.recent {
 			// Newest first, so a chain of repeats links each call to the
 			// one just before it.
@@ -382,13 +392,16 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 				break
 			}
 		}
-		// A call leaving the window drops its link, so links never
-		// chain past the window and hold old calls in memory.
-		if old := a.recent[a.recentNext]; old != nil {
-			old.retry = nil
-		}
+		// A call leaving the window can no longer be matched, but keeps
+		// its link until it settles: the repeat was made within the
+		// window, and its result may still be on its way. A settled call
+		// has already dropped its link, so a link only joins calls still
+		// waiting on results, which the open-call bound limits.
 		a.recent[a.recentNext] = c
 		a.recentNext = (a.recentNext + 1) % len(a.recent)
+		if c.retry != nil {
+			a.wait(c)
+		}
 	}
 	if id == "" || len(id) > maxNameBytes {
 		return
@@ -529,9 +542,49 @@ func (a *Analyzer) settle(c *call) {
 	}
 }
 
+// wait records c, a repeat linked to a call that may not have settled.
+// The ring holds at most maxWaiting; the repeat it pushes out is cut
+// loose from its chain and settles on its own once its result is in.
+func (a *Analyzer) wait(c *call) {
+	if len(a.waiting) < maxWaiting {
+		a.waiting = append(a.waiting, c)
+		return
+	}
+	old := a.waiting[a.waitingNext]
+	a.waiting[a.waitingNext] = c
+	a.waitingNext = (a.waitingNext + 1) % maxWaiting
+	if !old.settled && old.retry != nil {
+		if p := old.retry; p.next == old {
+			p.next = nil
+		}
+		old.retry = nil
+		a.settle(old)
+	}
+}
+
+// abandon settles c, forgotten before its result arrived, so the repeat
+// waiting on it settles too rather than waiting for a result that is
+// not coming. With no result, c extends no chain.
+func (a *Analyzer) abandon(c *call) {
+	if c.settled {
+		return
+	}
+	if p := c.retry; p != nil && p.next == c {
+		p.next = nil
+	}
+	c.settled, c.retry = true, nil
+	n := c.next
+	c.next = nil
+	a.settle(n)
+}
+
 // retried extends p's chain to c, its repeat, and records a loop when
-// the chain reaches the threshold.
+// the chain reaches the threshold. A call that never got its result
+// extends no chain.
 func (a *Analyzer) retried(c, p *call) {
+	if !p.done {
+		return
+	}
 	switch {
 	case p.failed:
 		c.errorRun = p.errorRun + 1
@@ -564,6 +617,9 @@ func (a *Analyzer) close(id string, c *call) {
 		return
 	}
 	delete(a.open, id)
+	if !c.done {
+		a.abandon(c)
+	}
 	if a.closed[id] {
 		return
 	}
@@ -774,4 +830,17 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// builtinName is the name the polling list and the read and write
+// tables give tool. Cursor CLI's own tools are named bare (AwaitShell,
+// Read), or mcp__cursor__AwaitShell in an older projection; both are the
+// same tool (see toolorigin.Of).
+func builtinName(harness, tool string) string {
+	if harness == protocol.HarnessCursorCLI {
+		if t, ok := strings.CutPrefix(tool, "mcp__cursor__"); ok {
+			return t
+		}
+	}
+	return tool
 }

@@ -18,7 +18,6 @@ import (
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/protocol"
 	"terva.sh/lampi/internal/recall"
-	"terva.sh/lampi/internal/toolorigin"
 	"terva.sh/lampi/internal/webauth"
 )
 
@@ -90,19 +89,11 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return fmt.Sprint(*p)
 	},
-	"deref":        func(p *bool) bool { return p != nil && *p },
-	"derefInt":     func(p *int64) int64 { return *p },
-	"int64":        func(n int) int64 { return int64(n) },
-	"sub":          func(a, b float64) float64 { return a - b },
-	"signedBytes":  signedBytes,
-	"originLabel":  originLabel,
-	"sliceOrigins": func() []string { return toolorigin.Kinds },
-	"signedCount": func(n int64) string {
-		if n > 0 {
-			return "+" + humanCount(n)
-		}
-		return humanCount(n)
-	},
+	"deref":           func(p *bool) bool { return p != nil && *p },
+	"derefInt":        func(p *int64) int64 { return *p },
+	"int64":           func(n int) int64 { return int64(n) },
+	"sub":             func(a, b float64) float64 { return a - b },
+	"signedBytes":     signedBytes,
 	"bytes":           bytesIEC,
 	"permille":        func(n int64) string { return fmt.Sprintf("%.1f%%", float64(n)/10) },
 	"kib":             func(n int) string { return fmt.Sprintf("%d KiB", (n+1023)/1024) },
@@ -149,8 +140,10 @@ type pageData struct {
 	HasTarget   bool
 	Search      searchView
 	Activity    activityView
-	Tools       toolsView
 	Ops         opsView
+	// Usage is the overview's token panel, when the lake has a search
+	// index to read it from.
+	Usage usageView
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
 	Operator bool
@@ -220,7 +213,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/tools": s.toolsPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
@@ -274,7 +267,17 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		urgent = dv.Urgent
 	}
-	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent})
+	// The token totals come from the search index. A lake without one,
+	// or an index that cannot be read, shows the rest of the page.
+	var usage usageView
+	if s.index != nil {
+		if t, err := s.index.Totals(ctx, scopeOf(r)); err != nil {
+			s.logError(r, "reading token totals for the overview failed", err)
+		} else {
+			usage = buildUsageView(t)
+		}
+	}
+	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent, Usage: usage})
 }
 func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), true, "")

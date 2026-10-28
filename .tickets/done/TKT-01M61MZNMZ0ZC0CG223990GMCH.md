@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:28:39Z
+updated_at: 2026-10-28T19:29:51Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -113,6 +113,22 @@ Review 2904 on PR #222 (two medium findings) fixed in 7cc733e. (1) A doubled Cod
 **agent:claude-code/049834bc** at 2026-10-28T18:28:39Z
 
 Review 2906 on PR #222: finding-1 (doubled Codex calls in the retry window) was already fixed in 7cc733e. finding-2, a duplicate usage that did not refresh the gap time, is fixed in 0996390, with a repeated-baseline fixture in TestContextPressureCacheCollapse that fails on the previous code.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:01:41Z
+
+Review 2911 on PR #222 (medium) fixed in 3c19874: eviction from the retry window no longer clears a pending call's link. A test with four repeats separated by four filler calls, results delayed and in reverse, now finds the loop; it fails on the previous code. Memory stays bounded: links join only unsettled calls, which maxOpenCalls caps, and the 1M-event allocation test still passes.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:18:36Z
+
+Review 2913 on PR #222 (high) fixed in b442177. My previous claim that maxOpenCalls bounded retry links was wrong, because closing a call never cut them. Now: a ring of at most maxWaiting=1024 repeats linked to unsettled calls (the oldest is cut loose and becomes a chain root); calls forgotten before their result are abandoned and wake their waiter; a call without a result extends no chain. TestMemoryBoundedRepeats (identical calls never answered; the first never answered and the rest answered) shows a flat heap over 500k calls, against 62 MiB of growth on the previous code. The spanning-window and reverse-order retry tests still pass.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:26:03Z
+
+Review 2915 on PR #222 (medium) fixed in 3715c51: the polling exclusion now matches Cursor CLI tools under both the bare name and the older mcp__cursor__ name (pollingName). TestRetryLoop fails on the old check with a retry_loop for mcp__cursor__AwaitShell.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:29:51Z
+
+Review 2916 on PR #222 (medium) fixed in e14b7bd: toolCall resolves the Cursor CLI built-in name once (builtinName strips mcp__cursor__) and uses it for the polling list and the read and write tables, so the same name gap cannot recur rule by rule. TestRepeatedRead runs reads, a StrReplace and a fifth read under both names; without the resolution the mcp__cursor__ case finds no repeated_read.
 
 ## Summary
 

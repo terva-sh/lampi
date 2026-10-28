@@ -242,6 +242,27 @@ func TestRetryLoop(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 
+	// Delayed results still chain when the repeats span more than one
+	// window: each repeat is within the window of the one before, and
+	// all results arrive, in reverse, after the last call (review 2911
+	// on #222).
+	s = newSession(protocol.HarnessClaude)
+	for i := range 4 {
+		s.call(fmt.Sprint("w", i), "Grep", `{"pattern":"x"}`)
+		for j := range 4 {
+			s.call(fmt.Sprint("f", i, j), "Bash", fmt.Sprint(i, j))
+		}
+	}
+	for i := 3; i >= 0; i-- {
+		s.result(fmt.Sprint("w", i), "Grep", "no match", nil)
+		for j := range 4 {
+			s.result(fmt.Sprint("f", i, j), "Bash", "ok", nil)
+		}
+	}
+	if f := mustFind(t, s.run(t), RetryLoop, "same_output"); f.Values["retries"] != 3 {
+		t.Fatalf("%+v", f)
+	}
+
 	// Two separate loops of one tool are two loops.
 	s = newSession(protocol.HarnessClaude)
 	var ends []int64
@@ -275,6 +296,16 @@ func TestRetryLoop(t *testing.T) {
 		s.pair(fmt.Sprint("r", i), "Monitor", `{"id":"1"}`, "running", nil)
 	}
 	mustNotFind(t, s.run(t), RetryLoop)
+
+	// Cursor CLI's polling tools, under either name a projection gives
+	// them.
+	for _, name := range []string{"AwaitShell", "mcp__cursor__AwaitShell"} {
+		s = newSession(protocol.HarnessCursorCLI)
+		for i := range 6 {
+			s.pair(fmt.Sprint("r", i), name, `{"shell_id":"1"}`, "running", nil)
+		}
+		mustNotFind(t, s.run(t), RetryLoop)
+	}
 
 	// Repeats outside the window are not retries.
 	s = newSession(protocol.HarnessClaude)
@@ -322,12 +353,21 @@ func TestRepeatedRead(t *testing.T) {
 		t.Fatal("finding carries the path", string(b))
 	}
 
-	// Cursor CLI keeps the path under path.
-	s = newSession(protocol.HarnessCursorCLI)
-	for i := range 5 {
-		s.pair(fmt.Sprint("r", i), "Read", `{"path":"/x"}`, "t", nil)
+	// Cursor CLI keeps the path under path, and an older projection
+	// names its tools mcp__cursor__<tool>.
+	for _, ns := range []string{"", "mcp__cursor__"} {
+		s = newSession(protocol.HarnessCursorCLI)
+		for i := range 4 {
+			s.pair(fmt.Sprint("r", i), ns+"Read", `{"path":"/x"}`, "t", nil)
+		}
+		s.pair("w", ns+"StrReplace", `{"path":"/x","old_string":"a","new_string":"b"}`, "ok", nil)
+		for i := range 4 {
+			s.pair(fmt.Sprint("s", i), ns+"Read", `{"path":"/x"}`, "t", nil)
+		}
+		mustNotFind(t, s.run(t), RepeatedRead)
+		s.pair("s4", ns+"Read", `{"path":"/x"}`, "t", nil)
+		mustFind(t, s.run(t), RepeatedRead, "")
 	}
-	mustFind(t, s.run(t), RepeatedRead, "")
 
 	// A Codex apply_patch header resets a read.
 	if got := collectPatch("*** Begin Patch\n*** Update File: a/b.go\n@@\n*** Add File: c.go\n*** End Patch"); !slices.Equal(got, []string{"a/b.go", "c.go"}) {

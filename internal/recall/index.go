@@ -38,11 +38,15 @@ const IndexFile = "search.db"
 // tool call id, its model id and its token counts, for tool usage
 // statistics (TKT-01M61MZMT). Each enters the signature, so a migration would
 // rewrite every row anyway, deleting each from the full-text index as
-// well; a rebuild writes each row once. Version 6 stores each session's
-// first and last recorded time, so a tool statistics range skips a
-// session by its own times rather than by when the lake accepted it
-// (review 2905 on #221).
-const indexVersion = 6
+// well; a rebuild writes each row once.
+// Version 6 adds the stats rollup (TKT-01M61NTE24T6CZN1P92AV7164F). A
+// version 5 file is upgraded in place rather than rebuilt; see
+// upgradeV5.
+// Version 7 stores each session's first and last recorded time, so a
+// tool statistics range skips a session by its own times rather than by
+// when the lake accepted it (review 2905 on #221). A version 6 file is
+// upgraded in place; see upgradeV6.
+const indexVersion = 7
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -125,7 +129,7 @@ END;
 CREATE TRIGGER docs_ad AFTER DELETE ON docs BEGIN
 	INSERT INTO fts(fts, rowid, content) VALUES ('delete', old.id, old.content);
 END;
-`
+` + statsSchema
 
 // Coverage says how much of the lake search can see. Ready counts
 // sessions whose normalization is ready. Indexed counts those whose
@@ -235,6 +239,20 @@ func openIndexDB(path string) (*sql.DB, error) {
 			db.Close()
 			return nil, fmt.Errorf("search: %w", err)
 		}
+		if v == 5 {
+			if err := upgradeV5(db); err != nil {
+				db.Close()
+				return nil, err
+			}
+			v = 6
+		}
+		if v == 6 {
+			if err := upgradeV6(db); err != nil {
+				db.Close()
+				return nil, err
+			}
+			v = indexVersion
+		}
 		if v == indexVersion {
 			return db, os.Chmod(path, 0o600)
 		}
@@ -260,6 +278,43 @@ func openIndexDB(path string) (*sql.DB, error) {
 		}
 	}
 	return nil, errors.New("search: index could not be recreated")
+}
+
+// upgradeV5 adds the stats table to a version 5 index and blanks every
+// indexed head, so the next pass reads each session again and writes
+// its stats. Rows whose signature did not change are kept, so the
+// full-text index is not rewritten and search keeps answering while
+// the stats fill in. Rebuilding instead would empty search on the live
+// lake until every session was indexed again.
+func upgradeV5(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(statsSchema + `UPDATE indexed SET head=''; PRAGMA user_version=6;`); err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	return tx.Commit()
+}
+
+// upgradeV6 adds each session's recorded-time bounds to a version 6
+// index and blanks every indexed head, as upgradeV5 does, so the next
+// pass reads each session again and stores them. Until it has, a
+// session's bounds are null and a tool statistics range leaves it out;
+// coverage counts it behind meanwhile.
+func upgradeV6(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`ALTER TABLE indexed ADD COLUMN first_recorded_ns INTEGER;
+		ALTER TABLE indexed ADD COLUMN last_recorded_ns INTEGER;
+		UPDATE indexed SET head=''; PRAGMA user_version=` + fmt.Sprint(indexVersion) + `;`); err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	return tx.Commit()
 }
 
 func removeIndexFiles(path string) error {
@@ -475,6 +530,7 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 	}
 	defer tx.Rollback()
 	w := docWriter{tx: tx}
+	st := newSessionStats(s.Harness)
 	br, _, _, err := snap.lines(ctx, 0, 0)
 	if err != nil {
 		return 0, err
@@ -495,7 +551,8 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 			return 0, rerr
 		}
 		row := docRow{uid: s.UID, pos: pos, harness: s.Harness, project: s.ProjectID}
-		row.fill(line)
+		ev, ok := row.fill(line)
+		st.add(&row, &ev, ok)
 		if t := row.recorded; t != nil {
 			if first == nil || *t < *first {
 				first = t
@@ -536,6 +593,9 @@ func (x *Index) indexSession(ctx context.Context, s catalog.PublishedSession) (d
 		return 0, err
 	}
 	deleted += gone
+	if err := st.write(ctx, tx, s.UID); err != nil {
+		return 0, err
+	}
 	now, err := x.reader.publication(ctx, s.UID)
 	if err != nil {
 		return 0, err
@@ -688,6 +748,9 @@ func (x *Index) remove(ctx context.Context, uid string) error {
 	if _, err := x.db.ExecContext(ctx, `DELETE FROM indexed WHERE session_uid=?`, uid); err != nil {
 		return err
 	}
+	if _, err := x.db.ExecContext(ctx, `DELETE FROM stats WHERE session_uid=?`, uid); err != nil {
+		return err
+	}
 	return x.deleteDocs(ctx, uid, "1=?", 1)
 }
 
@@ -722,18 +785,18 @@ type docRow struct {
 	hasContent bool
 }
 
-// fill reads the fields the index stores from one JSONL line. A line that
-// is oversized or not JSON still gets a row, with no content, so
-// positions stay dense.
-func (d *docRow) fill(line []byte) {
+// fill reads the fields the index stores from one JSONL line and
+// returns the event for the stats. A line that is oversized or not JSON
+// still gets a row, with no content, so positions stay dense; ok is
+// false.
+func (d *docRow) fill(line []byte) (ev normalize.Event, ok bool) {
 	if line == nil {
 		d.eventType = "unreadable"
-		return
+		return ev, false
 	}
-	var ev normalize.Event
 	if json.Unmarshal(line, &ev) != nil {
 		d.eventType = "unreadable"
-		return
+		return ev, false
 	}
 	d.eventType, d.actor, d.raw = ev.EventType, ev.Actor, ev.RawType
 	d.tool, d.toolError, d.callID, d.modelID = ev.Tool.Name, ev.Tool.IsError, ev.Tool.CallID, ev.Model.ID
@@ -755,6 +818,7 @@ func (d *docRow) fill(line []byte) {
 		n := int64(len(*ev.ContentText))
 		d.content, d.hasContent, d.contentBytes = truncate(*ev.ContentText, IndexContentMax), true, &n
 	}
+	return ev, true
 }
 
 // sig is a signature of every field of d that the index stores, so a

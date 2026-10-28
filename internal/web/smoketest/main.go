@@ -251,14 +251,6 @@ func transcript(n int, native, harness string) []normalize.Event {
 			add(normalize.ActorHarness, normalize.EventCompaction, "Context compacted: synthetic summary of turns 0-5.", nil)
 		}
 	}
-	// One MCP server call with a large result, so the Tools page has an
-	// origin besides the built-in tools.
-	add(normalize.ActorAssistant, normalize.EventToolCall, `{"path":"README.md"}`, func(e *normalize.Event) {
-		e.Tool = normalize.Tool{Name: str("mcp__synthetic-docs__read"), CallID: str("call-docs")}
-	})
-	add(normalize.ActorTool, normalize.EventToolResult, strings.Repeat("Synthetic documentation. ", 400), func(e *normalize.Event) {
-		e.Tool = normalize.Tool{Name: str("mcp__synthetic-docs__read"), CallID: str("call-docs"), IsError: &no}
-	})
 	return out
 }
 
