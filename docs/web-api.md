@@ -475,7 +475,7 @@ Text is returned exactly as stored. The web page renders it as plain text.
 |---|---|
 | `q` | 3 characters to 1024 bytes of UTF-8, no NUL. It matches as a case-insensitive substring of `content_text`. Quotes, `OR`, `NEAR`, `*` and `:` are literal text, not syntax. |
 | `harness`, `project`, `unlinked` | As on `/sessions`. An empty value means no filter. |
-| `since`, `until` | Recorded time in UTC, as RFC 3339 or `YYYY-MM-DD`. `since` is inclusive and `until` exclusive; a date-only `until` covers that whole day. With either set, events with no recorded time are left out. `since` must be before `until`. |
+| `since`, `until` | Recorded time in UTC, as RFC 3339 or `YYYY-MM-DD`. `since` is inclusive and `until` exclusive; a date-only `until` covers that whole day. With either set, events with no recorded time are left out. `since` must be before `until`. A time outside 1678 to 2262, which the lake cannot store, is refused. |
 | `event_type` | Exact: `message`, `tool_call`, `tool_result`, `usage`, `compaction`, `meta`, `error`, `unknown`, or `unreadable` for a line the index could not decode. |
 | `actor` | Exact: `user`, `assistant`, `system`, `tool`, `harness`. |
 | `tool` | Exact tool name, case-sensitive, up to 256 bytes. |

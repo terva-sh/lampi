@@ -178,3 +178,23 @@ func TestFieldsProject(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// A filter time UnixNano cannot hold is refused rather than wrapped
+// (review 2917 on #224).
+func TestParseWhenRefusesUnrepresentableYears(t *testing.T) {
+	for _, raw := range []string{"1500-01-01", "2500-01-01", "1677-09-21T00:00:00Z", "2262-04-12T00:00:00Z"} {
+		if _, err := ParseWhen(raw, false); err == nil {
+			t.Errorf("%s: accepted", raw)
+		}
+	}
+	// The day that ends past the range is refused as an end only.
+	if _, err := ParseWhen("2262-04-11", false); err != nil {
+		t.Error(err)
+	}
+	if _, err := ParseWhen("2262-04-11", true); err == nil {
+		t.Error("2262-04-11 as an end: accepted")
+	}
+	if got, err := ParseWhen("2026-10-28", true); err != nil || !got.Equal(time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)) {
+		t.Error(got, err)
+	}
+}

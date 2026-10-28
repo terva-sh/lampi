@@ -134,6 +134,12 @@ func (r *Reader) DiagnoseLake(ctx context.Context, req DiagnoseLakeRequest) (Dia
 		sessions = sessions[:req.Limit]
 		out.Truncated, out.TruncatedBy = true, TruncatedLimit
 	}
+	return r.walkLake(ctx, req.Scope, sessions, out)
+}
+
+// walkLake diagnoses sessions into out. A session that is gone, not
+// ready, or at another generation than the one listed is skipped.
+func (r *Reader) walkLake(ctx context.Context, scope catalog.Scope, sessions []catalog.ReadySession, out DiagnosisGroups) (DiagnosisGroups, error) {
 	walk := ctx
 	if deadline, ok := ctx.Deadline(); ok {
 		var cancel context.CancelFunc
@@ -143,7 +149,7 @@ func (r *Reader) DiagnoseLake(ctx context.Context, req DiagnoseLakeRequest) (Dia
 	// By code, harness and project.
 	groups := map[[3]string]*DiagnosisGroup{}
 	for _, s := range sessions {
-		rep, err := r.Diagnose(walk, req.Scope, s.UID)
+		rep, err := r.Diagnose(walk, scope, s.UID)
 		var unavailable UnavailableError
 		switch {
 		case err == nil:
@@ -155,6 +161,13 @@ func (r *Reader) DiagnoseLake(ctx context.Context, req DiagnoseLakeRequest) (Dia
 			continue
 		default:
 			return out, err
+		}
+		if rep.Generation != s.Gen {
+			// Normalized again since the walk listed it: the session was
+			// chosen by its old head, so it is skipped like one that
+			// changed while being read.
+			out.Skipped++
+			continue
 		}
 		out.Sessions++
 		seen := map[diagnose.Code]bool{}

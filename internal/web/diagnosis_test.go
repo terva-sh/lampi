@@ -191,6 +191,8 @@ func TestDiagnosisRefusals(t *testing.T) {
 		"limit too high":  {token, readDiagnosisPath + "?limit=1001", 400, `"param":"limit"`},
 		"limit zero":      {token, readDiagnosisPath + "?limit=0", 400, `"param":"limit"`},
 		"bad date":        {token, readDiagnosisPath + "?since=private", 400, `"param":"since"`},
+		"far future date": {token, readDiagnosisPath + "?since=2500-01-01", 400, `"param":"since"`},
+		"far past date":   {token, readDiagnosisPath + "?since=1500-01-01", 400, `"param":"since"`},
 	} {
 		w := bearer(h, "GET", c.path, c.token)
 		if w.Code != c.status || !strings.Contains(w.Body.String(), c.body) {

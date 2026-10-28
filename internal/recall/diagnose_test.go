@@ -109,3 +109,24 @@ func TestDiagnoseLake(t *testing.T) {
 		t.Errorf("time: %+v %v", got, err)
 	}
 }
+
+// A session normalized again between the listing and its read is
+// skipped, not counted at its new generation (review 2917 on #224).
+func TestDiagnoseLakeSkipsRepublished(t *testing.T) {
+	s := lake(t)
+	r := NewReader(s.Catalog, s.Normalized)
+	t0 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	kept := ingestAt(t, s, "codex", "kept", t0)
+	publish(t, s, kept, largeResult())
+	moved := ingestAt(t, s, "codex", "moved", t0.Add(time.Hour))
+	publish(t, s, moved, largeResult())
+	listed, err := s.Catalog.RecentReadySessions(t.Context(), catalog.AllBays(), t0, "", "", 10)
+	if err != nil || len(listed) != 2 {
+		t.Fatal(listed, err)
+	}
+	publish(t, s, moved, largeResult())
+	got, err := r.walkLake(t.Context(), catalog.AllBays(), listed, DiagnosisGroups{Groups: []DiagnosisGroup{}})
+	if err != nil || got.Sessions != 1 || got.Skipped != 1 || len(got.Groups) != 1 || !slices.Equal(got.Groups[0].Examples, []string{kept}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+}

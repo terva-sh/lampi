@@ -74,7 +74,7 @@ project come from the session, and the rest from the event.
 | `--tool NAME` | Events with this tool name, matched exactly. |
 | `--tool-error B` | Tool results that failed (`true`) or succeeded (`false`). A result whose harness recorded neither matches neither. |
 | `--raw-type T` | Events with this harness-native type, matched exactly. |
-| `--since T`, `--until T` | Events recorded in this range, RFC 3339 or `YYYY-MM-DD` in UTC. `--since` is inclusive and `--until` exclusive; a date-only `--until` covers that whole day. An event with no recorded time matches neither. |
+| `--since T`, `--until T` | Events recorded in this range, RFC 3339 or `YYYY-MM-DD` in UTC. `--since` is inclusive and `--until` exclusive; a date-only `--until` covers that whole day. An event with no recorded time matches neither. A time outside 1678 to 2262, which the lake cannot store, is refused. |
 
 `--fields PATH,...` writes one JSON object per event that holds only
 those paths, keyed by the path. A path is an event field
