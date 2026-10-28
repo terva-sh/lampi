@@ -88,12 +88,12 @@ that the tool succeeded.
 | Harness | `tool.name` on a result | `tool.is_error` on a result |
 |---------|-------------------------|-----------------------------|
 | `claude` | From the earlier `tool_use` with the same id | `is_error` on the `tool_result` block. A `web_search_tool_result` error is true |
-| `codex` | From the earlier call event of the same kind with the same `call_id` | `exit_code` on a `*_end` event: zero is false. `is_error` on a `function_call_output`. Usually null |
+| `codex` | From the earlier call event of the same kind with the same `call_id`. An inner call's result has the name of its item | `exit_code` on a `*_end` event: zero is false. On an `mcp_tool_call_end` with no exit code, an `Err` result is true and `Ok.isError` is used. `is_error` on a `function_call_output`; a code-mode `exec` cell output has none. For inner calls, see below |
 | `terva` | From the earlier `tool_call` block with the same id | `is_error` on the `tool_result` block |
 | `opencode` | `tool` on the tool part | `state.status`: `completed` is false and `error` is true. A part with any other status has no result |
 | `grok` | `title`, then `_meta` `x.ai/tool`, then `kind` on the update. If none is set, the name of the earlier `tool_call` | `status`: `completed` is false and `failed` is true |
 | `cursor` | `toolFormerData.name`, or `name` on a `toolResults` element. An element of the bubble's own call with no name takes the call's name | `toolFormerData.status` on the bubble's own call: `completed` is false and `error` is true. Any other value, such as `cancelled`, is null. These status values come from the published bubble shape. No fixture captured from a live Cursor IDE confirms them |
-| `cursor-cli` | No results. Tool parts stay on an `unknown` event | No results. A `tool-result` part has `toolCallId`, `toolName`, a `result` string and `experimental_content`, and no error field |
+| `cursor-cli` | From the earlier `tool-call` part with the same `toolCallId`, else the part's own `toolName`. See below | Always null. A `tool-result` part has `toolCallId`, `toolName`, a `result` and `experimental_content`, and no error field |
 | `grokbot` | No results. A `tool` line is skipped | No results. A `tool` line has only text parts, with no call id and no status |
 
 Codex writes one call twice: as a `response_item` function call such
@@ -103,9 +103,131 @@ come from a table that keeps the 4096 most recent calls of a session.
 A table does not keep an id or a name longer than 256 bytes. A result
 whose call is not in the table has a null name.
 
-Sessions that a lake normalized before this change keep null names
-until they are normalized again. A session that grows is normalized
-again on its next upload. To fill in the others, run
+### MCP tool names
+
+A harness that records an MCP server and tool apart gets the name
+Claude Code gives the same call: `mcp__<server>__<tool>`. Letters,
+digits, `_` and `-` are kept, so a server keeps its hyphens, and any
+other character becomes `_`. The server as recorded is in
+`extra.mcp_server`.
+
+- `codex`: an `mcp_tool_call_begin` with `invocation.server`, and an
+  inner `McpToolCall` with `server` and `tool`. An invocation with no
+  server keeps the bare `invocation.tool`.
+- `cursor-cli`: a `CallDynamicTool` call with `args.namespace` as the
+  server and `args.toolName` as the tool.
+
+### Cursor CLI tool parts
+
+A Cursor CLI blob is an AI SDK message. When its `content` is a parts
+array, the blob stays one `unknown` event with its fields on `extra`,
+and each `tool-call` part and each `tool-result` part leaves that
+array and becomes an event after it:
+
+| Part | Event | `raw_type` | Text |
+|------|-------|------------|------|
+| `tool-call` | `tool_call` | `tool-call` | `args`, as stored |
+| `tool-result` | `tool_result` | `tool-result` | `result`: a string as is, anything else as JSON |
+
+`tool.call_id` is `toolCallId`, and `extra.blob_id` names the blob. Text,
+reasoning and image parts stay in the blob's `extra.content`.
+
+The name of a call:
+
+- `CallDynamicTool` names its tool in `args`, which is an object or a
+  JSON-encoded string. With `args.namespace` set to `cursor` it is one
+  of Cursor's own tools, such as `AwaitShell` or `TodoWrite`, and the
+  call takes the bare `args.toolName`. Any other namespace is an MCP
+  server, and the call is `mcp__<namespace>__<toolName>` with the
+  server in `extra.mcp_server`. Either way `extra.cursor_tool_name` is
+  `CallDynamicTool`. If `args` names no tool, the call keeps the name
+  `CallDynamicTool`.
+- Any other call keeps `toolName`, such as `Shell` or `Read`.
+- `extra.builtin` is true on every call that is not an MCP call.
+
+A result has no error field, so `tool.is_error` is null. Parts carry no
+time, so `recorded_at` is the time of ingest and latency is not known.
+
+The export lists blobs in id order. An id is a content hash, so that
+is not the order of the conversation, and a result could come before
+its call. Cursor writes a root blob each time the conversation changes.
+A root is protobuf, and its field 1 lists the ids of the messages in
+context at that time, in order. The session record's
+`latestRootBlobId` names the newest root. The normalizer reads every
+root's list and puts the blobs in an order that keeps each list's
+order, so a call comes before its result. Where two lists part, as
+after a compaction, the part that the latest root keeps comes last.
+Blobs that no root lists, the roots among them, follow in export
+order. A root is decoded only to read the ids, and it stays an
+`unknown` event with its base64 value.
+
+A root holds no time of its own and no link to the root before it.
+After two or more compactions, two older branches may share nothing
+but the messages both kept, and then no root says which came first.
+Each branch stays whole and in its own order, but the order between
+them is a guess from export order. Every event of those older branches
+carries `extra.order` set to `unestablished`, so a reader that depends
+on sequence, such as a diagnosis rule, can leave them out.
+
+Cursor writes a new copy of a message blob when the message changes,
+so an older copy can repeat a `tool-result` part. On the local stores
+measured, one session had 366 results for 355 calls and the others had
+one result per call.
+
+### Codex code-mode inner calls
+
+In code mode the model calls one tool, a `custom_tool_call` named
+`exec` whose input is a script. Codex writes each tool call the script
+makes as an `event_msg` line of type `item_completed`. Three item kinds
+become a `tool_call` event and then a `tool_result` event, both from
+the same line:
+
+| Item | `tool.name` | Call text | Result text | `tool.is_error` |
+|------|-------------|-----------|-------------|-----------------|
+| `CommandExecution` | `exec_command` | `command` | `aggregated_output` | `exit_code`: zero is false. With no exit code, `status` |
+| `McpToolCall` | `mcp__<server>__<tool>` | `arguments` | The text blocks of `result.content`, else `error` | `result.isError`. Else an `error` field is true. Else `status` |
+| `FileChange` | `apply_patch` | `changes` | `stdout` and `stderr` | `status` |
+
+A `status` of `completed` is false, and `failed` or `declined` is true.
+Any other status is null.
+
+These fields mark an inner call, and a statistic can rely on them:
+
+- `raw_type` is `item_completed` on both events, and `event_type` is
+  `tool_call` or `tool_result`. No other Codex tool event has this
+  `raw_type`. The cell's own events keep `custom_tool_call` and
+  `custom_tool_call_output`.
+- `tool.call_id` is the item `id`, such as `exec-<uuid>`. It is not the
+  cell's call id.
+- `extra.cell_call_id` is the call id of the latest `exec` cell when the
+  item completed. A command that outlives its cell completes after the
+  cell's output and still names that cell, or a later one if the model
+  started one.
+- `extra.item_type` is the item kind.
+- `extra.duration_ms` on the result is the item `duration` in whole
+  milliseconds. The call's `recorded_at` is `started_at_ms` when the
+  line has it.
+
+The model reads the cell output, not the inner results. Count context
+bytes from `custom_tool_call_output` and tool work from the inner
+calls.
+
+Other items stay one `unknown` event with `raw_type` `item_completed`:
+`Reasoning`, `AgentMessage`, `UserMessage`, `SubAgentActivity`,
+`ContextCompaction`, `ImageView`, `CollabAgentToolCall`, and
+`Extension`. An `Extension` item has the call id of a top-level
+function call, such as `sleep`, that already has its own events.
+
+### Normalizing older sessions again
+
+Sessions that a lake normalized before these changes keep null names,
+Codex code-mode sessions keep their inner calls as `unknown` events,
+and Cursor CLI sessions keep their tool parts on `unknown` events in
+export order, until they are normalized again. A Codex code-mode line
+that held an inner call now gives two events instead of one, and a
+Cursor CLI session's blobs change order and gain tool events, so the
+positions in those sessions move. A session that grows is
+normalized again on its next upload. To fill in the others, run
 `terva-lampi serve normalize --all` after the upgrade. See
 [cli.md](cli.md).
 
