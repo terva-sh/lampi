@@ -242,6 +242,27 @@ func TestRetryLoop(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 
+	// Delayed results still chain when the repeats span more than one
+	// window: each repeat is within the window of the one before, and
+	// all results arrive, in reverse, after the last call (review 2911
+	// on #222).
+	s = newSession(protocol.HarnessClaude)
+	for i := range 4 {
+		s.call(fmt.Sprint("w", i), "Grep", `{"pattern":"x"}`)
+		for j := range 4 {
+			s.call(fmt.Sprint("f", i, j), "Bash", fmt.Sprint(i, j))
+		}
+	}
+	for i := 3; i >= 0; i-- {
+		s.result(fmt.Sprint("w", i), "Grep", "no match", nil)
+		for j := range 4 {
+			s.result(fmt.Sprint("f", i, j), "Bash", "ok", nil)
+		}
+	}
+	if f := mustFind(t, s.run(t), RetryLoop, "same_output"); f.Values["retries"] != 3 {
+		t.Fatalf("%+v", f)
+	}
+
 	// Two separate loops of one tool are two loops.
 	s = newSession(protocol.HarnessClaude)
 	var ends []int64

@@ -382,11 +382,11 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 				break
 			}
 		}
-		// A call leaving the window drops its link, so links never
-		// chain past the window and hold old calls in memory.
-		if old := a.recent[a.recentNext]; old != nil {
-			old.retry = nil
-		}
+		// A call leaving the window can no longer be matched, but keeps
+		// its link until it settles: the repeat was made within the
+		// window, and its result may still be on its way. A settled call
+		// has already dropped its link, so a link only joins calls still
+		// waiting on results, which the open-call bound limits.
 		a.recent[a.recentNext] = c
 		a.recentNext = (a.recentNext + 1) % len(a.recent)
 	}
