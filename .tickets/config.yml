@@ -94,6 +94,8 @@ actors:
     name: Cursor cloud agent
   - id: agent:cursor/8429
     name: Cursor cloud agent
+  - id: agent:claude-code/049834bc
+    name: Claude Code local agent
 labels:
   - area/agent
   - area/server
