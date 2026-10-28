@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61MZNMZ0ZC0CG223990GMCH
 title: Session diagnosis engine with coded findings and suggestions
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -19,15 +19,22 @@ dependencies:
   - TKT-01M61MZMXHF57GKYYRE9ZQ4S3S
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/049834bc-diag
+  branch: worktree-agent-a93bf044a4a343310
+  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-a93bf044a4a343310
+  commit: 4ef8a9aaaa17285b97138760d3a554619c5caeb2
+  session: null
+  claimed_at: 2026-10-28T16:58:51Z
+  expires_at: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T16:35:44Z
+updated_at: 2026-10-28T16:58:52Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
+  id: agent:claude-code/049834bc-diag
   name: Claude Code local agent
 extensions: {}
 ---
