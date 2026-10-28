@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:22:20Z
+updated_at: 2026-10-28T18:28:39Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -109,6 +109,10 @@ Review 2903 on PR #222 (two medium findings), fixed in 6fc2cc8. (1) retry_loop s
 **agent:claude-code/049834bc** at 2026-10-28T18:22:20Z
 
 Review 2904 on PR #222 (two medium findings) fixed in 7cc733e. (1) A doubled Codex call entered the retry window before its id check; the id is now checked first, and the doubled-call fixture asserts a retry_loop over four doubled calls. (2) Retry chains were compared only when results arrived in call order; calls now settle when both results are in, in either order, and wake the repeat waiting on them. A reverse-order fixture asserts the loop. Both new assertions fail on the previous code.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:28:39Z
+
+Review 2906 on PR #222: finding-1 (doubled Codex calls in the retry window) was already fixed in 7cc733e. finding-2, a duplicate usage that did not refresh the gap time, is fixed in 0996390, with a repeated-baseline fixture in TestContextPressureCacheCollapse that fails on the previous code.
 
 ## Summary
 

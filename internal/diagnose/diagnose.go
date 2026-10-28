@@ -620,8 +620,13 @@ func (a *Analyzer) usage(pos int64, ev *event) {
 	a.peak = max(a.peak, u.ctx)
 	p := a.prev
 	// Claude Code repeats one message's usage on each of its
-	// content-block lines; count it once.
+	// content-block lines; count it once. A repeat seen later still
+	// moves the time a gap is measured from, so a collapse right after
+	// it is not taken for cache expiry.
 	if p != nil && p.in == u.in && p.out == u.out && p.cr == u.cr && p.cw == u.cw {
+		if u.at.After(p.at) {
+			p.at = u.at
+		}
 		return
 	}
 	a.prev = &u

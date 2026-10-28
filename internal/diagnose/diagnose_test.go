@@ -413,6 +413,20 @@ func TestContextPressureCacheCollapse(t *testing.T) {
 		t.Fatalf("%+v", f)
 	}
 
+	// The same usage seen again after an idle gap is the new baseline:
+	// a collapse a second later is pressure (review 2906 on #222).
+	s = newSession(protocol.HarnessClaude)
+	want = nil
+	for range 3 {
+		s.usage(100, 50000, 1000, time.Second)
+		s.usage(100, 50000, 1000, 10*time.Minute)
+		want = append(want, s.usage(100, 1000, 50000, time.Second))
+	}
+	f = mustFind(t, s.run(t), ContextPressure, "cache_collapse")
+	if f.Values["cache_collapses"] != 3 || !slices.Equal(f.Positions, want) {
+		t.Fatalf("repeated baseline: %+v", f)
+	}
+
 	// A fall in context is not a collapse, nor is a Codex session.
 	s = newSession(protocol.HarnessClaude)
 	for range 4 {
