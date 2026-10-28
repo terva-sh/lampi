@@ -22,12 +22,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:45:29Z
+updated_at: 2026-10-28T19:58:13Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-dsurf
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -88,6 +88,10 @@ A per-generation cache lost for now. It would need invalidation on every publish
 
 - GOFLAGS=-mod=mod just ci passes (XDG_STATE_HOME and XDG_DATA_HOME in scratch; XDG_CONFIG_HOME could not be set in this session).
 - Browser smoke with the Playwright 1.63 module already in the npm cache and its installed Chromium 1243 (no install): the new diagnosis step passed (panel opened on a real retry_loop finding, its event link focused the event). The smoke then fails later at the search page's coverage line, `Searching N of M ready sessions`; the unchanged script from before this work fails at the same line, so it predates this ticket (possibly the Playwright version, the README pins 1.58.2).
+
+**agent:claude-code/049834bc** at 2026-10-28T19:58:13Z
+
+Review 2917 on PR #224 (two medium) fixed in 2340d77. (1) ParseWhen refuses times outside UnixNano's range (about 1678 to 2262). This covers every date filter, including tool statistics, which had the same wrap. Before the fix, since=2500-01-01 returned a current session and 1500-01-01 returned none. (2) DiagnoseLake skips a session whose diagnosed generation differs from the listed one (walkLake, TestDiagnoseLakeSkipsRepublished). Both tests fail with the checks removed.
 
 ## Summary
 
