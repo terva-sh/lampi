@@ -138,15 +138,12 @@ func (c *Catalog) Publication(ctx context.Context, uid string) (Publication, err
 	return p, nil
 }
 
-// ReadySession is a session whose normalization is ready. UpdatedNS is
-// when the lake last accepted its head, in Unix nanoseconds, as the
-// session list orders by it.
+// ReadySession is a session whose normalization is ready.
 type ReadySession struct {
 	UID       string
 	Gen       int64
 	Harness   string
 	ProjectID string
-	UpdatedNS int64
 }
 
 // ReadySessions lists every session in scope whose normalization is
@@ -156,7 +153,7 @@ type ReadySession struct {
 // (TKT-01M61MZN8).
 func (c *Catalog) ReadySessions(ctx context.Context, scope Scope) ([]ReadySession, error) {
 	cond, args := scope.where("s.session_uid")
-	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid,s.published_gen,s.harness,s.project_id,s.web_updated_ns FROM sessions s WHERE `+cond+` AND (`+normalizationStateSQL+`)='ready' ORDER BY s.session_uid`, args...)
+	rows, err := c.db.QueryContext(ctx, `SELECT s.session_uid,s.published_gen,s.harness,s.project_id FROM sessions s WHERE `+cond+` AND (`+normalizationStateSQL+`)='ready' ORDER BY s.session_uid`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("catalog: %w", err)
 	}
@@ -164,7 +161,7 @@ func (c *Catalog) ReadySessions(ctx context.Context, scope Scope) ([]ReadySessio
 	var out []ReadySession
 	for rows.Next() {
 		var p ReadySession
-		if err := rows.Scan(&p.UID, &p.Gen, &p.Harness, &p.ProjectID, &p.UpdatedNS); err != nil {
+		if err := rows.Scan(&p.UID, &p.Gen, &p.Harness, &p.ProjectID); err != nil {
 			return nil, fmt.Errorf("catalog: %w", err)
 		}
 		out = append(out, p)

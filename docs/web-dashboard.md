@@ -772,7 +772,8 @@ neither builds nor updates it.
   its type, actor, tool name, tool error, raw type, recorded time and text. It
   also holds the text's size before truncation, the tool call id, the model id
   and the input, output, cache read and cache write token counts, for tool usage
-  statistics. Search results do not report those.
+  statistics, and each session's first and last recorded time. Search results do
+  not report those.
 - **Coverage.** Search results report how many ready sessions are indexed, how
   many are behind, and how many the index could not read. A session it could not
   read is retried when a new generation is published.
