@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T19:26:03Z
+updated_at: 2026-10-28T19:29:51Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -125,6 +125,10 @@ Review 2913 on PR #222 (high) fixed in b442177. My previous claim that maxOpenCa
 **agent:claude-code/049834bc** at 2026-10-28T19:26:03Z
 
 Review 2915 on PR #222 (medium) fixed in 3715c51: the polling exclusion now matches Cursor CLI tools under both the bare name and the older mcp__cursor__ name (pollingName). TestRetryLoop fails on the old check with a retry_loop for mcp__cursor__AwaitShell.
+
+**agent:claude-code/049834bc** at 2026-10-28T19:29:51Z
+
+Review 2916 on PR #222 (medium) fixed in e14b7bd: toolCall resolves the Cursor CLI built-in name once (builtinName strips mcp__cursor__) and uses it for the polling list and the read and write tables, so the same name gap cannot recur rule by rule. TestRepeatedRead runs reads, a StrReplace and a fifth read under both names; without the resolution the mcp__cursor__ case finds no repeated_read.
 
 ## Summary
 
