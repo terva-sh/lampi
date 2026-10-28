@@ -44,6 +44,9 @@ var _ Normalizer = Grok{}
 type grokState struct {
 	session string
 	model   string
+	// calls names a tool_call_update that carries no title, tool or
+	// kind of its own from its tool_call.
+	calls callNames
 }
 
 // grokBuf is the message currently being coalesced. Consecutive chunks
@@ -278,6 +281,7 @@ func (g Grok) toolCall(update map[string]json.RawMessage, when time.Time, st *gr
 	}
 	name := grokToolName(update)
 	callID, _ := jsonString(update["toolCallId"])
+	st.calls.remember(callID, name)
 	extra, err := extraFrom(update, "sessionUpdate", "content", "rawInput", "rawOutput", "toolCallId", "title", "status", "_meta")
 	if err != nil {
 		return grokPiece{}, false, err
@@ -308,6 +312,10 @@ func (g Grok) toolUpdate(lineNo int, update map[string]json.RawMessage, when tim
 	}
 	name := grokToolName(update)
 	callID, _ := jsonString(update["toolCallId"])
+	if name == "" {
+		// An ACP update need not repeat the call's title or kind.
+		name = st.calls.name(callID)
+	}
 	extra, err := extraFrom(update, "sessionUpdate", "content", "rawInput", "rawOutput", "toolCallId", "title", "status", "_meta")
 	if err != nil {
 		return grokPiece{}, false, fmt.Errorf("normalize: line %d: %w", lineNo, err)

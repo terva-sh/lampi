@@ -115,10 +115,14 @@ a release say:
   copies the catalog to `migration-backups/` first. An older release
   cannot open the result, so rolling back means restoring that copy;
 - whether it changes how a normalizer writes events, so that sessions
-  are queued for normalizing again after the upgrade.
+  are queued for normalizing again after the upgrade;
+- whether it changes `indexVersion` in `internal/recall/index.go`. The
+  first start deletes `search.db` and rebuilds it in the background, so
+  search covers fewer sessions until the rebuild finishes. Rolling back
+  rebuilds it again.
 
-`git diff vPREVIOUS -- internal/catalog/catalog.go internal/normalize`
-shows both.
+`git diff vPREVIOUS -- internal/catalog/catalog.go internal/normalize
+internal/recall/index.go` shows all three.
 
 ### Agent advisories
 
