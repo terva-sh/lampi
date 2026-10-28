@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61PSX6JF6TP9HE9BXEWMMV6
 title: "Normalize: project Codex code-mode inner tool calls"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,15 +16,22 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/049834bc-norm2
+  branch: worktree-agent-a1bbed7644257d0df
+  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-a1bbed7644257d0df
+  commit: 4ef8a9aaaa17285b97138760d3a554619c5caeb2
+  session: null
+  claimed_at: 2026-10-28T17:00:56Z
+  expires_at: null
 archive: null
 created_at: 2026-10-28T16:51:58Z
-updated_at: 2026-10-28T16:54:05Z
+updated_at: 2026-10-28T17:00:57Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
+  id: agent:claude-code/049834bc-norm2
   name: Claude Code local agent
 extensions: {}
 ---
