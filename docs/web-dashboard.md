@@ -768,6 +768,11 @@ neither builds nor updates it.
   or restart loses no work. A new generation becomes searchable in one step, and
   the old one stays searchable until then. A pending, failed or purged session
   drops out of results at once, even before the index removes its rows.
+- **Stored fields.** Each event's row holds what search filters and matches on:
+  its type, actor, tool name, tool error, raw type, recorded time and text. It
+  also holds the text's size before truncation, the tool call id, the model id
+  and the input, output, cache read and cache write token counts, for tool usage
+  statistics. Search results do not report those.
 - **Coverage.** Search results report how many ready sessions are indexed, how
   many are behind, and how many the index could not read. A session it could not
   read is retried when a new generation is published.
@@ -792,7 +797,8 @@ neither builds nor updates it.
   `search.db-shm`, and start serve. The index is rebuilt in the background while
   the lake keeps serving. A file with an unknown schema version is rebuilt the
   same way on its own, which is what the first start of a release with a new
-  index schema does.
+  index schema does. A rebuild writes each session in its own transaction, so
+  the WAL holds about one session's worth at a time.
 - **Backup and purge.** `serve backup` does not copy the index; a restored lake
   rebuilds it. `serve purge` removes the session's index rows first.
 

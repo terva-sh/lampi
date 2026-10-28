@@ -78,6 +78,37 @@ reader version is `2`, and its confidence is `low`.
 Every harness passes the same project allowlist before anything leaves
 the machine. See [Allowlist and redaction](allowlist-and-redaction.md).
 
+## Tool names and errors on results
+
+A `tool_result` event carries `tool.name` and `tool.is_error` when the
+source records them. A null `tool.name` means the name is not known. A
+null `tool.is_error` means the outcome is not known. It does not mean
+that the tool succeeded.
+
+| Harness | `tool.name` on a result | `tool.is_error` on a result |
+|---------|-------------------------|-----------------------------|
+| `claude` | From the earlier `tool_use` with the same id | `is_error` on the `tool_result` block. A `web_search_tool_result` error is true |
+| `codex` | From the earlier call event of the same kind with the same `call_id` | `exit_code` on a `*_end` event: zero is false. `is_error` on a `function_call_output`. Usually null |
+| `terva` | From the earlier `tool_call` block with the same id | `is_error` on the `tool_result` block |
+| `opencode` | `tool` on the tool part | `state.status`: `completed` is false and `error` is true. A part with any other status has no result |
+| `grok` | `title`, then `_meta` `x.ai/tool`, then `kind` on the update. If none is set, the name of the earlier `tool_call` | `status`: `completed` is false and `failed` is true |
+| `cursor` | `toolFormerData.name`, or `name` on a `toolResults` element. An element of the bubble's own call with no name takes the call's name | `toolFormerData.status` on the bubble's own call: `completed` is false and `error` is true. Any other value, such as `cancelled`, is null. These status values come from the published bubble shape. No fixture captured from a live Cursor IDE confirms them |
+| `cursor-cli` | No results. Tool parts stay on an `unknown` event | No results. A `tool-result` part has `toolCallId`, `toolName`, a `result` string and `experimental_content`, and no error field |
+| `grokbot` | No results. A `tool` line is skipped | No results. A `tool` line has only text parts, with no call id and no status |
+
+Codex writes one call twice: as a `response_item` function call such
+as `shell`, and as an `event_msg` begin event such as `exec_command`.
+Each result takes the name of the call of its own kind. The call names
+come from a table that keeps the 4096 most recent calls of a session.
+A table does not keep an id or a name longer than 256 bytes. A result
+whose call is not in the table has a null name.
+
+Sessions that a lake normalized before this change keep null names
+until they are normalized again. A session that grows is normalized
+again on its next upload. To fill in the others, run
+`terva-lampi serve normalize --all` after the upgrade. See
+[cli.md](cli.md).
+
 ## Cursor sessions with an empty cwd
 
 The `projects` allow and deny rules are the same for every harness.

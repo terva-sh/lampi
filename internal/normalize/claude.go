@@ -23,6 +23,9 @@ import (
 // encrypted_content is copied as stored and is not written into
 // content_text. Image bytes stay in the raw blob. HarnessVersion is
 // the caller's pinned reader version, not the CLI version on a line.
+// A tool_result block names only tool_use_id; its tool.name is the
+// name of the earlier tool_use with that id, while that call is within
+// the callNames bound, and null otherwise.
 type Claude struct {
 	Now            time.Time
 	NativeID       string
@@ -43,6 +46,9 @@ type claudeState struct {
 	cwd     string
 	model   string
 	branch  string
+	// calls names a tool_result from its tool_use, which a result block
+	// does not name.
+	calls callNames
 }
 
 // Normalize projects raw. raw is not modified. A line that is not a
@@ -266,6 +272,7 @@ func (c Claude) blockEvent(lineNo, offset int, when time.Time, rawType, role str
 		if err != nil {
 			return Event{}, err
 		}
+		st.calls.remember(callID, name)
 		tool := Tool{Name: strPtr(name), CallID: strPtr(callID)}
 		return c.emit(st, rawType, EventToolCall, ActorAssistant, when, offset, argumentsText(block["input"]), tool, Usage{}, mergeExtra(base, extra))
 	case "tool_result":
@@ -301,7 +308,7 @@ func (c Claude) toolResultEvent(lineNo, offset int, when time.Time, rawType stri
 		return Event{}, err
 	}
 	extra = putEncrypted(extra, enc)
-	tool := Tool{CallID: strPtr(callID), IsError: jsonBoolPtr(block["is_error"])}
+	tool := Tool{Name: strPtr(st.calls.name(callID)), CallID: strPtr(callID), IsError: jsonBoolPtr(block["is_error"])}
 	return c.emit(st, rawType, EventToolResult, ActorTool, when, offset, text, tool, Usage{}, mergeExtra(base, extra))
 }
 
@@ -319,7 +326,7 @@ func (c Claude) searchResultEvent(lineNo, offset int, when time.Time, rawType st
 		extra["content"] = kept
 	}
 	extra = putEncrypted(extra, enc)
-	tool := Tool{CallID: strPtr(callID)}
+	tool := Tool{Name: strPtr(st.calls.name(callID)), CallID: strPtr(callID)}
 	if isErr {
 		t := true
 		tool.IsError = &t
