@@ -353,12 +353,21 @@ func TestRepeatedRead(t *testing.T) {
 		t.Fatal("finding carries the path", string(b))
 	}
 
-	// Cursor CLI keeps the path under path.
-	s = newSession(protocol.HarnessCursorCLI)
-	for i := range 5 {
-		s.pair(fmt.Sprint("r", i), "Read", `{"path":"/x"}`, "t", nil)
+	// Cursor CLI keeps the path under path, and an older projection
+	// names its tools mcp__cursor__<tool>.
+	for _, ns := range []string{"", "mcp__cursor__"} {
+		s = newSession(protocol.HarnessCursorCLI)
+		for i := range 4 {
+			s.pair(fmt.Sprint("r", i), ns+"Read", `{"path":"/x"}`, "t", nil)
+		}
+		s.pair("w", ns+"StrReplace", `{"path":"/x","old_string":"a","new_string":"b"}`, "ok", nil)
+		for i := range 4 {
+			s.pair(fmt.Sprint("s", i), ns+"Read", `{"path":"/x"}`, "t", nil)
+		}
+		mustNotFind(t, s.run(t), RepeatedRead)
+		s.pair("s4", ns+"Read", `{"path":"/x"}`, "t", nil)
+		mustFind(t, s.run(t), RepeatedRead, "")
 	}
-	mustFind(t, s.run(t), RepeatedRead, "")
 
 	// A Codex apply_patch header resets a read.
 	if got := collectPatch("*** Begin Patch\n*** Update File: a/b.go\n@@\n*** Add File: c.go\n*** End Patch"); !slices.Equal(got, []string{"a/b.go", "c.go"}) {
