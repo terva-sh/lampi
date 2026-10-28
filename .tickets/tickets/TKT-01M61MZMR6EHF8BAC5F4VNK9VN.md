@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61MZMR6EHF8BAC5F4VNK9VN
 title: "Normalize: name Claude Code tool results from their call"
 type: bug
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -19,7 +19,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:20:09Z
+updated_at: 2026-10-28T16:29:50Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
