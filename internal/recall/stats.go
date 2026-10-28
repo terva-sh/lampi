@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/normalize"
@@ -64,7 +65,8 @@ type Tokens struct {
 	CostUSD    *float64 `json:"cost_usd"`
 }
 
-func (t *Tokens) add(o Tokens) {
+// Add adds o to t. A kind stays nil only while neither reported it.
+func (t *Tokens) Add(o Tokens) {
 	addInt := func(dst **int64, v *int64) {
 		if v == nil {
 			return
@@ -160,7 +162,7 @@ func (s *sessionStats) bump(recorded *int64, kind, name string, n int64, t Token
 		s.rows[k] = v
 	}
 	v.n += n
-	v.tokens.add(t)
+	v.tokens.Add(t)
 }
 
 // add counts one line. ok is false for a line that is not an event.
@@ -490,7 +492,7 @@ func (x *Index) Totals(ctx context.Context, scope catalog.Scope) (Totals, error)
 				dst.ToolsFailed += n
 			case StatUsage:
 				dst.ModelCalls += n
-				dst.Tokens.add(t)
+				dst.Tokens.Add(t)
 			}
 		}
 		if kind == StatEvent {
@@ -508,4 +510,72 @@ func (x *Index) Totals(ctx context.Context, scope catalog.Scope) (Totals, error)
 		return cmp.Or(cmp.Compare(b.Sessions, a.Sessions), cmp.Compare(a.Harness, b.Harness))
 	})
 	return out, nil
+}
+
+// SeriesBucket is what the indexed sessions add up to in one time
+// bucket. Events with no recorded time are in no bucket.
+type SeriesBucket struct {
+	Start       time.Time `json:"start"`
+	ModelCalls  int64     `json:"model_calls"`
+	Tokens      Tokens    `json:"tokens"`
+	Errors      int64     `json:"errors"`
+	ToolCalls   int64     `json:"tool_calls"`
+	ToolsFailed int64     `json:"tool_results_failed"`
+}
+
+// Series adds up the stats of the indexed sessions scope reads in
+// buckets of width from from until until, which must be whole hours
+// apart. An empty harness reads every harness. Every bucket in the
+// range is returned, empty or not.
+func (x *Index) Series(ctx context.Context, scope catalog.Scope, harness string, from, until time.Time, width time.Duration) ([]SeriesBucket, error) {
+	if width < time.Hour || width%time.Hour != 0 || !from.Before(until) || from.Unix()%3600 != 0 || until.Sub(from)%width != 0 {
+		return nil, ErrInvalid
+	}
+	n := int(until.Sub(from) / width)
+	out := make([]SeriesBucket, n)
+	for i := range out {
+		out[i].Start = from.Add(time.Duration(i) * width).UTC()
+	}
+	cond, args, _, err := x.scopeFilter(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+	w := int64(width / time.Second)
+	q := `SELECT (hour-?)/?,kind,SUM(n),SUM(input),SUM(output),SUM(cache_read),SUM(cache_write),SUM(cost_usd)
+		FROM stats WHERE hour>=? AND hour<? AND kind IN ('usage','error','tool_call','tool_failed') AND ` + cond
+	qargs := append([]any{from.Unix(), w, from.Unix(), until.Unix()}, args...)
+	if harness != "" {
+		q += ` AND harness=?`
+		qargs = append(qargs, harness)
+	}
+	rows, err := x.db.QueryContext(ctx, q+` GROUP BY 1,2`, qargs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var i int
+		var kind string
+		var sum int64
+		var t Tokens
+		if err := rows.Scan(&i, &kind, &sum, &t.Input, &t.Output, &t.CacheRead, &t.CacheWrite, &t.CostUSD); err != nil {
+			return nil, err
+		}
+		if i < 0 || i >= n {
+			continue
+		}
+		b := &out[i]
+		switch kind {
+		case StatUsage:
+			b.ModelCalls += sum
+			b.Tokens.Add(t)
+		case StatError:
+			b.Errors += sum
+		case StatToolCall:
+			b.ToolCalls += sum
+		case StatToolFailed:
+			b.ToolsFailed += sum
+		}
+	}
+	return out, rows.Err()
 }

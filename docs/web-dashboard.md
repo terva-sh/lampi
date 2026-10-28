@@ -422,6 +422,24 @@ page refreshes every 25 seconds while it is visible.
 The [browser API contract](web-api.md#activity) gives the JSON form, with the
 range limits: at most 14 days by the hour and 90 days by the day.
 
+## Usage
+
+`/usage` charts the tokens the sessions used, per UTC hour or day, with the
+same ranges as Activity. The harness filter lists the harnesses the viewer's
+sessions use. Totals for the range sit above four charts, one for each kind of
+token: input, output, cache read and cache write. Each chart has its own
+scale, because cache reads are often a hundred times the rest and would hide
+input and output in a stacked bar. "Show as a table" lists the same numbers.
+
+- **A bucket is the time the harness wrote**, not the time the lake received
+  the session. A session uploaded today with last week's calls fills last
+  week's buckets. A call with no recorded time counts in the overview's totals
+  and in no bucket.
+- **Hatched buckets had model calls that did not report that kind of token**,
+  such as cache writes from Codex. A bucket with no calls is zero.
+- The counting rules, and which sessions are counted, are the same as the
+  overview's. See [Statistics](#search-index) under Search index.
+
 ## Operations
 
 `/operations` answers two questions: how full the lake is, and whether it

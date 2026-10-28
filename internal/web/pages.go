@@ -142,6 +142,8 @@ type pageData struct {
 	// Usage is the overview's token panel, when the lake has a search
 	// index to read it from.
 	Usage usageView
+	// UsagePage is the Usage page.
+	UsagePage usagePageView
 	// Operator shows the operator's navigation. Codes is the
 	// registrations page.
 	Operator bool
@@ -211,7 +213,7 @@ func splitHit(h recall.Hit) hitView {
 }
 
 func (s *Server) pageRoutes(m *http.ServeMux) {
-	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
+	for path, h := range map[string]http.HandlerFunc{"/{$}": s.homePage, "/sessions": s.sessionsPage, "/sessions/{uid}": s.detailPage, "/conflicts": s.conflictsPage, "/conflicts/{id}": s.conflictPage, "/sessions/{uid}/transcript": s.transcriptPage, "/search": s.searchPage, "/sessions/{uid}/excerpt": s.excerptPage, "/activity": s.activityPage, "/usage": s.usagePage, "/operations": s.operationsPage, "/devices": s.devicesPage, "/devices/{id}": s.devicePage, "/profiles": s.profilesPage, "/profiles/{name}": s.profilePage, reviewPath: s.reviewPage} {
 		m.Handle("GET "+path, s.guardRead(h))
 	}
 	assets, _ := fs.Sub(files, "assets")
