@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61PT07YZSB6SM2EGT50NSJV
 title: "Normalize: project Cursor CLI tool-call and tool-result parts"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc-norm2
-  branch: worktree-agent-a1bbed7644257d0df
-  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-a1bbed7644257d0df
-  commit: 4ef8a9aaaa17285b97138760d3a554619c5caeb2
-  session: null
-  claimed_at: 2026-10-28T17:00:57Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:52:01Z
-updated_at: 2026-10-28T17:30:55Z
+updated_at: 2026-10-28T17:34:07Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
@@ -84,3 +77,13 @@ Real-store run (local, read-only snapshot through the adapter's own export, stor
 Timing on the largest exportable store (270 MiB export, 2,576 calls): old projection 2.33 s, new 3.16 s, under machine load average 8 to 12. Benchmark `BenchmarkCursorCLITools` (600 turns, a root per turn, 19 MB export), back to back: old 137-141 ms/op, 124 MB/op, 145k allocs; new 207-216 ms/op before keying ids as [32]byte (541k allocs), then 228-275 ms/op, 148 MB/op, 176k allocs under a busier machine. The added cost is decoding every root's base64 once, which is most of a store's bytes, and the tool-part split. Memory stays the whole-document model the projector already has: the order adds an id index, an edge set and one list buffer, all proportional to the number of blobs and distinct edges, not to root bytes.
 
 Not done: text and reasoning parts are still not promoted to message events (outside this ticket), and `mcpDetails` on CallDynamicTool args is left in the call text, not parsed.
+
+## Summary
+
+Landed on branch worktree-agent-a1bbed7644257d0df (from t3/session-diagnostics) in c7b5a9c.
+
+Cursor CLI parts blobs stay one unknown event (tool parts removed from `extra.content`) followed by a tool_call (`raw_type = tool-call`) or tool_result (`raw_type = tool-result`) per tool part, with `extra.blob_id`. CallDynamicTool resolves from args (object or JSON string): namespace `cursor` gives the bare tool name, other namespaces `mcp__<namespace>__<toolName>` with `extra.mcp_server`; `extra.cursor_tool_name` keeps CallDynamicTool; `extra.builtin` is true on every non-MCP call. Results take the call's name from a bounded callNames table. is_error stays null and docs/harnesses.md says so.
+
+Order: new internal/normalize/cursorcliorder.go merges every protobuf root's field-1 id list into one topological order (reverse-postorder walk, latest root's branch last), then unlisted blobs in export order. Verified on the local stores under the export cap: every tool part became an event and no result came before its call (0 orphans, against orphans in 7 of 8 sessions in the spike).
+
+Tests: TestCursorCLIToolPartsInConversationOrder, TestCursorCLIOrderAfterCompaction; existing tests unchanged. BenchmarkCursorCLITools 139 -> about 210-250 ms/op (machine under load); a 270 MiB real export 2.33 -> 3.16 s. `just ci` passes. Session positions move; re-normalize with `serve normalize --all`.

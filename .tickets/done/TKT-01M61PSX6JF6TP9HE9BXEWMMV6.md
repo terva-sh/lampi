@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61PSX6JF6TP9HE9BXEWMMV6
 title: "Normalize: project Codex code-mode inner tool calls"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc-norm2
-  branch: worktree-agent-a1bbed7644257d0df
-  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-a1bbed7644257d0df
-  commit: 4ef8a9aaaa17285b97138760d3a554619c5caeb2
-  session: null
-  claimed_at: 2026-10-28T17:00:56Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:51:58Z
-updated_at: 2026-10-28T17:08:51Z
+updated_at: 2026-10-28T17:34:05Z
 created_by:
   id: agent:claude-code/049834bc-spike
   name: Claude Code local agent
@@ -87,3 +80,13 @@ Alternatives considered for the marker: `item_completed.<ItemKind>` as raw_type 
 Benchmark (BenchmarkCodexStreamInner, 32 MiB synthetic transcript made only of exec cells with one command and one MCP call each, 5 runs x 3): before 208-230 ms/op, 192.7 MB/op, 833k allocs; after 297-311 ms/op, 237.4 MB/op, 1.02M allocs. The cost is one more decode of each inner item (the item object, then its text) and twice the events from those lines. A first version that decoded the MCP result twice ran at 357-398 ms/op. Memory stays per line: the only new state is one string (the cell id), bounded by callNameMaxBytes.
 
 Not projected: ImageView, CollabAgentToolCall and Extension items. Extension carries the id of a top-level `call_...` function call (the `sleep` tool) that already has events; the others are rare (72 and 311 in the local corpus) and outside the ACs.
+
+## Summary
+
+Landed on branch worktree-agent-a1bbed7644257d0df (from t3/session-diagnostics) in c2cb037, with a helper rename in c7b5a9c.
+
+Codex `item_completed` items of kind CommandExecution, McpToolCall and FileChange are projected as a tool_call and a tool_result from the same line, both `raw_type = item_completed`, `tool.call_id` = item id, `extra.cell_call_id` = latest exec cell, `extra.item_type`, `extra.duration_ms` on the result, the call's recorded_at from `started_at_ms`. Names: `exec_command`, `apply_patch`, `mcp__<server>__<tool>` (shared `mcpToolName` in callnames.go, Claude Code's character rule, hyphens kept) with `extra.mcp_server`. is_error: exit_code, then MCP `result.isError` / `error`, then status. Outside code mode, `mcp_tool_call_begin` now names `mcp__<server>__<tool>` and `mcp_tool_call_end` reads `Err` / `Ok.isError`. Other item kinds stay unknown.
+
+Contract for TKT-01M61MZN8 is in the earlier note and docs/harnesses.md ("Codex code-mode inner calls"). Verified on the local corpus with a throwaway probe (not committed): 35,748 exec_command, 2,449 apply_patch and 4,488 MCP inner calls, the same counts as the calibration doc, every one with a cell id and a duration.
+
+Tests: TestCodexCodeModeInnerCalls, TestCodexMCPOutsideCodeModeKeepsServer, updated TestCodexResultNamesFollowTheirOwnCall; BenchmarkCodexStreamInner 215 -> 305 ms/op on a transcript made only of inner calls. `just ci` passes; internal/api test time 8.9 s before, 9.0-9.7 s after under load. Positions in code-mode sessions move; operators re-normalize with `serve normalize --all` (docs/harnesses.md "Normalizing older sessions again").
