@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T17:58:51Z
+updated_at: 2026-10-28T18:38:17Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-surf
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -77,6 +77,10 @@ Implemented in f12b6e4 (code) and 738a565 (docs).
 ### Tests
 
 TestReadToolsFromNormalizedTranscripts is the end-to-end case: a Codex code-mode rollout and a Claude Code transcript run through normalize.Codex / normalize.Claude, publishNormalized, index.Pass, then GET /api/read/v1/tools. It asserts exec (outer, code_mode_cell), exec_command and mcp__pond-docs__read (inner, mcp/pond-docs), mcp__pond__read (mcp/pond), Bash error rate 1, no content in the body, browser route parity, session-scoped token, and the audit line. MCP parity, scope and bay tests were extended; TestQueryTools covers the CLI.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:38:17Z
+
+Review 2910 on PR #223 (medium) declined with evidence. /tools and /api/web/v1/tools are both registered through guardRead (internal/web/pages.go pageRoutes, internal/web/server.go), which runs url.ParseQuery on the raw query and refuses a decode error with 400 before either handler. TestToolsRefuseMalformedQueries (629623e) pins this for a bad value and a bad repeated value on both routes, and passes on the reviewed code unchanged.
 
 ## Summary
 
