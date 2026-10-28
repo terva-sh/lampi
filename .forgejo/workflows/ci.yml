@@ -48,9 +48,13 @@ jobs:
       - name: gofmt check
         run: test -z "$(gofmt -l . | tee /dev/stderr)"
 
-      # internal/accept.TestMVPAcceptance is the MVP gate.
+      # internal/accept.TestMVPAcceptance is the MVP gate. internal/recall
+      # takes about 270s under -race on an idle workstation, and a runner
+      # shared by several pull requests pushed it past Go's default 10m
+      # per package, so a loaded runner gets 25m and fails only on a hang
+      # (TKT-01M622K0PH21D6WX3HDDRM7VHK).
       - name: go test (race)
-        run: go test -race ./...
+        run: go test -race -timeout 25m ./...
 
       - name: go build
         run: go build -o bin/terva-lampi ./cmd/terva-lampi

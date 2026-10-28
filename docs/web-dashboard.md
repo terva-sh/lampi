@@ -194,6 +194,17 @@ clipboard gets plain text with a header that names the session and links back
 to it. Open as text shows the same text as a page. Without JavaScript, each
 transcript page links its own plain text.
 
+Above the events, a closed **Diagnosis** panel names how many findings the
+session has at each severity. Opened, it lists each finding: its severity and
+code, the tool, server or cause it is about, the measured values, the
+suggestion, and links to up to 16 of its events, which open the transcript at
+that event. The lake diagnoses the published generation each time the page
+loads, within one second. A session too long for that, or one normalized again
+while the page loaded, shows a one-line notice in place of the panel, and the
+transcript still renders. The panel holds no transcript text.
+[Session diagnosis](web-api.md#session-diagnosis) describes the codes and the
+JSON form.
+
 `/search` finds literal text in every indexed transcript: `git push --force`,
 a path or an error message matches as written, ignoring case. Filters narrow by
 harness, project and recorded date. Each result names its session and event and

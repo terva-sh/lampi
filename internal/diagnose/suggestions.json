@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "polling_tools": [
+    "sleep", "wait", "wait_agent", "list_agents", "clock.sleep", "collab:wait",
+    "Monitor", "TaskStop", "ListAgents",
+    "AwaitShell", "GetDynamicTools"
+  ],
+  "codes": {
+    "large_tool_result": {
+      "severity": "warn",
+      "thresholds": {"result_bytes": 65536, "count_bytes": 32768, "count": 10},
+      "suggestion": "Tool output is filling the context. Limit output at the source (head, --max-count, a narrower pattern), read file ranges instead of whole files, and delegate wide searches to a subagent."
+    },
+    "large_tool_input": {
+      "severity": "info",
+      "thresholds": {"input_bytes": 32768},
+      "suggestion": "The model wrote very large tool inputs, usually whole generated files. Prefer targeted edits over rewriting a file, and split large generated files into smaller steps."
+    },
+    "error_streak": {
+      "severity": "warn",
+      "thresholds": {"length": 5},
+      "suggestion": "Several tool calls failed in a row. Check the environment: permissions, a missing dependency or binary, a wrong working directory, or a service that is down."
+    },
+    "retry_loop": {
+      "severity": "warn",
+      "thresholds": {"window": 5, "retries": 3},
+      "suggestion": "The agent repeated the same call and got the same answer, so it looks stuck. Add a guard or a stop condition to the instructions, or clarify the tool's description so the model knows what a result means."
+    },
+    "repeated_read": {
+      "severity": "info",
+      "thresholds": {"reads": 5},
+      "suggestion": "The same unchanged file range was read again and again, a sign the agent lost track of what it had read. Split the task, or keep working notes the agent can refer to instead of rereading."
+    },
+    "context_pressure": {
+      "severity": "info",
+      "thresholds": {"compactions": 3, "cache_collapses": 3, "cache_read_floor": 20000, "cache_drop_percent": 50, "context_keep_percent": 80, "idle_seconds": 300},
+      "suggestion": "The session kept running out of context. Split long work into separate sessions, trim large tool results, and check how much context the session starts with (instructions, tool definitions, MCP servers)."
+    },
+    "orphan_call": {
+      "severity": "info",
+      "thresholds": {"calls": 3},
+      "skip_harnesses": ["cursor-cli"],
+      "suggestion": "Several tool calls never got a result. The session may have been interrupted, or a tool hung or crashed; check the tool's timeouts and logs."
+    },
+    "orphan_result": {
+      "severity": "info",
+      "thresholds": {"results": 1},
+      "skip_harnesses": ["cursor-cli"],
+      "suggestion": "Tool results arrived for calls this transcript does not hold. The transcript may be incomplete; check that every file of the session was captured."
+    },
+    "unreadable_lines": {
+      "severity": "error",
+      "thresholds": {"lines": 1},
+      "suggestion": "Part of the transcript could not be read and was skipped. The raw file is kept in the lake unchanged; report the harness version if this repeats."
+    },
+    "noisy_tool_origin": {
+      "severity": "warn",
+      "thresholds": {"share_percent": 25, "min_bytes": 262144},
+      "suggestion": "One MCP server or extension produced a large share of the tool output. Review that server's output size and paging options, and disable the tools the work does not need."
+    },
+    "unknown_tool": {
+      "severity": "warn",
+      "thresholds": {"calls": 1},
+      "suggestion": "The model called a tool the harness does not offer. Check prompts, skills and configuration for a wrong or outdated tool name, such as a missing or extra prefix."
+    }
+  }
+}

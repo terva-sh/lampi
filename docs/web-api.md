@@ -34,6 +34,7 @@ raw manifests never appear in these responses.
 | `/search` | Literal text search over indexed events; see below |
 | `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
 | `/activity` | Accepted head updates per UTC hour or day; see below |
+| `/tools` | Tool usage statistics per tool or origin; see below |
 | `/operations` | Disk use, growth, queues, the serve process and machine freshness; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
@@ -293,14 +294,17 @@ read in the token's scope:
 | `search` | [`GET /api/web/v1/search`](#search) | The route's parameters: `q`, `harness`, `project`, `unlinked`, `since`, `until`, `event_type`, `actor`, `tool`, `tool_error`, `raw_type`, `limit`, `cursor`. |
 | `read_events` | [`GET /api/web/v1/sessions/{uid}/events`](#transcript-events) | `session_uid`, then the route's `from`, `limit`, `cursor`, `gen`. |
 | `copy_excerpt` | [`GET /api/web/v1/sessions/{uid}/excerpt`](#excerpts) | `session_uid`, then the route's `from`, `count`, `gen`. |
+| `tool_stats` | [`GET /api/web/v1/tools`](#tool-usage) | The route's parameters: `harness`, `project`, `unlinked`, `model`, `tool`, `origin`, `origin_name`, `since`, `until`, `all`, `group_by`, `split`, `bucket`, `largest`, `context`. |
+| `diagnose_session` | [`GET /api/web/v1/sessions/{uid}/diagnosis`](#session-diagnosis) | `session_uid` only. |
+| `diagnose_lake` | [`GET /api/web/v1/diagnosis`](#session-diagnosis) | The route's parameters: `since`, `limit`, `harness`, `project`. |
 
 - The arguments go through the route's own parser: a string as it is, an
   integer in decimal, and a boolean as `true` or `false`. A null argument
   is left out. The limits, defaults and cursors are the route's.
 - The result is one text content block that holds the route's JSON body.
-  The one difference is that `link` values are absolute: the lake's
-  `base_url` comes before the path, so an agent can give the link to a
-  person.
+  The one difference is that `link` and `links` values are absolute:
+  the lake's `base_url` comes before the path, so an agent can give the
+  link to a person.
 - A refused argument or a failed read is a tool result with `isError`
   true. Its text is the route's error body, such as
   `{"error":"invalid_request"}`, with a `hint` that says what to change.
@@ -471,7 +475,7 @@ Text is returned exactly as stored. The web page renders it as plain text.
 |---|---|
 | `q` | 3 characters to 1024 bytes of UTF-8, no NUL. It matches as a case-insensitive substring of `content_text`. Quotes, `OR`, `NEAR`, `*` and `:` are literal text, not syntax. |
 | `harness`, `project`, `unlinked` | As on `/sessions`. An empty value means no filter. |
-| `since`, `until` | Recorded time in UTC, as RFC 3339 or `YYYY-MM-DD`. `since` is inclusive and `until` exclusive; a date-only `until` covers that whole day. With either set, events with no recorded time are left out. `since` must be before `until`. |
+| `since`, `until` | Recorded time in UTC, as RFC 3339 or `YYYY-MM-DD`. `since` is inclusive and `until` exclusive; a date-only `until` covers that whole day. With either set, events with no recorded time are left out. `since` must be before `until`. A time outside 1678 to 2262, which the lake cannot store, is refused. |
 | `event_type` | Exact: `message`, `tool_call`, `tool_result`, `usage`, `compaction`, `meta`, `error`, `unknown`, or `unreadable` for a line the index could not decode. |
 | `actor` | Exact: `user`, `assistant`, `system`, `tool`, `harness`. |
 | `tool` | Exact tool name, case-sensitive, up to 256 bytes. |
@@ -510,6 +514,183 @@ text is indexed.
 |---|---|---|
 | 400 | `invalid_request` | No text and no event filter, short query, unknown filter value, bad date, unknown or repeated parameter, bad cursor |
 | 503 | `search_unavailable` | The lake has no search index |
+
+## Tool usage
+
+`GET /api/web/v1/tools` counts tool calls and results in the indexed
+events: calls, sessions, errors, input and result sizes, and latency, per
+tool or per origin. The same request with a read token holding
+`events:read` goes to `GET /api/read/v1/tools`, which the
+[`tool_stats`](#mcp-recall-tools) MCP tool and
+[`terva-lampi query tools`](cli.md#query-a-lake) use. That route writes
+an `events.read` audit line naming its parameters before it answers.
+Both read the caller's scope. Neither returns transcript text: only
+counts, sizes, times, tool names, model ids and event positions.
+
+| Parameter | Meaning |
+|---|---|
+| `harness`, `project`, `unlinked` | As on `/search`. |
+| `model` | Only calls by this model id. A result takes its call's model. |
+| `tool` | Exact tool name, such as `Bash` or `mcp__pond__read`. |
+| `origin` | Only tools of this origin kind: `builtin`, `mcp`, `plugin`, `extension` or `unknown`. |
+| `origin_name` | Only tools of this origin name, such as an MCP server. Needs `origin`. |
+| `since`, `until` | Recorded time, as on `/search`. With neither and no `bucket`, the range is the last 7 days. |
+| `all` | `true` reads every recorded time. It is refused with `since`, `until` or `bucket`. Rows with no recorded time count only here, as `undated`. |
+| `group_by` | `tool` (the default) or `origin`. |
+| `split` | `harness` or `model` splits each group further. |
+| `bucket` | `hour` or `day` adds calls per bucket. The range then follows [Activity](#activity): its defaults, its rounding and its widest range. |
+| `largest` | 0–100, default 0: the largest single call inputs and results to list. |
+| `context` | `true` adds the starting-context hint described below. |
+
+Each parameter appears at most once. An empty value means no filter, so a
+form can submit every field. A refused value is `400 invalid_request`
+with `param` naming it, such as `{"error":"invalid_request","param":"origin"}`.
+
+The origin comes from the tool's name. `mcp__<server>__<tool>` is an MCP
+server's tool in every harness. In Claude Code,
+`mcp__plugin_<plugin>_<server>__<tool>` is a plugin's server, and a
+capitalized bare name is built in. A Codex namespace is an extension.
+A name that fits no rule is `unknown`.
+
+The answer is `{as_of, group_by, split, since, until, bucket,
+bucket_starts, totals, groups, largest, context, units, coverage}`.
+
+- `totals` sums the selected rows: `calls`, `results`, `sessions`,
+  `unanswered` (calls with an id and no result), `undated`,
+  `context_result_bytes` and `inner_result_bytes`, and `buckets` with a
+  bucket.
+- `groups` hold one entry per tool, or per origin, most called first.
+  Each has `tool` (when grouping by tool), `origin` (`{kind, name,
+  server}`), `harness` or `model` when split, `inner`, `calls`,
+  `results`, `sessions`, `unanswered`, `undated`, `errors`,
+  `results_with_error_flag`, `error_rate` (null when no result recorded
+  an error flag), `input_bytes` and `result_bytes` (`{count, total, p50,
+  p95, max}`), `result_share`, `session_share` (`{sessions, p50, p95,
+  max}`), `latency_ms` (`{count, p50, p95, max}`, or null), an optional
+  `latency_note`, and `buckets`.
+- `largest` lists blocks biggest first, each with `session_uid`,
+  `generation`, `position`, `link` (the viewer URL of the event),
+  `harness`, `tool`, `origin`, `event_type`, `inner`, `bytes` and
+  `recorded_at`.
+- `units` says what each measure counts. `coverage` is search's, and is
+  zero for anyone who does not read every bay.
+
+Sizes are bytes of an event's text before the index cut it. A p50 or p95
+is read from buckets a quarter of a power of two wide, so it is at most
+19% above the true value; `max`, totals and shares are exact.
+`result_share` is the group's part of all selected result bytes of its
+class. Codex code-mode inner calls, the calls a script made inside an
+`exec` cell, are marked `inner`. Their results are data the script
+handled, not context the model read, so they form their own class and
+never share a group with outer calls. Latency runs from a call's
+recorded time to its result's. `latency_note` is `waits_on_person` for a
+tool that waits for a person's answer, such as `AskUserQuestion`, whose
+latency is left out, and `code_mode_cell` for a Codex `exec` cell, whose
+latency is the cell's.
+
+With `context=true`, `context` compares the starting context of sessions
+that called each MCP server, plugin or extension with sessions in the
+same harness that did not:
+
+```json
+{
+  "kind": "correlation_hint",
+  "note": "Starting context of sessions that called the origin against ...",
+  "min_sessions": 5,
+  "harnesses": [{"harness": "claude", "all": {"sessions": 40, "median_tokens": 21800}}],
+  "rows": [{"harness": "claude", "origin": {"kind": "mcp", "name": "pond"},
+            "with": {"sessions": 12, "median_tokens": 27400},
+            "without": {"sessions": 28, "median_tokens": 19900},
+            "difference_tokens": 7500, "suppressed": false}]
+}
+```
+
+Starting context is the first usage event's input plus cache tokens.
+`difference_tokens` is null, and `suppressed` true, when either side has
+fewer than `min_sessions` sessions. A session that uses a server can
+differ in other ways, and a server that is configured but never called
+is not seen, so present this as a hint and keep `kind` and `note` with
+it.
+
+| Status | Error | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | Unknown or repeated parameter, or a refused value, named in `param` |
+| 400 | `too_many_values` | More than 2,500,000 rows or 10,000 distinct tools to read. Narrow the range, harness or project. |
+| 503 | `search_unavailable` | The lake has no search index |
+| 503 | `read_unavailable` | The read took more than five seconds |
+
+## Session diagnosis
+
+`GET /api/web/v1/sessions/{uid}/diagnosis` reads one session's published
+events once and reports what looks wrong with it: oversized tool results
+or inputs, error streaks, retry loops, repeated reads, context pressure,
+unanswered calls, unreadable lines, a noisy MCP server or an unknown
+tool. The same request with a read token holding `events:read` goes to
+`GET /api/read/v1/sessions/{uid}/diagnosis`, which the
+[`diagnose_session`](#mcp-recall-tools) MCP tool and
+[`terva-lampi query diagnose`](cli.md#query-a-lake) use. That route
+writes an `events.read` audit line, `diagnosis session=UID query=`,
+before it answers, with `Cache-Control: no-store`. Both read the
+caller's scope, and neither returns transcript text: only codes, counts,
+sizes, tool and server names, and event positions. The route takes no
+parameters.
+
+The answer is `{session_uid, generation, head_sha256, harness,
+rules_version, events, tool_calls, tool_results, oversized_events,
+findings}`. `generation` is the one read; positions belong to it.
+`oversized_events` counts lines too long for the rules to read.
+`findings` is empty for a clean session, and ordered most severe first,
+then by code. Each finding has:
+
+- `code`, `severity` (`info`, `warn` or `error`), and `cause`, `tool` or
+  `origin` where a code has several rules or names a tool or server.
+- `count`, the events it covers, and `positions`, at most 16 of them,
+  ascending.
+- `links`, one per position in the same order: the event in the
+  transcript viewer, as `/sessions/{uid}/transcript?at=N&gen=G#e-N`.
+  They are relative here and absolute through MCP.
+- `values`, the measurements, named per code. A name ending in `_bytes`
+  is a size, unless it starts with `over_`, which counts events over a
+  size.
+- `suggestion`: `{code, text, link}`, the advice for the code.
+
+The codes, their thresholds and the reasons for them are in
+[Session diagnostics calibration](session-diagnostics-calibration.md).
+
+`GET /api/web/v1/diagnosis` and `GET /api/read/v1/diagnosis` (audited
+as `diagnosis query=…`) diagnose the most recently updated sessions and
+group their findings:
+
+| Parameter | Meaning |
+|---|---|
+| `since` | Only sessions whose head last changed at or after this time, as on `/search`. The default is 7 days ago. |
+| `limit` | 1–1000, default 200: the most sessions to read, newest first. |
+| `harness`, `project` | Only these sessions. |
+
+The answer is `{since, limit, rules_version, sessions, skipped,
+truncated, truncated_by, groups, as_of}`. `sessions` counts those
+diagnosed. `skipped` counts those purged, normalized again or no longer
+ready by the time they were read. `truncated` is true when sessions in
+range were left unread: `truncated_by` is `limit` when there were more
+than `limit`, and `time` when the walk stopped half a second before the
+five-second read budget ran out. A truncated answer is still a correct
+count of the sessions it names. Each group in `groups` is one `code`,
+`harness` and `project_id`, with its `severity`, `sessions` (sessions
+with the code), `findings` (more than `sessions` when a session has one
+per tool), `events` (the findings' counts summed), `example_sessions`
+(up to 3 uids, newest first) and `suggestion`. Groups come most severe
+first, then by sessions.
+
+Findings are computed on request from the published events; nothing is
+cached, so an answer always matches the current generation.
+[Performance](performance.md#session-diagnosis) has the timings.
+
+| Status | Error | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | A parameter on the one-session route, or an unknown, repeated or refused one on the lake-wide route, named in `param` |
+| 404 | `not_found` | No such session in the caller's scope |
+| 409 | `transcript_unavailable` | The session has no readable normalized transcript; `state` says why |
+| 503 | `read_unavailable` | One session's diagnosis took more than five seconds |
 
 ## Excerpts
 
