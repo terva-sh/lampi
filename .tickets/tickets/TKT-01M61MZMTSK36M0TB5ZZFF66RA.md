@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61MZMTSK36M0TB5ZZFF66RA
 title: "Search index: store content size, call id and model id per event"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,15 +16,22 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/049834bc-index
+  branch: worktree-agent-adf00fbe30e1bc1b5
+  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-adf00fbe30e1bc1b5
+  commit: 2439f8a0f31b8907b1905d5ac3ea5bd602ed46da
+  session: null
+  claimed_at: 2026-10-28T16:31:06Z
+  expires_at: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T16:20:09Z
+updated_at: 2026-10-28T16:31:06Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
+  id: agent:claude-code/049834bc-index
   name: Claude Code local agent
 extensions: {}
 ---
