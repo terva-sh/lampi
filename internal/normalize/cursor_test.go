@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -452,6 +453,70 @@ func TestCursorPromoteBubbleTools(t *testing.T) {
 		}
 		if results[1].Tool.Name != nil {
 			t.Fatalf("result name invented: %s", *results[1].Tool.Name)
+		}
+	})
+
+	t.Run("status sets is_error", func(t *testing.T) {
+		bubble := func(key, status string, former map[string]any, results []any) map[string]any {
+			tf := map[string]any{"name": "Read", "toolCallId": "call-" + key}
+			for k, v := range former {
+				tf[k] = v
+			}
+			if status != "" {
+				tf["status"] = status
+			}
+			value := map[string]any{"type": 2, "toolFormerData": tf}
+			if results != nil {
+				value["toolResults"] = results
+			}
+			return map[string]any{"key": "bubbleId:c1:" + key, "value": value}
+		}
+		raw := cursorRaw(t, map[string]any{
+			"harness_version": "1",
+			"confidence":      "low",
+			"source":          "state.vscdb",
+			"scope":           "workspace",
+			"item_table":      []any{},
+			"cursor_disk_kv": []any{
+				bubble("ok", "completed", map[string]any{"result": "fine"}, nil),
+				bubble("bad", "error", map[string]any{"result": "boom"}, nil),
+				bubble("cancel", "cancelled", map[string]any{"result": "stopped"}, nil),
+				bubble("none", "", map[string]any{"result": "unknown"}, nil),
+				// A toolResults element of the bubble's own call takes its
+				// name and status; another call's element takes neither.
+				bubble("list", "error", nil, []any{
+					map[string]any{"toolCallId": "call-list", "result": "own"},
+					map[string]any{"toolCallId": "call-other", "result": "other"},
+				}),
+			},
+		})
+		events := projectCursor(t, "workspace/ws1", raw)
+		got := map[string]Tool{}
+		for _, ev := range events {
+			if ev.EventType == EventToolResult {
+				got[*ev.ContentText] = ev.Tool
+			}
+		}
+		flag := func(b *bool) string {
+			if b == nil {
+				return "null"
+			}
+			return fmt.Sprint(*b)
+		}
+		for text, want := range map[string]string{"fine": "false", "boom": "true", "stopped": "null", "unknown": "null", "own": "true", "other": "null"} {
+			tool, ok := got[text]
+			if !ok {
+				t.Fatalf("no result %q", text)
+			}
+			if flag(tool.IsError) != want {
+				t.Fatalf("%s: is_error %s, want %s", text, flag(tool.IsError), want)
+			}
+		}
+		if n := got["own"].Name; n == nil || *n != "Read" {
+			t.Fatalf("own element name %v", n)
+		}
+		if got["other"].Name != nil {
+			t.Fatalf("other element named %q", *got["other"].Name)
 		}
 	})
 

@@ -34,7 +34,7 @@ func TestShareGPTKeepsLineageAndOpaqueContent(t *testing.T) {
 		{From: "gpt", Value: "thinking", EncryptedContent: opaqueBlob},
 		{From: "gpt", Value: "hello"},
 		{From: "gpt", Value: `{"command":"ls"}`, Name: "bash", CallID: "call_1"},
-		{From: "tool", Value: "main.go", CallID: "call_1"},
+		{From: "tool", Value: "main.go", Name: "bash", CallID: "call_1"},
 		{From: "system", Value: "summary of the pond", EncryptedContent: opaqueBlob},
 	}
 	if len(rec.Conversations) != len(want) {

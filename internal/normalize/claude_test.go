@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -149,6 +150,9 @@ func TestClaudeSchemaOpaqueAndUnknownKeys(t *testing.T) {
 	if searchResult.Tool.CallID == nil || *searchResult.Tool.CallID != "srvtoolu_01" {
 		t.Fatalf("search call id: %+v", searchResult.Tool)
 	}
+	if searchResult.Tool.Name == nil || *searchResult.Tool.Name != "web_search" {
+		t.Fatalf("search result name: %v", searchResult.Tool.Name)
+	}
 	if readCall == nil || readCall.ContentText == nil || !strings.Contains(*readCall.ContentText, "main.go") {
 		t.Fatalf("read call: %+v", readCall)
 	}
@@ -169,6 +173,9 @@ func TestClaudeSchemaOpaqueAndUnknownKeys(t *testing.T) {
 	}
 	if toolResult == nil || toolResult.Actor != ActorTool || toolResult.Tool.IsError == nil || *toolResult.Tool.IsError {
 		t.Fatalf("tool result: %+v", toolResult)
+	}
+	if toolResult.Tool.Name == nil || *toolResult.Tool.Name != "Read" || toolResult.Tool.CallID == nil || *toolResult.Tool.CallID != "toolu_01" {
+		t.Fatalf("tool result was not named from its call: %+v", toolResult.Tool)
 	}
 	if toolResult.Extra["mystery"] != true {
 		t.Fatalf("mystery: %#v", toolResult.Extra)
@@ -275,6 +282,93 @@ func TestClaudeNormalizeErrorOmitsLine(t *testing.T) {
 	}
 }
 
+func TestClaudeToolResultNameFromCall(t *testing.T) {
+	line := func(s string) string {
+		return `{"type":"user","sessionId":"s","timestamp":"2026-09-22T16:10:03Z","message":{"role":"user","content":[` + s + `]}}`
+	}
+	call := func(id, name string) string {
+		return `{"type":"assistant","sessionId":"s","timestamp":"2026-09-22T16:10:02Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"` + id + `","name":"` + name + `","input":{}}]}}`
+	}
+	raw := strings.Join([]string{
+		// A result before any call, and one whose call never appears.
+		line(`{"type":"tool_result","tool_use_id":"toolu_late","content":"early"}`),
+		call("toolu_late", "Bash"),
+		call("toolu_mcp", "mcp__pond__read"),
+		line(`{"type":"tool_result","tool_use_id":"toolu_mcp","is_error":true,"content":"failed"}`),
+		line(`{"type":"tool_result","tool_use_id":"toolu_none","content":"orphan"}`),
+		line(`{"type":"tool_result","content":"no id"}`),
+	}, "\n") + "\n"
+	events, err := (Claude{NativeID: claudeNative}).Normalize(context.Background(), []byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]*string{}
+	for _, ev := range events {
+		if ev.EventType == EventToolResult {
+			names[*ev.ContentText] = ev.Tool.Name
+		}
+	}
+	if len(names) != 4 {
+		t.Fatalf("results %d", len(names))
+	}
+	for _, text := range []string{"early", "orphan", "no id"} {
+		if names[text] != nil {
+			t.Fatalf("%s: a result with no earlier call was named %q", text, *names[text])
+		}
+	}
+	if n := names["failed"]; n == nil || *n != "mcp__pond__read" {
+		t.Fatalf("mcp result name %v", n)
+	}
+
+	// The stream path keeps the same state and gives the same names.
+	var streamed []Event
+	if err := (Claude{NativeID: claudeNative}).Stream(context.Background(), strings.NewReader(raw), func(ev Event) error {
+		streamed = append(streamed, ev)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range events {
+		if (events[i].Tool.Name == nil) != (streamed[i].Tool.Name == nil) || events[i].Tool.Name != nil && *events[i].Tool.Name != *streamed[i].Tool.Name {
+			t.Fatalf("event %d: slice %v stream %v", i, events[i].Tool.Name, streamed[i].Tool.Name)
+		}
+	}
+}
+
+func TestCallNamesBound(t *testing.T) {
+	var c callNames
+	for i := 0; i < callNamesMax+10; i++ {
+		c.remember(fmt.Sprintf("call-%d", i), "Read")
+	}
+	if len(c.names) != callNamesMax || len(c.order) != callNamesMax {
+		t.Fatalf("table holds %d names, %d ids", len(c.names), len(c.order))
+	}
+	// The oldest calls are forgotten first; the newest are kept.
+	for i := 0; i < 10; i++ {
+		if got := c.name(fmt.Sprintf("call-%d", i)); got != "" {
+			t.Fatalf("call-%d still named %q", i, got)
+		}
+	}
+	if c.name("call-10") != "Read" || c.name(fmt.Sprintf("call-%d", callNamesMax+9)) != "Read" {
+		t.Fatal("a recent call was forgotten")
+	}
+	// A call seen again is renamed in place, not added twice.
+	c.remember("call-10", "Write")
+	if c.name("call-10") != "Write" || len(c.names) != callNamesMax {
+		t.Fatalf("rename: %q, %d", c.name("call-10"), len(c.names))
+	}
+	long := strings.Repeat("x", callNameMaxBytes+1)
+	c.remember(long, "Read")
+	c.remember("short", long)
+	if c.name(long) != "" || c.name("short") != "" {
+		t.Fatal("an over-long id or name was kept")
+	}
+	var empty callNames
+	if empty.name("call-1") != "" {
+		t.Fatal("zero table named a call")
+	}
+}
+
 func claudeFixture() []byte {
 	lines := []string{
 		`{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/work/app","sessionId":"` + claudeNative + `","version":"2.1.71","gitBranch":"main","type":"user","message":{"role":"user","content":"` + proofPrompt + `"},"uuid":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","timestamp":"2026-09-22T16:10:01.477Z","future_field":{"n":1}}`,
@@ -286,4 +380,31 @@ func claudeFixture() []byte {
 		`{"type":"queue-operation","sessionId":"` + claudeNative + `","cwd":"/work/app","timestamp":"2026-09-22T16:10:05.000Z","operation":"enqueue","future_queue":true}`,
 	}
 	return []byte(strings.Join(lines, "\n") + "\n")
+}
+
+// BenchmarkClaudeStreamTools projects a 32 MiB transcript of tool call and
+// result pairs. Each call id is distinct, so the call-name map in
+// claudeState fills and then evicts.
+func BenchmarkClaudeStreamTools(b *testing.B) {
+	raw := claudeToolTranscript(32 << 20)
+	b.SetBytes(int64(len(raw)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		err := (Claude{NativeID: claudeNative}).Stream(context.Background(), bytes.NewReader(raw), func(Event) error { return nil })
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func claudeToolTranscript(size int) []byte {
+	body := strings.Repeat("pond water ", 400)
+	var buf bytes.Buffer
+	for n := 0; buf.Len() < size; n++ {
+		id := fmt.Sprintf("toolu_%08d", n)
+		fmt.Fprintf(&buf, `{"type":"assistant","sessionId":"%s","cwd":"/work/app","timestamp":"2026-09-22T16:10:02Z","message":{"role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"tool_use","id":"%s","name":"mcp__pond__read","input":{"file_path":"main.go"}}]}}`+"\n", claudeNative, id)
+		fmt.Fprintf(&buf, `{"type":"user","sessionId":"%s","cwd":"/work/app","timestamp":"2026-09-22T16:10:03Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","is_error":false,"content":"%s"}]}}`+"\n", claudeNative, id, body)
+	}
+	return buf.Bytes()
 }
