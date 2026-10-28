@@ -60,8 +60,10 @@ var thresholdKeys = map[Code][]string{
 	LargeToolInput:  {"input_bytes"},
 	// length consecutive results with is_error true.
 	ErrorStreak: {"length"},
-	// retries calls, each equal in tool and input to one of the window
-	// calls before it, with the same result or after an error.
+	// A chain of retries calls, each equal in tool and input to one of
+	// the window calls before it and to the chain's call before it,
+	// with the same result or after an error. Repeats that do not chain
+	// are not a loop, however many a session holds.
 	RetryLoop: {"window", "retries"},
 	// reads of one path and range with no write to the path between.
 	RepeatedRead: {"reads"},

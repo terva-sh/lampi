@@ -134,6 +134,12 @@ type call struct {
 	inner   bool
 	// retry is the earlier call in the window this one repeats.
 	retry *call
+	// sameRun and errorRun count the retries in the chain that ends at
+	// this call: repeats, each within the window of the one before,
+	// that got the same output or followed a failure. A loop is a chain
+	// that reaches the retries threshold; repeats that do not chain are
+	// not one.
+	sameRun, errorRun int64
 	// done, result and failed describe the result once it arrived.
 	done   bool
 	result hash
@@ -162,7 +168,12 @@ type originPool struct {
 	pos   map[string]*positions
 }
 
-type toolRetries struct{ sameOutput, afterError positions }
+// toolRetries holds one tool's loops: a position for each chain that
+// reached the threshold, and the longest chain of each cause.
+type toolRetries struct {
+	sameOutput, afterError positions
+	sameMax, errorMax      int64
+}
 
 // Analyzer is one streaming pass. Feed it every line of a session's
 // events file in order with Line, then call Report. It is not safe for
@@ -256,6 +267,10 @@ type event struct {
 	RawType         string          `json:"raw_type"`
 	Extra           struct {
 		UnreadableLine *int `json:"unreadable_line"`
+		// Order is "unestablished" on a Cursor CLI event whose place
+		// among older compaction branches no root gives
+		// (docs/harnesses.md). The rules that read sequence skip it.
+		Order string `json:"order"`
 	} `json:"extra"`
 }
 
@@ -292,13 +307,16 @@ func (a *Analyzer) Line(line []byte) {
 		a.report.ToolResults++
 		a.toolResult(pos, &ev, text)
 		a.sinceCompaction = true
+	case normalize.EventMessage:
+		a.sinceCompaction = true
 	case normalize.EventUsage:
 		a.usage(pos, &ev)
 	case normalize.EventCompaction:
 		// A harness can write one compaction as several events, such as
 		// Claude Code's boundary and its summary, or Codex's response
-		// item and event message. Count one until the session has moved
-		// on.
+		// item and event message, with usage or meta events between.
+		// Count one until a message or a tool event says the session
+		// moved on.
 		if a.sinceCompaction {
 			a.compactions.add(pos)
 			a.sinceCompaction = false
@@ -320,13 +338,14 @@ func name(s *string) string {
 func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 	in := inner(a.harness, ev.RawType)
 	tool := name(ev.Tool.Name)
+	unsure := ev.Extra.Order == "unestablished"
 	if !in {
 		a.sawCall = true
 		if n := int64(len(text)); n >= a.rules.t(LargeToolInput, "input_bytes") {
 			a.inputs.add(pos)
 			a.maxInput = max(a.maxInput, n)
 		}
-		if path, rng, ok := readArgs(a.harness, tool, text); ok {
+		if path, rng, ok := readArgs(a.harness, tool, text); ok && !unsure {
 			a.read(pos, path, rng)
 		}
 		writePaths(a.harness, tool, text, a.write)
@@ -335,7 +354,7 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 	if org := origin(a.harness, tool); len(org) <= maxNameBytes {
 		c.origin = org
 	}
-	if !in && tool != "" && !a.polling[tool] {
+	if !in && tool != "" && !a.polling[tool] && !unsure {
 		for i := range a.recent {
 			// Newest first, so a chain of repeats links each call to the
 			// one just before it.
@@ -398,7 +417,12 @@ func (a *Analyzer) toolResult(pos int64, ev *event, text string) {
 		tool = c.tool
 	}
 
-	if failed {
+	switch {
+	case ev.Extra.Order == "unestablished":
+		// Its neighbours are a guess, so it neither extends a streak
+		// nor is one: the streak starts again after it.
+		a.streak = 0
+	case failed:
 		if a.streak == 0 {
 			a.streakStart = pos
 		}
@@ -407,7 +431,7 @@ func (a *Analyzer) toolResult(pos int64, ev *event, text string) {
 		if a.streak == a.rules.t(ErrorStreak, "length") {
 			a.streaks.add(a.streakStart)
 		}
-	} else {
+	default:
 		a.streak = 0
 	}
 
@@ -479,13 +503,22 @@ func (a *Analyzer) toolResult(pos int64, ev *event, text string) {
 				r = &toolRetries{}
 				a.retries[c.tool] = r
 			}
+			need := a.rules.t(RetryLoop, "retries")
+			switch {
+			case p.failed:
+				c.errorRun = p.errorRun + 1
+			case p.result == c.result:
+				c.sameRun = p.sameRun + 1
+			}
 			if r != nil {
-				switch {
-				case p.failed:
+				if c.errorRun == need {
 					r.afterError.add(c.pos)
-				case p.result == c.result:
+				}
+				if c.sameRun == need {
 					r.sameOutput.add(c.pos)
 				}
+				r.errorMax = max(r.errorMax, c.errorRun)
+				r.sameMax = max(r.sameMax, c.sameRun)
 			}
 		}
 		c.retry = nil
@@ -631,14 +664,13 @@ func (a *Analyzer) Report() Report {
 	if a.streaks.n > 0 {
 		add(Finding{Code: ErrorStreak, Values: map[string]int64{"longest": a.longest, "streaks": a.streaks.n}}, a.streaks)
 	}
-	need := r.t(RetryLoop, "retries")
 	for _, tool := range sortedKeys(a.retries) {
 		t := a.retries[tool]
-		if t.afterError.n >= need {
-			add(Finding{Code: RetryLoop, Cause: "after_error", Tool: tool, Values: map[string]int64{"retries": t.afterError.n}}, t.afterError)
+		if t.afterError.n > 0 {
+			add(Finding{Code: RetryLoop, Cause: "after_error", Tool: tool, Values: map[string]int64{"loops": t.afterError.n, "retries": t.errorMax}}, t.afterError)
 		}
-		if t.sameOutput.n >= need {
-			add(Finding{Code: RetryLoop, Cause: "same_output", Tool: tool, Values: map[string]int64{"retries": t.sameOutput.n}}, t.sameOutput)
+		if t.sameOutput.n > 0 {
+			add(Finding{Code: RetryLoop, Cause: "same_output", Tool: tool, Values: map[string]int64{"loops": t.sameOutput.n, "retries": t.sameMax}}, t.sameOutput)
 		}
 	}
 	if a.repeated.n > 0 {

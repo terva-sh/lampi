@@ -212,7 +212,40 @@ func TestRetryLoop(t *testing.T) {
 		calls = append(calls, s.pair(fmt.Sprint("r", i), "Grep", `{"pattern":"x"}`, "no match", nil))
 	}
 	f := mustFind(t, s.run(t), RetryLoop, "same_output")
-	if f.Tool != "Grep" || f.Values["retries"] != 3 || !slices.Equal(f.Positions, calls[1:]) {
+	if f.Tool != "Grep" || f.Values["retries"] != 3 || f.Values["loops"] != 1 || !slices.Equal(f.Positions, calls[3:]) {
+		t.Fatalf("%+v", f)
+	}
+
+	// Pairs of repeats far apart, each with its own input, are not one
+	// loop, however many there are (review 2903 on #222).
+	s = newSession(protocol.HarnessClaude)
+	for i := range 4 {
+		in := fmt.Sprintf(`{"pattern":"p%d"}`, i)
+		s.pair(fmt.Sprint("a", i), "Grep", in, "no match", nil)
+		s.pair(fmt.Sprint("b", i), "Grep", in, "no match", nil)
+		for j := range 6 {
+			s.pair(fmt.Sprint("f", i, j), "Bash", fmt.Sprint(i, j), "ok", nil)
+		}
+	}
+	mustNotFind(t, s.run(t), RetryLoop)
+
+	// Two separate loops of one tool are two loops.
+	s = newSession(protocol.HarnessClaude)
+	var ends []int64
+	for i := range 2 {
+		in := fmt.Sprintf(`{"pattern":"q%d"}`, i)
+		for k := range 4 {
+			p := s.pair(fmt.Sprint("l", i, k), "Grep", in, "no match", nil)
+			if k == 3 {
+				ends = append(ends, p)
+			}
+		}
+		for j := range 6 {
+			s.pair(fmt.Sprint("g", i, j), "Bash", fmt.Sprint(i, j), "ok", nil)
+		}
+	}
+	f = mustFind(t, s.run(t), RetryLoop, "same_output")
+	if f.Values["loops"] != 2 || f.Values["retries"] != 3 || !slices.Equal(f.Positions, ends) {
 		t.Fatalf("%+v", f)
 	}
 
@@ -313,6 +346,40 @@ func TestContextPressureCompactions(t *testing.T) {
 	f := mustFind(t, s.run(t), ContextPressure, "compactions")
 	if f.Values["compactions"] != 3 || !slices.Equal(f.Positions, want) {
 		t.Fatalf("%+v", f)
+	}
+}
+
+// Compactions in a conversation with no tool activity are still
+// separate when messages come between them, and one compaction's
+// records stay one with usage between them (review 2903 on #222).
+func TestContextPressureCompactionsWithoutTools(t *testing.T) {
+	s := newSession(protocol.HarnessCodex)
+	var want []int64
+	for i := range 3 {
+		s.user(fmt.Sprint("turn ", i))
+		want = append(want, s.add(normalize.Event{EventType: normalize.EventCompaction, RawType: "compacted"}))
+		s.usage(100, 0, 0, time.Second)
+		s.add(normalize.Event{EventType: normalize.EventCompaction, RawType: "context_compacted"})
+	}
+	f := mustFind(t, s.run(t), ContextPressure, "compactions")
+	if f.Values["compactions"] != 3 || !slices.Equal(f.Positions, want) {
+		t.Fatalf("%+v", f)
+	}
+}
+
+// A Cursor CLI event whose place among older branches is a guess
+// neither joins a streak or a retry chain nor counts as a read.
+func TestUnestablishedOrderIsSkipped(t *testing.T) {
+	unsure := map[string]any{"order": "unestablished"}
+	s := newSession(protocol.HarnessCursorCLI)
+	for i := range 6 {
+		id := fmt.Sprint("u", i)
+		s.add(normalize.Event{EventType: normalize.EventToolCall, ContentText: ptr(`{"path":"a.go"}`), Tool: normalize.Tool{Name: ptr("Read"), CallID: ptr(id)}, Extra: unsure})
+		s.add(normalize.Event{EventType: normalize.EventToolResult, ContentText: ptr("same"), Tool: normalize.Tool{Name: ptr("Read"), CallID: ptr(id), IsError: yes}, Extra: unsure})
+	}
+	rep := s.run(t)
+	for _, code := range []Code{ErrorStreak, RetryLoop, RepeatedRead} {
+		mustNotFind(t, rep, code)
 	}
 }
 
