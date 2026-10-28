@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	"terva.sh/lampi/internal/protocol"
+	"terva.sh/lampi/internal/toolorigin"
 )
 
-// InnerRawType opens the raw_type of a Codex code-mode inner call or
-// result: a tool the script in an exec cell called, recorded by Codex
+// InnerRawType is the raw_type of a Codex code-mode inner call or
+// result (docs/harnesses.md, "Codex code-mode inner calls"): a tool the script in an exec cell called, recorded by Codex
 // as an item_completed event. Its result went to the script, not to the
 // model, so it is not context: size rules read the cell's result
 // instead, and retry and orphan rules read only the calls the model
@@ -18,7 +19,7 @@ import (
 const InnerRawType = "item_completed"
 
 func inner(harness, rawType string) bool {
-	return harness == protocol.HarnessCodex && strings.HasPrefix(rawType, InnerRawType)
+	return harness == protocol.HarnessCodex && rawType == InnerRawType
 }
 
 // fileArgs names the input fields that hold a file path for one tool of
@@ -124,40 +125,16 @@ func firstString(obj map[string]json.RawMessage, keys []string) string {
 	return ""
 }
 
-// origin is the MCP server or extension a call went to, or "" for a
-// harness's own tool. It reads the name, and for Cursor CLI's
-// CallDynamicTool the namespace argument. This is a local parse: when
-// recall.ToolOrigin lands it should move to a package both can import
-// (diagnose is imported by recall, so it cannot import recall), and this
-// should call it.
-func origin(harness, name, input string) string {
-	// Codex code-mode scripts call tools.mcp__<server>__<tool>.
-	name = strings.TrimPrefix(name, "tools.")
-	if rest, ok := strings.CutPrefix(name, "mcp__"); ok {
-		server, _, found := strings.Cut(rest, "__")
-		if found && server != "" {
-			return server
-		}
-		return ""
-	}
-	if harness == protocol.HarnessCursorCLI && name == "CallDynamicTool" {
-		var args struct {
-			Namespace string `json:"namespace"`
-			Args      struct {
-				Namespace string `json:"namespace"`
-			} `json:"args"`
-		}
-		if json.Unmarshal([]byte(input), &args) != nil {
-			return ""
-		}
-		ns := args.Namespace
-		if ns == "" {
-			ns = args.Args.Namespace
-		}
-		if ns == "cursor" {
-			return ""
-		}
-		return ns
+// origin is the MCP server a call went to, or "" for any other tool.
+// A plugin's server reads as <plugin>/<server>, so it is not taken for
+// a server of the same name that the user configured. The rules are
+// toolorigin's, the same the tool usage statistics group by.
+func origin(harness, name string) string {
+	switch o := toolorigin.Of(harness, name); o.Kind {
+	case toolorigin.MCP:
+		return o.Name
+	case toolorigin.Plugin:
+		return o.Name + "/" + o.Server
 	}
 	return ""
 }

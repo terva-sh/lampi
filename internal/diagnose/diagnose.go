@@ -332,7 +332,7 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 		writePaths(a.harness, tool, text, a.write)
 	}
 	c := &call{pos: pos, tool: tool, input: sum(tool, text), inner: in}
-	if org := origin(a.harness, tool, text); len(org) <= maxNameBytes {
+	if org := origin(a.harness, tool); len(org) <= maxNameBytes {
 		c.origin = org
 	}
 	if !in && tool != "" && !a.polling[tool] {
@@ -416,7 +416,7 @@ func (a *Analyzer) toolResult(pos int64, ev *event, text string) {
 		org = c.origin
 	}
 	if org == "" {
-		org = origin(a.harness, tool, "")
+		org = origin(a.harness, tool)
 	}
 	pool := &a.pools[0]
 	if in {

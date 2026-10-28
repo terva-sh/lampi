@@ -463,17 +463,17 @@ func TestNoisyToolOrigin(t *testing.T) {
 }
 
 func TestOrigin(t *testing.T) {
-	for _, c := range []struct{ harness, name, input, want string }{
-		{"claude", "mcp__my-server__do_thing", "", "my-server"},
-		{"claude", "mcp__plugin_p_srv__tool", "", "plugin_p_srv"},
-		{"claude", "Bash", "", ""},
-		{"claude", "mcp__broken", "", ""},
-		{"codex", "tools.mcp__docs__search", "", "docs"},
-		{"cursor-cli", "CallDynamicTool", `{"namespace":"linear","toolName":"x"}`, "linear"},
-		{"cursor-cli", "CallDynamicTool", `{"args":{"namespace":"linear"}}`, "linear"},
-		{"cursor-cli", "CallDynamicTool", `{"namespace":"cursor","toolName":"AwaitShell"}`, ""},
+	for _, c := range []struct{ harness, name, want string }{
+		{"claude", "mcp__my-server__do_thing", "my-server"},
+		{"claude", "mcp__plugin_p_srv__tool", "p/srv"},
+		{"claude", "Bash", ""},
+		{"claude", "mcp__broken", ""},
+		{"codex", "mcp__docs__search", "docs"},
+		{"codex", "clock.sleep", ""},
+		{"cursor-cli", "mcp__linear__list_issues", "linear"},
+		{"cursor-cli", "mcp__cursor__AwaitShell", ""},
 	} {
-		if got := origin(c.harness, c.name, c.input); got != c.want {
+		if got := origin(c.harness, c.name); got != c.want {
 			t.Errorf("%s %s: %q, want %q", c.harness, c.name, got, c.want)
 		}
 	}
