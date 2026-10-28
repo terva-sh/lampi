@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
@@ -125,32 +126,50 @@ func buildUsageView(t recall.Totals) usageView {
 	return v
 }
 
-// usagePageView is the Usage page: tokens over time for a range and a
-// harness, one chart per kind of token (TKT-01M61NTKY742C45NTZ8KN2CQJ7).
-// The kinds differ by orders of magnitude, since cache reads dwarf the
-// rest, so they are charted apart on their own scales rather than
-// stacked, where input and output would not show.
+// usagePageView is the Usage page: one tab of statistics over a range
+// and a harness. Tokens charts each kind of token on its own scale
+// (TKT-01M61NTKY742C45NTZ8KN2CQJ7): the kinds differ by orders of
+// magnitude, since cache reads dwarf the rest, and a stack would hide
+// input and output. Errors charts error events and failed tool results
+// (TKT-01M61NTM0K2TQHX28T2R4HN0TN).
 type usagePageView struct {
 	// Enabled is false on a lake with no search index.
-	Enabled   bool
+	Enabled bool
+	// Tab is "tokens" or "errors"; Path is its URL path.
+	Tab, Path string
 	Ranges    []activityRange
 	Range     string
 	Harness   string
 	Harnesses []string
-	Since     string
 	Calls     string
 	Parts     []usagePart
 	Charts    []chartView
 	Rows      []usageBucketRow
+	Errors    errorsView
 	Partial   bool
 	Indexed   int
 	Ready     int
+}
+
+// TabURL is the tab at path with the same range and harness. The
+// template is given the whole URL: a query string placed after a "?"
+// in the template would have its "=" escaped.
+func (v usagePageView) TabURL(path string) string {
+	q := url.Values{}
+	q.Set("range", v.Range)
+	if v.Harness != "" {
+		q.Set("harness", v.Harness)
+	}
+	return path + "?" + q.Encode()
 }
 
 type usageBucketRow struct {
 	Start, Calls                         string
 	Input, Output, CacheRead, CacheWrite tokenCell
 }
+
+// usageTabs are the Usage page's tabs by path.
+var usageTabs = map[string]string{"/usage": "tokens", "/usage/errors": "errors"}
 
 // validStatsHarness accepts a harness name as the stats store it: short
 // lowercase letters, digits and dashes. A name no session has selects
@@ -167,8 +186,9 @@ func validStatsHarness(h string) bool {
 	return true
 }
 
-// usagePage renders /usage. Parameters are refused like Activity's: an
-// unknown or repeated one is an error, an empty one takes the default.
+// usagePage renders a tab of /usage. Parameters are refused like
+// Activity's: an unknown or repeated one is an error, an empty one takes
+// the default.
 func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	for k, v := range q {
@@ -185,7 +205,7 @@ func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	preset := activityRanges[i]
-	v := usagePageView{Ranges: activityRanges, Range: key, Harness: harness}
+	v := usagePageView{Tab: usageTabs[r.URL.Path], Path: r.URL.Path, Ranges: activityRanges, Range: key, Harness: harness}
 	if s.index == nil {
 		render(w, r, pageData{Title: "Usage", View: "usage", UsagePage: v})
 		return
@@ -197,10 +217,11 @@ func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	from, width := resolved.Until.Add(-preset.Span), time.Hour
+	from, until, width := resolved.Until.Add(-preset.Span), resolved.Until, time.Hour
 	if preset.Bucket == catalog.BucketDay {
 		width = 24 * time.Hour
 	}
+	hourly := preset.Bucket == catalog.BucketHour
 	ctx, cancel := readContext(r)
 	defer cancel()
 	scope := scopeOf(r)
@@ -209,7 +230,7 @@ func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	series, err := s.index.Series(ctx, scope, harness, from, resolved.Until, width)
+	series, err := s.index.Series(ctx, scope, harness, from, until, width)
 	if err != nil {
 		pageError(w, r, err)
 		return
@@ -220,7 +241,15 @@ func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 	slices.Sort(v.Harnesses)
 	v.Indexed, v.Ready = totals.Coverage.Indexed, totals.Coverage.Ready
 	v.Partial = v.Indexed < v.Ready
-	buildUsageSeries(&v, series, preset.Bucket == catalog.BucketHour)
+	switch v.Tab {
+	case "errors":
+		if err := s.buildErrors(ctx, &v, scope, series, from, until, hourly); err != nil {
+			pageError(w, r, err)
+			return
+		}
+	default:
+		buildUsageSeries(&v, series, hourly)
+	}
 	render(w, r, pageData{Title: "Usage", View: "usage", Poll: true, AsOf: now.UTC().Format(time.RFC3339Nano), UsagePage: v})
 }
 
