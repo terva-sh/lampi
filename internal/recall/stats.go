@@ -135,8 +135,10 @@ type sessionStats struct {
 	// Code repeats a response's usage on each of its content blocks.
 	claude      map[string]claudeUsage
 	claudeOrder []string
-	// codexTotal is the last running total a Codex session reported.
-	codexTotal *codexTotals
+	// codexTotal is the baseline a Codex running total is measured
+	// from: the last total, plus reports without one since. codexLast
+	// is the last total reported.
+	codexTotal, codexLast *codexTotals
 }
 
 type claudeUsage struct {
@@ -228,14 +230,18 @@ func (s *sessionStats) addUsage(row *docRow, ev *normalize.Event) {
 			return
 		}
 		if cur, ok := codexTotal(ev.Extra); ok {
+			// A running total never falls within one process, so a total
+			// lower in any kind than the last one reported is a new
+			// process counting from zero. The last reported total, not
+			// the baseline, is the test: the baseline also holds reports
+			// without a total, which a later total may not include.
+			if last := s.codexLast; last != nil && (cur.input < last.input || cur.cached < last.cached || cur.output < last.output) {
+				s.codexTotal = nil
+			}
+			s.codexLast = &cur
 			prev := codexTotals{}
 			if s.codexTotal != nil {
 				prev = *s.codexTotal
-			}
-			// A total lower in every kind is a new process counting
-			// from zero. Otherwise a kind counts only what it grew by.
-			if cur.input < prev.input && cur.cached < prev.cached && cur.output < prev.output {
-				prev = codexTotals{}
 			}
 			d := codexTotals{max(0, cur.input-prev.input), max(0, cur.cached-prev.cached), max(0, cur.output-prev.output)}
 			s.codexTotal = &codexTotals{prev.input + d.input, prev.cached + d.cached, prev.output + d.output}

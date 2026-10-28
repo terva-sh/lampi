@@ -54,13 +54,13 @@ func TestOverviewShowsTokensTheViewerReads(t *testing.T) {
 	if strings.Contains(body, "9,000") || strings.Contains(body, "9.00M") {
 		t.Fatal("overview counts tokens from a bay the viewer does not read")
 	}
-	if strings.Contains(body, "are indexed so far") {
+	if strings.Contains(body, "are indexed at their latest version") {
 		t.Fatal("overview reports a lag with every readable session indexed")
 	}
 	// A new generation the index has not reached: the viewer, who reads
 	// only some bays, is told its totals lag, counting its own sessions.
 	publishUsage(t, lake, open, 3000, 500, 1000)
-	if body := get(h, "/", cookie).Body.String(); !strings.Contains(body, "0 of 1 ready sessions are indexed so far") {
+	if body := get(h, "/", cookie).Body.String(); !strings.Contains(body, "0 of 1 ready sessions are indexed at their latest version") {
 		t.Fatal("a restricted viewer is not told its totals lag")
 	}
 }
@@ -101,7 +101,10 @@ func TestUsagePageChartsTokensOverTime(t *testing.T) {
 			t.Fatalf("%s answered %d", path, w.Code)
 		}
 	}
-	if w := get(h, "/usage?harness=grokbot", cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "0 model calls") {
+	// A range with no calls is zero of every kind, in the totals and
+	// in every bucket of the table, never "not reported".
+	w = get(h, "/usage?harness=grokbot", cookie)
+	if b := w.Body.String(); w.Code != 200 || !strings.Contains(b, "0 model calls") || strings.Contains(b, "not reported") || !strings.Contains(b, `title="0">0</strong>`) {
 		t.Fatalf("a harness with no sessions: %d", w.Code)
 	}
 }

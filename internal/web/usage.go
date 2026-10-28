@@ -271,19 +271,24 @@ func buildUsageSeries(v *usagePageView, series []recall.SeriesBucket, hourly boo
 	values := make([][]*int64, len(kinds))
 	var total recall.Tokens
 	var calls int64
+	zero := func() *int64 { return new(int64) }
 	for i, b := range series {
 		starts[i] = b.Start
 		calls += b.ModelCalls
 		total.Add(b.Tokens)
+		t := b.Tokens
+		if b.ModelCalls == 0 {
+			// No calls: zero of every kind, in the charts and the table.
+			t = recall.Tokens{Input: zero(), Output: zero(), CacheRead: zero(), CacheWrite: zero()}
+		}
 		for k, kind := range kinds {
-			p := kind.get(b.Tokens)
-			if p == nil && b.ModelCalls == 0 {
-				p = new(int64)
-			}
-			values[k] = append(values[k], p)
+			values[k] = append(values[k], kind.get(t))
 		}
 		v.Rows = append(v.Rows, usageBucketRow{Start: bucketLabel(b.Start, hourly), Calls: humanCount(b.ModelCalls),
-			Input: cellOf(b.Tokens.Input), Output: cellOf(b.Tokens.Output), CacheRead: cellOf(b.Tokens.CacheRead), CacheWrite: cellOf(b.Tokens.CacheWrite)})
+			Input: cellOf(t.Input), Output: cellOf(t.Output), CacheRead: cellOf(t.CacheRead), CacheWrite: cellOf(t.CacheWrite)})
+	}
+	if calls == 0 {
+		total = recall.Tokens{Input: zero(), Output: zero(), CacheRead: zero(), CacheWrite: zero()}
 	}
 	v.Calls = humanCount(calls)
 	for k, kind := range kinds {
