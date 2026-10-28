@@ -23,12 +23,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:09:05Z
+updated_at: 2026-10-28T18:58:24Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-surf
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -86,6 +86,10 @@ AC 3 (use a recorded tool list) stays unticked: it waits on TKT-01M61SPVY01PVEFT
 **agent:claude-code/049834bc-surf** at 2026-10-28T18:09:05Z
 
 in-progress to blocked: Surfaces and engine done; AC 3 needs Claude Code's offered tool list projected (TKT-01M61SPVY01PVEFT1N9JKBK4HB, draft).
+
+**agent:claude-code/049834bc** at 2026-10-28T18:58:24Z
+
+The Tools page panel described in the previous note was removed with the /tools page (PR #223; the owner chose #218's Usage Tools tab instead). The context hint's dashboard surface moves to that tab under TKT-01M61MZNF. The CLI, route and MCP surfaces are unchanged.
 
 ## Summary
 

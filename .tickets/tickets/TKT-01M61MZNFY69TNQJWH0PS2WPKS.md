@@ -1,7 +1,7 @@
 ---
 schema: 3
 id: TKT-01M61MZNFY69TNQJWH0PS2WPKS
-title: "Dashboard: tool usage page with largest blocks"
+title: "Dashboard: extend the Usage Tools tab with sizes, latency and origins"
 type: task
 status: blocked
 status_reason: "Extends the /usage/tools tab from PR #218 (TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG), which is not on main yet."
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T18:58:14Z
+updated_at: 2026-10-28T18:58:24Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
