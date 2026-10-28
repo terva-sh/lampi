@@ -48,6 +48,8 @@ type metaState struct {
 	model    string
 	provider string
 	version  string
+	// calls names a tool_result block from its tool_call block.
+	calls callNames
 }
 
 // Normalize projects raw. raw is not modified. A line that is not a
@@ -287,11 +289,12 @@ func (t Terva) blockEvent(lineNo, offset int, when time.Time, role string, raw j
 	case "tool_call":
 		name, _ := jsonString(block["name"])
 		callID, _ := jsonString(block["id"])
+		st.calls.remember(callID, name)
 		tool := Tool{Name: strPtr(name), CallID: strPtr(callID)}
 		return t.emit(st, "message", EventToolCall, role, when, offset, argumentsText(block["arguments"]), tool, Usage{}, extra)
 	case "tool_result":
 		callID, _ := jsonString(block["call_id"])
-		tool := Tool{CallID: strPtr(callID), IsError: jsonBoolPtr(block["is_error"])}
+		tool := Tool{Name: strPtr(st.calls.name(callID)), CallID: strPtr(callID), IsError: jsonBoolPtr(block["is_error"])}
 		text, enc := flattenContent(block["content"])
 		extra = putEncrypted(extra, enc)
 		return t.emit(st, "message", EventToolResult, role, when, offset, text, tool, Usage{}, extra)
