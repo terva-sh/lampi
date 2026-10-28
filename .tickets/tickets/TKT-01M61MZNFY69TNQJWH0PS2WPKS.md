@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M61MZNFY69TNQJWH0PS2WPKS
 title: "Dashboard: tool usage page with largest blocks"
 type: task
-status: done
-status_reason: null
+status: blocked
+status_reason: "Extends the /usage/tools tab from PR #218 (TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG), which is not on main yet."
 priority: normal
 due_on: null
 labels:
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T18:57:42Z
+updated_at: 2026-10-28T18:58:14Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -88,6 +88,14 @@ From TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG, 2026-10-28. The owner chose to keep the Too
 
 `/usage/tools` already shows tool calls and failed results over time, categories with calls, failures, failure rate and the names counted, and a category by harness matrix, all from the stats rollup. It shares the range and harness form with the Tokens and Errors tabs. Sizes, latency percentiles, the largest blocks and an origin's share of result bytes are what this ticket adds, from the docs columns. The tab lives in `internal/web/tools.go` and the `tools-tab` template.
 
+**agent:claude-code/049834bc** at 2026-10-28T18:58:14Z
+
+done to in-progress: The owner chose to extend PR #218's Usage Tools tab instead of a second page; the /tools page was removed from PR #223.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:58:14Z
+
+in-progress to blocked: Extends the /usage/tools tab from PR #218 (TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG), which is not on main yet.
+
 ## Summary
 
-/tools shows tool usage for the Activity ranges or all time, filtered by harness, origin, project and model: origin share of calls beside share of result bytes, a per-tool or per-origin table with error rate, sizes and latency, calls over time, the 20 largest blocks linked to their transcript events, and the starting-context correlation hint. Tests cover rendering, bay scope, empty, refused and search-off states; the Tools browser smoke passes in isolation (the full smoke has an unrelated pre-existing search-coverage failure).
+Reopened. The separate /tools page built under this ticket was removed from PR #223 before merge, because the owner chose to extend #218's Usage Tools tab instead. The work is blocked until #218 is on main; the revised plan says what the tab gains.
