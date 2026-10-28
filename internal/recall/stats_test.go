@@ -2,6 +2,7 @@ package recall
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -402,5 +403,14 @@ func TestStatsBreakdownAndTopErrorSessions(t *testing.T) {
 	}
 	if got, err := x.Breakdown(t.Context(), catalog.AllBays(), "", until, until.Add(time.Hour), StatError); err != nil || len(got) != 0 {
 		t.Fatalf("a later range: %+v %v", got, err)
+	}
+	// The rollup keeps hours, so a range that cuts one is refused
+	// rather than answered wrong.
+	half := from.Add(30 * time.Minute)
+	if _, err := x.Breakdown(t.Context(), catalog.AllBays(), "", half, until, StatError); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Breakdown from a half hour: %v", err)
+	}
+	if _, err := x.TopErrorSessions(t.Context(), catalog.AllBays(), "", from, half, 10); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("TopErrorSessions to a half hour: %v", err)
 	}
 }
