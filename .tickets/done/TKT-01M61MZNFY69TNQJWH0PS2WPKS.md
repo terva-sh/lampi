@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T18:08:57Z
+updated_at: 2026-10-28T18:54:31Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-surf
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---
@@ -70,6 +70,10 @@ The full e2e/web-smoke.mjs does not pass on this branch, and did not before it:
 2. After that, the script waits for "Searching N of M ready sessions", which only an admin sees since coverage became admin-only; the fixture's default identity is not an admin. Not fixed here: it is unrelated to Tools.
 
 The Tools section was run on its own (the script's login prologue plus the new Tools block) with Playwright 1.58.2 and Chromium against the fixture: passed, including the largest-block link focusing its event, Group by origin, and no mobile overflow. Screenshots looked right.
+
+**agent:claude-code/049834bc** at 2026-10-28T18:54:31Z
+
+Coordinator: renamed this branch's internal/web/tools.go, tools_page.go and tools_test.go to toolstats.go, toolstats_page.go and toolstats_test.go; toolRow and toolsView to toolStatsRow and toolStatsView; and the page's table class to toolstats-table. PR #218 (Tool usage: a Tools tab with a cross-harness map, from TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG) adds files and names that collide with these. The owner decided the two epics layer. /usage/tools groups calls by category from the stats rollup; /tools shows origin, sizes, latency and largest blocks. The dashboard will then show both a top-level Tools page and a Tools tab under Usage, a navigation choice left to the owner.
 
 ## Summary
 
