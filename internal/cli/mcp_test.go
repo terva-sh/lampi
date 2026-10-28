@@ -122,7 +122,7 @@ func TestMCPBridgeServesTheLakeTools(t *testing.T) {
 	if result, _ := replies["1"]["result"].(map[string]any); result["protocolVersion"] != "2025-06-18" {
 		t.Errorf("initialize: %v", replies["1"])
 	}
-	if result, _ := replies["2"]["result"].(map[string]any); len(result["tools"].([]any)) != 3 {
+	if result, _ := replies["2"]["result"].(map[string]any); len(result["tools"].([]any)) != 4 {
 		t.Errorf("tools/list: %v", replies["2"])
 	}
 	result, _ := replies["3"]["result"].(map[string]any)

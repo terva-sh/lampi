@@ -34,6 +34,7 @@ raw manifests never appear in these responses.
 | `/search` | Literal text search over indexed events; see below |
 | `/sessions/{uid}/excerpt` | A span of events as paste-ready text; see below |
 | `/activity` | Accepted head updates per UTC hour or day; see below |
+| `/tools` | Tool usage statistics per tool or origin; see below |
 | `/operations` | Disk use, growth, queues, the serve process and machine freshness; see below |
 
 Lists use `{items: [], next_cursor: "", as_of: "UTC timestamp"}`. Empty lists are
@@ -293,6 +294,7 @@ read in the token's scope:
 | `search` | [`GET /api/web/v1/search`](#search) | The route's parameters: `q`, `harness`, `project`, `unlinked`, `since`, `until`, `event_type`, `actor`, `tool`, `tool_error`, `raw_type`, `limit`, `cursor`. |
 | `read_events` | [`GET /api/web/v1/sessions/{uid}/events`](#transcript-events) | `session_uid`, then the route's `from`, `limit`, `cursor`, `gen`. |
 | `copy_excerpt` | [`GET /api/web/v1/sessions/{uid}/excerpt`](#excerpts) | `session_uid`, then the route's `from`, `count`, `gen`. |
+| `tool_stats` | [`GET /api/web/v1/tools`](#tool-usage) | The route's parameters: `harness`, `project`, `unlinked`, `model`, `tool`, `origin`, `origin_name`, `since`, `until`, `all`, `group_by`, `split`, `bucket`, `largest`, `context`. |
 
 - The arguments go through the route's own parser: a string as it is, an
   integer in decimal, and a boolean as `true` or `false`. A null argument
@@ -510,6 +512,110 @@ text is indexed.
 |---|---|---|
 | 400 | `invalid_request` | No text and no event filter, short query, unknown filter value, bad date, unknown or repeated parameter, bad cursor |
 | 503 | `search_unavailable` | The lake has no search index |
+
+## Tool usage
+
+`GET /api/web/v1/tools` counts tool calls and results in the indexed
+events: calls, sessions, errors, input and result sizes, and latency, per
+tool or per origin. The same request with a read token holding
+`events:read` goes to `GET /api/read/v1/tools`, which the
+[`tool_stats`](#mcp-recall-tools) MCP tool and
+[`terva-lampi query tools`](cli.md#query-a-lake) use. That route writes
+an `events.read` audit line naming its parameters before it answers.
+Both read the caller's scope. Neither returns transcript text: only
+counts, sizes, times, tool names, model ids and event positions.
+
+| Parameter | Meaning |
+|---|---|
+| `harness`, `project`, `unlinked` | As on `/search`. |
+| `model` | Only calls by this model id. A result takes its call's model. |
+| `tool` | Exact tool name, such as `Bash` or `mcp__pond__read`. |
+| `origin` | Only tools of this origin kind: `builtin`, `mcp`, `plugin`, `extension` or `unknown`. |
+| `origin_name` | Only tools of this origin name, such as an MCP server. Needs `origin`. |
+| `since`, `until` | Recorded time, as on `/search`. With neither and no `bucket`, the range is the last 7 days. |
+| `all` | `true` reads every recorded time. It is refused with `since`, `until` or `bucket`. Rows with no recorded time count only here, as `undated`. |
+| `group_by` | `tool` (the default) or `origin`. |
+| `split` | `harness` or `model` splits each group further. |
+| `bucket` | `hour` or `day` adds calls per bucket. The range then follows [Activity](#activity): its defaults, its rounding and its widest range. |
+| `largest` | 0–100, default 0: the largest single call inputs and results to list. |
+| `context` | `true` adds the starting-context hint described below. |
+
+Each parameter appears at most once. An empty value means no filter, so a
+form can submit every field. A refused value is `400 invalid_request`
+with `param` naming it, such as `{"error":"invalid_request","param":"origin"}`.
+
+The origin comes from the tool's name. `mcp__<server>__<tool>` is an MCP
+server's tool in every harness. In Claude Code,
+`mcp__plugin_<plugin>_<server>__<tool>` is a plugin's server, and a
+capitalized bare name is built in. A Codex namespace is an extension.
+A name that fits no rule is `unknown`.
+
+The answer is `{as_of, group_by, split, since, until, bucket,
+bucket_starts, totals, groups, largest, context, units, coverage}`.
+
+- `totals` sums the selected rows: `calls`, `results`, `sessions`,
+  `unanswered` (calls with an id and no result), `undated`,
+  `context_result_bytes` and `inner_result_bytes`, and `buckets` with a
+  bucket.
+- `groups` hold one entry per tool, or per origin, most called first.
+  Each has `tool` (when grouping by tool), `origin` (`{kind, name,
+  server}`), `harness` or `model` when split, `inner`, `calls`,
+  `results`, `sessions`, `unanswered`, `undated`, `errors`,
+  `results_with_error_flag`, `error_rate` (null when no result recorded
+  an error flag), `input_bytes` and `result_bytes` (`{count, total, p50,
+  p95, max}`), `result_share`, `session_share` (`{sessions, p50, p95,
+  max}`), `latency_ms` (`{count, p50, p95, max}`, or null), an optional
+  `latency_note`, and `buckets`.
+- `largest` lists blocks biggest first, each with `session_uid`,
+  `generation`, `position`, `link` (the viewer URL of the event),
+  `harness`, `tool`, `origin`, `event_type`, `inner`, `bytes` and
+  `recorded_at`.
+- `units` says what each measure counts. `coverage` is search's, and is
+  zero for anyone who does not read every bay.
+
+Sizes are bytes of an event's text before the index cut it. A p50 or p95
+is read from buckets a quarter of a power of two wide, so it is at most
+19% above the true value; `max`, totals and shares are exact.
+`result_share` is the group's part of all selected result bytes of its
+class. Codex code-mode inner calls, the calls a script made inside an
+`exec` cell, are marked `inner`. Their results are data the script
+handled, not context the model read, so they form their own class and
+never share a group with outer calls. Latency runs from a call's
+recorded time to its result's. `latency_note` is `waits_on_person` for a
+tool that waits for a person's answer, such as `AskUserQuestion`, whose
+latency is left out, and `code_mode_cell` for a Codex `exec` cell, whose
+latency is the cell's.
+
+With `context=true`, `context` compares the starting context of sessions
+that called each MCP server, plugin or extension with sessions in the
+same harness that did not:
+
+```json
+{
+  "kind": "correlation_hint",
+  "note": "Starting context of sessions that called the origin against ...",
+  "min_sessions": 5,
+  "harnesses": [{"harness": "claude", "all": {"sessions": 40, "median_tokens": 21800}}],
+  "rows": [{"harness": "claude", "origin": {"kind": "mcp", "name": "pond"},
+            "with": {"sessions": 12, "median_tokens": 27400},
+            "without": {"sessions": 28, "median_tokens": 19900},
+            "difference_tokens": 7500, "suppressed": false}]
+}
+```
+
+Starting context is the first usage event's input plus cache tokens.
+`difference_tokens` is null, and `suppressed` true, when either side has
+fewer than `min_sessions` sessions. A session that uses a server can
+differ in other ways, and a server that is configured but never called
+is not seen, so present this as a hint and keep `kind` and `note` with
+it.
+
+| Status | Error | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | Unknown or repeated parameter, or a refused value, named in `param` |
+| 400 | `too_many_values` | More than 2,500,000 rows or 10,000 distinct tools to read. Narrow the range, harness or project. |
+| 503 | `search_unavailable` | The lake has no search index |
+| 503 | `read_unavailable` | The read took more than five seconds |
 
 ## Excerpts
 

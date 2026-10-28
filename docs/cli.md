@@ -46,6 +46,7 @@ a setting is resolved. `terva-lampi --help` lists the commands, and
 |---------|--------------|
 | `terva-lampi export` | Write normalized events as JSONL, or an allowlisted ShareGPT dataset. See [Export](#export). |
 | `terva-lampi query events` | Read normalized events from a lake with a read token, with export's filters and `--fields`. See [Query a lake](#query-a-lake). |
+| `terva-lampi query tools` | Read tool usage statistics from a lake with a read token: calls, errors, sizes and latency per tool or origin. See [Query a lake](#query-a-lake). |
 | `terva-lampi mcp` | Serve a lake's recall tools to an agent over stdio, with a read token. See [Serve recall to an agent](#serve-recall-to-an-agent). |
 | `terva-lampi conflicts` | List unresolved `divergent_copy` artifacts from the catalog: session, digests, and machines. `--resolved` adds resolved ones with their resolution. |
 
@@ -145,12 +146,34 @@ goes to stderr. The token is never printed.
 [Read the lake from an agent](reading-the-lake.md) shows how to mint
 the token and run a query.
 
+`terva-lampi query tools` reads the lake's
+[tool usage statistics](web-api.md#tool-usage) with the same token,
+`--server`, `--lake` and `--out`. It reads no content.
+
+| Flag | Meaning |
+|------|---------|
+| `--since T`, `--until T` | The range, as RFC 3339 or `YYYY-MM-DD` in UTC. `--since` is inclusive and `--until` exclusive; a date-only `--until` covers that day. Without either, and without `--bucket`, the last 7 days. |
+| `--all` | Every recorded time. Not with `--since`, `--until` or `--bucket`. |
+| `--harness H`, `--project ID`, `--unlinked` | Only these sessions. |
+| `--model M`, `--tool NAME` | Only calls by this model, or of this tool. |
+| `--origin KIND`, `--origin-name NAME` | Only tools of this origin: `builtin`, `mcp`, `plugin`, `extension` or `unknown`, and a name such as an MCP server's. |
+| `--by tool\|origin` | Group by tool (the default) or by origin. |
+| `--split harness\|model` | Split each group further. |
+| `--bucket hour\|day` | Add calls per bucket to each group. |
+| `--largest N` | List the N largest single inputs and results, up to 100. |
+| `--context` | Add the starting-context hint, a correlation between the MCP servers a session called and its starting context. |
+
+The output is JSONL with one key a line: a `summary` line with the range
+and totals, then one `group` line per group, one `largest` line per
+block, and with `--context` one `context` line. The totals go to stderr.
+
 ## Serve recall to an agent
 
 `terva-lampi mcp` is an MCP server on stdin and stdout. An agent such as
 Claude Code or Codex starts it, and it sends each message to the lake's
 [MCP endpoint](web-api.md#mcp-recall-tools) with a read token that holds
 `events:read`. Each answer from the lake goes back on stdout as one line.
+Its tools are `search`, `read_events`, `copy_excerpt` and `tool_stats`.
 
 | Flag | Meaning |
 |------|---------|
