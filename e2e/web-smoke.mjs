@@ -99,6 +99,18 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile transcript overflows');
   await page.screenshot({path: join(artifacts, 'transcript-mobile.png'), fullPage: false});
   await page.setViewportSize({width: 1440, height: 1100});
+  // Diagnosis: the closed panel opens to findings whose links reach their events.
+  await page.goto(transcriptURL);
+  const diagnosis = page.locator('details.diagnosis');
+  assert.match(await diagnosis.locator('summary').innerText(), /^Diagnosis: /);
+  await diagnosis.locator('summary').click();
+  await page.screenshot({path: join(artifacts, 'transcript-diagnosis.png'), fullPage: false});
+  const finding = diagnosis.locator('.finding-events a').first();
+  if (await finding.count()) {
+    const findingAt = (await finding.getAttribute('href')).match(/#e-(\d+)$/)[1];
+    await finding.click();
+    await page.waitForFunction(id => document.activeElement && document.activeElement.id === 'e-' + id, findingAt);
+  }
   // Search: literal text with punctuation, marked matches, a hit opens its event.
   await page.getByRole('navigation', {name: 'Main navigation'}).getByRole('link', {name: 'Search', exact: true}).click();
   await page.getByText(/Searching \d+ of \d+ ready sessions/).waitFor();
@@ -267,7 +279,7 @@ try {
   await emptyPage.getByRole('heading', {name: 'No accepted updates in this range'}).waitFor();
   assert.equal(await emptyPage.locator('figure.chart').count(), 2, 'empty range dropped the charts');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake', 'activity charts/table/filters/mobile/keyboard/no-JS/empty', 'tools origins/shares/largest link/group by/mobile']}));
+  console.log(JSON.stringify({result: 'passed', evidence: artifacts, checks: ['OIDC login', '123 sessions', 'pagination', 'filters', 'details/provenance', 'conflicts', 'transcript paging/bounds/opaque/deep link', 'no-JS transcript', 'copy-out selection/clipboard/plain page', 'search literal/marks/filters/deep link/invalid', 'structured search without text', 'no-JS search paging', 'refresh/visibility/error/recovery/expiry', 'mobile', 'keyboard', 'logout', 'no-JS', 'denied group', 'empty lake', 'activity charts/table/filters/mobile/keyboard/no-JS/empty', 'tools origins/shares/largest link/group by/mobile', 'transcript diagnosis panel/event link']}));
 } finally {
   if (browser) await browser.close();
   await Promise.all(processes.map(proc => new Promise(resolve => {if (proc.exitCode !== null) return resolve(); proc.once('exit', resolve); proc.kill('SIGTERM');})));
