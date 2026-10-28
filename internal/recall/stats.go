@@ -279,6 +279,8 @@ func (s *sessionStats) addUsage(row *docRow, ev *normalize.Event) {
 	}
 }
 
+func wholeHour(t time.Time) bool { return t.Nanosecond() == 0 && t.Unix()%3600 == 0 }
+
 func deref0(p *int) int {
 	if p == nil {
 		return 0
@@ -597,8 +599,10 @@ type NameCount struct {
 
 // rangeFilter is the condition shared by reads over a time range: the
 // scope, the harness when one is given, and hours in [from, until).
+// Both ends must be whole hours, as the rollup keeps no finer time: a
+// range from 12:30 would leave out the 12:00 hour's events after 12:30.
 func (x *Index) rangeFilter(ctx context.Context, scope catalog.Scope, harness string, from, until time.Time) (string, []any, error) {
-	if !from.Before(until) {
+	if !from.Before(until) || !wholeHour(from) || !wholeHour(until) {
 		return "", nil, ErrInvalid
 	}
 	cond, args, _, err := x.scopeFilter(ctx, scope)
