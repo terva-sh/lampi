@@ -381,7 +381,7 @@ func (a *Analyzer) toolCall(pos int64, ev *event, text string) {
 	if org := origin(a.harness, tool); len(org) <= maxNameBytes {
 		c.origin = org
 	}
-	if !in && tool != "" && !a.polling[tool] && !unsure {
+	if !in && tool != "" && !a.polling[pollingName(a.harness, tool)] && !unsure {
 		for i := range a.recent {
 			// Newest first, so a chain of repeats links each call to the
 			// one just before it.
@@ -829,4 +829,16 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// pollingName is the name a polling rule lists tool under. Cursor CLI's
+// own tools are named bare (AwaitShell), or mcp__cursor__AwaitShell in
+// an older projection; both are the same tool (see toolorigin.Of).
+func pollingName(harness, tool string) string {
+	if harness == protocol.HarnessCursorCLI {
+		if t, ok := strings.CutPrefix(tool, "mcp__cursor__"); ok {
+			return t
+		}
+	}
+	return tool
 }

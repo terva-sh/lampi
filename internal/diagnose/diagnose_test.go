@@ -297,6 +297,16 @@ func TestRetryLoop(t *testing.T) {
 	}
 	mustNotFind(t, s.run(t), RetryLoop)
 
+	// Cursor CLI's polling tools, under either name a projection gives
+	// them.
+	for _, name := range []string{"AwaitShell", "mcp__cursor__AwaitShell"} {
+		s = newSession(protocol.HarnessCursorCLI)
+		for i := range 6 {
+			s.pair(fmt.Sprint("r", i), name, `{"shell_id":"1"}`, "running", nil)
+		}
+		mustNotFind(t, s.run(t), RetryLoop)
+	}
+
 	// Repeats outside the window are not retries.
 	s = newSession(protocol.HarnessClaude)
 	for i := range 4 {
