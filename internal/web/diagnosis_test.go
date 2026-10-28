@@ -127,6 +127,36 @@ func TestDiagnosisRoutes(t *testing.T) {
 	}
 }
 
+// The transcript page shows the findings with their suggestion and
+// links to their events, and still renders when diagnosis runs out of
+// time.
+func TestTranscriptFindingsPanel(t *testing.T) {
+	lake, idp, h, _, _ := mcpLake(t)
+	uid := diagnosedSession(t, lake, "sid-diag")
+	clean := seedHarness(t, lake, "claude", "sid-clean")
+	publishNormalized(t, lake, clean, toolEvents("claude", "Bash ls"))
+	admin := signInAs(t, idp, h, "owners")
+
+	body := get(h, "/sessions/"+uid+"/transcript?from=2&limit=1", admin).Body.String()
+	link := strings.ReplaceAll(recall.EventLink(uid, 1, 3), "&", "&amp;")
+	for _, want := range []string{"Diagnosis: 1 warn", `<span class="badge pending">warn</span> <code>large_tool_result</code>`,
+		diagnose.Shipped.Codes[diagnose.LargeToolResult].Suggestion, `<a href="` + link + `">#3</a>`, "max bytes 74.2 KiB"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("panel lacks %q", want)
+		}
+	}
+	if w := get(h, "/sessions/"+clean+"/transcript", admin); w.Code != 200 || !strings.Contains(w.Body.String(), "Diagnosis: no findings") {
+		t.Errorf("clean session: %d", w.Code)
+	}
+
+	saved := transcriptDiagnosisBudget
+	transcriptDiagnosisBudget = 0
+	defer func() { transcriptDiagnosisBudget = saved }()
+	if w := get(h, "/sessions/"+uid+"/transcript", admin); w.Code != 200 || !strings.Contains(w.Body.String(), "takes longer than the page allows") || !strings.Contains(w.Body.String(), "secret-notes") {
+		t.Errorf("out of time: %d", w.Code)
+	}
+}
+
 func decodeLake(t *testing.T, w *httptest.ResponseRecorder) recall.DiagnosisGroups {
 	t.Helper()
 	var v recall.DiagnosisGroups
