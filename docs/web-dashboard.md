@@ -464,6 +464,22 @@ the harness's record type, and failed tool results by tool.
   Codex reports failure only for shell commands, by their exit code.
 - **The failure rate** is failed results per tool call in the range.
 
+The **Tools** tab, at `/usage/tools`, charts tool calls and failed results per
+bucket and groups the tools into categories, so the same kind of tool reads
+the same across harnesses: Claude Code's `Bash`, terva's `bash` and Codex's
+`exec_command` are all **shell**. The categories are shell, read, write, edit,
+search, web, agents, plan, ask, and **script** for a Codex code-mode script,
+whose body runs other tools that the index cannot see. Tools from an MCP
+server group as `mcp:` and the server's name. A name the map does not know
+shows as itself.
+
+- **Tools by category** lists calls, failed results and the failure rate for
+  each category, with the harness and name each was counted from.
+- **Across harnesses** puts the busiest categories against the harnesses, so
+  you can see which harness does what with which kind of tool.
+- The map lives in `internal/web/tools.go` and is applied when the page is
+  read, so a change to it needs no reindexing.
+
 ## Operations
 
 `/operations` answers two questions: how full the lake is, and whether it
