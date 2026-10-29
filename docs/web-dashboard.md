@@ -892,9 +892,10 @@ neither builds nor updates it.
   and last recorded time, which tool usage statistics use to skip sessions
   outside a range. Schema 8 adds the offered tool names. Search keeps
   answering, and every session is read once more to fill in what is missing.
-  Rows that did not change are not rewritten. Until a session is read again, a
-  tool statistics request with a range leaves it out, and the starting-context
-  hint classes it by its calls. An older index is rebuilt.
+  Rows that did not change are not rewritten. Until a session is read again,
+  the starting-context hint classes it by its calls and, from schema 5 or 6, a
+  tool statistics request with a range leaves it out. An older index is
+  rebuilt.
 
 ## Validation, backup and rollout
 
