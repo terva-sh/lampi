@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+	"strconv"
 )
 
 // cursorCLIOrder is the order the blobs of a Cursor CLI export are
@@ -36,6 +37,13 @@ import (
 // no edge between. With one stretch, it precedes the latest root's
 // branch and its place is known.
 //
+// Reader version 2 exports each blob's rowid as seq, and Cursor inserts
+// each root after the one before it. When every root carries a seq, a
+// blob outside the latest root is placed by the seq of the first root
+// that lists it, so the older branches follow in the order their roots
+// were written, and unsure is nil. A version 1 export has no seq and
+// keeps the guess above.
+//
 // Root bytes are decoded only to read the ids. They are not copied into
 // any event.
 func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
@@ -65,6 +73,10 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 	seen := map[uint64]struct{}{}
 	listed := make([]bool, n)
 	roots := 0
+	// born is, for each listed blob, the least seq of a root that lists
+	// it. bySeq holds while every root has a seq.
+	born := make([]int64, n)
+	bySeq := true
 	for _, b := range doc.Blobs {
 		var ok bool
 		ids, ok = cursorCLIRootIDs(b.Data, index, ids)
@@ -72,7 +84,12 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 			continue
 		}
 		roots++
+		seq, hasSeq := cursorCLISeq(b.Seq)
+		bySeq = bySeq && hasSeq
 		for k, id := range ids {
+			if hasSeq && (!listed[id] || seq < born[id]) {
+				born[id] = seq
+			}
 			listed[id] = true
 			if k == 0 || ids[k-1] == id {
 				continue
@@ -95,9 +112,11 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 	}
 
 	// newer sorts the blob that belongs later first: a member of the
-	// latest root by its position there, then any other blob by export
-	// index. A depth-first walk that visits the newer successor first
-	// finishes it first, so it lands later in the reversed finish order.
+	// latest root by its position there, then any other blob by the seq
+	// of the first root that lists it when every root has one, then by
+	// export index. A depth-first walk that visits the newer successor
+	// first finishes it first, so it lands later in the reversed finish
+	// order.
 	newer := func(a, b int32) bool {
 		pa, ina := latest[a]
 		pb, inb := latest[b]
@@ -106,6 +125,9 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 		}
 		if ina {
 			return pa > pb
+		}
+		if bySeq && born[a] != born[b] {
+			return born[a] > born[b]
 		}
 		return a > b
 	}
@@ -157,7 +179,9 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 	for i := len(finished) - 1; i >= 0; i-- {
 		order = append(order, int(finished[i]))
 	}
-	unsure = cursorCLIUnsure(order, adj, latest, n)
+	if !bySeq {
+		unsure = cursorCLIUnsure(order, adj, latest, n)
+	}
 	for i := range doc.Blobs {
 		if !listed[i] {
 			order = append(order, i)
@@ -302,6 +326,13 @@ func cursorCLIIDKey(s string) ([32]byte, bool) {
 		return key, false
 	}
 	return key, true
+}
+
+// cursorCLISeq reads a blob's seq. Anything but a JSON integer that
+// fits an int64, null and a missing seq included, is no seq.
+func cursorCLISeq(raw json.RawMessage) (int64, bool) {
+	v, err := strconv.ParseInt(string(bytes.TrimSpace(raw)), 10, 64)
+	return v, err == nil
 }
 
 // protoVarint reads one protobuf varint. n is 0 when b does not start
