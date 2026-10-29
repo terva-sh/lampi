@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M633Z98QMWZMBGGPGA89454P
 title: "Release v0.10.0: session statistics, tool usage and diagnosis"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc
-  branch: release/v0.10.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-049834bc
-  commit: b6a0bbe396de29537dc7bac09163925509df9209
-  session: null
-  claimed_at: 2026-10-29T06:01:20Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-29T06:01:20Z
-updated_at: 2026-10-29T06:01:20Z
+updated_at: 2026-10-29T06:21:13Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -102,11 +95,19 @@ Statistics and diagnoses return names, counts, sizes, times and event positions,
 ## Acceptance criteria
 
 - [x] An isolated v0.9.0 upgrade rehearsal and the release gates pass on the synchronized main commit.
-- [ ] The tag is published on both forges, and the archives, checksums and images name the tag.
-- [ ] Both release bodies describe the features, the schema and normalizer changes, and rollback.
+- [x] The tag is published on both forges, and the archives, checksums and images name the tag.
+- [x] Both release bodies describe the features, the schema and normalizer changes, and rollback.
 
 ## Notes
 
 **agent:claude-code/049834bc** at 2026-10-29T06:01:20Z
 
 Gates on b6a0bbe: just ci passed on the merged tree before #228 merged (CI green on 888c7c6, identical tree to b6a0bbe). just release-check passed; just release-snapshot built all five archives and checksums. Isolated rehearsal (scratch release-v0100.* under the agent-scratch lampi root, rehearse.sh/rehearse.log): verified v0.9.0 linux_amd64 archive by checksum; v0.9.0 serve with web config and token, synthetic Claude session synced; candidate: migrate --check reports schema 21 up to date, index v4 rebuilt to v8 with offered tool rows, unchanged sync uploaded 0, append projected named tool_result, serve normalize --all queued 1, fsck 3 entries 0 bad; v0.9.0 reopened the lake (index rebuilt to 4) and unchanged sync uploaded 0; no errors in serve logs. No live config, token, lake or agent touched.
+
+**agent:claude-code/049834bc** at 2026-10-29T06:21:13Z
+
+Published. Annotated tag v0.10.0 on 6758420 (merge of #229), the same commit on both mains, pushed to both forges. GitHub release run 40827748993 succeeded: Build and Publish Release, including Verify the published binary reports the tag; Build and Publish Image with provenance attestation, including Verify each platform reports the tag. Forgejo release run 29448 succeeded. On each forge, all five archives pass sha256sum -c against that forge's checksums.txt, and linux_amd64 reports terva-lampi v0.10.0 (675842093001). The two forges build separately, so their checksums differ, as they did for v0.9.0. GHCR ghcr.io/terva-sh/lampi:0.10.0 holds linux/amd64 and linux/arm64, tags 0.10 and latest exist, and the image reports v0.10.0 (6758420). Both releases are titled 'v0.10.0 — Session statistics, tool usage and session diagnosis'. Each body is the notes from this ticket, followed by goreleaser's install section and changelog.
+
+## Summary
+
+v0.10.0 is published on both forges from 6758420, with archives, checksums, and a multi-platform GHCR image, all verified against the tag. Both release bodies carry the upgrade notes: no catalog migration; normalizers changed, so run serve normalize --all; the search index is rebuilt from v4 to v8; Cursor CLI sessions re-upload once; rollback is a binary swap.
