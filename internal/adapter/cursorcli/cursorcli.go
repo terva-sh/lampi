@@ -7,7 +7,7 @@
 // watermark key are all different, so a CLI chat is not treated as
 // an IDE session and the two stores are not assumed to match.
 //
-// This reader is version 1 and its confidence is low. A major Cursor
+// This reader is version 2 and its confidence is low. A major Cursor
 // CLI upgrade can rename a table or a path, and this pin will not
 // follow it.
 //
@@ -19,13 +19,16 @@
 // uploads the export, not the database. With a Permit, as sync passes,
 // a chat the allowlist refuses is not snapshotted or exported.
 //
-// Version 1 requires blobs (id TEXT, data BLOB) and meta (key TEXT,
+// The reader requires blobs (id TEXT, data BLOB) and meta (key TEXT,
 // value TEXT). A database missing either table is an error. Other
 // tables are not read. A meta value that is JSON, or hexadecimal
 // that decodes to JSON, is stored as that JSON. Blob bytes are not
 // hex-decoded, and protobuf is not parsed. Other values follow the
 // IDE reader: JSON stays JSON, other UTF-8 becomes a string, and the
-// rest is base64.
+// rest is base64. Version 2 also writes each blob's SQLite rowid as
+// seq, the order Cursor inserted the rows in, which is how the
+// normalizer orders the root blobs. A blobs table without a rowid is
+// read without seq. Version 1 wrote no seq.
 //
 // A key named cursorAuth, or whose first slash-separated segment is
 // cursorAuth, is dropped. The compare is case-insensitive. The same
@@ -99,8 +102,9 @@ import (
 const (
 	// Version is the pinned reader. Bump it when blobs or meta stops
 	// meaning what this package reads. A Cursor CLI release that does
-	// that breaks this pin on purpose.
-	Version = "1"
+	// that breaks this pin on purpose. Version 2 adds each blob's
+	// rowid as seq, which orders the root blobs.
+	Version = "2"
 	// Confidence is low because the schema and the chats path are
 	// undocumented and can move between major Cursor CLI versions.
 	Confidence = "low"
