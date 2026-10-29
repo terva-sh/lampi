@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -134,10 +135,30 @@ func TestBuildToolDetailView(t *testing.T) {
 	if r := d.Sizes[1]; r.Name != "Read" || r.Latency != "40 ms · 1.5 s" {
 		t.Fatalf("read row: %+v", r)
 	}
-	if r := d.Sizes[2]; r.Name != "AskUserQuestion" || r.Latency != "waits on a person" || r.Sizes != "none" {
+	if r := d.Sizes[2]; r.Name != "clock.sleep" || !r.Inner {
+		t.Fatalf("inner row sorts by its bytes: %+v", r)
+	}
+	if r := d.Sizes[3]; r.Name != "AskUserQuestion" || r.Latency != "waits on a person" || r.Sizes != "none" {
 		t.Fatalf("ask row: %+v", r)
 	}
-	if !d.Sizes[3].Inner {
-		t.Fatalf("inner rows sort last: %+v", d.Sizes)
+}
+
+// The size table's cutoff keeps the tools with the most result bytes,
+// an inner tool among them, and hides only tools with fewer (review
+// 2919).
+func TestBuildToolDetailViewKeepsLargestInner(t *testing.T) {
+	var st recall.ToolStats
+	for i := range toolDetailRows + 1 {
+		st.Groups = append(st.Groups, recall.ToolGroup{Tool: fmt.Sprintf("tool%02d", i), Origin: toolorigin.Origin{Kind: toolorigin.Builtin},
+			Calls: 1, Output: recall.Sizes{Count: 1, Total: int64(100 + i)}})
+	}
+	st.Groups = append(st.Groups, recall.ToolGroup{Tool: "pond.query", Origin: toolorigin.Origin{Kind: toolorigin.Extension, Name: "pond"}, Inner: true,
+		Calls: 1, Output: recall.Sizes{Count: 1, Total: 1 << 20}})
+	d := buildToolDetailView(st)
+	if len(d.Sizes) != toolDetailRows || d.Hidden != 2 || d.Sizes[0].Name != "pond.query" || !d.Sizes[0].Inner {
+		t.Fatalf("hidden %d, first %+v", d.Hidden, d.Sizes[0])
+	}
+	if last := d.Sizes[len(d.Sizes)-1]; last.Name != "tool02" {
+		t.Fatalf("last kept %q, want tool02", last.Name)
 	}
 }

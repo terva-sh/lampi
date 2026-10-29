@@ -146,9 +146,12 @@ func buildToolDetailView(st recall.ToolStats) toolDetailView {
 		return cmp.Or(boolOrder(a.Inner, b.Inner), cmp.Compare(b.ByteShare, a.ByteShare), cmp.Compare(b.CallShare, a.CallShare), cmp.Compare(a.Label, b.Label))
 	})
 
+	// One list by result bytes, inner tools among the rest, so the
+	// cutoff keeps the biggest producers whatever their class; the inner
+	// badge says which bytes the model did not read.
 	groups := slices.Clone(st.Groups)
 	slices.SortStableFunc(groups, func(a, b recall.ToolGroup) int {
-		return cmp.Or(boolOrder(a.Inner, b.Inner), cmp.Compare(b.Output.Total, a.Output.Total), cmp.Compare(b.Calls, a.Calls))
+		return cmp.Or(cmp.Compare(b.Output.Total, a.Output.Total), cmp.Compare(b.Calls, a.Calls))
 	})
 	for _, g := range groups {
 		if len(d.Sizes) == toolDetailRows {
