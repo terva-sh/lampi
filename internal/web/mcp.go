@@ -542,7 +542,7 @@ var mcpTools = []*mcp.Tool{
 		Description: "Count the tool calls of past sessions per tool, or per origin (built in, an MCP server, a plugin or an extension): calls, sessions, " +
 			"error rate, input and result sizes in bytes, share of result bytes and latency. Percentiles are approximate, at most 19% high. " +
 			"The range defaults to the last 7 days; all=true reads every recorded time. largest lists the biggest single blocks with links. " +
-			"context=true adds a correlation hint comparing the starting context of sessions that called an origin with those that did not. " +
+			"context=true adds a correlation hint comparing the starting context of sessions that used an origin (offered it, where Claude Code recorded its tool list, or called it) with those that did not. " +
 			"Codex code-mode inner calls are marked inner: their results are not context the model read. No content is returned.",
 		InputSchema: object(nil, map[string]any{
 			"harness":     prop("string", "Only sessions from this harness, such as claude, codex, opencode, cursor or grok."),

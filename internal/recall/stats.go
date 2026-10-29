@@ -53,7 +53,14 @@ const (
 	// StatUsage counts model calls after deduplication, with their
 	// tokens.
 	StatUsage = "usage"
+	// StatToolOffered is one row per tool name the harness recorded
+	// offering the model at some point in the session, untimed, with n
+	// 1. Only Claude Code records a list (claudeOffered).
+	StatToolOffered = "tool_offered"
 )
+
+// maxOfferedTools bounds the offered names kept for one session.
+const maxOfferedTools = 2000
 
 // Tokens is token usage split four ways that do not overlap: Input is
 // input read neither from nor into the prompt cache. A nil field was
@@ -139,6 +146,8 @@ type sessionStats struct {
 	// from: the last total, plus reports without one since. codexLast
 	// is the last total reported.
 	codexTotal, codexLast *codexTotals
+	// offered counts the StatToolOffered rows, up to maxOfferedTools.
+	offered int
 }
 
 type claudeUsage struct {
@@ -196,8 +205,52 @@ func (s *sessionStats) add(row *docRow, ev *normalize.Event, ok bool) {
 			}
 			s.bump(row.recorded, StatToolFailed, name, 1, Tokens{})
 		}
+	case normalize.EventUnknown:
+		if s.harness == "claude" && ev.RawType == "attachment" {
+			for _, name := range claudeOffered(ev.Extra) {
+				k := statKey{kind: StatToolOffered, name: name}
+				if s.rows[k] == nil && s.offered < maxOfferedTools {
+					s.offered++
+					s.bump(nil, StatToolOffered, name, 1, Tokens{})
+				}
+			}
+		}
 	}
 	s.addUsage(row, ev)
+}
+
+// claudeOffered reads the tool names a Claude Code attachment line says
+// the model was offered. The normalizer keeps the line in
+// extra.attachment. A prompt_snapshot lists every tool in tools[].name,
+// and alternates with an empty list that says nothing. A
+// deferred_tools_delta names tools in addedNames and readdedNames.
+// Attachment types change between releases, so any other shape yields
+// nothing.
+func claudeOffered(extra map[string]any) []string {
+	att, _ := extra["attachment"].(map[string]any)
+	var names []string
+	add := func(v any) {
+		if s, ok := v.(string); ok && s != "" {
+			names = append(names, s)
+		}
+	}
+	switch att["type"] {
+	case "prompt_snapshot":
+		tools, _ := att["tools"].([]any)
+		for _, t := range tools {
+			if m, ok := t.(map[string]any); ok {
+				add(m["name"])
+			}
+		}
+	case "deferred_tools_delta":
+		for _, k := range []string{"addedNames", "readdedNames"} {
+			l, _ := att[k].([]any)
+			for _, v := range l {
+				add(v)
+			}
+		}
+	}
+	return names
 }
 
 // addUsage counts a model call's tokens once, by the rule for the

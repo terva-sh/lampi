@@ -162,7 +162,7 @@ the token and run a query.
 | `--split harness\|model` | Split each group further. |
 | `--bucket hour\|day` | Add calls per bucket to each group. |
 | `--largest N` | List the N largest single inputs and results, up to 100. |
-| `--context` | Add the starting-context hint, a correlation between the MCP servers a session called and its starting context. |
+| `--context` | Add the starting-context hint, a correlation between the MCP servers a session used (offered, where Claude Code recorded its tool list, or called) and its starting context. |
 
 The output is JSONL with one key a line: a `summary` line with the range
 and totals, then one `group` line per group, one `largest` line per
