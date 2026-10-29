@@ -835,6 +835,9 @@ func TestCursorCLIOrderBySeq(t *testing.T) {
 	}{
 		{"a first", map[string]any{r1: 10, r1b: 12, r2: 20, r3: 30}, "s a1 a2 sum1 b1 b2 sum2 c1", false},
 		{"b first", map[string]any{r2: 10, r1: 20, r1b: 22, r3: 30}, "s sum1 b1 b2 a1 a2 sum2 c1", false},
+		// The a branch resumes (r1b) after the b branch began, so keeping
+		// it whole would place a2 before b's blobs (review 2921).
+		{"branches interleave", map[string]any{r1: 10, r2: 20, r1b: 30, r3: 40}, "", true},
 		{"one root without seq", map[string]any{r1: 10, r1b: 12, r3: 30}, "", true},
 		{"seq not an integer", map[string]any{r1: 10, r1b: 12, r2: "20", r3: 30}, "", true},
 	} {

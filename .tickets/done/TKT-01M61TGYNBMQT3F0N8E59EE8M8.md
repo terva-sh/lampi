@@ -20,13 +20,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T17:56:59Z
-updated_at: 2026-10-29T00:51:55Z
+updated_at: 2026-10-29T01:00:30Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-cursor
-  name: ""
+  id: agent:claude-code/049834bc
+  name: Claude Code local agent
 extensions: {}
 ---
 
@@ -88,6 +88,10 @@ Correction to the AC1 note above: 1,176 and 5,664 are counts of distinct root li
 **agent:claude-code/049834bc-cursor** at 2026-10-29T00:49:03Z
 
 Supersedes the first residual risk in the previous note: the branch that resumed starts first (its first message is born at the earlier root), so it is placed whole and the branch that interrupted it follows all of it, including the resumed branch's later messages that were written after the interruption.
+
+**agent:claude-code/049834bc** at 2026-10-29T01:00:30Z
+
+Review 2921 on #228: interleaved branches (one resumed after another began) were marked established though keeping branches whole misplaces the resumed messages. Now, when the walk meets older blobs out of first-listing seq order, the document falls back to the unestablished marker as without seq. Alternative rejected: marking only the affected branches, which needs message-level placement the roots do not give.
 
 ## Summary
 

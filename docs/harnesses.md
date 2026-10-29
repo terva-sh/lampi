@@ -178,6 +178,11 @@ rowids are not used: Cursor writes some message blobs again, such as
 the first one, so a message can sit at a higher rowid than a root that
 lists it.
 
+A branch that resumed after another began cannot be placed this way:
+kept whole, its later messages would land before the other branch's.
+When the older branches' first-listing `seq` does not rise along the
+order, they are treated as if they had no `seq`.
+
 An export from version 1 has no `seq`, and neither does one in which
 any root lacks an integer `seq`. There each older branch stays whole
 and in its own order, but the order between them is a guess from

@@ -179,7 +179,11 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 	for i := len(finished) - 1; i >= 0; i-- {
 		order = append(order, int(finished[i]))
 	}
-	if !bySeq {
+	// Seqs establish the older branches only when the walk, which keeps
+	// each branch whole, also meets their blobs in seq order. A branch
+	// that resumed after another began (review 2921) puts a later blob
+	// before an earlier one, and the stretches stay unestablished.
+	if !bySeq || cursorCLIInterleaved(order, born, latest) {
 		unsure = cursorCLIUnsure(order, adj, latest, n)
 	}
 	for i := range doc.Blobs {
@@ -188,6 +192,23 @@ func cursorCLIOrder(doc cursorCLIExport) (order []int, unsure []bool) {
 		}
 	}
 	return order, unsure
+}
+
+// cursorCLIInterleaved reports whether order meets a blob outside the
+// latest root after one whose first listing root has a higher seq.
+func cursorCLIInterleaved(order []int, born []int64, latest map[int32]int) bool {
+	var last int64
+	seen := false
+	for _, i := range order {
+		if _, in := latest[int32(i)]; in {
+			continue
+		}
+		if seen && born[i] < last {
+			return true
+		}
+		last, seen = born[i], true
+	}
+	return false
 }
 
 // cursorCLIUnsure marks the listed blobs whose place between older
