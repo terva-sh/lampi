@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M61MZNFY69TNQJWH0PS2WPKS
 title: "Dashboard: extend the Usage Tools tab with sizes, latency and origins"
 type: task
-status: blocked
-status_reason: "Extends the /usage/tools tab from PR #218 (TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG), which is not on main yet."
+status: in-progress
+status_reason: null
 priority: normal
 due_on: null
 labels:
@@ -17,10 +17,17 @@ dependencies:
   - TKT-01M61MZNCF5QGBXEDDA0WWR97J
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/049834bc
+  branch: t3/diag-tools-tab
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-049834bc
+  commit: c7ae2c2e35dab5e44ed4e4ea45f1414eae48014c
+  session: null
+  claimed_at: 2026-10-29T00:37:28Z
+  expires_at: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-28T18:58:24Z
+updated_at: 2026-10-29T00:37:28Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -95,6 +102,10 @@ done to in-progress: The owner chose to extend PR #218's Usage Tools tab instead
 **agent:claude-code/049834bc** at 2026-10-28T18:58:14Z
 
 in-progress to blocked: Extends the /usage/tools tab from PR #218 (TKT-01M61NT6XQ5WA0XZ0AXZEYMHHG), which is not on main yet.
+
+**agent:claude-code/049834bc** at 2026-10-29T00:37:28Z
+
+Unblocked: #218 merged to main (2b8d5f2). Picking up the revised plan.
 
 ## Summary
 
