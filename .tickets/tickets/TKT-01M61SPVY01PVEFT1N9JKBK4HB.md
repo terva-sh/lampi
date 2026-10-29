@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61SPVY01PVEFT1N9JKBK4HB
 title: Project Claude Code's offered tool list for the context hint
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: low
 due_on: null
@@ -20,12 +20,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T17:42:44Z
-updated_at: 2026-10-28T17:42:44Z
+updated_at: 2026-10-29T00:37:28Z
 created_by:
   id: agent:claude-code/049834bc-stats
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc-stats
+  id: agent:claude-code/049834bc
   name: Claude Code local agent
 extensions: {}
 ---

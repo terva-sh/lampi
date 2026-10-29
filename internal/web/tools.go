@@ -9,6 +9,7 @@ import (
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/recall"
+	"terva.sh/lampi/internal/toolorigin"
 )
 
 // toolCategories maps a tool name, lowercased, to the category it is
@@ -41,17 +42,25 @@ var toolCategories = map[string]string{
 	"askuserquestion": "ask", "ask_user_question": "ask", "request_user_input": "ask", "request_user_input_async": "ask",
 }
 
-// toolCategory is the category name is shown under: its entry in
-// toolCategories, "mcp:SERVER" for an MCP tool named mcp__SERVER__TOOL,
-// or the name itself.
-func toolCategory(name string) string {
+// toolCategory is the category name, called in harness, is shown
+// under. toolorigin places it first, as the tool statistics do: an MCP
+// server's tool is "mcp:SERVER" and a Claude Code plugin's
+// "plugin:PLUGIN". A built-in tool in an MCP-shaped name, such as Cursor
+// CLI's older mcp__cursor__AwaitShell, is read by its bare name. Then
+// comes its entry in toolCategories, or the name itself.
+func toolCategory(harness, name string) string {
+	switch o := toolorigin.Of(harness, name); o.Kind {
+	case toolorigin.MCP:
+		return "mcp:" + o.Name
+	case toolorigin.Plugin:
+		return "plugin:" + o.Name
+	case toolorigin.Builtin:
+		if rest, ok := strings.CutPrefix(name, "mcp__"); ok {
+			_, name, _ = strings.Cut(rest, "__")
+		}
+	}
 	if c, ok := toolCategories[strings.ToLower(name)]; ok {
 		return c
-	}
-	if rest, ok := strings.CutPrefix(name, "mcp__"); ok {
-		if server, _, ok := strings.Cut(rest, "__"); ok && server != "" {
-			return "mcp:" + server
-		}
 	}
 	if name == "" {
 		return "(unnamed)"
@@ -67,6 +76,8 @@ type toolsView struct {
 	// them.
 	Harnesses []string
 	Matrix    []toolMatrixRow
+	// Detail is what the tool statistics engine adds.
+	Detail toolDetailView
 }
 
 // toolRow is one category: its calls, failed results and the names that
@@ -121,14 +132,14 @@ func (s *Server) buildTools(ctx context.Context, v *usagePageView, scope catalog
 		buildChart("tool-failed", "Failed tool results", starts, failedPer, hourly, humanCount, niceCeil),
 	}
 	v.Tools = tv
-	return nil
+	return s.buildToolDetail(ctx, v, scope, from, until)
 }
 
 // buildToolsView groups the counts by category, busiest first.
 func buildToolsView(calls, failed []recall.NameCount) toolsView {
 	agg := map[string]*toolAgg{}
-	get := func(name string) *toolAgg {
-		c := toolCategory(name)
+	get := func(harness, name string) *toolAgg {
+		c := toolCategory(harness, name)
 		a := agg[c]
 		if a == nil {
 			a = &toolAgg{names: map[string]int64{}, byHarness: map[string]int64{}}
@@ -139,7 +150,7 @@ func buildToolsView(calls, failed []recall.NameCount) toolsView {
 	harnesses := map[string]bool{}
 	var nCalls, nFailed int64
 	for _, c := range calls {
-		a := get(c.Name)
+		a := get(c.Harness, c.Name)
 		a.calls += c.N
 		a.names[c.Harness+" "+cmp.Or(c.Name, "(unnamed)")] += c.N
 		a.byHarness[c.Harness] += c.N
@@ -147,7 +158,7 @@ func buildToolsView(calls, failed []recall.NameCount) toolsView {
 		nCalls += c.N
 	}
 	for _, f := range failed {
-		get(f.Name).failed += f.N
+		get(f.Harness, f.Name).failed += f.N
 		nFailed += f.N
 	}
 	cats := make([]string, 0, len(agg))

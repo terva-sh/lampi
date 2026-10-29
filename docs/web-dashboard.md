@@ -470,8 +470,9 @@ the same across harnesses: Claude Code's `Bash`, terva's `bash` and Codex's
 `exec_command` are all **shell**. The categories are shell, read, write, edit,
 search, web, agents, plan, ask, and **script** for a Codex code-mode script,
 whose body runs other tools that the index cannot see. Tools from an MCP
-server group as `mcp:` and the server's name. A name the map does not know
-shows as itself.
+server group as `mcp:` and the server's name, and a Claude Code plugin's as
+`plugin:` and the plugin's, as the tool statistics place them. A name the map
+does not know shows as itself.
 
 - **Tools by category** lists calls, failed results and the failure rate for
   each category, with the harness and name each was counted from.
@@ -479,6 +480,31 @@ shows as itself.
   you can see which harness does what with which kind of tool.
 - The map lives in `internal/web/tools.go` and is applied when the page is
   read, so a change to it needs no reindexing.
+
+The rest of the tab comes from the tool usage statistics, the same numbers
+`terva-lampi query tools` and `/api/read/v1/tools` give, for the tab's range
+and harness. It shows names, counts, sizes and event positions, never a tool's
+input or result.
+
+- **By origin** sets each origin's share of calls beside its share of result
+  bytes. An origin is built in, an MCP server, a Claude Code plugin or a Codex
+  extension. A server whose share of bytes is far above its share of calls is
+  the one filling the context.
+- **Result sizes and latency** lists the tools with the most result bytes,
+  with their result size at p50, p95 and the maximum, the error rate among
+  results that recorded one, and call-to-result latency at p50 and p95. A tool
+  that waits for a person shows no latency.
+- **Largest blocks** lists the 20 largest single call inputs and results, each
+  linked to its event in the transcript.
+- **Starting context by origin** compares the median starting context of
+  sessions that called each origin with those that did not, per harness. It
+  is a correlation hint, not a finding: it cannot see a server that was
+  configured but never called.
+- Calls inside a Codex code-mode script are marked **inner**. Their results
+  went to the script, not the model, so their shares are taken among inner
+  calls only.
+- When a range has too many calls to measure within the page's time limit,
+  these parts say so and the rest of the tab still shows.
 
 ## Operations
 
