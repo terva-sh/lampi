@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-29T00:37:28Z
+updated_at: 2026-10-29T00:44:08Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -45,9 +45,9 @@ The page should make the noisy-server case obvious: an origin's share of tool re
 
 ## Acceptance criteria
 
-- [ ] The page shows most-used tools and origins, calls over time, error rate, size and latency.
-- [ ] The largest blocks link into the transcript at the event.
-- [ ] An origin's share of tool result bytes is shown beside its share of calls.
+- [x] The page shows most-used tools and origins, calls over time, error rate, size and latency.
+- [x] The largest blocks link into the transcript at the event.
+- [x] An origin's share of tool result bytes is shown beside its share of calls.
 
 ## Implementation plan
 
@@ -107,6 +107,10 @@ in-progress to blocked: Extends the /usage/tools tab from PR #218 (TKT-01M61NT6X
 
 Unblocked: #218 merged to main (2b8d5f2). Picking up the revised plan.
 
+**agent:claude-code/049834bc** at 2026-10-29T00:44:08Z
+
+Built on #218's tab as the revised plan says. Category placement now goes through toolorigin.Of(harness, name): mcp:SERVER and plugin:PLUGIN, and Cursor CLI's older mcp__cursor__X reads by its bare name (it was mcp:cursor). The engine read (ToolStats, no bucket, largest 20, context on) shares the tab's 5 s readContext with the rollup; ErrTooManyValues or a deadline shows a notice in place of the detail panels instead of failing the page. Calls over time and the error rate come from the existing rollup charts and category table, so the engine is not asked for buckets. No origin or group-by control was added: the form stays range and harness, as the plan allowed. Alternative rejected: per-category size percentiles, which cannot be merged from per-tool percentiles; sizes and latency are per tool instead.
+
 ## Summary
 
-Reopened. The separate /tools page built under this ticket was removed from PR #223 before merge, because the owner chose to extend #218's Usage Tools tab instead. The work is blocked until #218 is on main; the revised plan says what the tab gains.
+The Usage Tools tab gains By origin (share of calls beside share of result bytes), Result sizes and latency per tool, Largest blocks linked to their events, and the starting-context correlation hint, read from the tool statistics engine for the tab's range and harness. Categories use toolorigin for MCP and plugin tools.
