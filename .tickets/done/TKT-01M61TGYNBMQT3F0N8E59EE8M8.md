@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61TGYNBMQT3F0N8E59EE8M8
 title: "Cursor CLI adapter: export blob rowid to order compacted branches"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc-cursor
-  branch: t3/diag-cursor-rowid
-  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-a35cda394d31436c6
-  commit: 89c7689bd1a54a247e6e8a21db4d673597ec2dab
-  session: null
-  claimed_at: 2026-10-29T00:39:09Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T17:56:59Z
-updated_at: 2026-10-29T00:49:03Z
+updated_at: 2026-10-29T00:51:55Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -52,7 +45,7 @@ The adapter reads `SELECT id, data FROM blobs ORDER BY id` (internal/adapter/cur
 ## Acceptance criteria
 
 - [x] Root rowid order is checked against real compacted stores and found chronological, or the ticket records that it is not.
-- [ ] The normalizer orders older branches by root rowid when the export carries it, and keeps extra.order unestablished when it does not.
+- [x] The normalizer orders older branches by root rowid when the export carries it, and keeps extra.order unestablished when it does not.
 
 ## Implementation plan
 
@@ -95,3 +88,7 @@ Correction to the AC1 note above: 1,176 and 5,664 are counts of distinct root li
 **agent:claude-code/049834bc-cursor** at 2026-10-29T00:49:03Z
 
 Supersedes the first residual risk in the previous note: the branch that resumed starts first (its first message is born at the earlier root), so it is placed whole and the branch that interrupted it follows all of it, including the resumed branch's later messages that were written after the interruption.
+
+## Summary
+
+The Cursor CLI export (reader Version 2) writes each blob's SQLite rowid as seq between id and data; a WITHOUT ROWID blobs table is exported without seq. The normalizer (cursorcliorder.go) places blobs outside the latest root by the least seq of a root that lists them when every root has an integer seq, so older branches follow in write order and unsure is nil; version 1 exports, or any root without a usable seq, keep the export-order guess and extra.order unestablished. AC1: 12 local stores, 26,590 roots; latest root has the max rowid in all 12; 2,836,560 of 2,836,577 extending root pairs agree with rowid order, the 17 from one rewind-like truncation. Docs: docs/harnesses.md. Tests: TestBlobSeqIsRowid (adapter), TestCursorCLIOrderBySeq (normalizer), both fail without the change; full just ci passes. Release cost: every Cursor CLI session re-uploads once in full (every row's bytes change, so every chunk is new), and the lake's harness_version for those sessions moves to 2; sessions already on the lake keep the unestablished marker until an upgraded agent uploads them again. Older lakes ignore seq.
