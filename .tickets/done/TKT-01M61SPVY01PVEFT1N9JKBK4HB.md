@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61SPVY01PVEFT1N9JKBK4HB
 title: Project Claude Code's offered tool list for the context hint
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc-offered
-  branch: t3/diag-offered-tools
-  worktree: /home/sothr/workspace/git.local.sothr.com/terva-sh/lampi/.claude/worktrees/agent-ac62c6e2ea84b0f37
-  commit: 89c7689bd1a54a247e6e8a21db4d673597ec2dab
-  session: null
-  claimed_at: 2026-10-29T00:40:55Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T17:42:44Z
-updated_at: 2026-10-29T00:41:11Z
+updated_at: 2026-10-29T00:48:27Z
 created_by:
   id: agent:claude-code/049834bc-stats
   name: Claude Code local agent
@@ -70,3 +63,32 @@ The normalizer already copies each of these lines whole into `extra.attachment` 
 - **A per-session summary row in the stats rollup (chosen).** It needs no column, and the stats table is replaced whole at each index, so it stays exact. The cost is one re-read of each session after the upgrade.
 
 Offered means offered at some point in the session (the union of every list), not only in the first snapshot. Deferred tools are offered by name before they are loaded, and a session's servers rarely change.
+
+## Notes
+
+**agent:claude-code/049834bc-offered** at 2026-10-29T00:48:18Z
+
+Implemented as planned in 1b4ccb4 and ed265d7, with no deviation from the plan.
+
+### What landed
+
+- internal/recall/stats.go: `claudeOffered` reads `extra.attachment` of a Claude `unknown` event with raw_type `attachment`. It reads `prompt_snapshot.tools[].name` and `deferred_tools_delta.addedNames` and `readdedNames`, and any other type yields nothing. Each distinct name becomes one `tool_offered` stats row with hour NULL and n 1, at most 2,000 per session. Other harnesses are not read.
+- internal/recall/index.go: schema 8. `upgradeV7` blanks every indexed head in place.
+- internal/recall/toolcontext.go: `loadLists` reads the walked sessions' offered rows in one query through stats_session, before the walk, on the same connection. It keeps per session only a count per non-built-in origin. New fields: `harnesses[].offered_sessions`, and `rows[].offered` `{sessions, uncalled_sessions, median_tools}`. The note now says which basis each session used.
+- Docs: web-api.md, cli.md, reading-the-lake.md and web-dashboard.md (the search index section and the schema 8 upgrade). Help text in `query tools` and the MCP `tool_stats` description. The CLI and MCP outputs carry the block whole, so their code did not change.
+
+### Checks
+
+- TestToolStatsContextOffered and TestVersion7IndexUpgradesInPlace fail with stats.go and index.go reverted, and pass with them. TestToolStatsPlans now also asserts that the offered query scans the scope table and searches stats_session.
+- A throwaway test, not committed, ran one current local transcript through the Claude normalizer, a JSON round trip and the stats rollup. It found 110 offered names. Only the counts were read.
+- `GOFLAGS=-mod=mod just ci` passes, with XDG data, state and cache in a scratch directory. The worktree guard refused an XDG_CONFIG_HOME override, so that one was left at its default. The tests that need it set it themselves.
+
+### Release cost
+
+- No renormalize. The attachment lines are already in every normalized generation's `extra`.
+- Index: the first start of the release upgrades search.db from schema 7 to 8 in place, and every session is read once more. The cost is about that of the schema 6 to 7 upgrade: each session's normalized JSONL is read and its stats rows are replaced. docs rows whose signature is unchanged are kept, so the full-text index is not rewritten and search keeps answering. Coverage shows sessions as behind until they are read. Until then the hint classes them by calls, and ranged tool statistics are unaffected.
+- The new rows are about one per offered tool per Claude session, around 100 to 110 on this workstation's sessions, untimed. They are short names in the stats table, which is small next to docs and fts.
+
+## Summary
+
+Landed in 1b4ccb4 and ed265d7. The index keeps each Claude Code session's offered tool names as tool_offered stats rows, read from the prompt_snapshot and deferred_tools_delta attachments already in the normalized extra. The starting-context hint uses them for offered_sessions and per-row offered {sessions, uncalled_sessions, median_tools}. Index schema 8 is an in-place upgrade that reads each session again; no renormalize.
