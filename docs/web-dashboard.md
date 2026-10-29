@@ -882,14 +882,19 @@ neither builds nor updates it.
     cached input taken out of input. Codex does not report cache writes.
   - **terva, OpenCode and Cursor** report one usage per call, which is summed.
 
+  For a Claude Code session the index also keeps the names of the tools the
+  session was offered, from the tool lists Claude Code records, for the
+  starting-context hint of tool usage statistics. It keeps names only.
+
   An index at schema 5, which stores per-event sizes, call ids and token
-  counts, or at schema 6, which adds these statistics, is upgraded to schema 7
-  in place on the first start. Schema 7 adds each session's first and last
-  recorded time, which tool usage statistics use to skip sessions outside a
-  range. Search keeps answering, and every session is read once more to fill
-  in what is missing. Rows that did not change are not rewritten. Until a
-  session is read again, a tool statistics request with a range leaves it out.
-  An older index is rebuilt.
+  counts, at schema 6, which adds these statistics, or at schema 7 is upgraded
+  to schema 8 in place on the first start. Schema 7 adds each session's first
+  and last recorded time, which tool usage statistics use to skip sessions
+  outside a range. Schema 8 adds the offered tool names. Search keeps
+  answering, and every session is read once more to fill in what is missing.
+  Rows that did not change are not rewritten. Until a session is read again, a
+  tool statistics request with a range leaves it out, and the starting-context
+  hint classes it by its calls. An older index is rebuilt.
 
 ## Validation, backup and rollout
 

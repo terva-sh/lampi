@@ -50,9 +50,11 @@ The output is JSONL, one object per line with one key:
 docs/web-api.md describes every field. The totals are also written to
 stderr.
 
---context compares the starting context of sessions that called each
+--context compares the starting context of sessions that used each
 MCP server, plugin or extension with sessions in the same harness that
-did not. It is a correlation hint, not a measurement.
+did not. A Claude Code session used what it was offered, from the tool
+list it recorded, or called; other sessions what they called. It is a
+correlation hint, not a measurement.
 
 The read token, the lake and --out are as for query events.
 
