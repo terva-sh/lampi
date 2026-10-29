@@ -164,10 +164,31 @@ order. A root is decoded only to read the ids, and it stays an
 A root holds no time of its own and no link to the root before it.
 After two or more compactions, two older branches may share nothing
 but the messages both kept, and then no root says which came first.
-Each branch stays whole and in its own order, but the order between
-them is a guess from export order. Every event of those older branches
-carries `extra.order` set to `unestablished`, so a reader that depends
-on sequence, such as a diagnosis rule, can leave them out.
+Reader version 2 exports each blob's SQLite rowid as `seq`, and Cursor
+inserts each new root after the last, so the roots' `seq` order is the
+order they were written in. When every root has a `seq`, an older
+branch is placed by the `seq` of the first root that lists its
+messages, and the older branches follow in that order. On the local
+stores measured, 12 stores and 26,590 roots, the latest root had the
+highest rowid in every store. Of the 2,836,577 pairs in which one
+root's list extends another's, all but 17 had the shorter list at the
+lower rowid. The 17 came from one place where a later root's list is a
+shorter prefix of an earlier one, as a rewind would leave it. Message
+rowids are not used: Cursor writes some message blobs again, such as
+the first one, so a message can sit at a higher rowid than a root that
+lists it.
+
+A branch that resumed after another began cannot be placed this way:
+kept whole, its later messages would land before the other branch's.
+When the older branches' first-listing `seq` does not rise along the
+order, they are treated as if they had no `seq`.
+
+An export from version 1 has no `seq`, and neither does one in which
+any root lacks an integer `seq`. There each older branch stays whole
+and in its own order, but the order between them is a guess from
+export order. Every event of those older branches carries
+`extra.order` set to `unestablished`, so a reader that depends on
+sequence, such as a diagnosis rule, can leave them out.
 
 Cursor writes a new copy of a message blob when the message changes,
 so an older copy can repeat a `tool-result` part. On the local stores
@@ -322,6 +343,15 @@ upload sends only the changed ones. On a real 284 MB export, adding one
 blob sent 1 chunk of 435, 3 MB. The lake stores the chunk list, not a
 second whole copy. The document is the same bytes as before, so
 normalize, export and older lakes read it unchanged.
+
+The pinned reader `Version` is `2`, and the document field
+`harness_version` is that string. Version 2 adds `seq`, the blob's
+rowid, to each blob row, between `id` and `data`. A blobs table created
+`WITHOUT ROWID` has no rowid, and its rows are exported without `seq`.
+Every row's bytes change with the new field, so an agent that moves to
+version 2 uploads each Cursor CLI session again once, every chunk of it.
+A lake that does not know `seq` ignores it, and a lake that does reads
+version 1 exports as before.
 
 The export is still built whole in memory. A session whose `store.db`
 and WAL together pass 256 MiB is not exported: the pass prints a

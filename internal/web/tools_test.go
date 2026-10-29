@@ -143,6 +143,29 @@ func TestBuildToolDetailView(t *testing.T) {
 	}
 }
 
+// The context hint shows the sessions whose recorded tool list offered
+// an origin, and says nothing where none did.
+func TestBuildToolDetailViewContext(t *testing.T) {
+	tokens, diff, tools := int64(52000), int64(9100), int64(14)
+	st := recall.ToolStats{Context: &recall.ToolContext{Note: "A hint.", MinSessions: 5,
+		Harnesses: []recall.ContextHarness{{Harness: "claude", All: recall.ContextSide{Sessions: 40, Median: &tokens}, OfferedSessions: 30}, {Harness: "codex", All: recall.ContextSide{Sessions: 3}}},
+		Rows: []recall.ContextRow{
+			{Harness: "claude", Origin: toolorigin.Origin{Kind: toolorigin.MCP, Name: "pond"}, With: recall.ContextSide{Sessions: 20, Median: &tokens}, Without: recall.ContextSide{Sessions: 20, Median: &tokens},
+				Difference: &diff, Offered: recall.ContextOffered{Sessions: 18, Uncalled: 12, Tools: &tools}},
+			{Harness: "codex", Origin: toolorigin.Origin{Kind: toolorigin.MCP, Name: "pond"}, With: recall.ContextSide{Sessions: 2}, Suppressed: true},
+		}}}
+	c := buildToolDetailView(st).Context
+	if c.Harnesses != "claude: 40 sessions, median 52,000 tokens, 30 with a recorded tool list. codex: 3 sessions." {
+		t.Fatalf("harnesses: %q", c.Harnesses)
+	}
+	if r := c.Rows[0]; r.Offered != "18 (12 never called)" || r.Tools != "14" || r.Difference != "+9,100 tokens" {
+		t.Fatalf("claude row: %+v", r)
+	}
+	if r := c.Rows[1]; r.Offered != "—" || r.Tools != "—" || r.Difference != "too few sessions" {
+		t.Fatalf("codex row: %+v", r)
+	}
+}
+
 // The size table's cutoff keeps the tools with the most result bytes,
 // an inner tool among them, and hides only tools with fewer (review
 // 2919).

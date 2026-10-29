@@ -589,28 +589,37 @@ latency is left out, and `code_mode_cell` for a Codex `exec` cell, whose
 latency is the cell's.
 
 With `context=true`, `context` compares the starting context of sessions
-that called each MCP server, plugin or extension with sessions in the
-same harness that did not:
+that used each MCP server, plugin or extension with sessions in the same
+harness that did not:
 
 ```json
 {
   "kind": "correlation_hint",
   "note": "Starting context of sessions that called the origin against ...",
   "min_sessions": 5,
-  "harnesses": [{"harness": "claude", "all": {"sessions": 40, "median_tokens": 21800}}],
+  "harnesses": [{"harness": "claude", "all": {"sessions": 40, "median_tokens": 21800},
+                 "offered_sessions": 31}],
   "rows": [{"harness": "claude", "origin": {"kind": "mcp", "name": "pond"},
             "with": {"sessions": 12, "median_tokens": 27400},
             "without": {"sessions": 28, "median_tokens": 19900},
-            "difference_tokens": 7500, "suppressed": false}]
+            "difference_tokens": 7500, "suppressed": false,
+            "offered": {"sessions": 10, "uncalled_sessions": 4, "median_tools": 6}}]
 }
 ```
 
 Starting context is the first usage event's input plus cache tokens.
 `difference_tokens` is null, and `suppressed` true, when either side has
-fewer than `min_sessions` sessions. A session that uses a server can
-differ in other ways, and a server that is configured but never called
-is not seen, so present this as a hint and keep `kind` and `note` with
-it.
+fewer than `min_sessions` sessions.
+
+Claude Code records the tools it offers the model; no other harness
+does. `offered_sessions` counts the sessions whose list was recorded. Such
+a session used each origin it was offered or called. Any other session
+used the origins it called, so there a server that is configured but
+never called is not seen. A row's `offered` covers the sessions whose list
+offered the origin: how many there were, how many of them never called
+it, and the median number of its tools they were offered, null when there
+were none. A session that uses a server can differ in other ways, so
+present this as a hint and keep `kind` and `note` with it.
 
 | Status | Error | Meaning |
 |---|---|---|

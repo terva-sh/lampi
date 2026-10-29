@@ -243,7 +243,7 @@ func TestSnapshotFiltersAuthAndReadsWAL(t *testing.T) {
 	if strings.Contains(text, hexSecret) {
 		t.Fatalf("export kept the hex-encoded secret: %s", text)
 	}
-	for _, want := range []string{`"harness_version":"1"`, `"confidence":"low"`, `"scope":"session"`, "kept-title", "hello from cli", keep, "1767396459642"} {
+	for _, want := range []string{`"harness_version":"2"`, `"confidence":"low"`, `"scope":"session"`, "kept-title", "hello from cli", keep, "1767396459642"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("export missing %s: %s", want, text)
 		}
@@ -343,6 +343,67 @@ func TestMissingBlobsTable(t *testing.T) {
 	db.Close()
 	if _, err := exportDatabase(context.Background(), path, "chats/ab/sid/store.db"); err == nil {
 		t.Fatal("database without blobs was accepted")
+	}
+}
+
+// The export lists blobs by id and carries each one's rowid as seq, the
+// order Cursor inserted them in. A WITHOUT ROWID table has no rowid and
+// is still exported, with no seq.
+func TestBlobSeqIsRowid(t *testing.T) {
+	for _, tc := range []struct {
+		name, table string
+		want        map[string]any
+	}{
+		{"rowid", `CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`, map[string]any{"c": 1.0, "a": 2.0, "b": 3.0}},
+		{"without rowid", `CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB) WITHOUT ROWID`, map[string]any{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "store.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, stmt := range []string{
+				tc.table,
+				`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`,
+				`INSERT INTO blobs (id, data) VALUES ('c', x'0a01'), ('a', x'0a02'), ('b', x'0a03')`,
+			} {
+				if _, err := db.Exec(stmt); err != nil {
+					t.Fatal(err)
+				}
+			}
+			db.Close()
+			body, err := exportDatabase(context.Background(), path, "chats/ab/sid/store.db")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc struct {
+				Blobs []map[string]any `json:"blobs"`
+			}
+			if err := json.Unmarshal(body, &doc); err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			got := map[string]any{}
+			for _, b := range doc.Blobs {
+				id, _ := b["id"].(string)
+				ids = append(ids, id)
+				if seq, ok := b["seq"]; ok {
+					got[id] = seq
+				}
+			}
+			if strings.Join(ids, " ") != "a b c" {
+				t.Fatalf("blobs are not in id order: %v", ids)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("seq %v, want %v", got, tc.want)
+			}
+			for id, seq := range tc.want {
+				if got[id] != seq {
+					t.Fatalf("seq %v, want %v", got, tc.want)
+				}
+			}
+		})
 	}
 }
 

@@ -46,7 +46,10 @@ const IndexFile = "search.db"
 // tool statistics range skips a session by its own times rather than by
 // when the lake accepted it (review 2905 on #221). A version 6 file is
 // upgraded in place; see upgradeV6.
-const indexVersion = 7
+// Version 8 adds the tool names a Claude Code session was offered to
+// the stats rollup, for the starting-context hint (TKT-01M61SPVY). Its
+// tables are version 7's; upgradeV7 has each session read again.
+const indexVersion = 8
 
 // mergePages bounds the full-text merge after a pass, in leaf pages.
 // Rows deleted from an FTS5 index stay in its segments until they
@@ -251,6 +254,13 @@ func openIndexDB(path string) (*sql.DB, error) {
 				db.Close()
 				return nil, err
 			}
+			v = 7
+		}
+		if v == 7 {
+			if err := upgradeV7(db); err != nil {
+				db.Close()
+				return nil, err
+			}
 			v = indexVersion
 		}
 		if v == indexVersion {
@@ -311,10 +321,23 @@ func upgradeV6(db *sql.DB) error {
 	defer tx.Rollback()
 	if _, err := tx.Exec(`ALTER TABLE indexed ADD COLUMN first_recorded_ns INTEGER;
 		ALTER TABLE indexed ADD COLUMN last_recorded_ns INTEGER;
-		UPDATE indexed SET head=''; PRAGMA user_version=` + fmt.Sprint(indexVersion) + `;`); err != nil {
+		UPDATE indexed SET head=''; PRAGMA user_version=7;`); err != nil {
 		return fmt.Errorf("search: upgrade: %w", err)
 	}
 	return tx.Commit()
+}
+
+// upgradeV7 blanks every indexed head of a version 7 index, as
+// upgradeV5 does, so the next pass reads each session again and writes
+// its offered tool names into the stats rollup. Rows whose signature
+// did not change are kept, so the full-text index is not rewritten.
+// Until a session is read again, the context hint classes it by its
+// calls.
+func upgradeV7(db *sql.DB) error {
+	if _, err := db.Exec(`UPDATE indexed SET head=''; PRAGMA user_version=` + fmt.Sprint(indexVersion) + `;`); err != nil {
+		return fmt.Errorf("search: upgrade: %w", err)
+	}
+	return nil
 }
 
 func removeIndexFiles(path string) error {

@@ -571,4 +571,7 @@ func TestToolStatsPlans(t *testing.T) {
 			t.Errorf("%+v: %s", req, plan)
 		}
 	}
+	if plan := explain(offeredListsSQL, StatToolOffered); !strings.HasPrefix(plan, "SCAN s; ") || !strings.Contains(plan, "USING INDEX stats_session (session_uid=?)") {
+		t.Errorf("offered lists: %s", plan)
+	}
 }

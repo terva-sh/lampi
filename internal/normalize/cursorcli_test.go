@@ -816,6 +816,84 @@ func TestCursorCLIOrderAfterTwoCompactions(t *testing.T) {
 	}
 }
 
+// A version 2 export carries each blob's rowid as seq. With a seq on
+// every root, the older branches follow in the order their roots were
+// written, whatever the hash order, and no event is unestablished. A
+// root without a usable seq leaves the order as a version 1 export has
+// it.
+func TestCursorCLIOrderBySeq(t *testing.T) {
+	s := cliBlobID(0x90)
+	a1, a2 := cliBlobID(0x81), cliBlobID(0x80)
+	sum1, b1, b2 := cliBlobID(0x12), cliBlobID(0x11), cliBlobID(0x10)
+	sum2, c1 := cliBlobID(0x51), cliBlobID(0x50)
+	r1, r1b, r2, r3 := cliBlobID(0x04), cliBlobID(0x03), cliBlobID(0x02), cliBlobID(0x01)
+	for _, tc := range []struct {
+		name   string
+		seq    map[string]any // root id to seq; a missing root has none
+		want   string
+		unsure bool
+	}{
+		{"a first", map[string]any{r1: 10, r1b: 12, r2: 20, r3: 30}, "s a1 a2 sum1 b1 b2 sum2 c1", false},
+		{"b first", map[string]any{r2: 10, r1: 20, r1b: 22, r3: 30}, "s sum1 b1 b2 a1 a2 sum2 c1", false},
+		// The a branch resumes (r1b) after the b branch began, so keeping
+		// it whole would place a2 before b's blobs (review 2921).
+		{"branches interleave", map[string]any{r1: 10, r2: 20, r1b: 30, r3: 40}, "", true},
+		{"one root without seq", map[string]any{r1: 10, r1b: 12, r3: 30}, "", true},
+		{"seq not an integer", map[string]any{r1: 10, r1b: 12, r2: "20", r3: 30}, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			blob := func(id string, data any) map[string]any {
+				row := map[string]any{"id": id, "data": data}
+				if seq, ok := tc.seq[id]; ok {
+					row["seq"] = seq
+				}
+				return row
+			}
+			msg := func(id, role, text string) map[string]any {
+				// Message seqs oppose the roots' order, so only the roots' count.
+				return map[string]any{"id": id, "seq": 1000 - len(text), "data": map[string]any{"role": role, "content": text}}
+			}
+			raw := cursorCLIRaw(t, map[string]any{
+				"harness_version": "2",
+				"confidence":      "low",
+				"source":          "chats/ab12/sid-1/store.db",
+				"scope":           "session",
+				"meta":            []any{map[string]any{"key": "0", "value": map[string]any{"latestRootBlobId": r3}}},
+				"blobs": []any{
+					blob(r3, cliRoot(s, sum2, c1)),
+					blob(r2, cliRoot(s, sum1, b1, b2)),
+					blob(r1b, cliRoot(s, a1, a2)),
+					blob(r1, cliRoot(s, a1)),
+					msg(b2, "assistant", "b2"),
+					msg(b1, "user", "b1"),
+					msg(sum1, "user", "sum1"),
+					msg(c1, "user", "c1"),
+					msg(sum2, "user", "sum2"),
+					msg(a2, "assistant", "a2"),
+					msg(a1, "user", "a1"),
+					msg(s, "user", "s"),
+				},
+			})
+			var got []string
+			unsure := 0
+			for _, ev := range projectCursorCLI(t, "chats/ab12/sid-1", raw) {
+				if ev.Extra["order"] == "unestablished" {
+					unsure++
+				}
+				if ev.EventType == EventMessage {
+					got = append(got, *ev.ContentText)
+				}
+			}
+			if tc.want != "" && strings.Join(got, " ") != tc.want {
+				t.Fatalf("order %v, want %s", got, tc.want)
+			}
+			if tc.unsure != (unsure > 0) {
+				t.Fatalf("%d events unestablished, want any: %v", unsure, tc.unsure)
+			}
+		})
+	}
+}
+
 // BenchmarkCursorCLITools projects an export of 600 turns, each an
 // assistant blob with one tool call and a tool blob with a 4 KiB result.
 // Cursor writes a root per turn that lists every message so far, so the

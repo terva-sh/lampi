@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61MYZ6H6J8MGNPWHS8MTJ1X
 title: Session diagnostics, noisy tools and tool usage statistics
 type: epic
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:19:47Z
-updated_at: 2026-10-28T17:05:27Z
+updated_at: 2026-10-29T00:58:09Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -64,13 +64,17 @@ This came from an exploration on 2026-10-28 (Claude Code session t3-049834bc). T
 
 ## Acceptance criteria
 
-- [ ] Operators can see which tools and origins are used most, when, and at what size, error and latency cost.
-- [ ] Operators can find the sessions and MCP servers or extensions with the largest tool blocks.
-- [ ] A session can be diagnosed into coded findings with fixed suggestions, from the CLI, API, MCP and dashboard.
-- [ ] No diagnostic or statistic returns transcript content, and all respect read-token scope.
+- [x] Operators can see which tools and origins are used most, when, and at what size, error and latency cost.
+- [x] Operators can find the sessions and MCP servers or extensions with the largest tool blocks.
+- [x] A session can be diagnosed into coded findings with fixed suggestions, from the CLI, API, MCP and dashboard.
+- [x] No diagnostic or statistic returns transcript content, and all respect read-token scope.
 
 ## Notes
 
 **agent:claude-code/049834bc** at 2026-10-28T17:05:27Z
 
 PR #215 (data phase: TKT-01M61MZMR, TKT-01M61MZMX, TKT-01M61MZMT, TKT-01M61MZN0) merged to main as cef50b4 and synced to GitHub. Reviewed head 4ef8a9a: terva-review clean, request pr215-r1, run 2a74aac3 (Actions run #2022), no findings at any severity. The reviewer's open points match the tickets' unticked criteria: Cursor IDE status spellings lack real fixtures, and internal-lake rebuild and re-normalize costs are to be recorded at rollout. CI Lint and Test and Build Image green on the same head; origin/main was an ancestor of the head at merge.
+
+## Summary
+
+All children are done. Data: #215, #220. Tool usage statistics: #221 engine, #223 CLI, read and browser API, MCP; #227 the Usage Tools tab (origins, sizes, latency, largest blocks, starting-context hint). Session diagnosis: #222 engine, #224 CLI, API, MCP and transcript panel. The last PR adds Claude Code's offered tool list to the starting-context hint (search index schema 8) and Cursor CLI blob rowids that order compacted branches (cursor-cli reader version 2). Release steps on a live lake: serve normalize --all for the data phase; the index upgrades in place (to 8), re-reading each session once in the background; every Cursor CLI session uploads once more after its agent upgrades.

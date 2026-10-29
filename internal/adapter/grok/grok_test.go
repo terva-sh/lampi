@@ -304,7 +304,7 @@ func TestCursorAdaptersUnchanged(t *testing.T) {
 	if cursor.Version != "2" || cursor.Confidence != "low" {
 		t.Fatalf("cursor pin version=%s confidence=%s", cursor.Version, cursor.Confidence)
 	}
-	if cursorcli.Version != "1" || cursorcli.Confidence != "low" {
+	if cursorcli.Version != "2" || cursorcli.Confidence != "low" {
 		t.Fatalf("cursor-cli pin version=%s confidence=%s", cursorcli.Version, cursorcli.Confidence)
 	}
 	grokRel := "sessions/%2Fwork%2Fdemo/" + sessionUUIDFixture + "/updates.jsonl"

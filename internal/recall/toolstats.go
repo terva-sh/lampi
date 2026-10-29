@@ -900,6 +900,15 @@ func (x *Index) walkTools(ctx context.Context, req *ToolStatsRequest, a *toolAgg
 		return err
 	}
 	defer conn.ExecContext(context.WithoutCancel(ctx), `DELETE FROM temp.tool_scope`)
+	if a.ctx != nil {
+		harness := make(map[string]string, len(pick))
+		for _, s := range pick {
+			harness[s.uid] = s.harness
+		}
+		if err := a.ctx.loadLists(ctx, conn, harness); err != nil {
+			return err
+		}
+	}
 	res, err := conn.QueryContext(ctx, toolRowsSQL(req), toolRowsArgs(req, a)...)
 	if err != nil {
 		return err

@@ -164,8 +164,10 @@ terva-lampi query tools --token-file ~/.config/terva-lampi/read-token \
 - `--largest N` lists the biggest single inputs and results, each with a
   link to the event in the dashboard.
 - `--context` adds a hint that compares the starting context of sessions
-  that called each MCP server with sessions that did not. It is a
-  correlation, not a measurement of the server's cost.
+  that used each MCP server with sessions that did not. A Claude Code
+  session records the tools it was offered, so it uses a server it was
+  offered even if it never called it; for other harnesses only calls
+  count. It is a correlation, not a measurement of the server's cost.
 - Sizes are bytes of text, and p50 and p95 are approximate, at most 19%
   high.
 

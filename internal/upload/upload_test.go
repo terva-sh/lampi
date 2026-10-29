@@ -1595,7 +1595,7 @@ func TestSyncCursorCLIIsASeparateCorpus(t *testing.T) {
 		t.Fatalf("ide kind %s", ide.Artifacts[0].Kind)
 	}
 	cliM := byHarness[protocol.HarnessCursorCLI]
-	if cliM.HarnessVersion != "1" || cliM.NativeSessionID != "chats/ab12/sid-1" || cliM.Project.CWD != "/work/app" {
+	if cliM.HarnessVersion != "2" || cliM.NativeSessionID != "chats/ab12/sid-1" || cliM.Project.CWD != "/work/app" {
 		t.Fatalf("cli %+v", cliM)
 	}
 	if cliM.Artifacts[0].Kind != protocol.KindCursorCLIStoreJSON || cliM.Artifacts[0].RelPath != "chats/ab12/sid-1/store.json" {

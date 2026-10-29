@@ -39,8 +39,13 @@ type metaRow struct {
 	hidden redact.Result
 }
 
+// Seq is the blob's SQLite rowid. Cursor writes a new root blob each
+// time the conversation changes, so root rowids give the order the
+// roots were written in, which nothing inside a root does. It is
+// omitted when the blobs table has no rowid.
 type blobRow struct {
 	ID     string          `json:"id"`
+	Seq    *int64          `json:"seq,omitempty"`
 	Data   json.RawMessage `json:"data"`
 	hidden redact.Result
 }
@@ -248,10 +253,14 @@ func readMeta(ctx context.Context, db *sql.DB) ([]metaRow, error) {
 	return out, nil
 }
 
-// readBlobs reads the blobs table. A blob the ruleset cannot scan
-// fails the read with an error that names its id.
+// readBlobs reads the blobs table, with each row's rowid as Seq. A
+// WITHOUT ROWID table has none and is read without Seq. A blob the
+// ruleset cannot scan fails the read with an error that names its id.
 func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, data FROM blobs ORDER BY id`)
+	rows, err := db.QueryContext(ctx, `SELECT id, rowid, data FROM blobs ORDER BY id`)
+	if err != nil {
+		rows, err = db.QueryContext(ctx, `SELECT id, NULL, data FROM blobs ORDER BY id`)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -259,8 +268,9 @@ func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 	out := []blobRow{}
 	for rows.Next() {
 		var id string
+		var seq sql.NullInt64
 		var val []byte
-		if err := rows.Scan(&id, &val); err != nil {
+		if err := rows.Scan(&id, &seq, &val); err != nil {
 			return nil, err
 		}
 		if excludedKey(id) {
@@ -270,7 +280,11 @@ func readBlobs(ctx context.Context, db *sql.DB) ([]blobRow, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cursor-cli: blob id %q: %w", id, err)
 		}
-		out = append(out, blobRow{ID: id, Data: data, hidden: hidden})
+		row := blobRow{ID: id, Data: data, hidden: hidden}
+		if seq.Valid {
+			row.Seq = &seq.Int64
+		}
+		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M61MZNWN16NSK5FAHD97MXCH
 title: "Tool usage: estimate starting-context cost of MCP servers"
 type: task
-status: blocked
-status_reason: Surfaces and engine done; AC 3 needs Claude Code's offered tool list projected (TKT-01M61SPVY01PVEFT1N9JKBK4HB, draft).
+status: done
+status_reason: null
 priority: low
 due_on: null
 labels:
@@ -23,13 +23,13 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T16:20:10Z
-updated_at: 2026-10-28T18:58:24Z
+updated_at: 2026-10-29T00:48:53Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
 updated_by:
-  id: agent:claude-code/049834bc
-  name: Claude Code local agent
+  id: agent:claude-code/049834bc-offered
+  name: ""
 extensions: {}
 ---
 
@@ -43,7 +43,7 @@ This only shows a correlation and cannot see a server that is configured but nev
 
 - [x] Starting context tokens are compared across sessions grouped by the servers they use.
 - [x] The result is labelled as a correlation hint, not a finding.
-- [ ] Any harness that records its tool list is used directly.
+- [x] Any harness that records its tool list is used directly.
 
 ## Implementation plan
 
@@ -91,6 +91,16 @@ in-progress to blocked: Surfaces and engine done; AC 3 needs Claude Code's offer
 
 The Tools page panel described in the previous note was removed with the /tools page (PR #223; the owner chose #218's Usage Tools tab instead). The context hint's dashboard surface moves to that tab under TKT-01M61MZNF. The CLI, route and MCP surfaces are unchanged.
 
+**agent:claude-code/049834bc-offered** at 2026-10-29T00:48:43Z
+
+AC 3 is done with TKT-01M61SPVY01PVEFT1N9JKBK4HB, "Project Claude Code's offered tool list for the context hint" (1b4ccb4).
+
+- Claude Code is the only harness that records its tool list, and the hint now uses that list directly. A session with a recorded list used every origin it was offered, whether or not it called one, so a server configured but never called now counts there.
+- Codex rollouts record none (note 1), and other harnesses were not found to record one. Their sessions are classed by calls, as before.
+- The block stays `kind: correlation_hint`. The note now says which basis each session used. `harnesses[].offered_sessions` says how many sessions used a list. `rows[].offered` gives the sessions whose list offered the origin, how many of them never called it, and the median number of its tools offered.
+
+The tool definitions' sizes are also in the snapshot (`description` and `schema`), so a size-based estimate per server would be possible. It was left out: the AC asks for the list to be used, and a byte count is not a token count.
+
 ## Summary
 
-Engine part landed in 50c2d87: ToolStatsRequest.Context returns a correlation_hint block comparing median starting context of sessions that called each MCP, plugin or extension origin with those that did not, per harness, suppressed under 5 sessions a side. Left: the --context CLI flag, the route and MCP argument, and the Tools page column (surfaces agent), and using Claude Code's recorded tool list (TKT-01M61SPVY).
+Engine in 50c2d87 and surfaces in f12b6e4 (CLI --context, context=true on the read and browser routes and the MCP tool_stats tool). The dashboard surface moved to TKT-01M61MZNF. ToolStatsRequest.Context returns a correlation_hint block. It compares the median starting context of sessions that used each MCP, plugin or extension origin with those that did not, per harness, and suppresses a row under 5 sessions a side. Since 1b4ccb4 (TKT-01M61SPVY), a Claude Code session with a recorded tool list used every origin it was offered as well as those it called. offered_sessions and rows[].offered report that basis. Other harnesses record no list and are classed by calls.

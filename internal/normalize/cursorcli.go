@@ -26,8 +26,9 @@ import (
 //
 // v1 emits one envelope meta event, then meta rows in export order, then
 // blob rows in conversation order (cursorCLIOrder), which reads the blob
-// ids that the protobuf root blobs list. An event whose place among
-// branches older than the latest root no root establishes carries
+// ids that the protobuf root blobs list, and the roots' seq when the
+// export carries it. In an export without seq, an event whose place
+// among branches older than the latest root no root establishes carries
 // extra.order "unestablished". Meta key "0" is the session
 // record. Fields on that record, including agentId, latestRootBlobId,
 // mode, and lastUsedModel, stay on the meta event. session_id stays
@@ -292,8 +293,13 @@ type cursorCLIMeta struct {
 	Value json.RawMessage `json:"value"`
 }
 
+// cursorCLIBlob is one blob row. Seq is the row's SQLite rowid, which
+// reader version 2 writes and version 1 did not. It is kept raw so that
+// a value that is not an integer reads as absent rather than failing
+// the document.
 type cursorCLIBlob struct {
 	ID   string          `json:"id"`
+	Seq  json.RawMessage `json:"seq"`
 	Data json.RawMessage `json:"data"`
 }
 

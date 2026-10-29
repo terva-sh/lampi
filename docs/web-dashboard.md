@@ -497,9 +497,12 @@ input or result.
 - **Largest blocks** lists the 20 largest single call inputs and results, each
   linked to its event in the transcript.
 - **Starting context by origin** compares the median starting context of
-  sessions that called each origin with those that did not, per harness. It
-  is a correlation hint, not a finding: it cannot see a server that was
-  configured but never called.
+  sessions that used each origin with those that did not, per harness. It is
+  a correlation hint, not a finding. A Claude Code session records the tools
+  it was offered, so it uses every origin it was offered or called, and
+  **Offered in** counts those sessions and how many never called the origin:
+  a server configured but never called shows there. Sessions of other
+  harnesses record no tool list and are classed by their calls.
 - Calls inside a Codex code-mode script are marked **inner**. Their results
   went to the script, not the model, so their shares are taken among inner
   calls only.
@@ -908,14 +911,20 @@ neither builds nor updates it.
     cached input taken out of input. Codex does not report cache writes.
   - **terva, OpenCode and Cursor** report one usage per call, which is summed.
 
+  For a Claude Code session the index also keeps the names of the tools the
+  session was offered, from the tool lists Claude Code records, for the
+  starting-context hint of tool usage statistics. It keeps names only.
+
   An index at schema 5, which stores per-event sizes, call ids and token
-  counts, or at schema 6, which adds these statistics, is upgraded to schema 7
-  in place on the first start. Schema 7 adds each session's first and last
-  recorded time, which tool usage statistics use to skip sessions outside a
-  range. Search keeps answering, and every session is read once more to fill
-  in what is missing. Rows that did not change are not rewritten. Until a
-  session is read again, a tool statistics request with a range leaves it out.
-  An older index is rebuilt.
+  counts, at schema 6, which adds these statistics, or at schema 7 is upgraded
+  to schema 8 in place on the first start. Schema 7 adds each session's first
+  and last recorded time, which tool usage statistics use to skip sessions
+  outside a range. Schema 8 adds the offered tool names. Search keeps
+  answering, and every session is read once more to fill in what is missing.
+  Rows that did not change are not rewritten. Until a session is read again,
+  the starting-context hint classes it by its calls and, from schema 5 or 6, a
+  tool statistics request with a range leaves it out. An older index is
+  rebuilt.
 
 ## Validation, backup and rollout
 
