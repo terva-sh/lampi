@@ -77,6 +77,10 @@ type contextRow struct {
 	Origin, Harness                     string
 	With, MedianWith, Without, MedianNo string
 	Difference                          string
+	// Offered is the sessions whose recorded tool list offered the
+	// origin, with how many never called it, and Tools the median count
+	// of its tools they were offered.
+	Offered, Tools string
 }
 
 // buildToolDetail reads the engine for the tab. A range with too many
@@ -201,6 +205,9 @@ func buildToolDetailView(st recall.ToolStats) toolDetailView {
 			if h.All.Median != nil {
 				cv.Harnesses += ", median " + humanCount(*h.All.Median) + " tokens"
 			}
+			if h.OfferedSessions > 0 {
+				cv.Harnesses += ", " + humanCount(h.OfferedSessions) + " with a recorded tool list"
+			}
 			cv.Harnesses += "."
 		}
 		median := func(p *int64) string {
@@ -212,7 +219,11 @@ func buildToolDetailView(st recall.ToolStats) toolDetailView {
 		for _, r := range c.Rows {
 			row := contextRow{Origin: originLabel(r.Origin), Harness: r.Harness,
 				With: humanCount(r.With.Sessions), MedianWith: median(r.With.Median),
-				Without: humanCount(r.Without.Sessions), MedianNo: median(r.Without.Median)}
+				Without: humanCount(r.Without.Sessions), MedianNo: median(r.Without.Median), Offered: "—", Tools: "—"}
+			if r.Offered.Sessions > 0 {
+				row.Offered = humanCount(r.Offered.Sessions) + " (" + humanCount(r.Offered.Uncalled) + " never called)"
+				row.Tools = median(r.Offered.Tools)
+			}
 			switch {
 			case r.Suppressed:
 				row.Difference = "too few sessions"

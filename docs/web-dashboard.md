@@ -497,9 +497,12 @@ input or result.
 - **Largest blocks** lists the 20 largest single call inputs and results, each
   linked to its event in the transcript.
 - **Starting context by origin** compares the median starting context of
-  sessions that called each origin with those that did not, per harness. It
-  is a correlation hint, not a finding: it cannot see a server that was
-  configured but never called.
+  sessions that used each origin with those that did not, per harness. It is
+  a correlation hint, not a finding. A Claude Code session records the tools
+  it was offered, so it uses every origin it was offered or called, and
+  **Offered in** counts those sessions and how many never called the origin:
+  a server configured but never called shows there. Sessions of other
+  harnesses record no tool list and are classed by their calls.
 - Calls inside a Codex code-mode script are marked **inner**. Their results
   went to the script, not the model, so their shares are taken among inner
   calls only.
