@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M61MZNFY69TNQJWH0PS2WPKS
 title: "Dashboard: extend the Usage Tools tab with sizes, latency and origins"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ dependencies:
   - TKT-01M61MZNCF5QGBXEDDA0WWR97J
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/049834bc
-  branch: t3/diag-tools-tab
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-049834bc
-  commit: c7ae2c2e35dab5e44ed4e4ea45f1414eae48014c
-  session: null
-  claimed_at: 2026-10-29T00:37:28Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-28T16:20:09Z
-updated_at: 2026-10-29T00:44:08Z
+updated_at: 2026-10-29T00:57:49Z
 created_by:
   id: agent:claude-code/049834bc
   name: Claude Code local agent
@@ -110,6 +103,10 @@ Unblocked: #218 merged to main (2b8d5f2). Picking up the revised plan.
 **agent:claude-code/049834bc** at 2026-10-29T00:44:08Z
 
 Built on #218's tab as the revised plan says. Category placement now goes through toolorigin.Of(harness, name): mcp:SERVER and plugin:PLUGIN, and Cursor CLI's older mcp__cursor__X reads by its bare name (it was mcp:cursor). The engine read (ToolStats, no bucket, largest 20, context on) shares the tab's 5 s readContext with the rollup; ErrTooManyValues or a deadline shows a notice in place of the detail panels instead of failing the page. Calls over time and the error rate come from the existing rollup charts and category table, so the engine is not asked for buckets. No origin or group-by control was added: the form stays range and harness, as the plan allowed. Alternative rejected: per-category size percentiles, which cannot be merged from per-tool percentiles; sizes and latency are per tool instead.
+
+**agent:claude-code/049834bc** at 2026-10-29T00:57:49Z
+
+Merged as #227 (d1cb45c) after a clean review at 23966db (review 2919's one finding fixed) and green CI.
 
 ## Summary
 
