@@ -23,7 +23,8 @@ tools a port or an emulation has to support.
 1. On the dashboard, open **Read tokens**.
 2. Mint a token:
    - **Label**: what it is for, such as `agent recall on laptop`.
-   - **Reads**: select **normalized events** (`events:read`) only.
+   - **What the token is for**: tick **Agent recall: search, query and
+     MCP** (`events:read`) only.
    - **Sessions** or **Bays**: limit the token to the sessions the agent
      needs. Leave both empty only when it needs the whole lake.
    - **Expires after**: the shortest time that covers the work.

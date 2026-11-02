@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:16:12Z
-updated_at: 2026-11-02T22:16:12Z
+updated_at: 2026-11-02T22:19:59Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -58,3 +58,7 @@ Put the choices on their own full-width row, each a checkbox beside a purpose-fi
 - [ ] Each Reads choice is a checkbox on the same line as its title, with the permission name and what uses it
 - [ ] The titles lead with purpose: agent recall (events:read) and raw file downloads (raw:read)
 - [ ] No box is checked on a fresh form, and a test pins the wording and layout markup
+
+## Implementation plan
+
+readTokenPerm gains Title and Use from readTokenPermUses; the form lists events:read first, then raw:read, as a full-width fieldset.token-reads below the fields, each a label.token-read row (checkbox, bold title, mono permission, one-line use). Fresh form still ticks nothing. invalid_perms reworded. Docs: web-dashboard.md table gains the form choice and its users; reading-the-lake.md names the new choice.
