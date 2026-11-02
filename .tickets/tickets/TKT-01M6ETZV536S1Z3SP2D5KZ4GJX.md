@@ -1,0 +1,59 @@
+---
+schema: 3
+id: TKT-01M6ETZV536S1Z3SP2D5KZ4GJX
+title: "Profile editor: one line per rule, matches, inline findings, filter"
+type: task
+status: in-progress
+status_reason: null
+priority: high
+due_on: null
+labels:
+  - area/server
+  - policy
+assignees: []
+milestone: null
+parent: null
+origin: null
+dependencies: []
+blocks_on: none
+references: []
+claim:
+  actor: agent:claude-code/t3-43103b81
+  branch: t3/profile-editor-redesign
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
+  commit: 98d247e49c147d3b0f5eb39b38e3e72a95a82f25
+  session: null
+  claimed_at: 2026-11-02T19:15:15Z
+  expires_at: null
+archive: null
+created_at: 2026-11-02T19:15:14Z
+updated_at: 2026-11-02T19:15:15Z
+created_by:
+  id: agent:claude-code/t3-43103b81
+  name: ""
+updated_by:
+  id: agent:claude-code/t3-43103b81
+  name: ""
+extensions: {}
+---
+
+## Description
+
+The owner, 2026-11-02: "The editor view is actually kinda hard to use … it doesn't take advantage of the page width when there are a lot of fields to edit. I think the whole view could use a redesign toward usage now that we have a large sample size to work from." The live default profile holds 234 allow rules. Each is a row of five inputs (cwd_prefix, git_remote, git_remote_prefix, cwd_hash, cwd_glob), though almost every rule sets one field.
+
+The owner chose (AskUserQuestion, 2026-11-02): one line per rule, matches per rule, Health findings inline, and a filter box. Ordering (TKT for ordering) and select-and-merge (TKT-01M6ETH6H726EM1DJJS98M56JV) follow in their own PRs, so each stays reviewable.
+
+### What changes
+
+- Each rule is one line: a kind picker (folder, repository, owner, folder hash, folder pattern) and one value box across the page width. A rule with more than one field shows each field as its own condition, and "Add a condition" adds one. The form posts `allow.N.c.M.kind` and `allow.N.c.M.value`; the old `allow.N.FIELD` names stay accepted.
+- Each rule shows what it admits on the listed devices: projects and sessions, from the doctor's `admitted`. A rule that admits nothing says so.
+- The doctor's findings for a rule appear on that rule, with the fix it offers. The Health panel stays as the summary.
+- Rules that share a folder or owner are drawn under a header naming it and the count.
+- A filter box narrows the rule list by text where scripts run. Without scripts every rule shows.
+
+## Acceptance criteria
+
+- [ ] Each rule is one line with a kind picker and a full-width value; multi-field rules show each condition; old field names still parse
+- [ ] Each rule shows the projects and sessions it admits, and the doctor's findings for it
+- [ ] Rules sharing a folder or owner sit under a header; a filter box narrows the list where scripts run
+- [ ] Tests and docs cover the new form
