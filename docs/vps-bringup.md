@@ -278,8 +278,10 @@ dashboard's profile editor, where the preview lists what each admits or
 drops:
 
 - A `home_folder`, `broad_folder` or `host_wide` rule is replaced with
-  one exact rule for each project it admits today. A project in the home
-  directory itself keeps a `cwd_hash` rule, which names that folder
+  one exact rule for each project it admits today. Each new rule keeps
+  the old rule's folder or host, so a repository admitted under a home
+  directory is not admitted in its checkouts elsewhere. A project in the
+  home directory itself keeps a `cwd_hash` rule, which names that folder
   alone. Nothing uploading from a device that sent an inventory stops,
   and new folders under it go to review.
 - A temporary rule that a device still holds sessions for is removed,

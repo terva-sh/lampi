@@ -196,7 +196,7 @@ func Diagnose(in Input) Report {
 		}
 		rep.Findings = append(rep.Findings, f)
 	}
-	hideTemporary(in, &rep, temporary)
+	hideTemporary(in, &rep, temporary, admits)
 	for _, o := range OwnerFolds(allow) {
 		rep.Findings = append(rep.Findings, Finding{Code: CodeOwnerFold, Level: LevelOffer, Fix: FixWiden, Index: -1, Group: o.Owner, Count: o.Count,
 			Message: fmt.Sprintf("%d git_remote rules name repositories under %s. One git_remote_prefix would cover them, and any other repository there.", o.Count, o.Owner)})
@@ -338,21 +338,46 @@ func exactRule(p protocol.InventoryProject) config.ProjectMatch {
 }
 
 // narrowed is the exact rules that keep what allow[i] admits today,
-// less those another rule of allow already covers.
+// less those another rule of allow already covers. Each is within
+// allow[i], so the fix never admits what the rule refused: a repository
+// admitted under a folder keeps the folder, and is not admitted in
+// every checkout.
 func narrowed(allow []config.ProjectMatch, i int, admits []Project) []config.ProjectMatch {
 	others := slices.Delete(slices.Clone(allow), i, i+1)
 	out := []config.ProjectMatch{}
 	for _, p := range admits {
-		if !coveredByAny(others, p.rule) && !coveredByAny(out, p.rule) {
-			out = append(out, p.rule)
+		r := within(allow[i], p.rule)
+		if !coveredByAny(others, r) && !coveredByAny(out, r) {
+			out = append(out, r)
 		}
 	}
 	return out
 }
 
+// within is exact narrowed to wide: exact with each field of wide that
+// exact sets no narrower field for. exact names a project wide matches,
+// so its cwd_prefix lies under wide's and its git_remote under wide's
+// git_remote_prefix.
+func within(wide, exact config.ProjectMatch) config.ProjectMatch {
+	if exact.CWDPrefix == "" {
+		exact.CWDPrefix = wide.CWDPrefix
+	}
+	if exact.GitRemote == "" && exact.GitRemotePrefix == "" {
+		exact.GitRemote, exact.GitRemotePrefix = wide.GitRemote, wide.GitRemotePrefix
+	}
+	if exact.CWDHash == "" {
+		exact.CWDHash = wide.CWDHash
+	}
+	if exact.CWDGlob == "" {
+		exact.CWDGlob = wide.CWDGlob
+	}
+	return exact
+}
+
 // hideTemporary fills in the projects removing the temporary rules
-// would stop admitting, which their fix hides from review.
-func hideTemporary(in Input, rep *Report, temporary []int) {
+// would stop admitting, which their fix hides from review. It reads
+// admits whole: a finding's Admits is cut short for the page.
+func hideTemporary(in Input, rep *Report, temporary []int, admits map[int][]Project) {
 	if len(temporary) == 0 {
 		return
 	}
@@ -376,7 +401,7 @@ func hideTemporary(in Input, rep *Report, temporary []int) {
 			continue
 		}
 		f.Replace = []config.ProjectMatch{}
-		for _, p := range f.Admits {
+		for _, p := range admits[f.Index] {
 			if dropped[p.Key] && !in.Hidden[p.Key] && !slices.Contains(f.Hide, p.Key) {
 				f.Hide = append(f.Hide, p.Key)
 			}

@@ -54,6 +54,7 @@ func TestDiagnose(t *testing.T) {
 			project("git.example/team/app", "/work/app", true),
 			steam,
 			project("", "/home/steamos/games/x", true),
+			project("git.example/deck/save", "/home/steamos/saves", true),
 			project("github.com/someone/thing", "/src/thing", true),
 			project("", "/tmp/t3code-title-a", true),
 			project("", "/home/me/.vuoro/wt/a", false),
@@ -75,9 +76,21 @@ func TestDiagnose(t *testing.T) {
 		t.Fatalf("home folder: %+v", f)
 	}
 	// The session started in the home directory keeps a cwd_hash, which
-	// names that folder alone; the one under it keeps its folder.
-	if want := []config.ProjectMatch{{CWDHash: "0123456789abcdef"}, cwd("/home/steamos/games/x")}; !slices.Equal(f.Replace, want) {
+	// names that folder alone; the one under it keeps its folder; the
+	// repository keeps the home folder, so its checkouts elsewhere stay
+	// refused.
+	if want := []config.ProjectMatch{{CWDHash: "0123456789abcdef", CWDPrefix: "/home/steamos"}, cwd("/home/steamos/games/x"), {GitRemote: "git.example/deck/save", CWDPrefix: "/home/steamos"}}; !slices.Equal(f.Replace, want) {
 		t.Errorf("home folder replacement %+v, want %+v", f.Replace, want)
+	}
+	for _, r := range f.Replace {
+		if !config.Covers(allow[3], r) {
+			t.Errorf("narrowing rule %+v reaches beyond %+v", r, allow[3])
+		}
+	}
+	narrowedHome := config.Projects{Allow: f.Replace}
+	if !narrowedHome.Permitted(config.ProjectID{CWD: "/home/steamos/saves", GitRemote: "git.example/deck/save"}) ||
+		narrowedHome.Permitted(config.ProjectID{CWD: "/srv/private/saves", GitRemote: "git.example/deck/save"}) {
+		t.Error("narrowing the home folder changed which checkouts of the repository upload")
 	}
 	if f := find(rep, CodeBroadFolder, 2); f == nil || f.Level != LevelWarning {
 		t.Errorf("broad folder: %+v", f)
@@ -122,7 +135,7 @@ func TestDiagnose(t *testing.T) {
 		t.Errorf("ApplyUnmatched removed %d, want 4", n)
 	}
 	narrowed, hide, ok := ApplyNarrow(in.Projects, *find(rep, CodeHomeFolder, 3))
-	if !ok || hide != nil || len(narrowed.Allow) != len(allow)+1 || narrowed.Allow[3] != (config.ProjectMatch{CWDHash: "0123456789abcdef"}) {
+	if !ok || hide != nil || len(narrowed.Allow) != len(allow)+2 || narrowed.Allow[3] != (config.ProjectMatch{CWDHash: "0123456789abcdef", CWDPrefix: "/home/steamos"}) {
 		t.Errorf("ApplyNarrow: %v %+v", ok, narrowed.Allow)
 	}
 	stale := *find(rep, CodeHomeFolder, 3)
@@ -159,6 +172,21 @@ func TestDiagnoseUnlisted(t *testing.T) {
 	}
 	if rep.Safe() != 0 {
 		t.Errorf("%d safe fixes", rep.Safe())
+	}
+}
+
+// A temporary rule that admits more projects than a finding shows still
+// hides every one of them.
+func TestTemporaryHidesEveryProject(t *testing.T) {
+	var held []protocol.InventoryProject
+	for i := range maxAdmitsPerRule + 5 {
+		held = append(held, project("", fmt.Sprintf("/tmp/run/%d", i), true))
+	}
+	rep := Diagnose(Input{Projects: config.Projects{Allow: []config.ProjectMatch{cwd("/tmp/run")}},
+		Devices: []Device{{Name: "ci", Listed: true, Projects: held}}})
+	f := find(rep, CodeTemporary, 0)
+	if f == nil || len(f.Admits) != maxAdmitsPerRule || len(f.Hide) != maxAdmitsPerRule+5 {
+		t.Fatalf("temporary: %+v", f)
 	}
 }
 
