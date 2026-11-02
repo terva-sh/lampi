@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F35AC4H7S1EK6XVN9E9KAQ
 title: "Release v0.11.1: review groups and profile editor redesign"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: tickets/v0.11.1
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 527d5c368339ad8fc3f26cc6b81a365047cdb4f1
-  session: null
-  claimed_at: 2026-11-02T21:38:05Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T21:38:02Z
-updated_at: 2026-11-02T21:39:07Z
+updated_at: 2026-11-02T21:46:25Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -60,11 +53,19 @@ v0.12.0 was the other choice, since the release adds dashboard features. The own
 ## Acceptance criteria
 
 - [x] An isolated v0.11.0 upgrade rehearsal and the release gates pass on the synchronized main commit
-- [ ] The tag is published on both forges, and the archives, checksums and images name the tag
-- [ ] Both release bodies describe the features, the upgrade and rollback
+- [x] The tag is published on both forges, and the archives, checksums and images name the tag
+- [x] Both release bodies describe the features, the upgrade and rollback
 
 ## Notes
 
 **agent:claude-code/t3-43103b81** at 2026-11-02T21:39:07Z
 
 Gates on main 527d5c3 (#245), in a detached scratch worktree: GOFLAGS=-mod=mod just ci passed; just release-check passed; just release-snapshot built all five archives and checksums. Isolated rehearsal (release-v0111.* under the agent-scratch lampi root, rehearse.sh and rehearse.log), old = GitHub's v0.11.0 linux_amd64 verified against checksums.txt, new = the snapshot's linux_amd64: v0.11.0 serve with web config and token, synthetic Claude session synced, profile imported; candidate: migrate --check reports schema 21 up to date, index stays 8, unchanged sync uploaded 0; serve profiles doctor ran while serve ran and flagged home_folder, covered, temporary; --write then set saved revision 2 without the covered rule; appended session uploaded; fsck 3 entries 0 bad; v0.11.0 reopened the lake, read revision 2, unchanged sync uploaded 0; no errors in serve logs. No live config, token, lake or agent touched.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T21:46:25Z
+
+Published. Tag v0.11.1 (annotated) on 527d5c3, main after #245; GitHub already synced. Release runs passed: GitHub 41530341090, Forgejo 56044 (release) and 56045 (image build). Each forge's five archives pass sha256sum -c against that forge's checksums.txt; linux_amd64 from both prints 'terva-lampi v0.11.1 (527d5c368339)'. ghcr.io/terva-sh/lampi 0.11.1, 0.11 and latest are one index (amd64 and arm64), and the image prints v0.11.1 (527d5c3). Both releases are titled 'v0.11.1 — Review queue groups and profile editor redesign', and their bodies hold the notes, the upgrade-and-rollback section, and goreleaser's Install and Changelog. The live lake is not upgraded.
+
+## Summary
+
+v0.11.1 is published on both forges and GHCR, from 527d5c3. It ships the grouped review queue (#241) and the redesigned profile editor: one line per rule with matches and findings (#242), ordering and sort (#243), and merge ticked rules (#244). No migration, schema 21, index 8; rollback to v0.11.0 is a binary or image swap. The live lake has not been upgraded.
