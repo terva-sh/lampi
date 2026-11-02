@@ -297,10 +297,13 @@ agents that read the lake without a browser session. The API is in
 
 A token reads what its permissions name, and nothing else:
 
-| Permission | Reads |
-|---|---|
-| `raw:read` | Raw artifacts, the uploaded files as stored. |
-| `events:read` | Normalized events, for agents that look back over past sessions. |
+| Form choice | Permission | Reads | Used by |
+|---|---|---|---|
+| **Agent recall: search, query and MCP** | `events:read` | Normalized events. | `terva-lampi query`, `terva-lampi mcp`, and the read MCP endpoint: an agent or a person looking back over past sessions. |
+| **Raw files: download uploads as stored** | `raw:read` | Raw artifacts, the uploaded files as stored. | `/api/raw/v1`, for a backup or your own script. No `terva-lampi` command needs it. |
+
+The form lists both choices on one row, each with what uses it, and ticks
+neither.
 
 A read token is its own principal. It reads what its permissions and
 scope allow, not what the admin who minted it can read, and it keeps

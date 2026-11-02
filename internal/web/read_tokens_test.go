@@ -437,7 +437,7 @@ func TestReadTokenPermissions(t *testing.T) {
 	for _, perms := range [][]string{nil, {"admin:all"}, {catalog.PermEventsRead, "admin:all"}} {
 		a := attemptField.FindStringSubmatch(get(h, adminReadTokensPath, admin).Body.String())
 		w := postForm(h, adminReadTokensPath, url.Values{"csrf": {csrfOf(t, h, admin)}, "attempt": {a[1]}, "label": {"bad perms"}, "expires": {"24h"}, "permissions": perms}, admin)
-		if w.Code != 400 || mintedToken.MatchString(w.Body.String()) || !strings.Contains(w.Body.String(), "Choose what the token reads") {
+		if w.Code != 400 || mintedToken.MatchString(w.Body.String()) || !strings.Contains(w.Body.String(), "Choose what the token is for") {
 			t.Errorf("mint with %q: %d", perms, w.Code)
 		}
 	}
@@ -447,5 +447,34 @@ func TestReadTokenPermissions(t *testing.T) {
 	}
 	if !strings.Contains(string(log), "permissions=events:read scope=lake") {
 		t.Errorf("audit does not name the permission:\n%s", log)
+	}
+}
+
+// TKT-01M6F5B6DCJEH3XPX3SZVPHY9X: the mint form offers each permission
+// by what it is for, as a checkbox on the line of its title, and ticks
+// none to begin with.
+func TestReadTokenFormSaysWhatEachReadIsFor(t *testing.T) {
+	_, idp, h, _ := rawLake(t, nil)
+	admin := signInAs(t, idp, h, "owners")
+	page := get(h, adminReadTokensPath, admin).Body.String()
+	for _, want := range []string{
+		`<label class="token-read"><input type="checkbox" name="permissions" value="events:read" ><span><strong>Agent recall: search, query and MCP</strong> <span class="mono">events:read</span>`,
+		`<label class="token-read"><input type="checkbox" name="permissions" value="raw:read" ><span><strong>Raw files: download uploads as stored</strong> <span class="mono">raw:read</span>`,
+		"No terva-lampi command needs it.",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("mint form lacks %q", want)
+		}
+	}
+	for _, p := range catalog.ReadTokenPermissions {
+		if readTokenPermUses[p].Title == "" || !strings.Contains(page, `name="permissions" value="`+p+`"`) {
+			t.Errorf("the form does not offer %s with its use", p)
+		}
+	}
+	if strings.Index(page, `value="events:read"`) > strings.Index(page, `value="raw:read"`) {
+		t.Error("agent recall is not offered first")
+	}
+	if strings.Contains(page, `name="permissions" value="events:read" checked`) || strings.Contains(page, `name="permissions" value="raw:read" checked`) {
+		t.Error("a fresh form ticks a permission")
 	}
 }
