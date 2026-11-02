@@ -238,9 +238,10 @@ func shadowedBy(deny []config.ProjectMatch, r config.ProjectMatch) *config.Proje
 }
 
 // homeFolder reports whether a clean absolute folder is the root, a
-// folder that holds home directories, or a home directory.
+// folder that holds home directories, or a home directory, root's
+// included.
 func homeFolder(dir string) bool {
-	if dir == "/" {
+	if dir == "/" || slices.Contains(rootHomes, dir) {
 		return true
 	}
 	segs := strings.Split(strings.TrimPrefix(dir, "/"), "/")

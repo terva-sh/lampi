@@ -137,18 +137,22 @@ type FolderFold struct {
 // WideFolder reports whether a folder-wide rule may name dir, a clean
 // absolute path. A top-level folder such as /tmp, a home directory such
 // as /home/me or /Users/me, and the folder that holds home directories
-// are refused: a rule for one of them reaches projects nobody chose,
+// are refused, as are root's home directories: a rule for one of them reaches projects nobody chose,
 // which is TKT-01M3NQ8324. Those are rules to type on purpose.
 func WideFolder(dir string) bool {
 	segs := strings.Split(strings.TrimPrefix(dir, "/"), "/")
 	if !strings.HasPrefix(dir, "/") || len(segs) < 2 || slices.Contains(segs, "") {
 		return false
 	}
-	return !homes(segs[len(segs)-1]) && !homes(segs[len(segs)-2])
+	return !homes(segs[len(segs)-1]) && !homes(segs[len(segs)-2]) && !slices.Contains(rootHomes, dir)
 }
 
 // homes reports whether a folder named seg holds home directories.
 func homes(seg string) bool { return seg == "home" || seg == "Users" }
+
+// rootHomes are the home directories of root, which sit outside the
+// home and Users folders: /root on Linux, /var/root on macOS.
+var rootHomes = []string{"/root", "/var/root"}
 
 // cwdOnly is the clean folder of a rule that sets only an absolute
 // cwd_prefix, or false for any other rule.
