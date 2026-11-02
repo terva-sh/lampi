@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F7JMGV9XDW5Z4SZJ74J9H3
 title: "Dashboard: wide list pages, wrapping project cells, machine names"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -16,10 +16,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/t3-43103b81
+  branch: t3/wide-layout
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
+  commit: 05b9765e4514c17fcc3425e1138563085a56fee1
+  session: null
+  claimed_at: 2026-11-02T23:06:10Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T22:55:13Z
+updated_at: 2026-11-02T23:06:10Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
