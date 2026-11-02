@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6EJ43MTF221EJQAQH7K7QT7
 title: "Dashboard: profile Health panel with safe fixes and remove-and-hide"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: high
 due_on: null
@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T16:40:17Z
-updated_at: 2026-11-02T16:40:25Z
+updated_at: 2026-11-02T16:45:47Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -50,7 +50,13 @@ Show the profile doctor's report from TKT-01M6EJ43HT4EZH4Y51221C3CGE (Profile do
 
 ## Acceptance criteria
 
-- [ ] The profile page and the editor show the doctor's findings
-- [ ] Apply safe fixes changes the form and previews it, and saves nothing
-- [ ] A narrowing fix previews its replacement; a temporary rule's fix hides its projects after a successful save
-- [ ] docs/web-dashboard.md describes the panel
+- [x] The profile page and the editor show the doctor's findings
+- [x] Apply safe fixes changes the form and previews it, and saves nothing
+- [x] A narrowing fix previews its replacement; a temporary rule's fix hides its projects after a successful save
+- [x] docs/web-dashboard.md describes the panel
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T16:45:47Z
+
+Committed on t3/profile-doctor-dashboard, stacked on t3/profile-doctor. GOFLAGS=-mod=mod just ci passes. The Health panel replaces Fewer rules; tidy=covered is gone in favour of doctor=safe. The hide runs after a successful save, with the save's note prefixed 'Removed from the profile: '. If the hide fails, the profile page says the profile is saved and the projects need hiding by hand. Not pushed: waiting on the operator.

@@ -52,10 +52,10 @@ func TestEditorOffersFewerRules(t *testing.T) {
 
 	page := html.UnescapeString(get(h, "/profiles/default/edit", cookie).Body.String())
 	for _, want := range []string{
-		"2 allow rules add nothing",
-		"cwd_prefix /work/app covered by cwd_prefix /work",
-		"git_remote github.com/solo/one covered by git_remote github.com/solo/one",
-		"3 git_remote rules name repositories under git.example/team",
+		"2 rules change nothing on any device if removed",
+		"cwd_prefix /work/app covered Another rule covers it, so it adds nothing. By cwd_prefix /work .",
+		"git_remote github.com/solo/one covered Another rule covers it, so it adds nothing. By git_remote github.com/solo/one .",
+		"3 git_remote rules name repositories under git.example/team.",
 	} {
 		if !strings.Contains(squash(page), want) {
 			t.Errorf("editor lacks %q", want)
@@ -63,7 +63,7 @@ func TestEditorOffersFewerRules(t *testing.T) {
 	}
 	// Enter in a field submits the form's first button, which must be
 	// the plain preview, not an offer.
-	if i, j := strings.Index(page, "Preview changes"), strings.Index(page, `name="tidy"`); i < 0 || j < i {
+	if i, j := strings.Index(page, "Preview changes"), strings.Index(page, `name="doctor"`); i < 0 || j < i {
 		t.Error("an offer comes before Preview changes in the form")
 	}
 
@@ -82,10 +82,10 @@ func TestEditorOffersFewerRules(t *testing.T) {
 	}
 
 	v := ruleForm(csrf, p.Revision, rules)
-	v.Set("tidy", "covered")
+	v.Set("doctor", "safe")
 	got, note := previewed(v)
 	want := []config.ProjectMatch{rules[0], rules[1], rules[2], rules[3], rules[5]}
-	if !slices.Equal(got, want) || note != "Remove 2 covered allow rules" {
+	if !slices.Equal(got, want) || note != "Remove 2 allow rules that change nothing" {
 		t.Errorf("remove covered: %+v, note %q", got, note)
 	}
 
@@ -161,7 +161,7 @@ func TestEditorFoldsFolders(t *testing.T) {
 	csrf := csrfOf(t, h, cookie)
 
 	page := squash(html.UnescapeString(get(h, "/profiles/default/edit", cookie).Body.String()))
-	if !strings.Contains(page, "3 cwd_prefix rules name folders under "+wt+" . One cwd_prefix would cover them") {
+	if !strings.Contains(page, "3 cwd_prefix rules name folders under "+wt+". One cwd_prefix would cover them") {
 		t.Errorf("editor offers no fold of %s", wt)
 	}
 	if strings.Contains(page, `value="/home/me"`) {

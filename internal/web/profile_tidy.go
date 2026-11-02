@@ -1,74 +1,123 @@
 package web
 
 import (
-	"net/url"
+	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/profiledoctor"
 )
 
-// The editor's offers to shorten a profile's allow list: remove the
-// rules another rule already covers, and replace a run of exact
-// git_remote rules under one owner with one git_remote_prefix. Both
-// change the form and preview it; nothing is saved until the operator
-// saves, after the preview has listed what a wider rule admits.
+// The editor's fixes, which the Health panel offers from the profile
+// doctor's report: remove the rules that change nothing, narrow a rule
+// that reaches too far, and fold a group of rules into one wider rule.
+// Each changes the form and previews it; nothing is saved until the
+// operator saves, after the preview has listed what the change admits
+// and drops.
 
-// coveredRule is an allow rule that another allow rule in the same
-// list covers, and the rule that covers it.
-type coveredRule struct {
-	Rule, By string
-}
-
-// coveredRules lists the covered rules in rules for the editor.
-func coveredRules(rules []config.ProjectMatch) []coveredRule {
-	by := profiledoctor.CoveredBy(rules)
-	var out []coveredRule
-	for i, r := range rules {
-		if j, ok := by[i]; ok {
-			out = append(out, coveredRule{Rule: ruleText(r), By: ruleText(rules[j])})
-		}
+// tidyForm applies the fix the operator pressed, if any, to the rules
+// read from the form, for profile name:
+//
+//   - "doctor=safe" removes every rule the doctor's safe fixes name;
+//   - "doctor=unmatched" removes every rule that admits nothing today;
+//   - "narrow=INDEX" applies the narrowing fix for the allow rule at
+//     INDEX, and adds the projects it hides to the form;
+//   - "fold=OWNER" and "folder=DIR" fold the rules under an owner or a
+//     folder, when the doctor offers that fold.
+//
+// Each reads the doctor's report for the form's rules, so it acts only
+// on what the Health panel offered for them. An empty note is filled
+// with what was done, so the saved revision says why the rules went. A
+// fix that cannot be saved is not applied, and the problem returned
+// says why.
+func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *config.Profile) (string, error) {
+	v := r.PostForm
+	doctor, narrow, owner, folder := v.Get("doctor"), v.Get("narrow"), v.Get("fold"), v.Get("folder")
+	if doctor == "" && narrow == "" && owner == "" && folder == "" {
+		return "", nil
 	}
-	return out
-}
-
-// tidyForm applies the offer the operator pressed, if any, to the rules
-// read from the form: "tidy=covered" removes the covered allow rules,
-// "fold=OWNER" folds that owner's remotes when ownerFolds offers it
-// for those rules, and "folder=DIR" folds the cwd_prefix rules under DIR
-// when folderFolds offers it. An empty note is filled
-// with what was done, so the saved revision says why the rules went.
-func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
+	rep, err := s.diagnose(r, name, p.Projects)
+	if err != nil {
+		return "", err
+	}
+	offered := func(code, group string) bool {
+		return slices.ContainsFunc(rep.Findings, func(f profiledoctor.Finding) bool { return f.Code == code && f.Group == group })
+	}
 	var n int
 	var note string
-	switch owner, folder := v.Get("fold"), v.Get("folder"); {
-	case v.Get("tidy") == "covered":
-		p.Projects.Allow, n = profiledoctor.WithoutCovered(p.Projects.Allow)
-		note = "Remove " + strconv.Itoa(n) + " covered allow " + plural(n, "rule", "rules")
+	switch {
+	case doctor == "safe":
+		p.Projects, n = profiledoctor.ApplySafe(p.Projects, rep)
+		note = "Remove " + strconv.Itoa(n) + " allow " + plural(n, "rule that changes", "rules that change") + " nothing"
+	case doctor == "unmatched":
+		p.Projects, n = profiledoctor.ApplyUnmatched(p.Projects, rep)
+		note = "Remove " + strconv.Itoa(n) + " allow " + plural(n, "rule", "rules") + " no project matches"
+	case narrow != "":
+		i, err := strconv.Atoi(narrow)
+		k := slices.IndexFunc(rep.Findings, func(f profiledoctor.Finding) bool {
+			return err == nil && f.Index == i && f.Fix == profiledoctor.FixNarrow
+		})
+		if k < 0 {
+			return "", nil
+		}
+		fd := rep.Findings[k]
+		// One save hides at most maxReviewBatch projects, as the review
+		// queue does: a fix past that could be previewed but not saved.
+		queued := len(f.Hide)
+		for _, h := range fd.Hide {
+			if !slices.Contains(f.Hide, h.String()) {
+				queued++
+			}
+		}
+		if queued > maxReviewBatch {
+			return fmt.Sprintf("Removing %s would hide %d projects from review, and one save hides at most %d. Nothing was changed. Save the changes so far first, or hide its projects from the review queue and then remove the rule.", ruleText(*fd.Rule), queued, maxReviewBatch), nil
+		}
+		var hide []catalog.ProjectKey
+		var ok bool
+		if p.Projects, hide, ok = profiledoctor.ApplyNarrow(p.Projects, fd); !ok {
+			return "", nil
+		}
+		n = 1
+		for _, h := range hide {
+			if !slices.Contains(f.Hide, h.String()) {
+				f.Hide = append(f.Hide, h.String())
+			}
+		}
+		switch {
+		case len(hide) > 0:
+			note = "Remove temporary rule " + ruleText(*fd.Rule) + " and hide " + strconv.Itoa(len(hide)) + " " + plural(len(hide), "project", "projects") + " from review"
+		case len(fd.Replace) == 0:
+			note = "Remove " + ruleText(*fd.Rule)
+		default:
+			note = "Narrow " + ruleText(*fd.Rule) + " to " + strconv.Itoa(len(fd.Replace)) + " exact " + plural(len(fd.Replace), "rule", "rules")
+		}
 	case owner != "":
-		// Only an owner the editor offers for these rules: a fold is a
+		// Only a fold the panel offers for these rules: a fold is a
 		// widening, and the offer is where its threshold lives.
-		if !slices.ContainsFunc(profiledoctor.OwnerFolds(p.Projects.Allow), func(f profiledoctor.OwnerFold) bool { return f.Owner == owner }) {
-			return
+		if !offered(profiledoctor.CodeOwnerFold, owner) {
+			return "", nil
 		}
 		p.Projects.Allow, n = profiledoctor.FoldOwner(p.Projects.Allow, owner)
 		note = "Replace " + strconv.Itoa(n) + " git_remote " + plural(n, "rule", "rules") + " under " + owner + " with one git_remote_prefix"
 	case folder != "":
-		if !slices.ContainsFunc(profiledoctor.FolderFolds(p.Projects.Allow), func(f profiledoctor.FolderFold) bool { return f.Folder == folder }) {
-			return
+		if !offered(profiledoctor.CodeFolderFold, folder) {
+			return "", nil
 		}
 		p.Projects.Allow, n = profiledoctor.FoldFolder(p.Projects.Allow, folder)
 		note = "Replace " + strconv.Itoa(n) + " cwd_prefix " + plural(n, "rule", "rules") + " under " + folder + " with one cwd_prefix"
 	}
 	if n == 0 {
-		return
+		return "", nil
 	}
 	f.Allow = withBlanks(p.Projects.Allow)
 	if strings.TrimSpace(f.Note) == "" {
 		f.Note = note
 	}
+	return "", nil
 }
 
 // The widths Allow can add a rule at: the project's own repository, or

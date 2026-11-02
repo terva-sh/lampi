@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T16:40:17Z
-updated_at: 2026-11-02T16:40:25Z
+updated_at: 2026-11-02T16:45:47Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -74,3 +74,9 @@ Add `internal/profiledoctor`. It reads a profile's rules against the newest inve
 - [x] Safe fixes change no project's verdict on a listed device, and a missing inventory makes a temporary rule unsafe
 - [x] serve profiles doctor prints the report, --json prints it as JSON, and --write writes the profile with the safe fixes applied
 - [x] docs/vps-bringup.md documents the command and every code
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T16:45:47Z
+
+Committed on t3/profile-doctor (ff0aa75), stacked on t3/profile-cleanup-tooling (066b521, TKT-01M6EHCSYRP3BACSX2N16H58PX). GOFLAGS=-mod=mod just ci passes. Not pushed: waiting on the operator. Not run against the live lake: /var/lib/terva-lampi/catalog.db is not readable as the workstation user, so the first real report comes from the operator running serve profiles doctor default as the lake's user.

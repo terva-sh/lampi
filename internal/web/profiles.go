@@ -107,6 +107,8 @@ type profileView struct {
 	Actions    bool                  `json:"-"`
 	CSRF       string                `json:"-"`
 	Problem    string                `json:"-"`
+	// Health is the doctor's report on the stored rules.
+	Health *healthView `json:"-"`
 }
 
 func (s *Server) ignoredProfiles() []IgnoredProfiles {
@@ -349,6 +351,7 @@ func (s *Server) renderProfile(w http.ResponseWriter, r *http.Request, name, pro
 func (s *Server) showProfile(w http.ResponseWriter, r *http.Request, v profileView, problem string, status int) {
 	v.Actions, v.CSRF = s.operatorForms(r)
 	v.Problem = problem
+	v.Health = s.health(r, v.Name, config.Projects{Allow: v.Allow, Deny: v.Deny}, false)
 	renderStatus(w, r, pageData{Title: "Profile " + v.Name, View: "profile", AsOf: v.AsOf, Profile: v}, status)
 }
 

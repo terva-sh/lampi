@@ -792,12 +792,32 @@ nobody has reviewed. The list has these limits:
   Otherwise the refusal may come from an older profile, so the project is
   listed, even though the device may still deny it.
 
-Under **Fewer rules**, the editor offers three ways to shorten the allow list:
+The **Health** panel shows what the profile doctor finds in the rules: the
+same report as `terva-lampi serve profiles doctor`, which
+[vps-bringup.md](vps-bringup.md#check-a-profile-with-the-doctor) describes
+code by code. It reads the rules against the newest inventory of each device
+that takes them. The profile page lists the findings and links to the editor.
+In the editor, the panel reads the rules as the form holds them, and each fix
+is a button:
 
-- **Remove covered rules.** A rule adds nothing when another rule matches every
-  project it matches. For example, `git_remote_prefix github.com/acme` covers
+- **Apply safe fixes.** Removes every rule whose removal changes no project's
+  verdict on any device: a rule another rule covers, a rule a deny rule always
+  overrides, and a rule for a temporary folder that no device holds. A rule
+  adds nothing when another rule matches every project it matches. For
+  example, `git_remote_prefix github.com/acme` covers
   `git_remote github.com/acme/app`, and `cwd_prefix /work` covers
-  `cwd_prefix /work/app`. When two rules are the same, the first one stays.
+  `cwd_prefix /work/app`. When two rules are the same, the first one stays. A
+  temporary rule is safe only when every device sent an inventory.
+- **Narrow.** For a rule that names a home directory, a top-level folder or a
+  whole host, it puts one exact rule for each project the rule admits today in
+  its place. Each new rule keeps the old rule's folder or host, so a
+  repository admitted under a home directory is not admitted in its checkouts
+  elsewhere. A project in the home directory itself keeps a `cwd_hash` rule,
+  which names that folder alone. New folders under it then go to review.
+- **Remove and hide.** For a temporary rule a device still holds sessions for,
+  it removes the rule. When you save, it also hides the projects the rule
+  admitted from the review queue, so they do not come back as new work. The
+  preview names them, and the hide's note is the save's note.
 - **Replace with a git_remote_prefix.** When three or more rules that set only
   `git_remote` name repositories under one owner, one `git_remote_prefix` for
   the owner can replace them. It also admits every other repository under that
@@ -811,10 +831,19 @@ Under **Fewer rules**, the editor offers three ways to shorten the allow list:
   three. It also admits every other folder there. The offer is never made for a
   top-level folder, a home directory, or the folder that holds home
   directories.
+- **Remove unmatched rules.** Removes every rule no project on a device matches
+  today. It is not a safe fix, because such a rule may be for a project nobody
+  has opened yet.
 
-Each changes the form, fill an empty note with what they did, and preview.
-Nothing is saved until you save. Deny rules are not offered, since a
-redundant deny rule is harmless.
+The panel also says how many allow rules the profile holds of its 500, and how
+many projects wait in review, and it groups the waiting projects that one Allow
+at owner width would take as one rule.
+
+Each fix changes the form, fills an empty note with what it did, and previews.
+Nothing is saved until you save. Deny rules are not offered, since a redundant
+deny rule is harmless. When the lake cannot read the devices, the panel is left
+out rather than shown without them, since without them a rule in use would look
+unused.
 
 `git_remote` and `git_remote_prefix` are stored in the form the agent compares,
 so `git@github.com:acme/app.git` is saved as `github.com/acme/app`.
