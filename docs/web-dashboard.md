@@ -643,8 +643,17 @@ covers `git.example/team/app` and every other repository under
 `git.example/team`, on every machine, including repositories nobody has
 reviewed. The editor's preview lists the projects the prefix admits. It is not
 offered when the owner would be the bare host, such as `github.com`. Type a
-host-wide rule in the editor if you mean it. Either Allow also drops the rules
-the new one covers and says how many.
+host-wide rule in the editor if you mean it.
+
+A folder project, one with no git remote, gets **Allow FOLDER/…** for the
+folder above it, which adds one `cwd_prefix` for that folder instead. Use it
+for tools that make a new folder per session, such as worktree managers: one
+rule for `/home/me/.local/state/vuoro/worktrees` covers every worktree made
+there, now and later. It is not offered when the folder above is a top-level
+folder such as `/tmp`, a home directory such as `/home/me` or `/Users/me`, or
+the folder that holds home directories. Type such a rule in the editor if you
+mean it. Every Allow also drops the rules the new one covers and says how
+many.
 
 ## Review
 
@@ -687,8 +696,10 @@ repository, which covers every checkout, or a `cwd_prefix` rule for a folder.
 **Rules for** picks the width. *Each repository* is the default and builds
 those rules. *Each repository's owner* builds one `git_remote_prefix` per
 owner, as **Allow OWNER/…** does, so ten repositories under one owner become
-one rule. A repository whose owner would be the bare host, and a folder, keep
-their exact rule.
+one rule. It builds one `cwd_prefix` for the folder above each folder project,
+as **Allow FOLDER/…** does, so hundreds of worktrees under one folder become
+one rule. A repository whose owner would be the bare host, and a folder whose
+parent **Allow FOLDER/…** would not offer, keep their exact rule.
 It then shows a short confirmation instead of the profile editor. For each
 profile that gains rules, the page lists:
 
@@ -781,7 +792,7 @@ nobody has reviewed. The list has these limits:
   Otherwise the refusal may come from an older profile, so the project is
   listed, even though the device may still deny it.
 
-Under **Fewer rules**, the editor offers two ways to shorten the allow list:
+Under **Fewer rules**, the editor offers three ways to shorten the allow list:
 
 - **Remove covered rules.** A rule adds nothing when another rule matches every
   project it matches. For example, `git_remote_prefix github.com/acme` covers
@@ -791,8 +802,17 @@ Under **Fewer rules**, the editor offers two ways to shorten the allow list:
   `git_remote` name repositories under one owner, one `git_remote_prefix` for
   the owner can replace them. It also admits every other repository under that
   owner. The offer is never made for a bare host.
+- **Replace with a cwd_prefix.** When rules that set only `cwd_prefix` name
+  folders in three or more different subfolders of one folder, one `cwd_prefix`
+  for that folder can replace them. For example, worktrees under
+  `/home/me/.t3/worktrees/app` and `/home/me/.t3/worktrees/lib` fold into
+  `/home/me/.t3/worktrees`, and a deeper fold into
+  `/home/me/.t3/worktrees/app` is offered beside it when that folder alone holds
+  three. It also admits every other folder there. The offer is never made for a
+  top-level folder, a home directory, or the folder that holds home
+  directories.
 
-Both change the form, fill an empty note with what they did, and preview.
+Each changes the form, fill an empty note with what they did, and preview.
 Nothing is saved until you save. Deny rules are not offered, since a
 redundant deny rule is harmless.
 
