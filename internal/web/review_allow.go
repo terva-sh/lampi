@@ -337,6 +337,19 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 	if back == "" {
 		back = reviewPath
 	}
+	// A plan made for a group stands only while the group holds the
+	// projects the confirm page showed.
+	if id := r.PostForm.Get("group"); id != "" {
+		_, found, err := s.groupFrom(r, id, r.PostForm.Get("group_version"), filterOf(back))
+		if err != nil {
+			pageError(w, r, err)
+			return
+		}
+		if !found {
+			s.renderBack(w, r, back, groupGone, http.StatusConflict)
+			return
+		}
+	}
 	var writes []catalog.ProfileWrite
 	names := r.PostForm["profile"]
 	for i, name := range names {
