@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6ETZV7C0P5F2RDKQPAQCCFW
 title: "Profile editor: move rules, sort by folder and owner, insert by group"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M6ETZV536S1Z3SP2D5KZ4GJX
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/t3-43103b81
+  branch: t3/profile-editor-order
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
+  commit: 584094981751ae23ddd72e933523fafce2208e29
+  session: null
+  claimed_at: 2026-11-02T19:44:32Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:15:15Z
+updated_at: 2026-11-02T19:47:46Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -47,7 +54,13 @@ Rejected: a stored flag saying whether the operator ordered the list by hand. It
 
 ## Acceptance criteria
 
-- [ ] Rules move up and down without scripts, and drag where scripts run; the order saves
-- [ ] Sort by folder and owner applies to the form and previews
-- [ ] Allow inserts a new rule beside its folder or owner instead of at the end
-- [ ] Tests and docs cover ordering
+- [x] Rules move up and down without scripts, and drag where scripts run; the order saves
+- [x] Sort by folder and owner applies to the form and previews
+- [x] Allow inserts a new rule beside its folder or owner instead of at the end
+- [x] Tests and docs cover ordering
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:47:46Z
+
+Built on t3/profile-editor-order, stacked on #242. Move posts move=list.N.up|down and Sort posts sort=list. reorder() applies them in readRules, only when every row read, since raw rows are kept by index. Drag uses HTML5 drag events on a handle and renumbers the rows' field names and button values, then hides the group headers, which the next preview draws again. withRules now places each added rule after the last kept rule with the same groupKey, else where the first rule it replaced stood, else at the end. Rules aimed at one place keep add's order. The handle stays in the grid with visibility:hidden until the script runs, so the columns line up without scripts. GOFLAGS=-mod=mod just ci passes.

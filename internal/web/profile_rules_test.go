@@ -174,3 +174,73 @@ func TestEditorRuleLines(t *testing.T) {
 		t.Errorf("a rule setting one field twice: %d", w.Code)
 	}
 }
+
+// TKT-01M6ETZV7C0P: Move swaps a rule with its neighbour, and Sort puts
+// folders by path and then remotes by remote, keeping empty rows last.
+func TestReorder(t *testing.T) {
+	r := func(s string) config.ProjectMatch { return config.ProjectMatch{GitRemote: s} }
+	f := func(s string) config.ProjectMatch { return config.ProjectMatch{CWDPrefix: s} }
+	rows := func() []config.ProjectMatch {
+		return []config.ProjectMatch{r("h/o/b"), f("/wt/b"), r("h/a/x"), f("/wt/a"), {}}
+	}
+	for _, tc := range []struct {
+		name string
+		form url.Values
+		want []config.ProjectMatch
+	}{
+		{"up", url.Values{"move": {"allow.2.up"}}, []config.ProjectMatch{r("h/o/b"), r("h/a/x"), f("/wt/b"), f("/wt/a"), {}}},
+		{"down", url.Values{"move": {"allow.0.down"}}, []config.ProjectMatch{f("/wt/b"), r("h/o/b"), r("h/a/x"), f("/wt/a"), {}}},
+		{"up from the top", url.Values{"move": {"allow.0.up"}}, rows()},
+		{"another list", url.Values{"move": {"deny.2.up"}}, rows()},
+		{"not a row", url.Values{"move": {"allow.x.up"}}, rows()},
+		{"sort", url.Values{"sort": {"allow"}}, []config.ProjectMatch{f("/wt/a"), f("/wt/b"), r("h/a/x"), r("h/o/b"), {}}},
+		{"sort another list", url.Values{"sort": {"deny"}}, rows()},
+	} {
+		if got := reorder(tc.form, "allow", rows()); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TKT-01M6ETZV7C0P: the editor's Move and Sort buttons preview the rules
+// in their new order.
+func TestEditorMovesAndSorts(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	doc := `{"projects":{"allow":[{"git_remote":"git.example/team/b"},{"cwd_prefix":"/work/a"},{"git_remote":"git.example/team/a"}]}}`
+	p, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(doc), "test", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	page := get(h, "/profiles/default/edit", cookie).Body.String()
+	for _, want := range []string{`name="move" value="allow.1.up"`, `name="move" value="allow.1.down"`, `name="sort" value="allow"`, `class="rule-handle"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("editor lacks %q", want)
+		}
+	}
+	form := url.Values{"csrf": {csrf}, "base": {strconvI(p.Revision)}, "allow_rows": {"3"}, "deny_rows": {"0"},
+		"allow.0.git_remote": {"git.example/team/b"}, "allow.1.cwd_prefix": {"/work/a"}, "allow.2.git_remote": {"git.example/team/a"}}
+	preview := func(extra url.Values) string {
+		t.Helper()
+		v := url.Values{}
+		for k, vs := range form {
+			v[k] = vs
+		}
+		for k, vs := range extra {
+			v[k] = vs
+		}
+		w := postForm(h, "/profiles/default/preview", v, cookie)
+		if w.Code != 200 {
+			t.Fatalf("preview: %d %s", w.Code, w.Body)
+		}
+		return hiddenValue(t, w.Body.String(), "document")
+	}
+	if got, want := preview(url.Values{"move": {"allow.2.up"}}), `{"projects":{"allow":[{"git_remote":"git.example/team/b"},{"git_remote":"git.example/team/a"},{"cwd_prefix":"/work/a"}]}}`; got != want {
+		t.Errorf("move: %s, want %s", got, want)
+	}
+	if got, want := preview(url.Values{"sort": {"allow"}}), `{"projects":{"allow":[{"cwd_prefix":"/work/a"},{"git_remote":"git.example/team/a"},{"git_remote":"git.example/team/b"}]}}`; got != want {
+		t.Errorf("sort: %s, want %s", got, want)
+	}
+}

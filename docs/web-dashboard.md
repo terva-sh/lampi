@@ -797,6 +797,19 @@ line:
 - **Remove**, which drops the rule and previews. Clearing every value of a
   rule also removes it.
 
+Order does not change what uploads: any deny rule refuses, then any allow rule
+admits. So the order is yours to set, and it is saved with the profile:
+
+- **↑** and **↓** move a rule one place and preview. Where scripts run, drag a
+  rule by its handle, then preview to keep the new order.
+- **Sort by folder and owner** puts folder rules first, by path, then
+  repository and remote prefix rules, by remote, and previews.
+- A rule that Allow adds, from the review queue, a device's page or the
+  editor's offers, goes after the last rule under the same folder or owner.
+  A rule that replaces others takes the place of the first one it replaces.
+  Otherwise it goes at the end. A grouped list stays grouped, and an order
+  you set is kept.
+
 Rules in a row that share a folder, a repository owner or a remote prefix's
 host are listed under a header naming it and counting them. Where scripts run,
 a filter box above each list narrows it to the rules whose values hold the

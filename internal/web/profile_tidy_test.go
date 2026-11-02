@@ -121,8 +121,16 @@ func TestWithRules(t *testing.T) {
 		allow, add        []config.ProjectMatch
 		wantOut, wantGone []config.ProjectMatch
 	}{
-		{"a prefix drops what it covers", []config.ProjectMatch{remote("h/o/a"), remote("h/x/b")}, []config.ProjectMatch{prefix("h/o")},
-			[]config.ProjectMatch{remote("h/x/b"), prefix("h/o")}, []config.ProjectMatch{remote("h/o/a")}},
+		{"a prefix takes the place of the first rule it covers", []config.ProjectMatch{remote("h/o/a"), remote("h/x/b"), remote("h/o/c")}, []config.ProjectMatch{prefix("h/o")},
+			[]config.ProjectMatch{prefix("h/o"), remote("h/x/b")}, []config.ProjectMatch{remote("h/o/a"), remote("h/o/c")}},
+		// TKT-01M6ETZV7C0P: a new rule goes after the last rule of its
+		// folder or owner, so a grouped list stays grouped.
+		{"a repository joins its owner", []config.ProjectMatch{remote("h/o/a"), remote("h/o/b"), remote("h/x/c")}, []config.ProjectMatch{remote("h/o/z")},
+			[]config.ProjectMatch{remote("h/o/a"), remote("h/o/b"), remote("h/o/z"), remote("h/x/c")}, nil},
+		{"a folder joins its parent", []config.ProjectMatch{{CWDPrefix: "/wt/a"}, remote("h/x/c")}, []config.ProjectMatch{{CWDPrefix: "/wt/b"}, remote("h/y/d")},
+			[]config.ProjectMatch{{CWDPrefix: "/wt/a"}, {CWDPrefix: "/wt/b"}, remote("h/x/c"), remote("h/y/d")}, nil},
+		{"two for one place keep their order", []config.ProjectMatch{remote("h/o/a"), remote("h/x/c")}, []config.ProjectMatch{remote("h/o/b"), remote("h/o/c")},
+			[]config.ProjectMatch{remote("h/o/a"), remote("h/o/b"), remote("h/o/c"), remote("h/x/c")}, nil},
 		{"a rule already there stays where it is", []config.ProjectMatch{prefix("h/o"), remote("h/x/b")}, []config.ProjectMatch{prefix("h/o")},
 			[]config.ProjectMatch{prefix("h/o"), remote("h/x/b")}, nil},
 		{"a rule a kept rule covers is not added", []config.ProjectMatch{prefix("h")}, []config.ProjectMatch{remote("h/o/a")},
