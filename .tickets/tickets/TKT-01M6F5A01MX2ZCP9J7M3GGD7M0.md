@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-02T23:36:50Z
+updated_at: 2026-11-02T23:56:03Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -94,3 +94,7 @@ The synthetic CLI/HTTP/MCP/dashboard fixtures exercise reviewers and unlinked ra
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:36:50Z
 
 in-progress to blocked: Live lake inventory requires read-token or service-account access and deployment of the new server tools; neither is available in this session. No live migration was applied.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:56:03Z
+
+A private T3 secret-card request for an existing events:read token timed out without delivery during the review wait. No secret value or credential file was received, read or persisted by this agent. Authorized read access and deployment of the new tools therefore remain outstanding. The request timeout is not permission to create credentials or repurpose the device upload token. No live memberships, routes, grants, capture configuration or service state changed.

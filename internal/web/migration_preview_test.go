@@ -69,6 +69,75 @@ func TestUnrestrictedReadMigrationPreviewDoesNotExposeGrantPrincipals(t *testing
 	}
 }
 
+func TestReadMigrationPreviewDoesNotRevealHiddenLastBayOutcomes(t *testing.T) {
+	for _, source := range []string{"default", "visible"} {
+		t.Run(source, func(t *testing.T) {
+			lake, _, h, _, _ := mcpLake(t)
+			ctx, now := t.Context(), time.Now()
+			uid := seedSession(t, lake.Catalog, "reviewer")
+			visible, err := lake.Catalog.ResolveBay(ctx, source)
+			if source != "default" {
+				visible, err = lake.Catalog.CreateBay(ctx, source, "admin", now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := lake.Catalog.AddToBay(ctx, catalog.Membership{SessionUID: uid, Bay: visible.ID, Actor: "admin", Via: catalog.ViaCLI}, now); err != nil {
+					t.Fatal(err)
+				}
+				if err := lake.Catalog.RemoveFromBay(ctx, catalog.Membership{SessionUID: uid, Bay: "default", Actor: "admin", Via: catalog.ViaCLI}, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			hidden, err := lake.Catalog.CreateBay(ctx, "private-sentinel", "admin", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			token := ReadTokenPrefix + "synthetic-last-visible-preview"
+			if _, err := lake.Catalog.CreateReadToken(ctx, catalog.ReadToken{Label: "scope", Permissions: []string{catalog.PermEventsRead}, BayScoped: true, Bays: []string{visible.ID}, CreatedBy: "admin", Expires: now.Add(time.Hour)}, hashReadToken(token), now); err != nil {
+				t.Fatal(err)
+			}
+			args := map[string]any{"session_uids": []string{uid}, "remove": []string{visible.ID}}
+			preview := func() []string {
+				t.Helper()
+				text, bad := callTool(t, h, token, "preview_bay_migration", args)
+				w := postPreview(h, "/api/read/v1/preview-bay-migration", token, args)
+				if bad || w.Code != http.StatusOK {
+					t.Fatalf("MCP %s HTTP %d %s", text, w.Code, w.Body.String())
+				}
+				out := []string{}
+				for _, raw := range []string{text, w.Body.String()} {
+					var plan catalog.BayMigrationPlan
+					if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+						t.Fatal(err)
+					}
+					if plan.CompleteMemberships || len(plan.Items) != 1 || plan.Items[0].Status != "needs_admin_review" || len(plan.Items[0].Add) != 0 || len(plan.Items[0].After) != 0 || plan.Items[0].State != "" || strings.Contains(raw, hidden.ID) || strings.Contains(raw, hidden.Name) {
+						t.Fatalf("advisory last-bay outcome: %s", raw)
+					}
+					// Requests are made at different times; all remaining fields
+					// must be invariant under a hidden membership change.
+					plan.ID, plan.Created, plan.Expires = "", "", ""
+					b, _ := json.Marshal(plan)
+					out = append(out, string(b))
+				}
+				return out
+			}
+			before := preview()
+			if _, err := lake.Catalog.AddToBay(ctx, catalog.Membership{SessionUID: uid, Bay: hidden.ID, Actor: "admin", Via: catalog.ViaCLI}, now); err != nil {
+				t.Fatal(err)
+			}
+			after := preview()
+			for i := range before {
+				if before[i] != after[i] {
+					t.Fatalf("hidden membership changed advisory response:\nbefore %s\nafter %s", before[i], after[i])
+				}
+			}
+		})
+	}
+}
+
 func TestMigrationPreviewMCPHTTPParityScopeAndNoMutation(t *testing.T) {
 	lake, idp, h, dir, _ := mcpLake(t)
 	ctx, now := t.Context(), time.Now()

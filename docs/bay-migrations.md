@@ -53,15 +53,20 @@ The version 1 plan is a complete bounded artifact, with:
 | `plan_id` | SHA-256 checksum of the canonical plan; identifies its receipt after apply |
 | `created_at`, `expires_at` | Preview lifecycle; expires after 24 hours |
 | `request` | Exact UIDs, explicit exclusions, additions/removals and proposed bays |
-| `items` | Every selected UID with visible `before`, `after`, effective `add`/`remove`, status, inclusion reason and state fingerprint |
+| `items` | Every selected UID with visible `before`, `after`, effective `add`/`remove`, status, inclusion reason and administrator-only state fingerprint |
 | `changed`, `noop`, `rejected` | Complete item counts, with no sampled preview |
 | `destinations` | IDs/names, whether creation is proposed, and access implications |
 | `scope`, `complete_memberships` | Access context and whether a complete administrator preview is available |
-| `policy_state` | Opaque fingerprint of lake identity, bays, aliases, grants and rules |
+| `policy_state` | Administrator-only fingerprint of lake identity, bays, aliases, grants and rules |
 | `warnings` | Access, future-manifest and recovery limits |
 
-Statuses are `change`, `noop`, `unknown_or_inaccessible`, `held_or_flagged` or
-`last_default_bay`. Unknown and inaccessible UIDs are indistinguishable. Any
+Statuses are `change`, `noop`, `unknown_or_inaccessible`, `held_or_flagged`,
+`last_default_bay` or `needs_admin_review`. An advisory removal of every visible
+membership reports `needs_admin_review`, with no inferred default fallback or
+last-bay verdict. Hidden memberships and holds cannot affect advisory outcomes;
+full session-state fingerprints are reserved for administrator plans. Keep the
+exact request and regenerate an administrator preview to resolve
+`needs_admin_review`. Unknown and inaccessible UIDs are indistinguishable. Any
 rejected item blocks the entire apply: exclude or resolve it, then preview
 again. Sorting never releases a hold. Destination errors conflate unknown and
 inaccessible bays. A complete host preview refuses a proposed name already used by a bay or alias.

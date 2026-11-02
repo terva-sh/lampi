@@ -378,3 +378,76 @@ func TestMigrationExplainsSourceAndDestinationReadersOnlyForAdmin(t *testing.T) 
 		t.Fatalf("read scope permitted administrator recovery preview: %v", err)
 	}
 }
+
+func TestAdvisoryMigrationDoesNotRevealHiddenMembershipChanges(t *testing.T) {
+	for _, source := range []string{"default", "visible"} {
+		t.Run(source, func(t *testing.T) {
+			c, _ := openTemp(t)
+			ctx, now := t.Context(), time.Now()
+			uid := newSession(t, c, "reviewer")
+			visible, err := c.ResolveBay(ctx, "default")
+			if source != "default" {
+				visible, err = c.CreateBay(ctx, source, "admin", now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := c.AddToBay(ctx, Membership{SessionUID: uid, Bay: visible.ID, Actor: "admin", Via: ViaCLI}, now); err != nil {
+					t.Fatal(err)
+				}
+				if err := c.RemoveFromBay(ctx, Membership{SessionUID: uid, Bay: "default", Actor: "admin", Via: ViaCLI}, now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			hidden, err := c.CreateBay(ctx, "private-sentinel", "admin", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope := InBays([]string{visible.ID})
+			requests := []BayMigrationRequest{
+				{UIDs: []string{uid}, Remove: []string{visible.ID}},
+				{UIDs: []string{uid}, Add: []string{visible.ID}},
+				{UIDs: []string{uid}, Add: []string{"reviews"}, Proposed: []string{"reviews"}},
+				{UIDs: []string{uid}, Add: []string{"reviews", "learning"}, Proposed: []string{"reviews", "learning"}, Remove: []string{visible.ID}},
+			}
+			before := make([]string, len(requests))
+			for i, req := range requests {
+				p, err := c.PlanBayMigration(ctx, scope, false, req, now)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if i == 0 && (p.Items[0].Status != "needs_admin_review" || len(p.Items[0].Add) != 0 || len(p.Items[0].After) != 0 || p.Rejected != 1) {
+					t.Fatalf("last visible membership must be uncertain: %+v", p)
+				}
+				raw, _ := json.Marshal(p)
+				before[i] = string(raw)
+			}
+			if _, err := c.AddToBay(ctx, Membership{SessionUID: uid, Bay: hidden.ID, Actor: "admin", Via: ViaCLI}, now); err != nil {
+				t.Fatal(err)
+			}
+			for _, hiddenHold := range []bool{false, true} {
+				if hiddenHold {
+					if _, err := c.db.Exec(`INSERT INTO session_holds(session_uid,bay_id,rule_id,state,created_at) VALUES(?,?,1,'flagged',?)`, uid, hidden.ID, stamp(now)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for i, req := range requests {
+					p, err := c.PlanBayMigration(ctx, scope, false, req, now)
+					if err != nil {
+						t.Fatal(err)
+					}
+					raw, _ := json.Marshal(p)
+					if string(raw) != before[i] {
+						t.Fatalf("hidden mutation changed advisory artifact (hold=%v):\nbefore %s\nafter %s", hiddenHold, before[i], raw)
+					}
+				}
+			}
+			full, err := c.PlanBayMigration(ctx, AllBays(), true, requests[0], now)
+			if err != nil || full.Items[0].Status != "held_or_flagged" || full.Items[0].State == "" {
+				t.Fatalf("administrator must validate all holds and state: %+v %v", full, err)
+			}
+		})
+	}
+}

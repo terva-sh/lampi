@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T23:48:15Z
+updated_at: 2026-11-02T23:55:28Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -68,6 +68,18 @@ PlanBayMigration now takes independently established administrator authority, ma
 Catalog coverage tests unrestricted/scoped read access and scoped admin access against named source/destination sentinels, administrator re-preview enforcement, and receipt/recovery refusal without authority. HTTP/MCP regression uses an actual unrestricted events:read token, verifies generic destination warnings, no source/destination sentinel disclosure, and no apply-ready artifact. Full administrator previews still name bounded source/destination readers. Documentation and tool guidance explain the boundary.
 
 Focused catalog/web/CLI tests and full go test -trimpath=false ./... passed, as did go vet ./..., the isolated CLI build and git diff --check. Affected-package race tests are running before push. No live setup, grants, routes or memberships were changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:55:28Z
+
+### Accepted review 3013 finding-1: hidden co-membership inference
+
+Review 3013 at b5fcfa048782604289ac25aa978a4fa5bf7f4271 confirms review 3012's principal-disclosure finding is resolved, but identifies a separate medium authorization leak. Removing the last visible membership distinguished hidden co-membership through last_default_bay status or implicit default fallback deltas. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37718.
+
+Advisory migration simulation now starts from visible memberships; all add/remove/no-op calculations use that view. Removing every visible membership reports needs_admin_review with no inferred default fallback, regardless of hidden memberships. Preserve the exact request and regenerate the full administrator preview to resolve it. Existing administrator last-default protection and named-bay fallback remain unchanged. Inferring global validity from hidden rows was rejected because the resulting public status discloses private membership existence.
+
+The same audit found full session-state fingerprints and hidden hold counts could expose hidden changes. Advisory artifacts now omit the full state digest and consider only visible holds. Complete administrator previews retain full state fingerprints and all-hold validation for stale/atomic apply. No live state changes are involved.
+
+Catalog regression compares complete canonical advisory artifacts, including plan ID, before and after hidden membership/hold changes, for default/named source, remove-only, no-op, addition and multiple-destination move. HTTP/MCP regressions use bay-scoped events:read tokens and compare complete responses except time-derived identity before/after hidden membership changes for both last-default and named-fallback probes. Focused catalog/web/CLI tests pass. Full normal tests, affected race checks, vet and build are being completed before the single final push and review dispatch.
 
 ## Summary
 

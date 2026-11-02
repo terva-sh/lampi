@@ -391,7 +391,9 @@ are refused with 400 `invalid_request`. Invalid catalog filters return
 All read-token migration previews, including unrestricted tokens, return
 generic readership without grant principals or a lake-wide policy fingerprint.
 They set `complete_memberships` to false and require a fresh independently
-authorized administrator preview before apply.
+authorized administrator preview before apply. Removing every visible
+membership reports `needs_admin_review`: hidden memberships cannot determine
+observable status, default fallback deltas or session-state fingerprints.
 Responses are no-store, audited and annotated read-only in MCP. Audit records
 operation/counts/lengths, without copying nested filters or free-text reasons.
 No MCP/API mutation endpoint, grant, profile or routing write is introduced.

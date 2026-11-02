@@ -187,6 +187,7 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 	}}
 	if !out.CompleteMemberships {
 		out.Warnings = append(out.Warnings, "This advisory preview shows visible memberships and generic readership only. An administrator must regenerate a complete preview before applying it.")
+		out.Warnings = append(out.Warnings, "Removing every visible membership needs administrator review: final reachability and any default fallback are unknown in an advisory preview.")
 	}
 	proposed := map[string]bool{}
 	for _, name := range req.Proposed {
@@ -307,29 +308,34 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 		if err != nil {
 			return out, err
 		}
-		after := slices.Clone(all)
 		for _, b := range all {
 			if scope.readsBay(b.ID) {
 				item.Before = append(item.Before, b)
 			}
 		}
+		// All observable advisory outcomes must depend only on visible
+		// membership. Hidden co-memberships must not change status or deltas.
+		after := slices.Clone(item.Before)
 		for _, id := range adds {
-			if !slices.ContainsFunc(all, func(b BayReference) bool { return b.ID == id }) {
+			if !slices.ContainsFunc(item.Before, func(b BayReference) bool { return b.ID == id }) {
 				item.Add = append(item.Add, id)
 				after = append(after, targets[id].BayReference)
 			}
 		}
 		for _, id := range removes {
-			if slices.ContainsFunc(all, func(b BayReference) bool { return b.ID == id }) {
+			if slices.ContainsFunc(item.Before, func(b BayReference) bool { return b.ID == id }) {
 				item.Remove = append(item.Remove, id)
 				sources[id] = true
 				after = slices.DeleteFunc(after, func(b BayReference) bool { return b.ID == id })
 			}
 		}
-		// No operation may leave a session unreachable. Removing the last
-		// named bay follows the existing default fallback; default itself stays.
+		// Only a complete administrator preview can validate last-membership
+		// rules. Advisory previews cannot infer hidden reachability or expose
+		// an implicit default fallback (even as an ID in the effective delta).
 		if len(after) == 0 {
-			if slices.Contains(item.Remove, DefaultBayID) {
+			if !out.CompleteMemberships {
+				item.Status = "needs_admin_review"
+			} else if slices.Contains(item.Remove, DefaultBayID) {
 				item.Status = "last_default_bay"
 			} else {
 				after = append(after, BayReference{ID: DefaultBayID, Name: DefaultBayName, Default: true})
@@ -342,15 +348,17 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 				item.After = append(item.After, b)
 			}
 		}
-		var held int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM session_holds WHERE session_uid=? AND state IN (?,?)`, edit.UID, HoldHeld, HoldFlagged).Scan(&held); err != nil {
-			return out, err
-		}
-		item.State, err = migrationSessionState(ctx, tx, edit.UID)
+		held, err := migrationVisibleHold(ctx, tx, scope, edit.UID)
 		if err != nil {
 			return out, err
 		}
-		if held > 0 {
+		if out.CompleteMemberships {
+			item.State, err = migrationSessionState(ctx, tx, edit.UID)
+			if err != nil {
+				return out, err
+			}
+		}
+		if held {
 			item.Status = "held_or_flagged"
 		}
 		if item.Status != "change" {
@@ -404,6 +412,25 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 		return BayMigrationPlan{}, ErrMigrationSize
 	}
 	return out, nil
+}
+
+// Hidden hold changes must not affect an advisory preview's public outcome.
+// Complete administrator previews pass an unrestricted scope and see all holds.
+func migrationVisibleHold(ctx context.Context, tx *sql.Tx, scope Scope, uid string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT bay_id FROM session_holds WHERE session_uid=? AND state IN (?,?)`, uid, HoldHeld, HoldFlagged)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	held := false
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return false, err
+		}
+		held = held || scope.readsBay(id)
+	}
+	return held, rows.Err()
 }
 
 func migrationMemberships(ctx context.Context, tx *sql.Tx, uid string) ([]BayReference, error) {
