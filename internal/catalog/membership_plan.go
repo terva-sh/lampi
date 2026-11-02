@@ -202,6 +202,18 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 		proposed[name] = true
 	}
 	targets := map[string]MigrationTarget{}
+	sources := map[string]bool{}
+	accessByBay := map[string]string{}
+	accessFor := func(id string) (string, error) {
+		if text, ok := accessByBay[id]; ok {
+			return text, nil
+		}
+		text, err := migrationReadAccess(ctx, tx, id)
+		if err == nil {
+			accessByBay[id] = text
+		}
+		return text, err
+	}
 	resolve := func(ref string, add bool) (string, error) {
 		if proposed[ref] {
 			if !add {
@@ -239,11 +251,10 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 			}
 			access := "Existing destination readers gain access; grant principals are unavailable to this read scope."
 			if scope.All() {
-				var grants int
-				if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM bay_grants WHERE bay_id=? AND permission='read'`, id).Scan(&grants); err != nil {
+				access, err = accessFor(id)
+				if err != nil {
 					return "", err
 				}
-				access = fmt.Sprintf("%d explicit read grants, plus administrators and unrestricted/session-scoped read tokens. Inspect serve bays grants before applying.", grants)
 			}
 			targets[id] = MigrationTarget{BayReference: b, Access: access}
 		}
@@ -309,6 +320,7 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 		for _, id := range removes {
 			if slices.ContainsFunc(all, func(b BayReference) bool { return b.ID == id }) {
 				item.Remove = append(item.Remove, id)
+				sources[id] = true
 				after = slices.DeleteFunc(after, func(b BayReference) bool { return b.ID == id })
 			}
 		}
@@ -360,6 +372,20 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 	}
 	slices.SortFunc(out.Destinations, func(a, b MigrationTarget) int { return strings.Compare(a.ID, b.ID) })
 	if scope.All() {
+		ids := []string{}
+		for id := range sources {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+		for _, id := range ids {
+			access, err := accessFor(id)
+			if err != nil {
+				return out, err
+			}
+			out.Warnings = append(out.Warnings, "Removing source "+id+" can remove its readers' reach unless another membership or token scope retains access. Source readership: "+access)
+		}
+	}
+	if scope.All() {
 		out.PolicyState, err = migrationPolicyState(ctx, tx)
 		if err != nil {
 			return out, err
@@ -396,3 +422,39 @@ func migrationMemberships(ctx context.Context, tx *sql.Tx, uid string) ([]BayRef
 }
 
 func migrationPlanID(p BayMigrationPlan) string { p.ID = ""; return migrationDigest(p) }
+
+// Principal identifiers describe access policy, never token values. Only a
+// complete host/admin scope calls this; scoped previews retain generic text.
+func migrationReadAccess(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var total int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM bay_grants WHERE bay_id=? AND permission='read'`, id).Scan(&total); err != nil {
+		return "", err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT principal_kind,substr(principal,1,512),length(principal)>512 FROM bay_grants WHERE bay_id=? AND permission='read' ORDER BY principal_kind,principal LIMIT 100`, id)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	principals := []string{}
+	clipped := false
+	for rows.Next() {
+		var kind, name string
+		var shortened bool
+		if err := rows.Scan(&kind, &name, &shortened); err != nil {
+			return "", err
+		}
+		clipped = clipped || shortened
+		principals = append(principals, kind+":"+name)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	text := fmt.Sprintf("%d explicit read grants", total)
+	if len(principals) > 0 {
+		text += " (" + strings.Join(principals, ", ") + ")"
+	}
+	if total > len(principals) || clipped {
+		text += "; principal display clipped: inspect serve bays grants for the complete policy"
+	}
+	return text + ", plus administrators and unrestricted/session-scoped read tokens. Removing membership cannot retract content already read.", nil
+}

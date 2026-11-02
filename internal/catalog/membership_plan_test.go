@@ -328,3 +328,37 @@ func TestMigrationScopedProposalsDoNotProbeHiddenNames(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationExplainsSourceAndDestinationReadersOnlyForAdmin(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx, now := t.Context(), time.Now()
+	uid := newSession(t, c, "reviewer")
+	dst, err := c.CreateBay(ctx, "reviews", "test", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range []struct{ bay, group string }{{"default", "source-reader-sentinel"}, {dst.ID, "destination-reader-sentinel"}} {
+		if _, err := c.AddGrant(ctx, PrincipalGroup, g.group, g.bay, PermRead, "test", now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}, Remove: []string{"default"}}
+	full, err := c.PlanBayMigration(ctx, AllBays(), req, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(full)
+	for _, want := range []string{"source-reader-sentinel", "destination-reader-sentinel", "another membership or token scope"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatal("missing readership", want, string(raw))
+		}
+	}
+	scoped, err := c.PlanBayMigration(ctx, InBays([]string{DefaultBayID, dst.ID}), req, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(scoped)
+	if strings.Contains(string(raw), "reader-sentinel") {
+		t.Fatal("scoped principal leak", string(raw))
+	}
+}

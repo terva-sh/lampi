@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T23:17:51Z
+updated_at: 2026-11-02T23:39:19Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -65,6 +65,10 @@ Build a bounded shared service that consumes all metadata pages into exact UID s
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:17:50Z
 
 Implemented complete bounded selection (one metadata-query snapshot, exact UIDs/exclusions, reproducible selector) and 24-hour portable plans. Add/remove edits resolve aliases and preserve unrelated membership; new bays stay hypothetical until explicit creation at apply. Plans include all rows, no-ops/rejections, access warnings and state fingerprints. Apply requires independently established current administrator authority, re-derives the reviewed request inside one transaction and checks membership timestamps, holds/flags, routing metadata/requests and conservative lake/bay/alias/grant/rule state. Atomic batches cap at 500; 8 MiB plan bounds refuse instead of sampling. Durable receipts enable restart-safe retries, verification and inverse previews that preserve unrelated later bays and reject changed touched membership. No grants or routes are created implicitly. Added select/plan/apply-plan/verify-plan/recover-plan/preview-rule host commands, strict files and private atomic JSON output. Hypothetical future routing evaluates its own metadata-wide catchment without writes. Scoped proposed names deliberately do not test availability, preventing hidden-name collision probes; scoped policy state is unavailable and apply requires a full preview. Updated schema upgrade fixtures for the new receipt table. Full catalog/cli/web package tests passed; focused final migration/selection/CLI race tests, vet and whitespace checks passed. Tests cover stale membership/holds/grants/rules/names/routing/deletions, expired/tampered plans, multi-bay/no-op/fallback behavior, rejected-batch atomicity, receipts across reopen, inverse conflicts and audit actor/plan IDs. No live lake changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:39:19Z
+
+Final UX review expanded full-administrator access previews from grant counts to bounded named read-grant principals for destinations and removed sources, with retained-membership/token caveats and explicit clipping. Scoped previews still disclose no grant principals. A focused test verifies both sides of that boundary; deployment docs now call out the durable receipt schema migration and backup-based rollback.
 
 ## Summary
 

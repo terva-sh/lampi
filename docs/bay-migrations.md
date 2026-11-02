@@ -167,3 +167,18 @@ for keyboard controls, hold triage, private plan handoffs and future routing.
 Discovery and selection also accept `--updated-since` and `--updated-until`.
 Use UTC dates or RFC3339 times; the upper date includes its whole day, while
 an upper timestamp is exclusive. These filter lake head-update times.
+
+## Deployment and access review
+
+This release appends the `bay_migrations` catalog migration to retain durable
+plan receipts. Upgrade the lake under its normal backup/migration procedure;
+a previous binary cannot open the newer schema. Rollback requires the catalog
+backup, not simply replacing the executable. The normalizer and search-index
+formats are unchanged by session organization.
+
+Full administrator plans name bounded source and destination read-grant
+principals alongside general token/admin reach. Removing a source can reduce
+those readers' reach only when another membership or token scope does not
+retain it. A clipped principal list explicitly directs the operator to
+`serve bays grants` for the complete policy. Scoped agent previews disclose
+no grant principals and need a full administrator preview before apply.
