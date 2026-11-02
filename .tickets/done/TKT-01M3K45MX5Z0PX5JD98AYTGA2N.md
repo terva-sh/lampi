@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3K45MX5Z0PX5JD98AYTGA2N
 title: "Derived stores: compress parquet and shrink the search index"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: tickets/reclaim-stale
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
-  session: null
-  claimed_at: 2026-11-02T16:46:35Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-11-02T16:46:35Z
+updated_at: 2026-11-02T17:23:10Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
@@ -203,3 +196,17 @@ Correction to the previous note: the dead-rows ticket is TKT-01M3NPFNMH (Search 
 **agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
 
 claim taken from agent:claude-code/d8436f9f by agent:claude-code/d4b24133
+
+**agent:claude-code/d4b24133** at 2026-11-02T17:23:09Z
+
+### detail=column tested against search behaviour, 2026-11-02
+
+Note 7 left open whether `detail=column` (581 MiB of `fts_data` against 1263 MiB optimized at `detail=full`) keeps search working. It does not, as a drop-in. With SQLite 3.46.1, an FTS5 table with `tokenize='trigram'` and `detail=column` refuses every MATCH longer than three characters (`fts5: phrase queries are not supported (detail!=full)`), and refuses quoted phrases, `AND`, `NEAR` and `snippet()`. A three-character term still matches. `internal/recall/search.go` searches with `fts MATCH ?`, so search would fail for almost every query.
+
+`content LIKE '%…%'` still works under `detail=column`. The query plan hands the LIKE to the FTS5 table (`VIRTUAL TABLE INDEX 0:L0`), and results are correct, because FTS5 checks candidates against the content. So the saving is reachable only by rewriting search from MATCH to LIKE, with terms, exclusions and phrases expressed as LIKE patterns, and then measuring query time against the trigram MATCH. lampi computes snippets in Go (`snippet()` in search.go), so losing FTS5's `snippet()` costs nothing.
+
+That rewrite is filed as a draft spike, TKT-01M6EMJKV6ZR1BYAJ8JA3QPZY1 (Spike: search by LIKE so the trigram index can use detail=column). This ticket closes with the index at `detail=full`. The dead-row space note 7 measured (2102 MiB as found, 1263 MiB optimized) is reclaimed by `serve compact`'s merge from TKT-01M3NPFNMHYXK230CJMGQ4VVTM.
+
+## Summary
+
+Done in three parts. Parquet is written with zstd (#56). Normalized JSONL is stored as <uid>.jsonl.zst in independent ~1 MiB zstd frames with a trailing index, and readers still accept plain .jsonl until the next normalize (#121). The search index was measured on the internal lake on 2026-10-01: most of its excess was dead rows, which serve compact's merge reclaims (TKT-01M3NPFNMHYXK230CJMGQ4VVTM). The remaining option, detail=column, halves fts_data but breaks every MATCH query over three characters, so it was not adopted; whether search could move to LIKE to use it is the draft spike TKT-01M6EMJKV6ZR1BYAJ8JA3QPZY1.
