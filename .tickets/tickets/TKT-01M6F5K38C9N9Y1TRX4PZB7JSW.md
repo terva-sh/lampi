@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:50:53Z
+updated_at: 2026-11-02T23:57:01Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -131,3 +131,15 @@ This subsequent commit changes only ticket records. Request carry after the full
 The previous goal turn made implementation progress: explicit-authority policy fix 010aa85 plus passing normal/race/vet/build gates and accepted finding disposition. Current follow-up inspection found that run 2326 completed its model work but refused publication as superseded: the ticket-only push to 7333af4 arrived before publication. Run 2329 could not carry, because the latest published source review still preceded the code fix (carry_path_not_allowed for docs/bay-migrations.md). Neither failed run is a fresh published review or an accepted gate.
 
 Read both failing job logs using the mandated forgejo-job-log script before deciding the next action. Request a new full review after this ticket-only record is committed and pushed, and keep that head stable until publication. Do not retry carry against the older review. CI for the previous head was still running, and the working tree was clean before this note. Live deployment/read access remain unavailable; no lake changes or live completion are claimed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:57:01Z
+
+### Review 3013 and hidden-membership fix
+
+Published review 3013 at b5fcfa048782604289ac25aa978a4fa5bf7f4271 confirms the original grant-principal issue is resolved, and raises medium finding-1 for hidden membership inference from last-visible-bay status/default fallback. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37718. Accepted and fixed in 14de2a0c3d87f8d8f844a0b15f127f4f09f83f15; rationale and invariance tests are recorded under TKT-01M6F5K49E9JCCE6C80FTTNRP3 (MCP: preview session selections and bay migration plans).
+
+Advisory outcomes now use only visible memberships and holds, omit full state fingerprints, and report needs_admin_review without inferring a last-bay verdict or default fallback. Full administrator previews retain all-state validation, fallback and atomic-apply safety. Catalog artifact comparisons cover default/named source, remove-only, no-op, add and multiple destinations under hidden membership/hold mutations; HTTP/MCP exercise both reported probes with actual scoped read tokens.
+
+Full go test -trimpath=false ./..., catalog/web/CLI race checks, go vet ./..., isolated build, gofmt and git diff --check passed after the fix. Ticket validation has zero errors and only the same two preexisting unrelated title warnings. Record the accepted disposition while the PR is open, push all source/ticket records together, then request a fresh full review at that stable final head. No ticket-only push should supersede a running review again.
+
+Live dogfood remains incomplete: the private read-token request timed out without delivery, as recorded in TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay). Deployment and authorized live read/operator access are still required. Do not check off live requirements from synthetic tests or sampled evidence.
