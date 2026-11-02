@@ -26,6 +26,49 @@ func postPreview(h http.Handler, path, token string, args any) *httptest.Respons
 	return w
 }
 
+func TestUnrestrictedReadMigrationPreviewDoesNotExposeGrantPrincipals(t *testing.T) {
+	lake, idp, h, _, _ := mcpLake(t)
+	ctx, now := t.Context(), time.Now()
+	uid := seedSession(t, lake.Catalog, "reviewer")
+	dst, err := lake.Catalog.CreateBay(ctx, "reviews", "admin", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, grant := range []struct{ bay, principal string }{
+		{"default", "source-reader-sentinel"}, {dst.ID, "destination-reader-sentinel"},
+	} {
+		if _, err := lake.Catalog.AddGrant(ctx, catalog.PrincipalGroup, grant.principal, grant.bay, catalog.PermRead, "admin", now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	admin := signInAs(t, idp, h, "owners")
+	token, _ := mintReadTokenWith(t, h, admin, "unrestricted-previews", "", catalog.PermEventsRead)
+	args := map[string]any{"session_uids": []string{uid}, "add": []string{dst.ID}, "remove": []string{"default"}}
+	mcpText, bad := callTool(t, h, token, "preview_bay_migration", args)
+	if bad {
+		t.Fatalf("MCP preview: %s", mcpText)
+	}
+	w := postPreview(h, "/api/read/v1/preview-bay-migration", token, args)
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP preview: %d %s", w.Code, w.Body.String())
+	}
+	for _, raw := range []string{mcpText, w.Body.String()} {
+		var plan catalog.BayMigrationPlan
+		if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(raw, "reader-sentinel") || plan.CompleteMemberships || plan.Changed != 1 || plan.Rejected != 0 {
+			t.Fatalf("unrestricted reader preview: %s", raw)
+		}
+		if len(plan.Destinations) != 1 || !strings.Contains(plan.Destinations[0].Access, "Existing destination readers") {
+			t.Fatalf("missing generic readership warning: %s", raw)
+		}
+		if _, err := lake.Catalog.ApplyBayMigration(ctx, catalog.AllBays(), true, plan, false, "admin", catalog.ViaCLI, now); !errors.Is(err, catalog.ErrMigrationAuthority) {
+			t.Fatalf("read-token plan bypassed administrator re-preview: %v", err)
+		}
+	}
+}
+
 func TestMigrationPreviewMCPHTTPParityScopeAndNoMutation(t *testing.T) {
 	lake, idp, h, dir, _ := mcpLake(t)
 	ctx, now := t.Context(), time.Now()
@@ -70,7 +113,7 @@ func TestMigrationPreviewMCPHTTPParityScopeAndNoMutation(t *testing.T) {
 			if _, err := lake.Catalog.ApplyBayMigration(ctx, catalog.AllBays(), false, plan, true, "reader", catalog.ViaCLI, now); !errors.Is(err, catalog.ErrMigrationAuthority) {
 				t.Fatal("plan minted authority")
 			}
-			if _, err := lake.Catalog.VerifyBayMigration(ctx, catalog.AllBays(), plan.ID); !errors.Is(err, sql.ErrNoRows) {
+			if _, err := lake.Catalog.VerifyBayMigration(ctx, catalog.AllBays(), true, plan.ID); !errors.Is(err, sql.ErrNoRows) {
 				t.Fatalf("preview persisted a receipt %v", err)
 			}
 		}
@@ -123,7 +166,7 @@ func TestMigrationPreviewRestrictedHandoffStalenessAndInvalidInput(t *testing.T)
 	// with full authority. A later material change still blocks apply.
 	request := plan.Request
 	request.Exclude = []string{hiddenUID}
-	full, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), request, now)
+	full, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), true, request, now)
 	if err != nil {
 		t.Fatal(err)
 	}

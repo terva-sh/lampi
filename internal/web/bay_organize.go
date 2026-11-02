@@ -313,7 +313,7 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			problem(catalog.ErrMigrationInput)
 			return
 		}
-		plan, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), req, s.now())
+		plan, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), true, req, s.now())
 		if err != nil {
 			problem(err)
 			return
@@ -379,7 +379,7 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			}
 			req.Remove = f.Remove
 		}
-		plan, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), req, s.now())
+		plan, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), true, req, s.now())
 		if err != nil {
 			problem(err)
 			return
@@ -391,7 +391,7 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			problem(err)
 			return
 		}
-		fresh, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), plan.Request, s.now())
+		fresh, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), true, plan.Request, s.now())
 		if err != nil {
 			problem(err)
 			return
@@ -440,7 +440,7 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			v.Problem = "The migration committed; its audit remains queued. Verify the receipt before retrying."
 		}
 	case action == "recover":
-		plan, err := s.catalog.RecoverBayMigration(ctx, catalog.AllBays(), r.PostForm.Get("receipt"), s.now())
+		plan, err := s.catalog.RecoverBayMigration(ctx, catalog.AllBays(), true, r.PostForm.Get("receipt"), s.now())
 		if err != nil {
 			problem(err)
 			return
@@ -527,7 +527,7 @@ func ruleHostCommand(req catalog.BayRulePreviewRequest, data string) string {
 }
 
 func (s *Server) organizeReceipt(w http.ResponseWriter, r *http.Request) {
-	check, err := s.catalog.VerifyBayMigration(r.Context(), catalog.AllBays(), r.PathValue("id"))
+	check, err := s.catalog.VerifyBayMigration(r.Context(), catalog.AllBays(), true, r.PathValue("id"))
 	if err != nil {
 		fail(w, r, err)
 		return

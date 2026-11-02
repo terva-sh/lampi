@@ -73,7 +73,7 @@ func (c *Catalog) ApplyBayMigration(ctx context.Context, scope Scope, admin bool
 	if !now.Before(expires) {
 		return empty, ErrMigrationExpired
 	}
-	current, err := planBayMigration(ctx, tx, scope, plan.Request, created)
+	current, err := planBayMigration(ctx, tx, scope, admin, plan.Request, created)
 	if err != nil {
 		return empty, fmt.Errorf("%w: %v", ErrMigrationStale, err)
 	}
@@ -176,11 +176,12 @@ type MigrationVerificationItem struct {
 	Memberships []BayReference `json:"memberships"`
 }
 
-func (c *Catalog) VerifyBayMigration(ctx context.Context, scope Scope, id string) (MigrationVerification, error) {
+func (c *Catalog) VerifyBayMigration(ctx context.Context, scope Scope, admin bool, id string) (MigrationVerification, error) {
 	out := MigrationVerification{ID: id, Matches: true, Items: []MigrationVerificationItem{}}
 	// Receipts include complete membership. Only a complete admin scope
-	// can retrieve them, regardless of knowledge of a plan ID.
-	if !scope.All() {
+	// with independent administrator authority can retrieve them, regardless
+	// of knowledge of a plan ID.
+	if !admin || !scope.All() {
 		return out, ErrMigrationAuthority
 	}
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -213,8 +214,8 @@ func (c *Catalog) VerifyBayMigration(ctx context.Context, scope Scope, id string
 // RecoverBayMigration previews the inverse effective edits using current
 // state, retaining unrelated memberships. It refuses touched memberships
 // edited since apply (including remove/re-add), and never restores grants.
-func (c *Catalog) RecoverBayMigration(ctx context.Context, scope Scope, id string, now time.Time) (BayMigrationPlan, error) {
-	if !scope.All() {
+func (c *Catalog) RecoverBayMigration(ctx context.Context, scope Scope, admin bool, id string, now time.Time) (BayMigrationPlan, error) {
+	if !admin || !scope.All() {
 		return BayMigrationPlan{}, ErrMigrationAuthority
 	}
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -242,7 +243,7 @@ func (c *Catalog) RecoverBayMigration(ctx context.Context, scope Scope, id strin
 	if len(req.Edits) == 0 {
 		return BayMigrationPlan{}, fmt.Errorf("%w: receipt has no effective edits to reverse", ErrMigrationInput)
 	}
-	return planBayMigration(ctx, tx, scope, req, now)
+	return planBayMigration(ctx, tx, scope, admin, req, now)
 }
 
 func migrationReceipt(ctx context.Context, tx *sql.Tx, id string) (BayMigrationReceipt, error) {

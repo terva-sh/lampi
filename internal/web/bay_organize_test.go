@@ -193,7 +193,7 @@ func TestOrganizePreviewApplyVerifyCorrection(t *testing.T) {
 		t.Fatal("recovery", page.Code, page.Body.String())
 	}
 	// A membership change invalidates a fresh plan without applying any edits.
-	fresh, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), catalog.BayMigrationRequest{UIDs: []string{uid}, Add: []string{"default"}}, now)
+	fresh, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), true, catalog.BayMigrationRequest{UIDs: []string{uid}, Add: []string{"default"}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestOrganizeAuthorityHoldsAndFutureRouting(t *testing.T) {
 	// Old sign-ins can preview and export but retain their plan on refused apply.
 	idp.AuthTime = time.Now().Add(-time.Hour)
 	stale := signInAs(t, idp, h, "owners")
-	plan, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), catalog.BayMigrationRequest{UIDs: []string{uid}, Add: []string{"review"}}, now)
+	plan, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), true, catalog.BayMigrationRequest{UIDs: []string{uid}, Add: []string{"review"}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

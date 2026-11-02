@@ -213,7 +213,7 @@ func runBayMigration(env Env, sub string, args []string) error {
 		if filter != (catalog.DiscoveryRequest{}) {
 			return fmt.Errorf("plan uses exact IDs; run select with filters first")
 		}
-		result, err = cat.PlanBayMigration(ctx, scope, req, now)
+		result, err = cat.PlanBayMigration(ctx, scope, true, req, now)
 	case "apply-plan":
 		var p catalog.BayMigrationPlan
 		if err := readBoundedJSON(position, &p); err != nil {
@@ -226,9 +226,9 @@ func runBayMigration(env Env, sub string, args []string) error {
 			}
 		}
 	case "verify-plan":
-		result, err = cat.VerifyBayMigration(ctx, scope, position)
+		result, err = cat.VerifyBayMigration(ctx, scope, true, position)
 	case "recover-plan":
-		result, err = cat.RecoverBayMigration(ctx, scope, position, now)
+		result, err = cat.RecoverBayMigration(ctx, scope, true, position, now)
 	case "preview-rule":
 		match.CWDPrefix, match.CWDHash = filter.CWDPrefix, filter.CWDHash
 		if filter.Project != "" || filter.Unlinked || filter.Machine != "" || filter.UpdatedSince != "" || filter.UpdatedUntil != "" {

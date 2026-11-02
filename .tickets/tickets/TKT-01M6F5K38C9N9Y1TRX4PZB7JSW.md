@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:44:08Z
+updated_at: 2026-11-02T23:48:16Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -107,3 +107,9 @@ Integrated origin/main through 0bd109d, preserving the newer wide tables, named 
 Implementation PR: https://git.local.sothr.com/terva-sh/lampi/pulls/253 (Organize sessions across bays with exact plans and advisory doctor), integrated code head 2b61867cb5feb7418b259be3141629edad538c3d. Final go test -trimpath=false ./... passed. Race tests for catalog, web, CLI, profiledoctor and baydoctor passed on the integrated head; the full race suite had also passed before main integration. go vet ./..., gofmt checks, isolated build and git diff --check passed. git ticket check reports zero errors and only the two pre-existing unrelated long-title warnings. All intended source/ticket changes are committed; no live configuration, credentials or memberships changed.
 
 Request the repository terva-review workflow for the final pushed head and monitor PR checks/review. No merge or live deployment is claimed. The epic and live Vuoro exercise remain blocked solely on the recorded production access/deployment prerequisite; nine software/design/documentation children are done and the explicit-provenance follow-up remains draft.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:48:16Z
+
+Review 3012 on 7ad15f673019ada95df7faca703040a29b224326 found that unrestricted events:read previews exposed grant principals by conflating data reach with administrator authority. Accepted and fixed in this follow-up; rationale, caller audit and regression coverage are recorded under TKT-01M6F5K49E9JCCE6C80FTTNRP3 (MCP: preview session selections and bay migration plans). Fresh model review is required after this substantive fix; earlier implementation-complete notes do not mean the review gate passed.
+
+The live dogfood prerequisite is unchanged: the installed CLI is still v0.11.1 (527d5c368339), and the newly built query bays again refuses before any request because no read token is configured. No lampi connector is currently exposed to this agent. Existing service-account restrictions and the required backed-up deployment remain unresolved; no complete live inventory or split is claimed. Continue through PR review while keeping the live criteria unchecked.

@@ -163,34 +163,36 @@ func normalizedMigration(req BayMigrationRequest) (BayMigrationRequest, []Migrat
 }
 
 // PlanBayMigration has no writes, including when proposing a new bay.
-// The returned complete bounded artifact is portable data, not authority.
-func (c *Catalog) PlanBayMigration(ctx context.Context, scope Scope, req BayMigrationRequest, now time.Time) (BayMigrationPlan, error) {
+// The returned bounded artifact is portable data, not authority. admin must
+// be independently established by the caller; unrestricted read scope alone
+// never permits policy inspection or creates a complete administrator preview.
+func (c *Catalog) PlanBayMigration(ctx context.Context, scope Scope, admin bool, req BayMigrationRequest, now time.Time) (BayMigrationPlan, error) {
 	tx, err := c.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return BayMigrationPlan{}, err
 	}
 	defer tx.Rollback()
-	return planBayMigration(ctx, tx, scope, req, now)
+	return planBayMigration(ctx, tx, scope, admin, req, now)
 }
 
-func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigrationRequest, now time.Time) (BayMigrationPlan, error) {
+func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, req BayMigrationRequest, now time.Time) (BayMigrationPlan, error) {
 	req, edits, err := normalizedMigration(req)
 	if err != nil {
 		return BayMigrationPlan{}, err
 	}
-	out := BayMigrationPlan{Version: 1, Created: stamp(now), Expires: stamp(now.Add(24 * time.Hour)), Scope: scope.Fingerprint(), CompleteMemberships: scope.All(), Request: req, Destinations: []MigrationTarget{}, Items: []MigrationItem{}, Warnings: []string{
+	out := BayMigrationPlan{Version: 1, Created: stamp(now), Expires: stamp(now.Add(24 * time.Hour)), Scope: scope.Fingerprint(), CompleteMemberships: admin && scope.All(), Request: req, Destinations: []MigrationTarget{}, Items: []MigrationItem{}, Warnings: []string{
 		"Membership controls access: destination readers can read added sessions; removing membership cannot retract content already read.",
 		"Unrestricted read tokens and fixed-session tokens may retain access. New bays have no grants; grants require a separate explicit action.",
 		"Historical selection is frozen. Later manifests, explicit bay requests or routing rules can re-add removed membership; future routing is a separate operation.",
 	}}
-	if !scope.All() {
-		out.Warnings = append(out.Warnings, "Only visible memberships are shown. An administrator must regenerate a complete preview before applying this advisory plan.")
+	if !out.CompleteMemberships {
+		out.Warnings = append(out.Warnings, "This advisory preview shows visible memberships and generic readership only. An administrator must regenerate a complete preview before applying it.")
 	}
 	proposed := map[string]bool{}
 	for _, name := range req.Proposed {
-		// Scoped proposals stay hypothetical: checking name availability
+		// Advisory proposals stay hypothetical: checking name availability
 		// would reveal an inaccessible bay or alias through a collision.
-		if scope.All() {
+		if out.CompleteMemberships {
 			var n int
 			if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM bays WHERE name=?)+(SELECT count(*) FROM bay_aliases WHERE alias=?)`, name, name).Scan(&n); err != nil {
 				return out, err
@@ -249,8 +251,8 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 			if err := tx.QueryRowContext(ctx, `SELECT id,name,is_default FROM bays WHERE id=?`, id).Scan(&b.ID, &b.Name, &b.Default); err != nil {
 				return "", err
 			}
-			access := "Existing destination readers gain access; grant principals are unavailable to this read scope."
-			if scope.All() {
+			access := "Existing destination readers gain access; grant principals require administrator authority."
+			if out.CompleteMemberships {
 				access, err = accessFor(id)
 				if err != nil {
 					return "", err
@@ -371,7 +373,7 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 		out.Destinations = append(out.Destinations, target)
 	}
 	slices.SortFunc(out.Destinations, func(a, b MigrationTarget) int { return strings.Compare(a.ID, b.ID) })
-	if scope.All() {
+	if out.CompleteMemberships {
 		ids := []string{}
 		for id := range sources {
 			ids = append(ids, id)
@@ -385,13 +387,13 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, req BayMigra
 			out.Warnings = append(out.Warnings, "Removing source "+id+" can remove its readers' reach unless another membership or token scope retains access. Source readership: "+access)
 		}
 	}
-	if scope.All() {
+	if out.CompleteMemberships {
 		out.PolicyState, err = migrationPolicyState(ctx, tx)
 		if err != nil {
 			return out, err
 		}
 	} else {
-		out.PolicyState = "unavailable_in_scoped_preview"
+		out.PolicyState = "unavailable_in_advisory_preview"
 	}
 	out.ID = migrationPlanID(out)
 	encoded, err := json.Marshal(out)
@@ -423,8 +425,9 @@ func migrationMemberships(ctx context.Context, tx *sql.Tx, uid string) ([]BayRef
 
 func migrationPlanID(p BayMigrationPlan) string { p.ID = ""; return migrationDigest(p) }
 
-// Principal identifiers describe access policy, never token values. Only a
-// complete host/admin scope calls this; scoped previews retain generic text.
+// Principal identifiers describe access policy, never token values. Only an
+// independently authorized complete admin preview calls this; all read-token
+// previews retain generic text, including unrestricted read tokens.
 func migrationReadAccess(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	var total int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM bay_grants WHERE bay_id=? AND permission='read'`, id).Scan(&total); err != nil {

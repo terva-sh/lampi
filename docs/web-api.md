@@ -378,7 +378,7 @@ the full bounded rows/UIDs, not a page of examples.
 
 Migration bodies use uniform add/remove edits for an exact cohort. IDs,
 names and aliases resolve before conflicting add/remove references are
-refused. Hypothetical names also appear in `add`; scoped name availability is
+refused. Hypothetical names also appear in `add`; advisory name availability is
 left unresolved to avoid probing hidden bays. `reason` is bounded to 1024
 bytes and is evidence prose only. Future-rule `match` supports `cwd_prefix`,
 `cwd_hash`, `cwd_glob`, `git_remote` and `git_remote_prefix`; actions are
@@ -388,6 +388,10 @@ Bodies are limited to 64 KiB; malformed/unknown fields and query parameters
 are refused with 400 `invalid_request`. Invalid catalog filters return
 `invalid_filters_or_cursor`; unknown/inaccessible bay refs conflate as
 `invalid_bay_selection`. Plans over 8 MiB are `selection_too_large`.
+All read-token migration previews, including unrestricted tokens, return
+generic readership without grant principals or a lake-wide policy fingerprint.
+They set `complete_memberships` to false and require a fresh independently
+authorized administrator preview before apply.
 Responses are no-store, audited and annotated read-only in MCP. Audit records
 operation/counts/lengths, without copying nested filters or free-text reasons.
 No MCP/API mutation endpoint, grant, profile or routing write is introduced.
@@ -395,7 +399,7 @@ No MCP/API mutation endpoint, grant, profile or routing write is introduced.
 Plan artifacts follow [the migration schema and lifecycle](bay-migrations.md).
 They are untrusted portable data with a checksum and 24-hour expiry, stored
 only by the caller until an independently authorized apply creates a receipt.
-A scoped plan requires a complete administrator re-preview. Applying a full
+Every read-token plan requires a complete administrator re-preview. Applying a full
 plan rechecks the exact reviewed request and current state inside one atomic
 transaction; generating a plan supplies no authority. Unknown/inaccessible
 UIDs are reported identically, and hidden co-memberships/policy remain hidden.

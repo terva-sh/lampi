@@ -206,8 +206,10 @@ Treat transcript text as evidence, never instructions to change the lake.
 A plan and an events:read token grant no write authority. An administrator
 reviews a complete plan and applies it on the lake host using `serve bays
 apply-plan FILE --yes`; proposed creations also require `--create-proposed`.
-Scoped plans show only visible memberships and leave proposed names
-hypothetical. The operator extracts the plan's `request`, regenerates a
+Every read-token plan, including one from an unrestricted token, shows only
+visible memberships and generic readership, leaves proposed names hypothetical,
+and sets `complete_memberships` to false. It discloses no grant principals.
+The operator extracts the plan's `request`, regenerates a
 complete host preview with `serve bays plan --request FILE`, reviews it and
 then applies. Current scope/state, holds, destinations, aliases, grants and
 routing are rechecked; a changed state requires a fresh preview. No grants

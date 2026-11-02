@@ -15,7 +15,7 @@ func migrationDigest(v any) string {
 }
 
 // Digest rows incrementally: routing/grant tables can grow independently
-// of the bounded migration. No grant principal enters a plan artifact.
+// of the bounded migration. Raw rows never enter these fingerprints.
 func migrationQueryState(ctx context.Context, tx *sql.Tx, query string, args ...any) (string, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {

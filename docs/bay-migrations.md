@@ -65,13 +65,14 @@ Statuses are `change`, `noop`, `unknown_or_inaccessible`, `held_or_flagged` or
 rejected item blocks the entire apply: exclude or resolve it, then preview
 again. Sorting never releases a hold. Destination errors conflate unknown and
 inaccessible bays. A complete host preview refuses a proposed name already used by a bay or alias.
-Scoped previews keep proposed names hypothetical and leave availability to the
+Advisory previews keep proposed names hypothetical and leave availability to the
 administrator, so collisions cannot expose hidden bay names.
 
 Plans carry no transcript text or credential and grant no authority. A checksum
 is integrity/reproducibility data, not a signature or permission. A host operator
-must review an agent-supplied artifact. Scoped previews show only visible
-memberships and require a fresh full administrator preview before apply; the
+must review an agent-supplied artifact. All read-token previews, including
+unrestricted tokens, show visible memberships and generic readership only. They
+require a fresh full administrator preview before apply; the
 portable `request` contains the exact intended changes for that handoff.
 
 Access warnings matter: destination readers gain reach; removing a membership
@@ -180,5 +181,7 @@ Full administrator plans name bounded source and destination read-grant
 principals alongside general token/admin reach. Removing a source can reduce
 those readers' reach only when another membership or token scope does not
 retain it. A clipped principal list explicitly directs the operator to
-`serve bays grants` for the complete policy. Scoped agent previews disclose
-no grant principals and need a full administrator preview before apply.
+`serve bays grants` for the complete policy. All read-token previews, including
+unrestricted tokens, disclose no grant principals or lake-wide policy fingerprint
+and cannot serve as a complete administrator preview. Administrator authority
+is established separately from the scope of session and bay reads.

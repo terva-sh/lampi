@@ -26,7 +26,7 @@ func TestMigrationMultiBayApplyRetryAndRecoveryPreserveLaterWork(t *testing.T) {
 		}
 	}
 	req := BayMigrationRequest{UIDs: []string{two, one, one}, Add: []string{reviews.Name, learning.ID, reviews.ID}, Remove: []string{"default"}}
-	plan, err := c.PlanBayMigration(ctx, AllBays(), req, now)
+	plan, err := c.PlanBayMigration(ctx, AllBays(), true, req, now)
 	if err != nil || plan.Changed != 2 || plan.Rejected != 0 || len(plan.Items) != 2 {
 		t.Fatalf("plan %+v %v", plan, err)
 	}
@@ -48,7 +48,7 @@ func TestMigrationMultiBayApplyRetryAndRecoveryPreserveLaterWork(t *testing.T) {
 			t.Fatalf("multi preservation %v", bays)
 		}
 	}
-	check, err := c.VerifyBayMigration(ctx, AllBays(), plan.ID)
+	check, err := c.VerifyBayMigration(ctx, AllBays(), true, plan.ID)
 	if err != nil || !check.Matches {
 		t.Fatalf("verify %+v %v", check, err)
 	}
@@ -61,7 +61,7 @@ func TestMigrationMultiBayApplyRetryAndRecoveryPreserveLaterWork(t *testing.T) {
 	if err != nil || !retry.AlreadyApplied {
 		t.Fatalf("retry %+v %v", retry, err)
 	}
-	inverse, err := c.RecoverBayMigration(ctx, AllBays(), plan.ID, now.Add(time.Second))
+	inverse, err := c.RecoverBayMigration(ctx, AllBays(), true, plan.ID, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestMigrationStaleStateAndTamperedArtifacts(t *testing.T) {
 			ctx, now := t.Context(), time.Now()
 			uid := newSession(t, c, "reviewer")
 			dst, _ := c.CreateBay(ctx, "reviews", "admin", now)
-			plan, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}, Remove: []string{"default"}}, now)
+			plan, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}, Remove: []string{"default"}}, now)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,7 +146,7 @@ func TestMigrationProposedNoopFallbackAndRejectedItems(t *testing.T) {
 	ctx, now := t.Context(), time.Now()
 	uid := newSession(t, c, "reviewer")
 	req := BayMigrationRequest{UIDs: []string{uid}, Add: []string{"code-reviews", "learning"}, Proposed: []string{"code-reviews", "learning"}, Remove: []string{"default"}}
-	plan, err := c.PlanBayMigration(ctx, AllBays(), req, now)
+	plan, err := c.PlanBayMigration(ctx, AllBays(), true, req, now)
 	if err != nil || len(plan.Destinations) != 2 {
 		t.Fatalf("new bays %+v %v", plan, err)
 	}
@@ -160,11 +160,11 @@ func TestMigrationProposedNoopFallbackAndRejectedItems(t *testing.T) {
 	if err != nil || len(receipt.CreatedBays) != 2 {
 		t.Fatalf("create %+v %v", receipt, err)
 	}
-	noop, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid}, Add: []string{"code-reviews"}}, now)
+	noop, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid}, Add: []string{"code-reviews"}}, now)
 	if err != nil || noop.Noop != 1 {
 		t.Fatalf("noop %+v %v", noop, err)
 	}
-	scoped, err := c.PlanBayMigration(ctx, InBays([]string{receipt.CreatedBays[0].ID}), BayMigrationRequest{UIDs: []string{uid, "unknown"}, Add: []string{receipt.CreatedBays[0].ID}}, now)
+	scoped, err := c.PlanBayMigration(ctx, InBays([]string{receipt.CreatedBays[0].ID}), true, BayMigrationRequest{UIDs: []string{uid, "unknown"}, Add: []string{receipt.CreatedBays[0].ID}}, now)
 	if err != nil || scoped.Rejected != 1 || scoped.CompleteMemberships {
 		t.Fatalf("scoped %+v %v", scoped, err)
 	}
@@ -175,18 +175,18 @@ func TestMigrationProposedNoopFallbackAndRejectedItems(t *testing.T) {
 	if _, err := c.ApplyBayMigration(ctx, AllBays(), true, scoped, false, "admin", ViaCLI, now); !errors.Is(err, ErrMigrationAuthority) {
 		t.Fatalf("scoped apply %v", err)
 	}
-	fallback, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid}, Remove: []string{"code-reviews", "learning"}}, now)
+	fallback, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid}, Remove: []string{"code-reviews", "learning"}}, now)
 	if err != nil || len(fallback.Items[0].After) != 1 || fallback.Items[0].After[0].ID != DefaultBayID {
 		t.Fatalf("fallback %+v %v", fallback, err)
 	}
 	if _, err := c.ApplyBayMigration(ctx, AllBays(), true, fallback, false, "admin", ViaCLI, now); err != nil {
 		t.Fatal(err)
 	}
-	last, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid}, Remove: []string{"default"}}, now)
+	last, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid}, Remove: []string{"default"}}, now)
 	if err != nil || last.Rejected != 1 {
 		t.Fatalf("last default %+v %v", last, err)
 	}
-	if _, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid}, Add: []string{"default"}, Remove: []string{DefaultBayID}}, now); !errors.Is(err, ErrSameBay) {
+	if _, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid}, Add: []string{"default"}, Remove: []string{DefaultBayID}}, now); !errors.Is(err, ErrSameBay) {
 		t.Fatalf("conflict alias %v", err)
 	}
 }
@@ -197,7 +197,7 @@ func TestMigrationRejectsHoldsAndRecoveryTouchedChanges(t *testing.T) {
 	uid := newSession(t, c, "reviewer")
 	dst, _ := c.CreateBay(ctx, "reviews", "admin", now)
 	req := BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}}
-	p, err := c.PlanBayMigration(ctx, AllBays(), req, now)
+	p, err := c.PlanBayMigration(ctx, AllBays(), true, req, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,13 +211,13 @@ func TestMigrationRejectsHoldsAndRecoveryTouchedChanges(t *testing.T) {
 	if _, err := c.AddToBay(ctx, Membership{SessionUID: uid, Bay: dst.ID, Actor: "later", Via: ViaCLI}, now.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.RecoverBayMigration(ctx, AllBays(), receipt.ID, now.Add(3*time.Second)); !errors.Is(err, ErrMigrationStale) {
+	if _, err := c.RecoverBayMigration(ctx, AllBays(), true, receipt.ID, now.Add(3*time.Second)); !errors.Is(err, ErrMigrationStale) {
 		t.Fatalf("recovery overwrites touched edits: %v", err)
 	}
 	if _, err := c.db.Exec(`INSERT INTO session_holds(session_uid,bay_id,rule_id,state,created_at) VALUES(?,?,1,'held',?)`, uid, dst.ID, stamp(now)); err != nil {
 		t.Fatal(err)
 	}
-	p, err = c.PlanBayMigration(ctx, AllBays(), req, now)
+	p, err = c.PlanBayMigration(ctx, AllBays(), true, req, now)
 	if err != nil || p.Rejected != 1 || p.Items[0].Status != "held_or_flagged" {
 		t.Fatalf("held %+v %v", p, err)
 	}
@@ -237,7 +237,7 @@ func TestSelectionFreezeAndHypotheticalRouting(t *testing.T) {
 	if err != nil || !selection.Complete || len(selection.UIDs) != 1 {
 		t.Fatalf("selection %+v %v", selection, err)
 	}
-	p, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: selection.UIDs, Add: []string{"default"}}, now)
+	p, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: selection.UIDs, Add: []string{"default"}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestMigrationRejectedBatchIsAtomicAndReceiptsSurviveReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid, "unknown"}, Add: []string{dst.ID}}, now)
+	p, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid, "unknown"}, Add: []string{dst.ID}}, now)
 	if err != nil || p.Rejected != 1 || p.Changed != 1 {
 		t.Fatalf("mixed plan %+v %v", p, err)
 	}
@@ -284,7 +284,7 @@ func TestMigrationRejectedBatchIsAtomicAndReceiptsSurviveReopen(t *testing.T) {
 	if slices.Contains(bays, dst.ID) {
 		t.Fatal("partial batch applied")
 	}
-	p, err = c.PlanBayMigration(ctx, AllBays(), BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}}, now)
+	p, err = c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestMigrationScopedProposalsDoNotProbeHiddenNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"private-client", "unused-name"} {
-		p, err := c.PlanBayMigration(ctx, InBays([]string{DefaultBayID}), BayMigrationRequest{UIDs: []string{uid}, Add: []string{name}, Proposed: []string{name}}, now)
+		p, err := c.PlanBayMigration(ctx, InBays([]string{DefaultBayID}), true, BayMigrationRequest{UIDs: []string{uid}, Add: []string{name}, Proposed: []string{name}}, now)
 		if err != nil || len(p.Destinations) != 1 || !p.Destinations[0].Proposed || p.CompleteMemberships {
 			t.Fatalf("name probe %s %+v %v", name, p, err)
 		}
@@ -343,7 +343,7 @@ func TestMigrationExplainsSourceAndDestinationReadersOnlyForAdmin(t *testing.T) 
 		}
 	}
 	req := BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.ID}, Remove: []string{"default"}}
-	full, err := c.PlanBayMigration(ctx, AllBays(), req, now)
+	full, err := c.PlanBayMigration(ctx, AllBays(), true, req, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,12 +353,28 @@ func TestMigrationExplainsSourceAndDestinationReadersOnlyForAdmin(t *testing.T) 
 			t.Fatal("missing readership", want, string(raw))
 		}
 	}
-	scoped, err := c.PlanBayMigration(ctx, InBays([]string{DefaultBayID, dst.ID}), req, now)
-	if err != nil {
-		t.Fatal(err)
+	for _, scope := range []Scope{AllBays(), InBays([]string{DefaultBayID, dst.ID})} {
+		for _, admin := range []bool{false, true} {
+			if scope.All() && admin {
+				continue // The complete administrator preview was checked above.
+			}
+			advisory, err := c.PlanBayMigration(ctx, scope, admin, req, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ = json.Marshal(advisory)
+			if strings.Contains(string(raw), "reader-sentinel") || advisory.CompleteMemberships || advisory.PolicyState == full.PolicyState {
+				t.Fatal("advisory preview exposed administrator policy", string(raw))
+			}
+			if _, err := c.ApplyBayMigration(ctx, AllBays(), true, advisory, false, "admin", ViaCLI, now); !errors.Is(err, ErrMigrationAuthority) {
+				t.Fatalf("advisory preview bypassed administrator re-preview: %v", err)
+			}
+		}
 	}
-	raw, _ = json.Marshal(scoped)
-	if strings.Contains(string(raw), "reader-sentinel") {
-		t.Fatal("scoped principal leak", string(raw))
+	if _, err := c.VerifyBayMigration(ctx, AllBays(), false, full.ID); !errors.Is(err, ErrMigrationAuthority) {
+		t.Fatalf("read scope permitted administrator receipt inspection: %v", err)
+	}
+	if _, err := c.RecoverBayMigration(ctx, AllBays(), false, full.ID, now); !errors.Is(err, ErrMigrationAuthority) {
+		t.Fatalf("read scope permitted administrator recovery preview: %v", err)
 	}
 }

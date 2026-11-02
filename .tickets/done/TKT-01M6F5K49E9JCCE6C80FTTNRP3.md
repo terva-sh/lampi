@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T23:21:55Z
+updated_at: 2026-11-02T23:48:15Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -56,6 +56,18 @@ Expose select_sessions, preview_bay_migration and preview_bay_rule as read-only 
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:21:54Z
 
 Added select_sessions, preview_bay_migration and preview_bay_rule with typed arrays/nested metadata, strict advertised keys, read-only annotations and corresponding authenticated POST read endpoints. They share catalog selection/plan services, events:read and current scopes; complete bounded artifacts fail on excess rather than sampling. No mutation tool or grant/profile/route write exists. MCP audit records counts and argument lengths rather than nested metadata/free-text reasons; HTTP audits the operation. Scoped plans hide co-memberships and policy, treat proposed names hypothetically and cannot apply until a full operator re-preview. Full-scope plans still require independent current administrator authority. Documentation covers schemas, 64 KiB request / 500-candidate / 8 MiB output bounds, 24-hour expiry, untrusted artifacts, exact operator handoff and receipt recovery. Tests verify HTTP/MCP parity (excluding per-call timestamps/checksums), scope/redaction, audit privacy, no membership/bay/rule/receipt writes, invalid inputs, absent mutation methods, complete host handoff and stale state. Full web/cli packages pass; focused MCP/preview race tests, vet and whitespace checks pass. Installed live lake has not been changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:48:15Z
+
+### Accepted review finding: read reach does not establish policy authority
+
+Review 3012, finding-1, on head 7ad15f673019ada95df7faca703040a29b224326 exposed a real authorization bug: unrestricted events:read tokens produced AllBays and could see source/destination grant principals. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37712.
+
+PlanBayMigration now takes independently established administrator authority, matching apply. Only administrator authority plus unrestricted scope enables named readership, the lake-wide policy fingerprint and complete_memberships. All read-token HTTP/MCP previews pass false, stay advisory and require full administrator re-preview before apply. Receipt verification and inverse recovery now also require explicit administrator authority; host CLI access and guarded AdminOnly dashboard handlers are the trusted callers. Inferring admin from scope.All was rejected because it grants data reach without policy-inspection authority. No new token capability or live credential is introduced.
+
+Catalog coverage tests unrestricted/scoped read access and scoped admin access against named source/destination sentinels, administrator re-preview enforcement, and receipt/recovery refusal without authority. HTTP/MCP regression uses an actual unrestricted events:read token, verifies generic destination warnings, no source/destination sentinel disclosure, and no apply-ready artifact. Full administrator previews still name bounded source/destination readers. Documentation and tool guidance explain the boundary.
+
+Focused catalog/web/CLI tests and full go test -trimpath=false ./... passed, as did go vet ./..., the isolated CLI build and git diff --check. Affected-package race tests are running before push. No live setup, grants, routes or memberships were changed.
 
 ## Summary
 
