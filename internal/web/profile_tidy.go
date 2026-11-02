@@ -129,15 +129,123 @@ func foldOwner(rules []config.ProjectMatch, owner string) ([]config.ProjectMatch
 	return out, n
 }
 
+// folderFold is a group of cwd_prefix rules under one folder that one
+// cwd_prefix for the folder would replace.
+type folderFold struct {
+	Folder string
+	Count  int
+}
+
+// wideFolder reports whether a folder-wide rule may name dir, a clean
+// absolute path. A top-level folder such as /tmp, a home directory such
+// as /home/me or /Users/me, and the folder that holds home directories
+// are refused: a rule for one of them reaches projects nobody chose,
+// which is TKT-01M3NQ8324. Those are rules to type on purpose.
+func wideFolder(dir string) bool {
+	segs := strings.Split(strings.TrimPrefix(dir, "/"), "/")
+	if !strings.HasPrefix(dir, "/") || len(segs) < 2 || slices.Contains(segs, "") {
+		return false
+	}
+	homes := func(s string) bool { return s == "home" || s == "Users" }
+	return !homes(segs[len(segs)-1]) && !homes(segs[len(segs)-2])
+}
+
+// cwdOnly is the clean folder of a rule that sets only an absolute
+// cwd_prefix, or false for any other rule.
+func cwdOnly(r config.ProjectMatch) (string, bool) {
+	c := strings.TrimSpace(r.CWDPrefix)
+	if c == "" || r != (config.ProjectMatch{CWDPrefix: r.CWDPrefix}) || !strings.HasPrefix(c, "/") {
+		return "", false
+	}
+	return path.Clean(c), true
+}
+
+// parentOf is the folder a folder-wide Allow names for a project with no
+// git remote: the folder above cwd, when wideFolder accepts it, and ""
+// otherwise. A project with a remote has none; its owner is ownerOf's.
+func parentOf(remote, cwd string) string {
+	if config.NormalizeRemote(remote) != "" {
+		return ""
+	}
+	c, ok := cwdOnly(config.ProjectMatch{CWDPrefix: cwd})
+	if !ok || c == "/" {
+		return ""
+	}
+	if d := path.Dir(c); wideFolder(d) {
+		return d
+	}
+	return ""
+}
+
+// folderFolds lists the folders that hold cwd_prefix rules in at least
+// minFold of their own subfolders, that wideFolder accepts, and that no
+// rule already covers, most rules first. Worktrees and scratch trees
+// land in such a folder one rule each, and on another device under the
+// same layout. A folder and one under it can both be offered: folding
+// the deeper one keeps the change narrower.
+func folderFolds(rules []config.ProjectMatch) []folderFold {
+	kids := map[string]map[string]bool{}
+	count := map[string]int{}
+	for _, r := range rules {
+		c, ok := cwdOnly(r)
+		if !ok {
+			continue
+		}
+		for child, d := c, path.Dir(c); d != child; child, d = d, path.Dir(d) {
+			if !wideFolder(d) {
+				continue
+			}
+			if kids[d] == nil {
+				kids[d] = map[string]bool{}
+			}
+			kids[d][path.Base(child)] = true
+			count[d]++
+		}
+	}
+	var out []folderFold
+	for d, k := range kids {
+		prefix := config.ProjectMatch{CWDPrefix: d}
+		if len(k) < minFold || slices.ContainsFunc(rules, func(r config.ProjectMatch) bool { return config.Covers(r, prefix) }) {
+			continue
+		}
+		out = append(out, folderFold{Folder: d, Count: count[d]})
+	}
+	slices.SortFunc(out, func(a, b folderFold) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Folder, b.Folder))
+	})
+	return out
+}
+
+// foldFolder replaces the cwd_prefix rules under folder in rules with
+// one cwd_prefix for folder, where the first of them stood, and says how
+// many it replaced.
+func foldFolder(rules []config.ProjectMatch, folder string) ([]config.ProjectMatch, int) {
+	var out []config.ProjectMatch
+	wide := config.ProjectMatch{CWDPrefix: folder}
+	n := 0
+	for _, r := range rules {
+		if c, ok := cwdOnly(r); ok && c != folder && config.Covers(wide, r) {
+			if n == 0 {
+				out = append(out, wide)
+			}
+			n++
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, n
+}
+
 // tidyForm applies the offer the operator pressed, if any, to the rules
 // read from the form: "tidy=covered" removes the covered allow rules,
-// and "fold=OWNER" folds that owner's remotes when ownerFolds offers it
-// for those rules. An empty note is filled
+// "fold=OWNER" folds that owner's remotes when ownerFolds offers it
+// for those rules, and "folder=DIR" folds the cwd_prefix rules under DIR
+// when folderFolds offers it. An empty note is filled
 // with what was done, so the saved revision says why the rules went.
 func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
 	var n int
 	var note string
-	switch owner := v.Get("fold"); {
+	switch owner, folder := v.Get("fold"), v.Get("folder"); {
 	case v.Get("tidy") == "covered":
 		p.Projects.Allow, n = withoutCovered(p.Projects.Allow)
 		note = "Remove " + strconv.Itoa(n) + " covered allow " + plural(n, "rule", "rules")
@@ -149,6 +257,12 @@ func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
 		}
 		p.Projects.Allow, n = foldOwner(p.Projects.Allow, owner)
 		note = "Replace " + strconv.Itoa(n) + " git_remote " + plural(n, "rule", "rules") + " under " + owner + " with one git_remote_prefix"
+	case folder != "":
+		if !slices.ContainsFunc(folderFolds(p.Projects.Allow), func(f folderFold) bool { return f.Folder == folder }) {
+			return
+		}
+		p.Projects.Allow, n = foldFolder(p.Projects.Allow, folder)
+		note = "Replace " + strconv.Itoa(n) + " cwd_prefix " + plural(n, "rule", "rules") + " under " + folder + " with one cwd_prefix"
 	}
 	if n == 0 {
 		return
@@ -160,7 +274,9 @@ func tidyForm(v url.Values, f *profileForm, p *config.Profile) {
 }
 
 // The widths Allow can add a rule at: the project's own repository, or
-// every repository under its owner.
+// every repository under its owner. A project with no remote is named by
+// its folder, and its owner width is the folder above it, as parentOf
+// decides.
 const (
 	widthRepository = "repository"
 	widthOwner      = "owner"
@@ -189,11 +305,16 @@ func ownerOf(remote string) string {
 }
 
 // allowRuleAt is the rule Allow adds for a refused project at width: at
-// owner width a git_remote_prefix for the remote's owner, and otherwise,
-// or when the owner would be the bare host, allowRule's.
+// owner width a git_remote_prefix for the remote's owner, or for a
+// project with no remote a cwd_prefix for the folder above it. Otherwise,
+// or when the owner would be the bare host or the folder one parentOf
+// refuses, allowRule's.
 func allowRuleAt(remote, cwd, width string) (config.ProjectMatch, bool) {
 	if o := ownerOf(remote); width == widthOwner && o != "" {
 		return config.ProjectMatch{GitRemotePrefix: o}, true
+	}
+	if d := parentOf(remote, cwd); width == widthOwner && d != "" {
+		return config.ProjectMatch{CWDPrefix: d}, true
 	}
 	return allowRule(remote, cwd)
 }

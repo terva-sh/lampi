@@ -65,7 +65,7 @@ func TestAllowSelectedAtOwnerWidth(t *testing.T) {
 	f, _ := widthLake(t)
 	ctx := t.Context()
 	review := get(f.h, "/review", f.cookie).Body.String()
-	if !strings.Contains(review, `<option value="owner">each repository&#39;s owner</option>`) {
+	if !strings.Contains(review, `<option value="owner">each repository&#39;s owner, or folder&#39;s parent</option>`) {
 		t.Fatal("the queue offers no owner width")
 	}
 	sel := url.Values{"csrf": {f.csrf}, "return": {"/review"}, "width": {"owner"},
@@ -181,5 +181,67 @@ func TestAllowOneProjectAtOwnerWidth(t *testing.T) {
 	}
 	if !strings.Contains(squash(body), "git.example/team/unselected repository on laptop · 7 sessions") {
 		t.Error("the editor does not list what the prefix admits")
+	}
+}
+
+// A folder project allowed at owner width gets one cwd_prefix for the
+// folder above it, so many worktrees under one folder take one rule. A
+// folder whose parent is a home directory keeps its exact rule.
+func TestAllowFoldersAtOwnerWidth(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	now := time.Now()
+	ds, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(`{"projects":{"allow":[{"cwd_prefix":"/home/me/.vuoro/wt/old"}]}}`), "test", "", now); err != nil {
+		t.Fatal(err)
+	}
+	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: now}
+	var keys []string
+	for _, name := range []string{"one", "two", "three"} {
+		inv.Projects = append(inv.Projects, protocol.InventoryProject{CWD: "/home/me/.vuoro/wt/" + name, CWDs: 1, Sessions: 2, Reason: config.RefusedNoMatch})
+		keys = append(keys, "cwd /home/me/.vuoro/wt/"+name)
+	}
+	inv.Projects = append(inv.Projects, protocol.InventoryProject{CWD: "/home/me/scratch", CWDs: 1, Sessions: 1, Reason: config.RefusedNoMatch})
+	keys = append(keys, "cwd /home/me/scratch")
+	if _, err := lake.Catalog.PutDeviceInventory(ctx, ds[0].ID, inv, now); err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	f := &lakeFixture{lake: lake, h: h, cookie: cookie, csrf: csrfOf(t, h, cookie)}
+
+	review := html.UnescapeString(get(f.h, "/review", f.cookie).Body.String())
+	if n := strings.Count(review, ">Allow /home/me/.vuoro/wt/…</button>"); n != 3 {
+		t.Errorf("%d folder buttons, want one per folder under /home/me/.vuoro/wt", n)
+	}
+	if strings.Contains(review, ">Allow /home/me/…</button>") {
+		t.Error("the queue offers a home directory")
+	}
+
+	w := postForm(f.h, "/review/allow", url.Values{"csrf": {f.csrf}, "return": {"/review"}, "width": {"owner"}, "key": keys}, f.cookie)
+	if w.Code != 200 {
+		t.Fatalf("allow selected: %d %s", w.Code, w.Body)
+	}
+	page := squash(html.UnescapeString(w.Body.String()))
+	for _, want := range []string{
+		"gains 2 allow rules",
+		"cwd_prefix /home/me/.vuoro/wt for laptop; a folder rule covers that folder and everything under it",
+		"cwd_prefix /home/me/scratch for laptop",
+		"It drops 1 rule that the new rules cover: cwd_prefix /home/me/.vuoro/wt/old",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("confirm page lacks %q", want)
+		}
+	}
+	save := formFields(t, w.Body.String(), "/review/allow/save")
+	if w := postForm(f.h, "/review/allow/save", save, f.cookie); w.Code != 303 {
+		t.Fatalf("save: %d %s", w.Code, w.Body)
+	}
+	p, _ := f.lake.Catalog.ProfileByName(ctx, config.DefaultProfile)
+	want := []config.ProjectMatch{{CWDPrefix: "/home/me/.vuoro/wt"}, {CWDPrefix: "/home/me/scratch"}}
+	if !slices.Equal(p.Config.Projects.Allow, want) {
+		t.Fatalf("saved %+v, want %+v", p.Config.Projects.Allow, want)
 	}
 }

@@ -1144,8 +1144,10 @@ Allow selected, as the browser API. The same operator and CSRF rules hold.
 
 - `device` is optional and narrows the plan to that device's copies.
 - `width` is optional. `repository`, the default, adds a `git_remote` rule per
-  repository. `owner` adds one `git_remote_prefix` per owner instead, except
-  where the owner would be the bare host. A folder always gets `cwd_prefix`.
+  repository and a `cwd_prefix` per folder. `owner` adds one
+  `git_remote_prefix` per owner instead, except where the owner would be the
+  bare host, and one `cwd_prefix` for the folder above each folder, except
+  where that folder is top-level, a home directory, or holds home directories.
   Any other value is `400 invalid_request`.
 
 It saves nothing and answers `200`:
