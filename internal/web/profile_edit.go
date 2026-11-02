@@ -62,6 +62,9 @@ type profileForm struct {
 	Debounce    string
 	DebounceMax string
 	Note        string
+	// Hide holds the keys of the projects a save also hides from
+	// review, which a temporary rule's fix adds.
+	Hide []string
 }
 
 // harnessChoice is one harness toggle: "" leaves the agent's setting,
@@ -109,11 +112,9 @@ type profileEditView struct {
 	ReturnLabel string
 	Form        profileForm
 	Preview     *profilePreview
-	// Covered and Folds are the editor's offers to shorten the allow
-	// list, from the rules the form holds.
-	Covered     []coveredRule
-	Folds       []profiledoctor.OwnerFold
-	FolderFolds []profiledoctor.FolderFold
+	// Health is the doctor's report on the rules the form holds, with
+	// its fixes; nil when the devices could not be read.
+	Health *healthView
 }
 
 // setReturn takes the form's return field, when it names a page the
@@ -231,6 +232,9 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 		return f, p, err
 	}
 	f.Debounce, f.DebounceMax, f.Note = v.Get("debounce"), v.Get("debounce_max"), v.Get("note")
+	if f.Hide, err = readHide(v["hide"]); err != nil {
+		return f, p, err
+	}
 	p.Projects = config.Projects{Allow: f.Allow, Deny: f.Deny}
 	p.Agent = config.AgentConfig{Debounce: f.Debounce, DebounceMax: f.DebounceMax}
 	for _, id := range profileHarnessIDs {
@@ -251,6 +255,24 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 	// Show the rules as they will be saved, with room to add more.
 	f.Allow, f.Deny = withBlanks(p.Projects.Allow), withBlanks(p.Projects.Deny)
 	return f, p, nil
+}
+
+// readHide reads the form's hide fields: project keys, each once.
+func readHide(raw []string) ([]string, error) {
+	if len(raw) > maxReviewBatch {
+		return nil, fmt.Errorf("the form hides more than %d projects", maxReviewBatch)
+	}
+	var out []string
+	for _, s := range raw {
+		k, ok := parseKey(s)
+		if !ok {
+			return nil, errors.New("the form names a project to hide that is not a project key; reload the editor")
+		}
+		if !slices.Contains(out, k.String()) {
+			out = append(out, k.String())
+		}
+	}
+	return out, nil
 }
 
 // cleanNote keeps a note to one bounded line of printable text.
@@ -336,8 +358,7 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
-	allow := normalizeRules(v.Form.Allow)
-	v.Covered, v.Folds, v.FolderFolds = coveredRules(allow), profiledoctor.OwnerFolds(allow), profiledoctor.FolderFolds(allow)
+	v.Health = s.health(r, v.Name, config.Projects{Allow: normalizeRules(v.Form.Allow), Deny: normalizeRules(v.Form.Deny)}, true)
 	title := "Edit profile " + v.Name
 	if v.New {
 		title = "New profile " + v.Name
@@ -444,7 +465,10 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 	s.setReturn(r, &v, r.PostForm.Get("return"))
 	f, p, err := readProfileForm(r.PostForm)
 	if err == nil {
-		tidyForm(r.PostForm, &f, &p)
+		if terr := s.tidyForm(r, name, &f, &p); terr != nil {
+			pageError(w, r, terr)
+			return
+		}
 	}
 	v.Form = f
 	if err == nil {
@@ -526,8 +550,21 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 		base = -1
 	}
 	raw := []byte(r.PostForm.Get("document"))
+	hide, herr := readHide(r.PostForm["hide"])
+	if herr != nil {
+		s.renderProfile(w, r, name, herr.Error()+" Nothing was saved.", http.StatusBadRequest)
+		return
+	}
 	saved, status, code, msg := s.saveProfile(r, name, raw, base, r.PostForm.Get("note"))
 	back := returnPath(r.PostForm.Get("return"))
+	if code == "" && len(hide) > 0 {
+		// The rules are saved, so the projects they stopped admitting
+		// would come back to review; hide them, with the save's note.
+		if problem, status := s.hideAfterSave(r, hide, r.PostForm.Get("note")); problem != "" {
+			s.renderProfile(w, r, name, problem, status)
+			return
+		}
+	}
 	if code == "" {
 		to := profileURL(name)
 		if back != "" {
@@ -550,7 +587,7 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 	s.setReturn(r, &v, back)
 	if p, _, perr := checkProfile(raw); perr == nil {
 		v.Form = formOf(p, rev)
-		v.Form.Note = r.PostForm.Get("note")
+		v.Form.Note, v.Form.Hide = r.PostForm.Get("note"), hide
 		if code == "changed" {
 			if v.Preview, cerr = s.preview(r, name, p); cerr != nil {
 				pageError(w, r, cerr)
@@ -563,6 +600,35 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 		v.Form, v.Preview = formOf(cur, rev), nil
 	}
 	s.renderEditor(w, r, v, status)
+}
+
+// hideAfterSave hides the projects a saved fix stopped admitting. It
+// returns a problem to show, and its status, when that failed; the
+// profile is saved either way.
+func (s *Server) hideAfterSave(r *http.Request, hide []string, note string) (string, int) {
+	var keys []catalog.ProjectKey
+	for _, h := range hide {
+		if k, ok := parseKey(h); ok {
+			keys = append(keys, k)
+		}
+	}
+	if clean, ok := cleanNote(note); !ok || clean == "" {
+		note = "Removed from the profile as a temporary folder"
+	} else {
+		note = "Removed from the profile: " + clean
+	}
+	if _, status, code := s.changeHides(r, "hide", keys, truncate(note, catalog.MaxHideNote)); code != "" {
+		return "The profile is saved, but hiding the projects it stopped admitting failed: " + hideProblems[code] + " Hide them from the review queue.", status
+	}
+	return "", 0
+}
+
+// truncate cuts s to at most n characters.
+func truncate(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 // deleteProfile removes name for the signed-in operator, if it is
