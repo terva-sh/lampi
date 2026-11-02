@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6EN8BKFQNEZDJG78KN8AFZC
 title: "Release v0.11.0: profile doctor, Health panel and folder rules"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: release/v0.11.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 7e9b646683c1008b184fefc798dec370facaac5d
-  session: null
-  claimed_at: 2026-11-02T17:35:09Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T17:35:02Z
-updated_at: 2026-11-02T17:37:34Z
+updated_at: 2026-11-02T18:13:03Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -84,12 +77,20 @@ This release helps keep agent profiles short and safe. A profile that grows one 
 
 ## Acceptance criteria
 
-- [ ] An isolated v0.10.0 upgrade rehearsal and the release gates pass on the synchronized main commit
-- [ ] The tag is published on both forges, and the archives, checksums and images name the tag
-- [ ] Both release bodies describe the features, the upgrade and rollback
+- [x] An isolated v0.10.0 upgrade rehearsal and the release gates pass on the synchronized main commit
+- [x] The tag is published on both forges, and the archives, checksums and images name the tag
+- [x] Both release bodies describe the features, the upgrade and rollback
 
 ## Notes
 
 **agent:claude-code/t3-43103b81** at 2026-11-02T17:37:34Z
 
 Gates on release/v0.11.0 (origin/main 7e9b646 plus the doctor output fix): GOFLAGS=-mod=mod just ci passed; just release-check passed; just release-snapshot built all five archives and checksums. Isolated rehearsal (release-v0110.* under the agent-scratch lampi root, rehearse.sh and rehearse.log) with the snapshot's linux_amd64 binary: v0.10.0 archive verified against checksums.txt; v0.10.0 serve with web config and token, a synthetic Claude session synced, profile imported; candidate: migrate --check reports schema 21 up to date, index stays at 8, unchanged sync uploaded 0; serve profiles doctor ran while serve ran and flagged home_folder, covered and temporary; --write then set saved revision 2 without the covered rule; appended session uploaded; fsck 3 entries 0 bad; v0.10.0 reopened the lake, read revision 2, and an unchanged sync uploaded 0; no errors in serve logs. No live config, token, lake or agent touched.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T18:13:03Z
+
+Published. Tag v0.11.0 (annotated) on ec87cdf, main after #239; GitHub synced. Release runs passed: GitHub 41495528984, Forgejo 30143. Each forge's six assets pass sha256sum -c against that forge's checksums.txt; the two forges build separately, so their checksums differ, as they did for v0.10.0. linux_amd64 from both forges prints 'terva-lampi v0.11.0 (ec87cdf89bf7)'. ghcr.io/terva-sh/lampi 0.11.0, 0.11 and latest are one index (sha256:659014d0cc88…, amd64 and arm64), and the image prints v0.11.0 (ec87cdf). Both releases are titled 'v0.11.0 — Profile doctor, Health panel and folder rules', and their bodies hold the notes, the upgrade-and-rollback section, and goreleaser's Install and Changelog. The live lake is not upgraded; that is for a person to do.
+
+## Summary
+
+v0.11.0 is published on both forges and GHCR, from ec87cdf. It ships the profile doctor (serve profiles doctor, #234), the dashboard Health panel with one-click safe fixes and remove-and-hide (#236), and folder folds with Allow FOLDER/… (#232). The upgrade needs no migration: swap the binary or image and restart. The live lake has not been upgraded.
