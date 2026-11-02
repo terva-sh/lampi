@@ -55,7 +55,7 @@ func resolutionLabel(r string) string {
 // device list that cannot be read leaves the machines unnamed rather
 // than failing the page.
 func (s *Server) newConflictsView(ctx context.Context, records catalog.Page[catalog.Record], p catalog.PageRequest, base url.URL, session string) conflictsView {
-	v := conflictsView{Records: records, Resolved: p.Resolved, Session: session, Names: map[string]string{}}
+	v := conflictsView{Records: records, Resolved: p.Resolved, Session: session, Names: s.machineNames(ctx)}
 	// Switching lists starts again from the first page.
 	q := base.Query()
 	q.Del("resolved")
@@ -64,17 +64,6 @@ func (s *Server) newConflictsView(ctx context.Context, records catalog.Page[cata
 	v.OpenURL = (&url.URL{Path: base.Path, RawQuery: q.Encode()}).String()
 	q.Set("resolved", "true")
 	v.AllURL = (&url.URL{Path: base.Path, RawQuery: q.Encode()}).String()
-	devices, err := s.catalog.Devices(ctx)
-	if err != nil {
-		return v
-	}
-	// A machine a revoked device was bound to keeps that name unless an
-	// active device is bound to it now.
-	for _, d := range devices {
-		if _, named := v.Names[d.MachineID]; d.MachineID != "" && (!named || d.Revoked.IsZero()) {
-			v.Names[d.MachineID] = d.Name
-		}
-	}
 	return v
 }
 

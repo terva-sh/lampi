@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -112,6 +113,12 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"revokeURL":       func(id string) string { return adminRegistrationsPath + "/" + url.PathEscape(id) + "/revoke" },
 	"resolutionLabel": resolutionLabel,
 	"conflictURL":     conflictURL,
+	"when":            when,
+	"wideView":        func(view string) bool { return wideViews[view] },
+	"named": func(items any, names map[string]string) namedItems {
+		return namedItems{Items: items, Names: names}
+	},
+	"wrapPath": wrapPath,
 	"machineName": func(names map[string]string, id string) string {
 		if n, ok := names[id]; ok {
 			return n
@@ -131,12 +138,15 @@ type pageData struct {
 	Overview                   catalog.Overview
 	Sessions                   catalog.Page[catalog.SessionSummary]
 	Session                    catalog.SessionSummary
-	Records                    catalog.Page[catalog.Record]
-	Filters                    catalog.PageRequest
-	Collection, AsOf           string
-	Poll                       bool
-	Pager                      pagerView
-	Transcript                 recall.EventPage
+	// MachineNames names the machines the sessions and records tables
+	// list, by machine ID.
+	MachineNames     map[string]string
+	Records          catalog.Page[catalog.Record]
+	Filters          catalog.PageRequest
+	Collection, AsOf string
+	Poll             bool
+	Pager            pagerView
+	Transcript       recall.EventPage
 	// TranscriptBlocks is Transcript's page grouped for display, with
 	// runs of quiet unknown events folded (transcriptBlocks).
 	TranscriptBlocks []transcriptBlock
@@ -290,7 +300,7 @@ func (s *Server) homePage(w http.ResponseWriter, r *http.Request) {
 			usage = buildUsageView(t)
 		}
 	}
-	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, AsOf: overview.AsOf, Poll: true, Urgent: urgent, Usage: usage})
+	render(w, r, pageData{Title: "Overview", View: "overview", Overview: overview, Sessions: recent, MachineNames: s.machineNames(ctx), AsOf: overview.AsOf, Poll: true, Urgent: urgent, Usage: usage})
 }
 func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 	p, err := parsePage(r.URL.Query(), true, "")
@@ -310,7 +320,7 @@ func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor), Poll: p.Cursor == ""})
+	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, MachineNames: s.machineNames(ctx), Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor), Poll: p.Cursor == ""})
 }
 func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -346,7 +356,7 @@ func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	d := pageData{Title: "Session details", View: "detail", Session: summary, SessionBays: bays, Records: records, Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf}
+	d := pageData{Title: "Session details", View: "detail", Session: summary, SessionBays: bays, Records: records, MachineNames: s.machineNames(ctx), Filters: p, Collection: strings.Title(kind), AsOf: records.AsOf}
 	nav, err := s.catalog.DashboardNavigation(ctx, scopeOf(r), uid, kind, p)
 	if err != nil {
 		pageError(w, r, err)
@@ -376,7 +386,8 @@ func (s *Server) conflictsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, Conflicts: s.newConflictsView(ctx, v, p, *r.URL, ""), AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor)})
+	cv := s.newConflictsView(ctx, v, p, *r.URL, "")
+	render(w, r, pageData{Title: "Conflicts", View: "conflicts", Records: v, MachineNames: cv.Names, Conflicts: cv, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor)})
 }
 
 // transcriptPage shows one page of a session's published events. at
@@ -538,4 +549,64 @@ func (s *Server) excerptPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(msg + "\n"))
+}
+
+// when shows an RFC 3339 time as UTC to the second, as
+// "2026-11-02 22:21:00Z"; the page keeps the full value in the
+// element's datetime and title. Anything else is shown as given
+// (TKT-01M6F7JMGV9XDW5Z4SZJ74J9H3).
+func when(s string) string {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return s
+	}
+	return t.UTC().Format("2006-01-02 15:04:05Z")
+}
+
+// wrapPath is s, escaped, with a line-break opportunity after each /
+// and :, so a long path or remote wraps at its separators instead of
+// being cut off.
+func wrapPath(s string) template.HTML {
+	var b strings.Builder
+	for _, r := range s {
+		b.WriteString(template.HTMLEscapeString(string(r)))
+		if r == '/' || r == ':' {
+			b.WriteString("<wbr>")
+		}
+	}
+	return template.HTML(b.String())
+}
+
+// wideViews are the pages whose tables use the wide main, up to 1600px;
+// the rest, prose and short forms, keep the narrow column.
+var wideViews = map[string]bool{
+	"overview": true, "sessions": true, "detail": true, "search": true, "activity": true,
+	"usage": true, "operations": true, "devices": true, "device": true, "review": true,
+	"profiles": true, "profile": true, "profile-edit": true, "bays": true, "conflicts": true,
+	"registrations": true, "read-tokens": true, "minted": true, "raw": true,
+}
+
+// namedItems hands a table template its rows and the device names to
+// show machine IDs by.
+type namedItems struct {
+	Items any
+	Names map[string]string
+}
+
+// machineNames maps each machine ID to the name of the device bound to
+// it. A machine a revoked device was bound to keeps that name unless an
+// active device is bound to it now. A device list that cannot be read
+// leaves the machines unnamed rather than failing the page.
+func (s *Server) machineNames(ctx context.Context) map[string]string {
+	names := map[string]string{}
+	devices, err := s.catalog.Devices(ctx)
+	if err != nil {
+		return names
+	}
+	for _, d := range devices {
+		if _, named := names[d.MachineID]; d.MachineID != "" && (!named || d.Revoked.IsZero()) {
+			names[d.MachineID] = d.Name
+		}
+	}
+	return names
 }
