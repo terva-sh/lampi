@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:03:45Z
-updated_at: 2026-11-02T22:03:54Z
+updated_at: 2026-11-02T22:09:01Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -56,3 +56,7 @@ The live default profile's Health panel lists 15 temporary-folder rules one afte
 - [ ] The group's bulk button applies every remove, narrow and remove-and-hide fix of that code in one preview, within the one-save hide limit
 - [ ] The editor offers a deny rule for the temporary roots of removed or flagged temporary folders, not covered by an existing deny, and applies it only when pressed
 - [ ] Tests cover grouping, the bulk fix and the deny offer; docs describe them
+
+## Implementation plan
+
+profiledoctor gains ApplyFixes (apply many remove/narrow/safe findings from one report, highest index first, on a copy) and TemporaryDeny (temp root or .cache folder for a temporary dir). web: healthView.Groups groups items by code in first-seen order; a group of 2+ shows the shared message once, the projects its rules admit, a details list of the per-rule findings (their own buttons kept), and in the editor a fix_all=CODE button labelled from bulkLabel, except when every fix is safe (Apply safe fixes covers that). tidyForm handles fix_all (refused past maxReviewBatch hides, like narrow) and deny_temporary (adds temporaryDenies: roots of flagged temporary rules and of temporary cwd keys queued to hide, less roots an existing deny covers). renderEditor sets the offer via offerDeny, so it survives the bulk fix through the queued hides, and shows outside the findings list so it remains when no finding does.
