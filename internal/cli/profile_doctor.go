@@ -75,7 +75,7 @@ func printReport(env Env, name string, in profiledoctor.Input, rep profiledoctor
 		if f.Rule != nil {
 			what = fmt.Sprintf("allow[%d] %s", f.Index, profiledoctor.RuleText(*f.Rule))
 		}
-		fmt.Fprintf(out, "%-8s %-15s %s\n", f.Level, f.Code, what)
+		fmt.Fprintf(out, "%-8s %-16s %s\n", f.Level, f.Code, what)
 		fmt.Fprintf(out, "         %s\n", f.Message)
 		if f.By != nil {
 			fmt.Fprintf(out, "         by %s\n", profiledoctor.RuleText(*f.By))
@@ -103,7 +103,7 @@ func printReport(env Env, name string, in profiledoctor.Input, rep profiledoctor
 	case write != "":
 		fmt.Fprintf(out, "wrote %s with %d safe %s applied; check it, then: terva-lampi serve profiles set %s %s --note \"...\"\n", write, n, plural(n, "fix", "fixes"), name, write)
 	default:
-		fmt.Fprintf(out, "%d safe %s change no project's verdict; --write FILE writes the profile with them applied\n", n, plural(n, "fix", "fixes"))
+		fmt.Fprintf(out, "%d safe %s no project's verdict; --write FILE writes the profile with %s applied\n", n, plural(n, "fix changes", "fixes change"), plural(n, "it", "them"))
 	}
 }
 

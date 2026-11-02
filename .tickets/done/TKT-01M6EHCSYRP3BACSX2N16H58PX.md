@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6EHCSYRP3BACSX2N16H58PX
 title: "Fold folder rules: Allow FOLDER/… and a cwd_prefix fold in the editor"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/profile-cleanup-tooling
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
-  session: null
-  claimed_at: 2026-11-02T16:27:39Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T16:27:33Z
-updated_at: 2026-11-02T16:28:21Z
+updated_at: 2026-11-02T17:34:50Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -77,3 +70,7 @@ Shipped in one PR on branch t3/profile-cleanup-tooling: parentOf/wideFolder/fold
 **agent:claude-code/t3-43103b81** at 2026-11-02T16:28:21Z
 
 Dry run on 145 of the live default profile's cwd_prefix rules, 2026-11-02: Remove covered drops 32, mostly under /tmp, which the profile allows. Top folder offers: /home/sothr/.t3/worktrees (59 rules), /Users/drewshort/Workspace (13), /var/folders/b1/.../T (13), /home/sothr/.t3/worktrees/ledger (12), /home/sothr/workspace (11). Allow at owner width turns the 478 vuoro worktrees waiting for review into one cwd_prefix for /home/sothr/.local/state/vuoro/worktrees. GOFLAGS=-mod=mod just ci passes locally. Not pushed and no PR yet: waiting on the operator. The profile also holds cwd_prefix /home/steamos, a home directory: the TKT-01M3NQ8324 hazard, left for the operator.
+
+## Summary
+
+Merged as #232 (3993a92). Allow at owner width gives a folder project one cwd_prefix for the folder above it, through Allow FOLDER/… on the review and device pages and the batch Rules for option. The editor folds cwd_prefix rules spread over three or more subfolders of one folder. Neither names a top-level folder, a home directory, the folder holding home directories, or root's home (/root, /var/root); terva-review caught /var/root. Ships in v0.11.0.

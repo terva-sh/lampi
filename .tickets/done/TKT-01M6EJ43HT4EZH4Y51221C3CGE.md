@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6EJ43HT4EZH4Y51221C3CGE
 title: "Profile doctor: rule checks and serve profiles doctor"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M6EHCSYRP3BACSX2N16H58PX
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/profile-doctor
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 066b521a6ffed031e1bf13f8a112c4a5e61d8981
-  session: null
-  claimed_at: 2026-11-02T16:40:25Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T16:40:17Z
-updated_at: 2026-11-02T16:45:47Z
+updated_at: 2026-11-02T17:34:50Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -80,3 +73,7 @@ Add `internal/profiledoctor`. It reads a profile's rules against the newest inve
 **agent:claude-code/t3-43103b81** at 2026-11-02T16:45:47Z
 
 Committed on t3/profile-doctor (ff0aa75), stacked on t3/profile-cleanup-tooling (066b521, TKT-01M6EHCSYRP3BACSX2N16H58PX). GOFLAGS=-mod=mod just ci passes. Not pushed: waiting on the operator. Not run against the live lake: /var/lib/terva-lampi/catalog.db is not readable as the workstation user, so the first real report comes from the operator running serve profiles doctor default as the lake's user.
+
+## Summary
+
+Merged as #234 (7e8d547). internal/profiledoctor reports home, broad, host-wide, covered, shadowed, temporary, unmatched, fold, review-group, cap and unlisted-device findings against the devices' newest inventories. serve profiles doctor prints them, with --json and --write for the safe fixes. terva-review found two bugs, both fixed before merge: a narrowing could replace a folder rule with a bare git_remote, which admits checkouts outside the folder, so each replacement now stays within the rule it replaces; and Remove and hide built its list from the 50 projects shown. Ships in v0.11.0.
