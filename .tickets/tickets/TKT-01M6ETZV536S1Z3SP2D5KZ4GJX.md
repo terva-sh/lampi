@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:23:54Z
+updated_at: 2026-11-02T19:29:13Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -63,3 +63,7 @@ The owner chose (AskUserQuestion, 2026-11-02): one line per rule, matches per ru
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:23:54Z
 
 Built on t3/profile-editor-redesign, stacked on #241. Rules post as list.N.c.M.kind and .value, and readRule still reads list.N.FIELD, which the Health fix forms (profile-hidden-form) and older tests post. A rule the form cannot read no longer empties the editor: readRules reads every row, and readProfileForm keeps the note, harnesses and hides. profiledoctor.Report gains Uses, which the CLI's --json also prints. Remove posts remove=list.N. Group headers are computed from runs in stored order, so the ordering step (TKT-01M6ETZV7C0P5F2RDKQPAQCCFW) only has to reorder. I checked the layout from a headless Chromium screenshot of a rendered page, and compacted the rows after the first one. GOFLAGS=-mod=mod just ci passes.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:29:13Z
+
+terva-review on #242 (run 2257), two findings, both fixed. (1) A rule the form could not read came back rebuilt from the partial ProjectMatch, which lost the conflicting value and everything after it. readRule now also returns every condition as sent; readRules keeps them per row (profileForm.AllowRaw/DenyRaw), and ruleRows shows them. (2) The doctor reads normalizeRules(form), which drops empty rows, but ruleRows indexed by form row, so a rule after an empty or removed row got another rule's use and findings. ruleRows now counts each row's normalized index. Tests: TestRuleSentAsIs, the after-an-empty-row case in TestRuleRows, and a check in TestEditorRuleLines.

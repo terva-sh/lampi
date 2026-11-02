@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func TestReadRule(t *testing.T) {
 		{"a field twice", url.Values{"r.c.0.kind": {"cwd_prefix"}, "r.c.0.value": {"/a"}, "r.c.1.kind": {"cwd_prefix"}, "r.c.1.value": {"/b"}}, config.ProjectMatch{}, "sets cwd_prefix twice"},
 		{"an unknown kind", url.Values{"r.c.0.kind": {"cwd"}, "r.c.0.value": {"/a"}}, config.ProjectMatch{}, "choose what"},
 	} {
-		got, err := readRule(tc.form, "r.")
+		got, _, err := readRule(tc.form, "r.")
 		if tc.err != "" {
 			if err == nil || !strings.Contains(err.Error(), tc.err) {
 				t.Errorf("%s: error %v, want %q", tc.name, err, tc.err)
@@ -57,7 +58,7 @@ func TestRuleRows(t *testing.T) {
 		{Finding: profiledoctor.Finding{Code: profiledoctor.CodeCovered, Index: 1, Rule: &rules[1]}},
 		{Finding: profiledoctor.Finding{Code: profiledoctor.CodeUnmatched, Index: 2, Rule: &rules[2]}},
 	}
-	rows := ruleRows("allow", rules, h)
+	rows := ruleRows("allow", rules, nil, h)
 	if rows[0].Group != "git.example/team" || rows[0].GroupCount != 2 || rows[1].Group != "" {
 		t.Errorf("owner header: %+v %+v", rows[0], rows[1])
 	}
@@ -70,8 +71,34 @@ func TestRuleRows(t *testing.T) {
 	if rows[0].Use == nil || rows[0].Use.Sessions != 5 || len(rows[1].Findings) != 1 || len(rows[2].Findings) != 0 {
 		t.Errorf("use and findings: %+v %+v %+v", rows[0].Use, rows[1].Findings, rows[2].Findings)
 	}
-	if deny := ruleRows("deny", rules, h); deny[0].Use != nil || deny[1].Findings != nil {
+	if deny := ruleRows("deny", rules, nil, h); deny[0].Use != nil || deny[1].Findings != nil {
 		t.Error("deny rules carry the allow rules' use")
+	}
+
+	// The doctor reads the rules with empty rows dropped; a row after an
+	// empty one still gets its own use and findings.
+	gap := []config.ProjectMatch{{GitRemote: "git.example/team/a"}, {}, {GitRemote: "git.example/team/b"}}
+	h = &healthView{Report: profiledoctor.Report{Uses: []profiledoctor.RuleUse{{Projects: 1}, {Projects: 7}}}}
+	h.Items = []healthItem{{Finding: profiledoctor.Finding{Code: profiledoctor.CodeCovered, Index: 1, Rule: &gap[2]}}}
+	rows = ruleRows("allow", gap, nil, h)
+	if rows[1].Use != nil || rows[2].Use == nil || rows[2].Use.Projects != 7 || len(rows[2].Findings) != 1 || len(rows[1].Findings) != 0 {
+		t.Errorf("after an empty row: %+v %+v", rows[1], rows[2])
+	}
+}
+
+// TKT-01M6ETZV536S: a rule the form cannot read comes back with every
+// condition as it was sent.
+func TestRuleSentAsIs(t *testing.T) {
+	form := url.Values{"r.c.0.kind": {"cwd_prefix"}, "r.c.0.value": {"/a"}, "r.c.1.kind": {"cwd_prefix"}, "r.c.1.value": {"/b"},
+		"r.c.2.kind": {"cwd_glob"}, "r.c.2.value": {"/c/*"}}
+	_, sent, err := readRule(form, "r.")
+	want := []ruleCond{{"cwd_prefix", "/a"}, {"cwd_prefix", "/b"}, {"cwd_glob", "/c/*"}}
+	if err == nil || !slices.Equal(sent, want) {
+		t.Fatalf("sent %+v %v, want %+v", sent, err, want)
+	}
+	rows := ruleRows("allow", []config.ProjectMatch{{CWDPrefix: "/a"}}, map[int][]ruleCond{0: sent}, nil)
+	if !slices.Equal(rows[0].Conds, want) {
+		t.Errorf("shown %+v", rows[0].Conds)
 	}
 }
 
@@ -135,7 +162,8 @@ func TestEditorRuleLines(t *testing.T) {
 	form.Set("allow.2.c.1.value", "/work/c")
 	w = postForm(h, "/profiles/default/preview", form, cookie)
 	body := w.Body.String()
-	if w.Code != 400 || !strings.Contains(body, "allow rule 3: one rule sets cwd_prefix twice") || !strings.Contains(body, `value="0123456789abcdef"`) {
+	if w.Code != 400 || !strings.Contains(body, "allow rule 3: one rule sets cwd_prefix twice") || !strings.Contains(body, `value="0123456789abcdef"`) ||
+		!strings.Contains(body, `name="allow.2.c.1.value" value="/work/c"`) {
 		t.Errorf("a rule setting one field twice: %d", w.Code)
 	}
 }

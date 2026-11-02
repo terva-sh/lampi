@@ -85,26 +85,36 @@ func condsOf(m config.ProjectMatch) []ruleCond {
 
 // readRule reads row prefix p of a rules form: the field names the
 // editor used to post, list.N.FIELD, then the conditions list.N.c.M.kind
-// and list.N.c.M.value it posts now.
-func readRule(v url.Values, p string) (config.ProjectMatch, error) {
+// and list.N.c.M.value it posts now. It also returns every condition as
+// sent, which the editor shows again when the rule cannot be read.
+func readRule(v url.Values, p string) (config.ProjectMatch, []ruleCond, error) {
 	m := config.ProjectMatch{CWDPrefix: v.Get(p + "cwd_prefix"), GitRemote: v.Get(p + "git_remote"),
 		GitRemotePrefix: v.Get(p + "git_remote_prefix"), CWDHash: v.Get(p + "cwd_hash"), CWDGlob: v.Get(p + "cwd_glob")}
-	for c := range maxConditions {
+	sent := condsOf(m)
+	var err error
+	// A rule shown again as sent can hold the old field names and its
+	// conditions both, so read twice as many as a rule can set.
+	for c := range 2 * maxConditions {
 		q := p + "c." + strconv.Itoa(c) + "."
 		kind, value := v.Get(q+"kind"), strings.TrimSpace(v.Get(q+"value"))
 		if value == "" {
 			continue
 		}
+		sent = append(sent, ruleCond{kind, value})
+		if err != nil {
+			continue
+		}
 		f, ok := fieldOf(&m, kind)
-		if !ok {
-			return m, fmt.Errorf("choose what %q names: a folder, repository, remote prefix, folder hash or folder pattern", value)
+		switch {
+		case !ok:
+			err = fmt.Errorf("choose what %q names: a folder, repository, remote prefix, folder hash or folder pattern", value)
+		case *f != "" && strings.TrimSpace(*f) != value:
+			err = fmt.Errorf("one rule sets %s twice, to %q and %q; every field set on a rule must match, so give each its own rule", kind, *f, value)
+		default:
+			*f = value
 		}
-		if *f != "" && strings.TrimSpace(*f) != value {
-			return m, fmt.Errorf("one rule sets %s twice, to %q and %q; every field set on a rule must match, so give each its own rule", kind, *f, value)
-		}
-		*f = value
 	}
-	return m, nil
+	return m, sent, err
 }
 
 // groupKey is the folder or owner a rule is listed under: the folder
@@ -127,24 +137,36 @@ func groupKey(m config.ProjectMatch) string {
 }
 
 // ruleRows lays rules out for the editor, with what h says about each
-// allow rule.
-func ruleRows(list string, rules []config.ProjectMatch, h *healthView) []ruleRowView {
+// allow rule. raw holds the conditions as sent for the rows the form
+// could not read, which show again as they were.
+func ruleRows(list string, rules []config.ProjectMatch, raw map[int][]ruleCond, h *healthView) []ruleRowView {
 	rows := make([]ruleRowView, len(rules))
+	// h reads the rules normalized, which drops empty rows: n is each
+	// row's index there.
+	n := 0
 	for i, r := range rules {
 		rows[i] = ruleRowView{List: list, Index: i, Conds: condsOf(r)}
+		if c, ok := raw[i]; ok {
+			rows[i].Conds = c
+		}
 		if len(rows[i].Conds) == 0 {
 			rows[i].Blank = true
 			rows[i].Conds = []ruleCond{{Kind: "cwd_prefix"}}
 		}
+		if len(normalizeRules([]config.ProjectMatch{r})) == 0 {
+			continue
+		}
+		at := n
+		n++
 		if h == nil || list != "allow" {
 			continue
 		}
-		if i < len(h.Uses) {
-			rows[i].Use = &h.Uses[i]
+		if at < len(h.Uses) {
+			rows[i].Use = &h.Uses[at]
 		}
 		for _, it := range h.Items {
 			// Unmatched says what Use already shows.
-			if it.Rule != nil && it.Index == i && it.Code != profiledoctor.CodeUnmatched {
+			if it.Rule != nil && it.Index == at && it.Code != profiledoctor.CodeUnmatched {
 				rows[i].Findings = append(rows[i].Findings, it)
 			}
 		}
