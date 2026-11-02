@@ -28,6 +28,7 @@ usage:
   terva-lampi serve profiles set NAME FILE [--note TEXT] [--data DIR]
   terva-lampi serve profiles delete NAME [--note TEXT] [--data DIR]
   terva-lampi serve profiles import FILE [--note TEXT] [--data DIR]
+  terva-lampi serve profiles doctor NAME [--json] [--write FILE] [--data DIR]
 
 Profiles live in the lake's catalog. Each save is kept as a revision
 with who made it and an optional note saying why.
@@ -40,6 +41,16 @@ deleted, nor can a profile a device uses. import reads a profiles file,
 {"profiles": {"NAME": {...}}}, and saves each profile in it. Every
 profile is checked before any is saved. A profile whose document has
 not changed is left alone.
+
+doctor reads a profile's allow rules against the newest inventory of
+each device that takes them, and lists what to change: a rule for a
+home directory, a top-level folder or a whole host; a rule another
+rule covers or a deny rule shadows; a rule for a temporary folder; a
+rule no project matches; groups of rules one wider rule would replace;
+and how close the profile is to the rule cap. It changes nothing.
+--write FILE writes the profile with the safe fixes applied, those that
+change no project's verdict, for serve profiles set. The dashboard's
+profile editor offers every fix with a preview.
 
 serve does not read profiles.json or --profiles: import the file.
 Agents pick up a change at their next profile fetch. All five run while
@@ -55,7 +66,7 @@ func runServeProfiles(env Env, args []string) error {
 	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
 		sub, args = args[0], args[1:]
 	}
-	need := map[string]int{"list": 0, "show": 1, "set": 2, "delete": 1, "import": 1}
+	need := map[string]int{"list": 0, "show": 1, "set": 2, "delete": 1, "import": 1, "doctor": 1}
 	n, ok := need[sub]
 	if !ok {
 		fmt.Fprint(env.stdout(), profilesUsage)
@@ -71,11 +82,14 @@ func runServeProfiles(env Env, args []string) error {
 		pos, args = append(pos, args[0]), args[1:]
 	}
 	var data, note string
-	var revisions bool
+	var revisions, asJSON bool
+	var write string
 	rest, err := parseFlags(env, args, profilesUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&data, "data", "", "lake directory (default: state dir)")
 		fs.StringVar(&note, "note", "", "why, kept with the revision")
 		fs.BoolVar(&revisions, "revisions", false, "show a profile's history")
+		fs.BoolVar(&asJSON, "json", false, "doctor: print the report as JSON")
+		fs.StringVar(&write, "write", "", "doctor: write the profile with the safe fixes applied to FILE")
 	})
 	if err != nil {
 		return err
@@ -92,7 +106,7 @@ func runServeProfiles(env Env, args []string) error {
 		return fmt.Errorf("serve profiles: %w", err)
 	}
 	ctx := context.Background()
-	if sub == "list" || sub == "show" {
+	if sub == "list" || sub == "show" || sub == "doctor" {
 		cat, err := catalog.OpenReadOnly(path)
 		if err != nil {
 			return err
@@ -100,6 +114,9 @@ func runServeProfiles(env Env, args []string) error {
 		defer cat.Close()
 		if sub == "list" {
 			return listProfiles(ctx, env, cat)
+		}
+		if sub == "doctor" {
+			return doctorProfile(ctx, env, cat, pos[0], asJSON, write)
 		}
 		return showProfile(ctx, env, cat, pos[0], revisions)
 	}

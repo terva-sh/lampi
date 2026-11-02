@@ -241,6 +241,55 @@ terva-lampi serve profiles delete ci --data /var/lib/terva-lampi
 profile whose document has not changed is left alone. `delete` refuses
 `default` and a profile a device uses.
 
+### Check a profile with the doctor
+
+A profile that grows one Allow at a time collects rules that add
+nothing, and rules that reach further than anyone chose. `doctor` reads
+a profile against the newest inventory of each device that takes it, and
+lists what to change. It changes nothing.
+
+```sh
+terva-lampi serve profiles doctor default --data /var/lib/terva-lampi
+terva-lampi serve profiles doctor default --write default.json --data /var/lib/terva-lampi
+terva-lampi serve profiles set default default.json --note "doctor: safe fixes" --data /var/lib/terva-lampi
+```
+
+Each finding has a level:
+
+| Level | Codes | What it means |
+|---|---|---|
+| problem | `home_folder`, `at_cap` | A rule for `/`, a home directory, or the folder that holds home directories, which admits every project started there. Or a list that holds the 500-rule cap, so no Allow can add a rule. |
+| warning | `broad_folder`, `host_wide`, `near_cap` | A rule for a top-level folder such as `/tmp` or for a whole host such as `github.com`. Or a list at 80% of the cap, or with enough projects waiting in review to pass it one rule at a time. |
+| tidy | `covered`, `shadowed`, `temporary` | A rule another rule covers, a rule a deny rule always overrides, or a rule for a temporary folder: under `/tmp`, `/var/folders` or a `.cache` folder, or named as `mktemp` and Go tests name folders. |
+| offer | `owner_fold`, `folder_fold`, `review_group` | Rules one wider rule would replace, or projects waiting in review that one Allow at owner width would take. |
+| info | `unmatched`, `unlisted_devices` | A rule no project on any device matches, which may be for a project nobody has opened yet. Or devices that sent no inventory, so the doctor cannot say what the rules match there. |
+
+A rule appears once, under its first matching code in the order above,
+except that `covered` and `shadowed` come before every other code.
+
+**Safe fixes** change no project's verdict on any device: removing a
+covered or shadowed rule, and removing a temporary rule that no device
+holds sessions for. A temporary rule is safe only when every device sent
+an inventory. `--write FILE` writes the profile with only these applied.
+Read the file before you `set` it.
+
+The other fixes change what uploads, so they are offered in the
+dashboard's profile editor, where the preview lists what each admits or
+drops:
+
+- A `home_folder`, `broad_folder` or `host_wide` rule is replaced with
+  one exact rule for each project it admits today. A project in the home
+  directory itself keeps a `cwd_hash` rule, which names that folder
+  alone. Nothing uploading from a device that sent an inventory stops,
+  and new folders under it go to review.
+- A temporary rule that a device still holds sessions for is removed,
+  and the projects it admitted are hidden from review, so they do not
+  come back as new work.
+- An `unmatched` rule is removed only when you choose it.
+
+`--json` prints the report for a script. Its fields are in
+`internal/profiledoctor`.
+
 **Upgrading from a lake that read `profiles.json`:** after the upgrade,
 `serve` serves an empty default profile until you import the file, and
 agents with no allow rules of their own then upload nothing. Run
