@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6ETH6H726EM1DJJS98M56JV
 title: "Profile editor: merge selected allow rules under one prefix, with a preview"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M6ETZV7C0P5F2RDKQPAQCCFW
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/profile-editor-merge
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: a9323f48ce4ab9d5ca95dbe1d2a81040adff8404
-  session: null
-  claimed_at: 2026-11-02T19:49:03Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T19:07:14Z
-updated_at: 2026-11-02T19:57:39Z
+updated_at: 2026-11-02T20:15:29Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -70,3 +63,7 @@ Built on t3/profile-editor-merge, stacked on #243. Allow rows carry pick=allow.N
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:57:39Z
 
 terva-review on #244 (run 2274): the merge panel sat above the editor form and reached it with form=profile-form. Its Check button therefore came first among the form's submit buttons, and Enter anywhere planned a merge instead of previewing. Fixed: the panel is inside the form, after the off-screen Preview default, and Enter in the prefix box presses Check through a small script. TestEditorMergesTickedRules checks that the first submit button with the panel shown carries no name, and that the panel's fields are inside the form.
+
+## Summary
+
+Merged in #244. Tick allow rules and Merge proposes their common folder or remote owner. The panel lists every rule the prefix replaces, ticked or not, a ticked rule it misses, and the projects it newly admits, hidden ones first. The prefix can be edited and checked again; wide prefixes are refused. Apply puts the rule where the first replaced rule stood and previews. Allow rules only.

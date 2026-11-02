@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6ETZV7C0P5F2RDKQPAQCCFW
 title: "Profile editor: move rules, sort by folder and owner, insert by group"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M6ETZV536S1Z3SP2D5KZ4GJX
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/profile-editor-order
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 584094981751ae23ddd72e933523fafce2208e29
-  session: null
-  claimed_at: 2026-11-02T19:44:32Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:55:10Z
+updated_at: 2026-11-02T20:15:29Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -68,3 +61,7 @@ Built on t3/profile-editor-order, stacked on #242. Move posts move=list.N.up|dow
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:55:10Z
 
 terva-review on #243 (run 2271): after a drag, the Narrow buttons kept the index of the rule the page was drawn with. The server re-diagnoses the posted order, so that index could name a different rule, and the same holds for the Health panel's fixes. Renumbering them in the page would mean mapping normalized doctor indices, so a drag now disables every narrow, fold, folder and doctor button until the next preview, and the notice says so. Remove, move and pick values are renumbered with the rows. I checked this in headless Chromium by simulating a drag of rule 0 onto rule 3: names and Remove renumbered to allow.2, all Narrow and doctor buttons disabled, notice shown.
+
+## Summary
+
+Merged in #243. Rules move with up and down buttons, and by dragging a handle where scripts run; Sort by folder and owner orders folders by path, then remotes. Order is the operator's, since it changes nothing an agent does. withRules puts a rule Allow adds after the last rule of its folder or owner, or where the first rule it replaces stood. A drag disables the doctor's fixes until the next preview, since they name rules by position.
