@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T23:53:45Z
+updated_at: 2026-11-02T23:57:30Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -49,5 +49,15 @@ A token scoped by project would need a new token scope kind. That is out of scop
 
 ## Acceptance criteria
 
-- [ ] Bays are checkboxes by name
-- [ ] The session list can be filled from a project or machine pick, and stays editable
+- [x] Bays are checkboxes by name
+- [x] The session list can be filled from a project or machine pick, and stays editable
+
+## Implementation plan
+
+Bays as checkboxes (name=bay, the bay names), joined with the older free-text bays field, which still works. A Sessions fieldset holds a Project box and Machine select with the Sessions suggestions (scope AllBays, as the admin guard sets no read scope), a List matching sessions button (fill=1) that fills Session UIDs with up to 100 newest matches through DashboardSessions and mints nothing, and the UID textarea. No match leaves the list unchanged, since empty means every session; more than 100 says to use a bay. A hidden default Mint token button comes first, so Enter still mints; Enter in Project presses List matching sessions through a generalized data-enter hook in lake.js.
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T23:57:30Z
+
+TestReadTokenFormPickers covers the checkboxes, the suggestions, a fill (no token minted), a no-match fill that keeps a typed list, a fill with no pick (400), and a mint with a ticked bay. Screenshot after a fill checked. GOFLAGS=-mod=mod just ci passes.

@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M6F7JMQYGY3WGGV55H0M3FR5
 title: "Sessions, Search, Usage: project combobox and machine select"
 type: task
-status: draft
-status_reason: null
+status: done
+status_reason: "Done in #252 (merged 82ba348); worked without a claim, which this records"
 priority: normal
 due_on: null
 labels:
@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T23:57:14Z
+updated_at: 2026-11-02T23:57:30Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -70,6 +70,10 @@ Catalog: PageRequest gains Remote, Folder and Machine. sessionFilters matches a 
 **agent:claude-code/t3-43103b81** at 2026-11-02T23:26:53Z
 
 Shipped for Sessions only. Search and Usage read search.db, which holds only project_id, and Search drops out-of-scope hits after the query, so narrowing them that way empties pages. Split into TKT-01M6F9CM9YTMC0C0F67A51HH1J (Search and Usage: filter by remote, folder and machine), which needs an indexVersion bump. AC 3 is left unticked for that reason. Screenshots at 1700px checked: the Project box widened to flex 3 after the first render was too narrow. Tests: TestSessionPrefixFilters (catalog), TestProjectOptions and TestSessionsPickers (web). GOFLAGS=-mod=mod just ci passes.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T23:57:30Z
+
+draft to done: Done in #252 (merged 82ba348); worked without a claim, which this records
 
 ## Summary
 
