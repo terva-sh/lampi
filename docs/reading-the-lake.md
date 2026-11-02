@@ -79,6 +79,7 @@ The agent gets thirteen tools:
 |------|--------------|
 | `list_bays` | Lists visible bays with counts of sessions the token can reach. |
 | `list_projects` | Lists projects linked to reachable stored sessions, with scoped counts. |
+| `recommend_bays` | Suggests compatible bay destinations from explicit metadata mappings, with evidence, uncertainty and exact-preview handoffs; never applies them. |
 | `list_sessions` | Pages through session metadata, including sessions with no project or indexed transcript. |
 | `select_sessions` | Freezes a complete exact cohort from metadata or UID lists, with exclusions. |
 | `preview_bay_migration` | Shows additions/moves to multiple bays, including hypothetical new names, without writes. |
@@ -333,3 +334,19 @@ transcript page in the dashboard shows the same findings.
 An operator on the lake host can read the same events with
 [`terva-lampi export`](cli.md#select-events-and-fields). It takes the
 same filters and `--fields`, and selects the same events.
+
+## Dogfood review organization
+
+Use [the end-to-end organization walkthrough](organizing-sessions.md) to find
+Vuoro-shaped review cohorts, inspect reviewer and finding-rating companions,
+check development controls, refine advisory [bay-doctor](bay-doctor.md)
+suggestions and hand exact plans to an operator. The workflow uses the shipped
+`list_bays`, `list_projects`, `list_sessions`, `get_session`, `recommend_bays`,
+`select_sessions`, `preview_bay_migration` and `preview_bay_rule` tools. All
+require existing `events:read` scope; none applies membership changes.
+
+The metadata tools work independently of search normalization. Consume every
+continuation with unchanged filters/limit/scope, or use complete bounded
+`select_sessions` to freeze the intended set. Sessions without project IDs
+remain candidates. A search page or lake diagnosis is evidence, not an inventory.
+Inspect unknown workflow provenance rather than filling it from a display name.

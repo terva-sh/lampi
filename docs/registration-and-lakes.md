@@ -392,3 +392,13 @@ name. A lake sharing the directory (`serve` without `--data`) keeps its
 `catalog.db`, `cas/`, and `identity.json`. `sync` refuses the move
 while an agent from an earlier release holds `agent.pid`, so stop that
 agent first.
+
+## Separate capture permission from stored-session organization
+
+Moving already-captured reviews into bays does not require another profile,
+registration, lake entry or import. Preserve device and session identities.
+Agent bay requests and lake rules govern later manifests; stored membership
+changes sort historical sessions. An existing request or add rule can restore
+a source membership after a move. Review future routing separately from a
+historical exact selection, including the catchment on every observed machine
+layout and the destination readership. See [organizing reviews and development](organizing-sessions.md).

@@ -26,6 +26,7 @@ import (
 const queryUsage = `terva-lampi query events — read normalized events from a lake with a read token
 
 usage:
+  terva-lampi query recommend-bays --policy FILE [--json] [--server URL]
   terva-lampi query bays|projects|sessions [metadata filters] [--limit N --cursor C]
   terva-lampi query session SESSION_UID
                            (terva-lampi query sessions --help lists metadata flags)

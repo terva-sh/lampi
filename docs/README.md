@@ -53,5 +53,6 @@ first run. The pages below are grouped by what you are trying to do.
 
 | Page | Read it when |
 |------|--------------|
+| [Organize reviews and development](organizing-sessions.md) | You want a complete agent-first discovery, doctor, migration and verification walkthrough |
 | [Review a migration](bay-migrations.md) | You want exact selections, complete multi-bay previews, apply receipts and correction |
 | [Bay destination doctor](bay-doctor.md) | You want advisory mapped-metadata recommendations, uncertainty and scoped feedback |

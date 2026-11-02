@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K514R3K4KSCPE766K25F
 title: "Docs: discover, classify and migrate sessions across bays"
 type: task
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:33Z
-updated_at: 2026-11-02T22:57:44Z
+updated_at: 2026-11-02T23:36:50Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -47,7 +47,15 @@ Validate CLI examples and MCP requests against synthetic fixtures, including zer
 
 ## Acceptance criteria
 
-- [ ] An indexed end-to-end guide covers people and agents from discovery through identification, doctor recommendations, reviewed migration and verification.
-- [ ] Examples cover exact selection, companions/missing project IDs, add versus move, multiple bays and future routing separately from existing-session changes.
-- [ ] Reference docs and CLI/MCP help agree on permissions, selectors, scope, paging/truncation, heuristic limitations and stale-plan recovery.
-- [ ] Executable examples are validated on synthetic data and include failure/empty-result paths without production credentials or transcript dumps.
+- [x] An indexed end-to-end guide covers people and agents from discovery through identification, doctor recommendations, reviewed migration and verification.
+- [x] Examples cover exact selection, companions/missing project IDs, add versus move, multiple bays and future routing separately from existing-session changes.
+- [x] Reference docs and CLI/MCP help agree on permissions, selectors, scope, paging/truncation, heuristic limitations and stale-plan recovery.
+- [x] Executable examples are validated on synthetic data and include failure/empty-result paths without production credentials or transcript dumps.
+
+## Implementation plan
+
+Connect the shipped discovery, doctor, selection, multi-bay migration and dashboard workflows into an indexed agent-first walkthrough. Validate documented CLI/MCP shapes with synthetic end-to-end examples, including companions, exclusions, overlaps, empty/error paths and future manifests. Record live dogfood limits explicitly without requiring internal coordinates in the guide.
+
+## Summary
+
+Added the indexed docs/organizing-sessions.md end-to-end guide and connected reading-the-lake, bays-inbox, registration/routing, dashboard, CLI and web API references. It distinguishes profiles, bay requests, rules and historical membership; covers companions/missing projects, explicit exclusions, multi-bay add versus move, advisory mappings/uncertainty/feedback, scoped private-token access, reader implications, full preview handoff, stale/idempotent behavior, verification/correction, and future routes/later manifests. No production credentials or transcripts were copied. TestOrganizationWalkthroughCompanionsExclusionsAndLaterManifests executes the CLI/remote workflow on synthetic reviewer/rater/development metadata and proves later unchanged manifests preserve the move until an explicit later source rule restores default. Existing MCP/HTTP/schema, dashboard interaction and private-output tests validate the corresponding examples, including empty and invalid paths. Full go test -trimpath=false ./... and go vet ./... pass. The explicit trimpath override is needed because this machine's Go defaults otherwise erase runtime.Caller fixture paths; no machine Go settings were changed. The live Vuoro ticket remains blocked on access/deployment and the guide records that limit rather than presenting sampled evidence as an inventory.
