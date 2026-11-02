@@ -1,0 +1,141 @@
+package web
+
+import (
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/profiledoctor"
+	"terva.sh/lampi/internal/protocol"
+)
+
+// TKT-01M6ETZV536S: a rule posts as conditions, a kind and a value each;
+// the field names the editor used to post still read.
+func TestReadRule(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		form url.Values
+		want config.ProjectMatch
+		err  string
+	}{
+		{"one condition", url.Values{"r.c.0.kind": {"git_remote"}, "r.c.0.value": {" git.example/a/b "}}, config.ProjectMatch{GitRemote: "git.example/a/b"}, ""},
+		{"two conditions", url.Values{"r.c.0.kind": {"cwd_prefix"}, "r.c.0.value": {"/home/me"}, "r.c.1.kind": {"cwd_hash"}, "r.c.1.value": {"0123456789abcdef"}},
+			config.ProjectMatch{CWDPrefix: "/home/me", CWDHash: "0123456789abcdef"}, ""},
+		{"empty condition", url.Values{"r.c.0.kind": {"cwd_prefix"}, "r.c.0.value": {" "}, "r.c.1.kind": {"cwd_glob"}, "r.c.1.value": {"/x/*"}}, config.ProjectMatch{CWDGlob: "/x/*"}, ""},
+		{"old names", url.Values{"r.cwd_prefix": {"/work"}, "r.git_remote_prefix": {"git.example/a"}}, config.ProjectMatch{CWDPrefix: "/work", GitRemotePrefix: "git.example/a"}, ""},
+		{"the same value twice", url.Values{"r.cwd_prefix": {"/work"}, "r.c.0.kind": {"cwd_prefix"}, "r.c.0.value": {"/work"}}, config.ProjectMatch{CWDPrefix: "/work"}, ""},
+		{"a field twice", url.Values{"r.c.0.kind": {"cwd_prefix"}, "r.c.0.value": {"/a"}, "r.c.1.kind": {"cwd_prefix"}, "r.c.1.value": {"/b"}}, config.ProjectMatch{}, "sets cwd_prefix twice"},
+		{"an unknown kind", url.Values{"r.c.0.kind": {"cwd"}, "r.c.0.value": {"/a"}}, config.ProjectMatch{}, "choose what"},
+	} {
+		got, err := readRule(tc.form, "r.")
+		if tc.err != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Errorf("%s: error %v, want %q", tc.name, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("%s: %+v %v, want %+v", tc.name, got, err, tc.want)
+		}
+	}
+}
+
+// TKT-01M6ETZV536S: runs of rules under one folder or owner get a
+// header, and each allow rule carries its use and its findings.
+func TestRuleRows(t *testing.T) {
+	rules := []config.ProjectMatch{
+		{GitRemote: "git.example/team/a"}, {GitRemote: "git.example/team/b"},
+		{CWDPrefix: "/wt/x"},
+		{CWDPrefix: "/home/me/wt/1"}, {CWDPrefix: "/home/me/wt/2"}, {CWDPrefix: "/home/me/wt/3"},
+		{},
+	}
+	h := &healthView{Report: profiledoctor.Report{Uses: []profiledoctor.RuleUse{{Projects: 2, Sessions: 5}, {}, {}, {}, {}, {}}}}
+	h.Items = []healthItem{
+		{Finding: profiledoctor.Finding{Code: profiledoctor.CodeCovered, Index: 1, Rule: &rules[1]}},
+		{Finding: profiledoctor.Finding{Code: profiledoctor.CodeUnmatched, Index: 2, Rule: &rules[2]}},
+	}
+	rows := ruleRows("allow", rules, h)
+	if rows[0].Group != "git.example/team" || rows[0].GroupCount != 2 || rows[1].Group != "" {
+		t.Errorf("owner header: %+v %+v", rows[0], rows[1])
+	}
+	if rows[2].Group != "" || rows[3].Group != "/home/me/wt" || rows[3].GroupCount != 3 {
+		t.Errorf("folder header: %+v %+v", rows[2], rows[3])
+	}
+	if !rows[6].Blank || len(rows[6].Conds) != 1 || rows[6].Group != "" {
+		t.Errorf("blank row %+v", rows[6])
+	}
+	if rows[0].Use == nil || rows[0].Use.Sessions != 5 || len(rows[1].Findings) != 1 || len(rows[2].Findings) != 0 {
+		t.Errorf("use and findings: %+v %+v %+v", rows[0].Use, rows[1].Findings, rows[2].Findings)
+	}
+	if deny := ruleRows("deny", rules, h); deny[0].Use != nil || deny[1].Findings != nil {
+		t.Error("deny rules carry the allow rules' use")
+	}
+}
+
+// TKT-01M6ETZV536S: the editor lists one line per rule with what it
+// admits, previews conditions and Remove, and keeps what was typed when
+// a rule cannot be read.
+func TestEditorRuleLines(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	now := time.Now()
+	ds, err := lake.Catalog.SyncTokenFile(ctx, []catalog.TokenEntry{{Hash: strings.Repeat("a", 64), Name: "laptop"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: now, Projects: []protocol.InventoryProject{
+		{GitRemote: "git.example/team/app", CWD: "/src/app", CWDs: 1, Sessions: 4, Allowed: true},
+	}}
+	if _, err := lake.Catalog.PutDeviceInventory(ctx, ds[0].ID, inv, now); err != nil {
+		t.Fatal(err)
+	}
+	doc := `{"projects":{"allow":[{"git_remote":"git.example/team/app"},{"cwd_prefix":"/work/a"},{"cwd_prefix":"/work/b"}]}}`
+	p, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, []byte(doc), "test", "", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+
+	page := get(h, "/profiles/default/edit", cookie).Body.String()
+	for _, want := range []string{
+		`name="allow.0.c.0.value" value="git.example/team/app"`, `<option value="git_remote" selected>Repository</option>`,
+		`<span class="mono">/work/</span> <span class="sub">2 rules</span>`, `name="remove" value="allow.1"`, "data-rule-filter",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("editor lacks %q", want)
+		}
+	}
+	for _, want := range []string{"Admits 1 project · 4 sessions", "Admits nothing on a listed device"} {
+		if !strings.Contains(squash(page), want) {
+			t.Errorf("editor lacks %q", want)
+		}
+	}
+
+	base := strconvI(p.Revision)
+	form := url.Values{"csrf": {csrf}, "base": {base}, "allow_rows": {"3"}, "deny_rows": {"0"},
+		"allow.0.c.0.kind": {"git_remote"}, "allow.0.c.0.value": {"git.example/team/app"},
+		"allow.1.c.0.kind": {"cwd_prefix"}, "allow.1.c.0.value": {"/work/a"}, "allow.1.c.1.kind": {"cwd_hash"}, "allow.1.c.1.value": {"0123456789abcdef"},
+		"allow.2.c.0.kind": {"cwd_prefix"}, "allow.2.c.0.value": {"/work/b"},
+		"remove": {"allow.2"}}
+	w := postForm(h, "/profiles/default/preview", form, cookie)
+	if w.Code != 200 {
+		t.Fatalf("preview: %d %s", w.Code, w.Body)
+	}
+	got := hiddenValue(t, w.Body.String(), "document")
+	if want := `{"projects":{"allow":[{"git_remote":"git.example/team/app"},{"cwd_prefix":"/work/a","cwd_hash":"0123456789abcdef"}]}}`; got != want {
+		t.Errorf("document %s, want %s", got, want)
+	}
+
+	form.Del("remove")
+	form.Set("allow.2.c.1.kind", "cwd_prefix")
+	form.Set("allow.2.c.1.value", "/work/c")
+	w = postForm(h, "/profiles/default/preview", form, cookie)
+	body := w.Body.String()
+	if w.Code != 400 || !strings.Contains(body, "allow rule 3: one rule sets cwd_prefix twice") || !strings.Contains(body, `value="0123456789abcdef"`) {
+		t.Errorf("a rule setting one field twice: %d", w.Code)
+	}
+}

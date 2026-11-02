@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +116,8 @@ type profileEditView struct {
 	// Health is the doctor's report on the rules the form holds, with
 	// its fixes; nil when the devices could not be read.
 	Health *healthView
+	// AllowRows and DenyRows are the form's rules as the list shows them.
+	AllowRows, DenyRows []ruleRowView
 }
 
 // setReturn takes the form's return field, when it names a page the
@@ -201,19 +204,27 @@ func formOf(p config.Profile, base int64) profileForm {
 	return f
 }
 
-// readRules reads the rows list.N.field for N below list_rows.
+// readRules reads the rows of list for N below list_rows, less the one
+// a Remove button names.
 func readRules(v url.Values, list string) ([]config.ProjectMatch, error) {
 	n, err := strconv.Atoi(v.Get(list + "_rows"))
 	if err != nil || n < 0 || n > maxFormRows {
 		return nil, fmt.Errorf("%s: the form's row count is not valid", list)
 	}
+	// A rule the form cannot read is reported, and the rest are read
+	// anyway, so the editor shows the form again as it was sent.
 	rows := make([]config.ProjectMatch, n)
+	var first error
 	for i := range rows {
 		p := list + "." + strconv.Itoa(i) + "."
-		rows[i] = config.ProjectMatch{CWDPrefix: v.Get(p + "cwd_prefix"), GitRemote: v.Get(p + "git_remote"),
-			GitRemotePrefix: v.Get(p + "git_remote_prefix"), CWDHash: v.Get(p + "cwd_hash"), CWDGlob: v.Get(p + "cwd_glob")}
+		if v.Get("remove") == list+"."+strconv.Itoa(i) {
+			continue
+		}
+		if rows[i], err = readRule(v, p); err != nil && first == nil {
+			first = fmt.Errorf("%s rule %d: %w", list, i+1, err)
+		}
 	}
-	return rows, nil
+	return rows, first
 }
 
 // readProfileForm reads the editor's fields into the profile they
@@ -225,10 +236,15 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 	if f.Base, err = strconv.ParseInt(v.Get("base"), 10, 64); err != nil || f.Base < 0 {
 		return f, p, errors.New("the form's revision is not valid; reload the editor")
 	}
-	if f.Allow, err = readRules(v, "allow"); err != nil {
-		return f, p, err
-	}
-	if f.Deny, err = readRules(v, "deny"); err != nil {
+	var allowErr, denyErr error
+	f.Allow, allowErr = readRules(v, "allow")
+	f.Deny, denyErr = readRules(v, "deny")
+	if err := cmp.Or(allowErr, denyErr); err != nil {
+		f.Note, f.Debounce, f.DebounceMax = v.Get("note"), v.Get("debounce"), v.Get("debounce_max")
+		for _, id := range profileHarnessIDs {
+			f.Harnesses = append(f.Harnesses, harnessChoice{ID: id, Value: v.Get("harness." + id)})
+		}
+		f.Hide = v["hide"]
 		return f, p, err
 	}
 	f.Debounce, f.DebounceMax, f.Note = v.Get("debounce"), v.Get("debounce_max"), v.Get("note")
@@ -359,6 +375,7 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
 	v.Health = s.health(r, v.Name, config.Projects{Allow: normalizeRules(v.Form.Allow), Deny: normalizeRules(v.Form.Deny)}, true)
+	v.AllowRows, v.DenyRows = ruleRows("allow", v.Form.Allow, v.Health), ruleRows("deny", v.Form.Deny, nil)
 	title := "Edit profile " + v.Name
 	if v.New {
 		title = "New profile " + v.Name

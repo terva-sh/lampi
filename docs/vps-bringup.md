@@ -289,7 +289,8 @@ drops:
   come back as new work.
 - An `unmatched` rule is removed only when you choose it.
 
-`--json` prints the report for a script. Its fields are in
+`--json` prints the report for a script, including `uses`, which counts the
+projects and sessions each allow rule admits. Its fields are in
 `internal/profiledoctor`.
 
 **Upgrading from a lake that read `profiles.json`:** after the upgrade,

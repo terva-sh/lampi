@@ -62,6 +62,9 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"reviewTable": func(v reviewView, rows []reviewRow, caption string, allow bool) reviewTableView {
 		return reviewTableView{View: v, Rows: rows, Caption: caption, Allow: allow}
 	},
+	"ruleKinds":    func() []ruleKind { return ruleKinds },
+	"ruleCondView": newRuleCondView,
+	"ruleCond":     func() ruleCond { return ruleCond{} },
 	"reviewGroupView": func(v reviewView, g reviewGroup) reviewGroupView {
 		return reviewGroupView{View: v, Group: g}
 	},

@@ -144,7 +144,7 @@ func TestPreviewListsTheProjectsAChangeAdmitsAndDrops(t *testing.T) {
 
 	// A change outside the project rules lists no projects.
 	page = preview(map[string]string{"allow.0.git_remote_prefix": "git.example/team", "deny.0.git_remote": "git.example/team/secret", "debounce": "9s"})
-	if strings.Contains(page, "Admits") || strings.Contains(page, "changes whether it uploads") {
+	if pv := reachSection(page); strings.Contains(pv, "Admits") || strings.Contains(pv, "changes whether it uploads") {
 		t.Error("a debounce change lists projects")
 	}
 	// A rule change that flips nothing says so.

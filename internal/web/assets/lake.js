@@ -206,3 +206,27 @@ document.querySelectorAll('input[data-select-all]').forEach(all => {
   all.hidden = false;
   all.addEventListener('change', () => rows().forEach(box => { box.checked = all.checked; }));
 });
+// Rule filter: narrows a profile editor's rule list to the rules whose
+// values hold the text. Group headers hide while a filter is set, since
+// the rules under one may be hidden.
+document.querySelectorAll('[data-rule-tools]').forEach(tools => {
+  const list = tools.nextElementSibling;
+  const box = tools.querySelector('[data-rule-filter]');
+  const count = tools.querySelector('[data-rule-count]');
+  if (!list || !box) return;
+  const apply = () => {
+    const q = box.value.trim().toLowerCase();
+    let shown = 0, total = 0;
+    list.querySelectorAll('[data-rule]').forEach(row => {
+      const text = Array.from(row.querySelectorAll('input[name$=".value"]')).map(i => i.value.toLowerCase()).join(' ');
+      const blank = row.classList.contains('rule-blank');
+      const hit = !q || blank || text.includes(q);
+      row.hidden = !hit;
+      if (!blank) { total++; if (hit) shown++; }
+    });
+    list.querySelectorAll('[data-rule-group]').forEach(g => { g.hidden = q !== ''; });
+    count.textContent = q ? `${shown} of ${total}` : '';
+  };
+  box.addEventListener('input', apply);
+  tools.hidden = false;
+});

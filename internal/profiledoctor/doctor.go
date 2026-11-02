@@ -128,6 +128,17 @@ type Report struct {
 	// Unlisted names the devices that sent no inventory.
 	Unlisted []string  `json:"unlisted"`
 	Findings []Finding `json:"findings"`
+	// Uses is what each allow rule admits on the listed devices, by the
+	// rule's index.
+	Uses []RuleUse `json:"uses"`
+}
+
+// RuleUse is what one allow rule admits: projects it matches that no
+// deny rule refuses, and their sessions. A project another rule also
+// admits counts for both.
+type RuleUse struct {
+	Projects int `json:"projects"`
+	Sessions int `json:"sessions"`
 }
 
 // Safe counts the findings ApplySafe would fix.
@@ -151,6 +162,13 @@ func Diagnose(in Input) Report {
 		}
 	}
 	admits := admitted(in)
+	rep.Uses = make([]RuleUse, len(allow))
+	for i, ps := range admits {
+		rep.Uses[i].Projects = len(ps)
+		for _, p := range ps {
+			rep.Uses[i].Sessions += p.Sessions
+		}
+	}
 	covered := CoveredBy(allow)
 	var temporary []int
 	for i, r := range allow {

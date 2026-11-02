@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:15:15Z
+updated_at: 2026-11-02T19:23:54Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -53,7 +53,13 @@ The owner chose (AskUserQuestion, 2026-11-02): one line per rule, matches per ru
 
 ## Acceptance criteria
 
-- [ ] Each rule is one line with a kind picker and a full-width value; multi-field rules show each condition; old field names still parse
-- [ ] Each rule shows the projects and sessions it admits, and the doctor's findings for it
-- [ ] Rules sharing a folder or owner sit under a header; a filter box narrows the list where scripts run
-- [ ] Tests and docs cover the new form
+- [x] Each rule is one line with a kind picker and a full-width value; multi-field rules show each condition; old field names still parse
+- [x] Each rule shows the projects and sessions it admits, and the doctor's findings for it
+- [x] Rules sharing a folder or owner sit under a header; a filter box narrows the list where scripts run
+- [x] Tests and docs cover the new form
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:23:54Z
+
+Built on t3/profile-editor-redesign, stacked on #241. Rules post as list.N.c.M.kind and .value, and readRule still reads list.N.FIELD, which the Health fix forms (profile-hidden-form) and older tests post. A rule the form cannot read no longer empties the editor: readRules reads every row, and readProfileForm keeps the note, harnesses and hides. profiledoctor.Report gains Uses, which the CLI's --json also prints. Remove posts remove=list.N. Group headers are computed from runs in stored order, so the ordering step (TKT-01M6ETZV7C0P5F2RDKQPAQCCFW) only has to reorder. I checked the layout from a headless Chromium screenshot of a rendered page, and compacted the rows after the first one. GOFLAGS=-mod=mod just ci passes.
