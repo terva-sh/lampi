@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:47:46Z
+updated_at: 2026-11-02T19:55:10Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -64,3 +64,7 @@ Rejected: a stored flag saying whether the operator ordered the list by hand. It
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:47:46Z
 
 Built on t3/profile-editor-order, stacked on #242. Move posts move=list.N.up|down and Sort posts sort=list. reorder() applies them in readRules, only when every row read, since raw rows are kept by index. Drag uses HTML5 drag events on a handle and renumbers the rows' field names and button values, then hides the group headers, which the next preview draws again. withRules now places each added rule after the last kept rule with the same groupKey, else where the first rule it replaced stood, else at the end. Rules aimed at one place keep add's order. The handle stays in the grid with visibility:hidden until the script runs, so the columns line up without scripts. GOFLAGS=-mod=mod just ci passes.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:55:10Z
+
+terva-review on #243 (run 2271): after a drag, the Narrow buttons kept the index of the rule the page was drawn with. The server re-diagnoses the posted order, so that index could name a different rule, and the same holds for the Health panel's fixes. Renumbering them in the page would mean mapping normalized doctor indices, so a drag now disables every narrow, fold, folder and doctor button until the next preview, and the notice says so. Remove, move and pick values are renumbered with the rows. I checked this in headless Chromium by simulating a drag of rule 0 onto rule 3: names and Remove renumbered to allow.2, all Narrow and doctor buttons disabled, notice shown.
