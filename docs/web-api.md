@@ -1390,3 +1390,28 @@ Each write goes to `audit.jsonl` with the operator as actor. `profile.put`
 names the parts that changed (`projects.allow`, `projects.deny`, `harnesses`,
 `agent`), and the revisions hold both documents. A write whose audit line
 fails still stands, and answers `500 audit_failed`.
+
+## Advisory bay recommendations
+
+POST `/api/read/v1/recommend-bays` and read-only MCP `recommend_bays` share
+`internal/baydoctor`. Both require `events:read`, respect token/bay/session
+scope and return no hidden memberships or profile/device inventory. The body
+is `{policy, filter?, session_uids?, bays?}`; `filter` and exact `session_uids`
+are mutually exclusive. Policy mappings name `id`, `match`, optional `harness`,
+`destinations`, optional `proposed_bays`, `reason` and optional
+`alternative_group`. Directory/hash/glob evidence is required; remote/harness
+alone is refused. Unknown keys or invalid policies return `invalid_request`.
+Unknown and inaccessible destinations share a status. Proposals stay hypothetical.
+
+The versioned report contains evidence, uncertainty, visible current placement,
+compatible destinations, abstentions and eligible exact `preview_request`
+handoffs. At most 500 sessions are inspected; incomplete reports explicitly
+withhold handoffs. Matching alternative mappings abstain. Existing placement
+and request-local, scoped, versioned, expiring ignores suppress duplicate work.
+No content or search index is read. No profile fix, membership, route, grant
+or bay is written. See [the full policy/report contract](bay-doctor.md).
+
+Metadata discovery filters and nested exact-selection filters also accept
+`updated_since`/`updated_until`: UTC RFC3339 timestamps or dates. The lower
+bound is inclusive, an upper timestamp exclusive, and an upper date includes
+that whole UTC day. They describe lake head updates, not workflow start time.

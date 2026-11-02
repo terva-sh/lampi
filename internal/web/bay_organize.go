@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"terva.sh/lampi/internal/baydoctor"
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/webauth"
@@ -20,6 +21,7 @@ const organizePath = "/admin/bays/organize"
 const maxOrganizeForm = 25 << 20 // one URL-encoded 8 MiB artifact plus selection
 
 type organizeForm struct {
+	DoctorPolicy string
 	Filter       catalog.DiscoveryRequest
 	Bays         string
 	Focus        string
@@ -60,6 +62,7 @@ type organizeView struct {
 	Verification   *catalog.MigrationVerification
 	Rule           *catalog.BayRulePreview
 	RuleCommand    string
+	Doctor         *bayDoctorView
 	ReleaseResults []string
 }
 
@@ -109,7 +112,7 @@ func uniqueIDs(ids []string) []string {
 }
 
 func parseOrganizeForm(v url.Values) (organizeForm, error) {
-	f := organizeForm{Filter: catalog.DiscoveryRequest{Harness: v.Get("harness"), Project: v.Get("project"), Unlinked: v.Get("unlinked") == "true", CWDPrefix: v.Get("cwd_prefix"), CWDHash: v.Get("cwd_hash"), Machine: v.Get("machine"), UpdatedSince: v.Get("updated_since"), UpdatedUntil: v.Get("updated_until")}, Bays: v.Get("bays"), Focus: v.Get("focus"), Selected: v.Get("selected"), Exclude: v.Get("exclude"), Mode: v.Get("mode"), Add: v["add"], Remove: v["remove"], Proposed: v.Get("proposed"), Reason: v.Get("reason"), Cursor: v.Get("cursor"), History: strings.Split(v.Get("history"), "\n"), RuleBay: v.Get("rule_bay"), RuleAction: v.Get("rule_action"), RuleProposed: v.Get("rule_proposed") == "true"}
+	f := organizeForm{DoctorPolicy: v.Get("doctor_policy"), Filter: catalog.DiscoveryRequest{Harness: v.Get("harness"), Project: v.Get("project"), Unlinked: v.Get("unlinked") == "true", CWDPrefix: v.Get("cwd_prefix"), CWDHash: v.Get("cwd_hash"), Machine: v.Get("machine"), UpdatedSince: v.Get("updated_since"), UpdatedUntil: v.Get("updated_until")}, Bays: v.Get("bays"), Focus: v.Get("focus"), Selected: v.Get("selected"), Exclude: v.Get("exclude"), Mode: v.Get("mode"), Add: v["add"], Remove: v["remove"], Proposed: v.Get("proposed"), Reason: v.Get("reason"), Cursor: v.Get("cursor"), History: strings.Split(v.Get("history"), "\n"), RuleBay: v.Get("rule_bay"), RuleAction: v.Get("rule_action"), RuleProposed: v.Get("rule_proposed") == "true"}
 	if v.Get("history") == "" {
 		f.History = nil
 	}
@@ -227,6 +230,8 @@ func organizationProblem(err error) string {
 		return "A destination also names a removed source. Choose separate sources and destinations."
 	case errors.Is(err, catalog.ErrMigrationAuthority):
 		return "A current administrator and a complete preview are required. Import the exact request and preview it here before applying."
+	case errors.Is(err, baydoctor.ErrPolicy):
+		return "Check the doctor policy JSON: use explicit directory/hash mappings, destinations and reasons. No purpose or bay names are guessed."
 	case errors.Is(err, catalog.ErrMigrationInput), errors.Is(err, catalog.ErrBayName), errors.Is(err, catalog.ErrRuleEmpty):
 		return "Check the operation, destination names and exact selection. New names use lowercase letters, digits and dashes; every proposed name must be a destination."
 	default:
@@ -268,6 +273,53 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	who, _ := webauth.Current(r)
 	switch {
+	case action == "doctor":
+		policy, err := baydoctor.DecodePolicy([]byte(f.DoctorPolicy))
+		if err != nil {
+			problem(err)
+			return
+		}
+		scope, err := s.organizationScope(ctx, f)
+		if err != nil {
+			problem(err)
+			return
+		}
+		request := baydoctor.Request{Policy: policy}
+		if ids := splitSessionText(f.Selected); len(ids) > 0 {
+			for _, uid := range ids {
+				if !slices.Contains(splitSessionText(f.Exclude), uid) {
+					request.UIDs = append(request.UIDs, uid)
+				}
+			}
+			if len(request.UIDs) == 0 {
+				problem(catalog.ErrSelection)
+				return
+			}
+		} else {
+			filter := f.Filter
+			request.Filter = &filter
+		}
+		report, err := baydoctor.Recommend(ctx, s.catalog, scope, request, s.now())
+		if err != nil {
+			problem(err)
+			return
+		}
+		v.Doctor = makeBayDoctorView(report)
+	case action == "doctor-preview":
+		var req catalog.BayMigrationRequest
+		d := json.NewDecoder(strings.NewReader(r.PostForm.Get("request")))
+		d.DisallowUnknownFields()
+		if d.Decode(&req) != nil || d.Decode(new(any)) != io.EOF {
+			problem(catalog.ErrMigrationInput)
+			return
+		}
+		plan, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), req, s.now())
+		if err != nil {
+			problem(err)
+			return
+		}
+		v.Plan = &plan
+		v.Form = formFromMigration(f, plan.Request)
 	case action == "browse":
 		v.Form.Cursor, v.Form.History, v.Form.Focus = "", nil, ""
 	case r.PostForm.Has("next"):

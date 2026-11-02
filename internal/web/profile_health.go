@@ -5,6 +5,7 @@ import (
 
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/profiledoctor"
+	"terva.sh/lampi/internal/webauth"
 )
 
 // The Health panel: profiledoctor's report on a profile's rules, on the
@@ -27,8 +28,9 @@ type healthView struct {
 	Safe, Unmatched int
 	// Edit shows the fixes as buttons; the profile page links to the
 	// editor instead.
-	Edit    bool
-	EditURL string
+	Edit         bool
+	EditURL      string
+	BayDoctorURL string
 }
 
 // diagnose reads name's devices and runs the doctor over p, which may
@@ -71,6 +73,9 @@ func (s *Server) health(r *http.Request, name string, p config.Projects, edit bo
 		return nil
 	}
 	v := &healthView{Report: rep, Edit: edit, EditURL: profileURL(name) + "/edit"}
+	if who, _ := webauth.Current(r); who.Admin && s.reg != nil {
+		v.BayDoctorURL = organizePath + "#doctor"
+	}
 	for _, f := range rep.Findings {
 		it := healthItem{Finding: f}
 		if f.Rule != nil {

@@ -17,7 +17,7 @@ import (
 )
 
 func previewTool(name string) bool {
-	return name == "select_sessions" || name == "preview_bay_migration" || name == "preview_bay_rule"
+	return name == "recommend_bays" || name == "select_sessions" || name == "preview_bay_migration" || name == "preview_bay_rule"
 }
 
 func stringList(description string) map[string]any {
@@ -170,6 +170,7 @@ func previewAuditArgs(raw json.RawMessage) (url.Values, error) {
 }
 
 func (s *Server) migrationPreviewRoutes(m *http.ServeMux) {
+	s.bayDoctorRoutes(m)
 	if s.reg == nil {
 		return
 	}

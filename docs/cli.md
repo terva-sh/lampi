@@ -293,3 +293,15 @@ for examples and coverage limits.
 `preview-rule` provide exact reviewed batches, multiple destinations, explicit
 new-bay proposals, state checks and recovery. `--help` on any command lists its
 contract. See [bay migrations](bay-migrations.md) for JSON fields and examples.
+
+### Advisory bay doctor
+
+`serve bays doctor --policy FILE [--json] [--data DIR]` reads host metadata.
+`query recommend-bays --policy FILE [--server URL | --lake NAME]
+[--token-file FILE] [--json]` reads the same scoped remote report. Both support
+exact `--session UID` or AND metadata filters and selected `--bays`; `--out`
+produces private atomic JSON. The policy maps verified directory/hash layouts
+to existing or proposed compatible destinations, with reasons and optional
+conflicting alternative groups. No content is read; purpose remains uncertain.
+There is no write/safe-fix mode. Incomplete inventories withhold preview requests.
+See [policy, feedback, limits and exact-preview handoffs](bay-doctor.md).

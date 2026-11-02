@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0
 title: "Doctor: suggest bay destinations with supporting evidence"
 type: task
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:33Z
-updated_at: 2026-11-02T22:57:44Z
+updated_at: 2026-11-02T23:34:13Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -45,9 +45,17 @@ Recommendations change nothing. In particular, ApplySafe and serve profiles doct
 
 ## Acceptance criteria
 
-- [ ] Shared doctor findings recommend one or more destinations with stable codes, evidence, version, uncertainty, current placement and bounded complete-or-truncated candidate reporting.
-- [ ] CLI human/JSON, dashboard and read-only MCP expose consistent appropriately scoped recommendations and a handoff to exact migration preview.
-- [ ] Tests cover reviewers and companions, ordinary development, mixed repositories, missing metadata/bays, multiple compatible bays, alternatives and already-placed sessions.
-- [ ] Doctor can abstain/dismiss as specified, and incomplete or unauthorized evidence is not reported as a confident classification.
-- [ ] Bay suggestions never run as safe fixes or --write changes, and existing profile diagnostics retain their behavior.
-- [ ] Help and documentation explain heuristics, limitations, permissions and separate historical/future actions.
+- [x] Shared doctor findings recommend one or more destinations with stable codes, evidence, version, uncertainty, current placement and bounded complete-or-truncated candidate reporting.
+- [x] CLI human/JSON, dashboard and read-only MCP expose consistent appropriately scoped recommendations and a handoff to exact migration preview.
+- [x] Tests cover reviewers and companions, ordinary development, mixed repositories, missing metadata/bays, multiple compatible bays, alternatives and already-placed sessions.
+- [x] Doctor can abstain/dismiss as specified, and incomplete or unauthorized evidence is not reported as a confident classification.
+- [x] Bay suggestions never run as safe fixes or --write changes, and existing profile diagnostics retain their behavior.
+- [x] Help and documentation explain heuristics, limitations, permissions and separate historical/future actions.
+
+## Implementation plan
+
+Implement internal/baydoctor as a shared bounded metadata report. Expose read-only MCP/HTTP, host CLI human/JSON and dashboard doctor entry with exact migration-preview handoff. User supplies mappings and scoped expiring ignores; no purpose guesses, safe fixes, profile writes, grants or routes. Test scope, alternatives, incomplete evidence and no mutation.
+
+## Summary
+
+Implemented internal/baydoctor with shared versioned metadata reports, explicit mappings, stable finding IDs, uncertainty, compatible destinations, conflicting-alternative abstention, current visible placement, hypothetical/unknown destinations, already-placed suppression, scoped expiring feedback and exact migration-preview handoffs. Exposed host serve bays doctor and remote query recommend-bays in human/JSON output, read-only MCP recommend_bays and HTTP POST, and the administrator organization dashboard with a Health-panel entry. No safe fix or profile --write path consumes this report. Tests exercise the labeled matrix, strict policy/argument handling, no mutation, 500-row truncation without handoffs, reviewer/rater coverage without content/index, scope/privacy, dashboard preview, CLI host/remote parity and private output. Reference contracts and help are in docs/bay-doctor.md, docs/cli.md and docs/web-api.md. Focused tests pass; repository gates are being run before final handoff.

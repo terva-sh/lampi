@@ -93,6 +93,8 @@ func runQuery(env Env, args []string) error {
 		return nil
 	}
 	switch args[0] {
+	case "recommend-bays":
+		return runBayDoctor(env, args[1:], true)
 	case "bays", "projects", "sessions", "session":
 		return runQueryMetadata(env, args[0], args[1:])
 	case "tools":

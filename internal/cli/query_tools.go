@@ -161,13 +161,24 @@ func writeQueryOut(env Env, outPath string, out *bytes.Buffer) error {
 // fetchRead is the lake's answer at path to q, or an error saying what
 // the lake refused and what hint says to do about it.
 func fetchRead(server, token, path string, q url.Values, hint func(status int, code, param string) string) ([]byte, error) {
+	return fetchReadBody(server, token, path, q, nil, hint)
+}
+
+func fetchReadBody(server, token, path string, q url.Values, body []byte, hint func(int, string, string) string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), queryToolsTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(server, "/")+path+"?"+q.Encode(), nil)
+	method := http.MethodGet
+	if body != nil {
+		method = http.MethodPost
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(server, "/")+path+"?"+q.Encode(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := queryClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("query: lake unreachable: %w", err)

@@ -48,3 +48,10 @@ first run. The pages below are grouped by what you are trying to do.
 | [Why the command is terva-lampi](naming.md) | The name collision with a LAMP installer, and the optional `lampi` shortcut |
 
 - [Reviewed multi-bay migrations](bay-migrations.md): exact selections, apply receipts and recovery.
+
+## Organize and review stored sessions
+
+| Page | Read it when |
+|------|--------------|
+| [Review a migration](bay-migrations.md) | You want exact selections, complete multi-bay previews, apply receipts and correction |
+| [Bay destination doctor](bay-doctor.md) | You want advisory mapped-metadata recommendations, uncertainty and scoped feedback |

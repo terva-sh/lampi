@@ -48,6 +48,7 @@ const (
 )
 
 const mcpInstructions = "Recall past agent sessions stored in this lampi lake, from every machine and project that uploaded. " +
+	"Use recommend_bays with explicit user mappings for advisory destination suggestions; no purpose is guessed. " +
 	"Use select_sessions to freeze exact cohorts and preview_bay_migration for read-only add/move plans; preview_bay_rule checks future routing separately. Plans grant no write authority. " +
 	"Use list_bays, list_projects and list_sessions to discover reachable metadata, and get_session to inspect routing evidence without searching transcript text. " +
 	"Start with search, by literal text, by filters such as event_type, tool and time, or both. " +
@@ -303,6 +304,8 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 	}
 	var v any
 	switch name {
+	case "recommend_bays":
+		v, err = s.recommendCall(ctx, scope, req.Params.Arguments)
 	case "select_sessions", "preview_bay_migration", "preview_bay_rule":
 		v, err = s.previewCall(ctx, scope, name, req.Params.Arguments)
 	case "list_bays", "list_projects", "list_sessions":

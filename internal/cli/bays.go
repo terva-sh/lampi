@@ -19,6 +19,7 @@ import (
 const baysUsage = `terva-lampi serve bays — manage the lake's bays
 
 usage:
+  terva-lampi serve bays doctor --policy FILE [--json] [--data DIR]
   terva-lampi serve bays [list] [--data DIR]
   terva-lampi serve bays create NAME [--data DIR]
   terva-lampi serve bays rename BAY NEW-NAME [--data DIR]
@@ -102,6 +103,8 @@ catalog and to audit.jsonl in the lake directory.
 func runServeBays(env Env, args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
+		case "doctor":
+			return runBayDoctor(env, args[1:], false)
 		case "select", "plan", "apply-plan", "verify-plan", "recover-plan", "preview-rule":
 			return runBayMigration(env, args[0], args[1:])
 		}
