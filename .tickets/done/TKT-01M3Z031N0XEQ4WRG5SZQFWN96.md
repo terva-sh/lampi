@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3Z031N0XEQ4WRG5SZQFWN96
 title: Normalize core ACP for Grok Build
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,23 +20,16 @@ blocks_on: none
 references:
   - ref: pr:81
     path: null
-claim:
-  actor: agent:cursor/e15e
-  branch: cursor/grok-acp-normalize-e15e
-  worktree: /workspace
-  commit: 60a139c4d275973f535e2e3682aa4d8e9879f267
-  session: e15e
-  claimed_at: 2026-10-02T19:35:24Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-10-02T19:05:08Z
-updated_at: 2026-10-02T19:48:26Z
+updated_at: 2026-11-02T16:46:35Z
 created_by:
   id: agent:cursor/6699
   name: Cursor cloud agent
 updated_by:
-  id: agent:cursor/e15e
-  name: Cursor cloud agent
+  id: agent:claude-code/d4b24133
+  name: ""
 extensions: {}
 ---
 
@@ -82,3 +75,15 @@ normalize.Grok projects updates.jsonl. Consecutive user_message_chunk, agent_mes
 **agent:cursor/e15e** at 2026-10-02T19:48:26Z
 
 Opened https://github.com/terva-sh/lampi/pull/81 for this ticket. The pull request is ready for review. Head 4c5e595 projects updates.jsonl; go test ./... and go vet ./... passed locally.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+2026-11-02: claim taken over by agent:claude-code/d4b24133 at the owner's request. The cursor agent's branch exists only on GitHub, and its normalizer merged there as PR #81 on 2026-10-02 (internal/normalize/grok.go is on main). No local worktree holds this ticket's branch.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+claim taken from agent:cursor/e15e by agent:claude-code/d4b24133
+
+## Summary
+
+Landed through GitHub PR #81 on 2026-10-02: internal/normalize/grok.go projects a stored Grok Build updates.jsonl onto schema_version 1, with session_id grok: plus the native UUID, and reads neither chat_history.jsonl nor summary.json as the event stream. Cursor projectors are unchanged. The ticket stayed in progress because the closing commits on cursor/grok-acp-normalize-e15e never reached main; this closes it from main instead.
