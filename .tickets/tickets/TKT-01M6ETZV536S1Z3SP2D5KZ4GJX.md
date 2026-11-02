@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:29:13Z
+updated_at: 2026-11-02T19:34:41Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -67,3 +67,7 @@ Built on t3/profile-editor-redesign, stacked on #241. Rules post as list.N.c.M.k
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:29:13Z
 
 terva-review on #242 (run 2257), two findings, both fixed. (1) A rule the form could not read came back rebuilt from the partial ProjectMatch, which lost the conflicting value and everything after it. readRule now also returns every condition as sent; readRules keeps them per row (profileForm.AllowRaw/DenyRaw), and ruleRows shows them. (2) The doctor reads normalizeRules(form), which drops empty rows, but ruleRows indexed by form row, so a rule after an empty or removed row got another rule's use and findings. ruleRows now counts each row's normalized index. Tests: TestRuleSentAsIs, the after-an-empty-row case in TestRuleRows, and a check in TestEditorRuleLines.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:34:41Z
+
+terva-review on #242 (run 2265): Remove and the inline fixes came before Preview in the editor form, so Enter in a value box submitted the first rule's Remove. Fixed with an off-screen, untabbable Preview button first in the form. It is not display:none, which some browsers skip for implicit submission. TestEditorRuleLines checks that the first submit button carries no name. The run before it (2263) flagged filtered rows staying visible under display:grid. That was not real: lake.css has a global [hidden]{display:none!important}, which I said on the PR.

@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -135,6 +136,12 @@ func TestEditorRuleLines(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("editor lacks %q", want)
 		}
+	}
+	// Enter in a value box submits with the form's first submit button,
+	// which must preview, not Remove a rule or apply a fix.
+	editor := page[strings.Index(page, `action="/profiles/default/preview"`):]
+	if first := regexp.MustCompile(`<button[^>]*type="submit"[^>]*>`).FindString(editor); first == "" || strings.Contains(first, "name=") {
+		t.Errorf("the editor's first submit button is %s", first)
 	}
 	for _, want := range []string{"Admits 1 project · 4 sessions", "Admits nothing on a listed device"} {
 		if !strings.Contains(squash(page), want) {
