@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6ETH6H726EM1DJJS98M56JV
 title: "Profile editor: merge selected allow rules under one prefix, with a preview"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M6ETZV7C0P5F2RDKQPAQCCFW
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/t3-43103b81
+  branch: t3/profile-editor-merge
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
+  commit: a9323f48ce4ab9d5ca95dbe1d2a81040adff8404
+  session: null
+  claimed_at: 2026-11-02T19:49:03Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T19:07:14Z
-updated_at: 2026-11-02T19:15:15Z
+updated_at: 2026-11-02T19:52:48Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -49,7 +56,13 @@ The doctor already offers a fold at the folders it finds on its own (`folder_fol
 
 ## Acceptance criteria
 
-- [ ] The editor can select several allow rules and open a merge page proposing their common folder or owner
-- [ ] The merge page takes an edited prefix and lists the rules it replaces and the projects it newly admits
-- [ ] Wide prefixes are refused with the reason; apply goes through the editor preview and save
-- [ ] Tests and docs cover the merge page
+- [x] The editor can select several allow rules and open a merge page proposing their common folder or owner
+- [x] The merge page takes an edited prefix and lists the rules it replaces and the projects it newly admits
+- [x] Wide prefixes are refused with the reason; apply goes through the editor preview and save
+- [x] Tests and docs cover the merge page
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:52:48Z
+
+Built on t3/profile-editor-merge, stacked on #243. Allow rows carry pick=allow.N checkboxes. readRules collects the ticked rules, normalized, before Move or Sort renumbers them. merge=allow plans and shows the panel without a preview. merge_apply=allow applies through withRules, so the rule takes the first replaced rule's place, then previews. The panel sits above the form and reaches it with form=profile-form. Merge covers allow rules only: deny rules have no 'newly admits', and a wider deny needs a different preview, so it is left for a later ticket if wanted. Wide prefixes use profiledoctor.WideFolder, and a remote prefix needs host/owner. GOFLAGS=-mod=mod just ci passes.

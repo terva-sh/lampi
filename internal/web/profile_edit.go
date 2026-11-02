@@ -69,6 +69,8 @@ type profileForm struct {
 	// AllowRaw and DenyRaw hold the conditions as sent for the rows the
 	// form could not read, by row.
 	AllowRaw, DenyRaw map[int][]ruleCond
+	// Picked are the allow rules ticked for Merge, normalized.
+	Picked []config.ProjectMatch
 }
 
 // harnessChoice is one harness toggle: "" leaves the agent's setting,
@@ -121,6 +123,8 @@ type profileEditView struct {
 	Health *healthView
 	// AllowRows and DenyRows are the form's rules as the list shows them.
 	AllowRows, DenyRows []ruleRowView
+	// Merge is the merge panel, when the operator asked for one.
+	Merge *mergeView
 }
 
 // setReturn takes the form's return field, when it names a page the
@@ -209,17 +213,17 @@ func formOf(p config.Profile, base int64) profileForm {
 
 // readRules reads the rows of list for N below list_rows, less the one
 // a Remove button names.
-// raw holds the conditions as sent for each row that cannot be read.
-func readRules(v url.Values, list string) ([]config.ProjectMatch, map[int][]ruleCond, error) {
+// raw holds the conditions as sent for each row that cannot be read,
+// and picked the rules whose Merge checkbox is ticked.
+func readRules(v url.Values, list string) (rows []config.ProjectMatch, raw map[int][]ruleCond, picked []config.ProjectMatch, err error) {
 	n, err := strconv.Atoi(v.Get(list + "_rows"))
 	if err != nil || n < 0 || n > maxFormRows {
-		return nil, nil, fmt.Errorf("%s: the form's row count is not valid", list)
+		return nil, nil, nil, fmt.Errorf("%s: the form's row count is not valid", list)
 	}
 	// A rule the form cannot read is reported, and the rest are read
 	// anyway, so the editor shows the form again as it was sent.
-	rows := make([]config.ProjectMatch, n)
+	rows = make([]config.ProjectMatch, n)
 	var first error
-	var raw map[int][]ruleCond
 	for i := range rows {
 		p := list + "." + strconv.Itoa(i) + "."
 		if v.Get("remove") == list+"."+strconv.Itoa(i) {
@@ -235,11 +239,14 @@ func readRules(v url.Values, list string) ([]config.ProjectMatch, map[int][]rule
 				first = fmt.Errorf("%s rule %d: %w", list, i+1, err)
 			}
 		}
+		if slices.Contains(v["pick"], list+"."+strconv.Itoa(i)) {
+			picked = append(picked, normalizeRules(rows[i:i+1])...)
+		}
 	}
 	if first == nil {
 		rows = reorder(v, list, rows)
 	}
-	return rows, raw, first
+	return rows, raw, picked, first
 }
 
 // readProfileForm reads the editor's fields into the profile they
@@ -252,8 +259,8 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 		return f, p, errors.New("the form's revision is not valid; reload the editor")
 	}
 	var allowErr, denyErr error
-	f.Allow, f.AllowRaw, allowErr = readRules(v, "allow")
-	f.Deny, f.DenyRaw, denyErr = readRules(v, "deny")
+	f.Allow, f.AllowRaw, f.Picked, allowErr = readRules(v, "allow")
+	f.Deny, f.DenyRaw, _, denyErr = readRules(v, "deny")
 	if err := cmp.Or(allowErr, denyErr); err != nil {
 		f.Note, f.Debounce, f.DebounceMax = v.Get("note"), v.Get("debounce"), v.Get("debounce_max")
 		for _, id := range profileHarnessIDs {
@@ -391,6 +398,11 @@ func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileE
 	_, v.CSRF = webauth.Current(r)
 	v.Health = s.health(r, v.Name, config.Projects{Allow: normalizeRules(v.Form.Allow), Deny: normalizeRules(v.Form.Deny)}, true)
 	v.AllowRows, v.DenyRows = ruleRows("allow", v.Form.Allow, v.Form.AllowRaw, v.Health), ruleRows("deny", v.Form.Deny, v.Form.DenyRaw, nil)
+	for i := range v.AllowRows {
+		if r := normalizeRules(v.Form.Allow[i : i+1]); len(r) == 1 && slices.Contains(v.Form.Picked, r[0]) {
+			v.AllowRows[i].Picked = true
+		}
+	}
 	title := "Edit profile " + v.Name
 	if v.New {
 		title = "New profile " + v.Name
@@ -498,6 +510,13 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 	f, p, err := readProfileForm(r.PostForm)
 	status := http.StatusOK
 	if err == nil {
+		if v.Merge, err = s.mergeForm(r, name, &f, &p); err != nil {
+			pageError(w, r, err)
+			return
+		}
+		if v.Merge != nil && v.Merge.Problem != "" {
+			status = http.StatusConflict
+		}
 		problem, terr := s.tidyForm(r, name, &f, &p)
 		if terr != nil {
 			pageError(w, r, terr)
@@ -519,6 +538,12 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		v.Problem = err.Error()
 		s.renderEditor(w, r, v, http.StatusBadRequest)
+		return
+	}
+	// A merge being planned changes nothing yet: show the panel, not a
+	// preview of the unchanged form.
+	if v.Merge != nil {
+		s.renderEditor(w, r, v, status)
 		return
 	}
 	if v.Preview, err = s.preview(r, name, p); err != nil {

@@ -810,6 +810,27 @@ admits. So the order is yours to set, and it is saved with the profile:
   Otherwise it goes at the end. A grouped list stays grouped, and an order
   you set is kept.
 
+To merge allow rules into one, tick them and press **Merge ticked rules…**.
+The editor proposes the rule that covers them: their deepest common folder,
+as a `cwd_prefix`, or their common remote path, as a `git_remote_prefix`.
+Merge takes folder rules, or repository and remote prefix rules, each with one
+condition, and needs two or more of one kind. The merge panel shows:
+
+- the rule, and the profile's allow rule count before and after;
+- every rule it replaces, ticked or not, since it covers them;
+- any ticked rule the prefix does not cover, which stays;
+- the projects it admits that no rule admits now, from the newest inventories
+  of the devices on the profile. Projects hidden from review come first and
+  are marked: someone decided not to import them, and the merge would.
+
+Edit the prefix, for example to `/home/me/.t3/worktrees` rather than one
+project's folder under it, and press **Check this prefix** to see it again.
+Merge refuses a prefix that names a home directory, the folder holding home
+directories, a top-level folder or the whole machine, and a remote prefix
+that names a whole host. **Apply the merge and preview** puts the rule where
+the first rule it replaces stood, fills an empty note, and previews. Nothing
+is saved until you save.
+
 Rules in a row that share a folder, a repository owner or a remote prefix's
 host are listed under a header naming it and counting them. Where scripts run,
 a filter box above each list narrows it to the rules whose values hold the

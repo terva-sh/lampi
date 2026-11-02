@@ -55,6 +55,8 @@ type ruleRowView struct {
 	// could be read.
 	Use      *profiledoctor.RuleUse
 	Findings []healthItem
+	// Picked is an allow rule ticked for Merge.
+	Picked bool
 }
 
 // fieldOf is the field of m kind names.
