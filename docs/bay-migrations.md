@@ -154,3 +154,16 @@ manifest of an existing session; deny rules do not remove existing membership;
 hold rules quarantine new matches and flag stored ones. Manifest bay requests
 can also re-add a removed membership. Historical sorting never edits profiles,
 manifest requests or future rules automatically.
+
+## Use the dashboard
+
+Administrators can use **Bays → Organize sessions** for the same complete
+selection, plan, apply and receipt workflow. Checkboxes retain exact UIDs
+across pages; **Select all filtered** freezes the complete bounded metadata
+set. Explicit exclusions and related-directory inspection handle unlinked
+companions. See [dashboard organization](web-dashboard.md#organize-stored-sessions)
+for keyboard controls, hold triage, private plan handoffs and future routing.
+
+Discovery and selection also accept `--updated-since` and `--updated-until`.
+Use UTC dates or RFC3339 times; the upper date includes its whole day, while
+an upper timestamp is exclusive. These filter lake head-update times.

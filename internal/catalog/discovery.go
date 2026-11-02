@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"math"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,14 +16,16 @@ import (
 // DiscoveryRequest selects metadata, independently of transcript/index
 // availability. Filters are ANDed; pagination is bound to the scope.
 type DiscoveryRequest struct {
-	Harness   string `json:"harness,omitempty"`
-	Project   string `json:"project,omitempty"`
-	Unlinked  bool   `json:"unlinked,omitempty"`
-	CWDPrefix string `json:"cwd_prefix,omitempty"`
-	CWDHash   string `json:"cwd_hash,omitempty"`
-	Machine   string `json:"machine,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Cursor    string `json:"cursor,omitempty"`
+	UpdatedSince string `json:"updated_since,omitempty"`
+	UpdatedUntil string `json:"updated_until,omitempty"`
+	Harness      string `json:"harness,omitempty"`
+	Project      string `json:"project,omitempty"`
+	Unlinked     bool   `json:"unlinked,omitempty"`
+	CWDPrefix    string `json:"cwd_prefix,omitempty"`
+	CWDHash      string `json:"cwd_hash,omitempty"`
+	Machine      string `json:"machine,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+	Cursor       string `json:"cursor,omitempty"`
 }
 
 // DiscoveredBay discloses no creator or grant principals. Sessions counts
@@ -70,6 +73,9 @@ func (r *DiscoveryRequest) validate(kind string, scope Scope) (pageCursor, error
 	if len(r.CWDPrefix) > 4096 || r.CWDPrefix != "" && !strings.HasPrefix(r.CWDPrefix, "/") || len(r.CWDHash) > 128 || len(r.Machine) > 128 || len(r.Cursor) > 16384 {
 		return pageCursor{}, ErrPage
 	}
+	if _, _, err := r.updatedBounds(); err != nil {
+		return pageCursor{}, err
+	}
 	filter := *r
 	filter.Cursor = ""
 	b, _ := json.Marshal([]any{filter, scope.Fingerprint()})
@@ -97,6 +103,15 @@ func (r *DiscoveryRequest) validate(kind string, scope Scope) (pageCursor, error
 
 func discoveryFilters(scope Scope, r DiscoveryRequest) ([]string, []any) {
 	where, args := sessionFilters(scope, PageRequest{Harness: r.Harness, Project: r.Project, Unlinked: r.Unlinked})
+	since, until, _ := r.updatedBounds()
+	if since != nil {
+		where = append(where, "s.web_updated_ns>=?")
+		args = append(args, since.UnixNano())
+	}
+	if until != nil {
+		where = append(where, "s.web_updated_ns<?")
+		args = append(args, until.UnixNano())
+	}
 	if r.CWDPrefix != "" {
 		prefix := strings.TrimRight(r.CWDPrefix, "/")
 		where = append(where, `(json_extract(s.manifest_json,'$.project.cwd')=? OR substr(json_extract(s.manifest_json,'$.project.cwd'),1,?)=?)`)
@@ -212,7 +227,7 @@ func (c *Catalog) discoveredMemberships(ctx context.Context, scope Scope, uid st
 func (c *Catalog) DiscoverBays(ctx context.Context, scope Scope, r DiscoveryRequest) (Page[DiscoveredBay], error) {
 	out := emptyPage[DiscoveredBay]()
 	cur, err := r.validate("discover_bays", scope)
-	if err != nil || r.Harness != "" || r.Project != "" || r.Unlinked || r.CWDPrefix != "" || r.CWDHash != "" || r.Machine != "" {
+	if err != nil || r.Harness != "" || r.Project != "" || r.Unlinked || r.CWDPrefix != "" || r.CWDHash != "" || r.Machine != "" || r.UpdatedSince != "" || r.UpdatedUntil != "" {
 		return out, ErrPage
 	}
 	cond, args := scope.where("s.session_uid")
@@ -283,4 +298,35 @@ func (c *Catalog) DiscoverProjects(ctx context.Context, scope Scope, r Discovery
 		out.NextCursor = cur.encode(out.Items[len(out.Items)-1].pageKey, 0)
 	}
 	return out, rows.Err()
+}
+
+func (r DiscoveryRequest) updatedBounds() (*time.Time, *time.Time, error) {
+	parse := func(raw string, end bool) (*time.Time, error) {
+		if raw == "" {
+			return nil, nil
+		}
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			t, err = time.Parse("2006-01-02", raw)
+			if err == nil && end {
+				t = t.AddDate(0, 0, 1)
+			}
+		}
+		if err != nil || t.Year() < 1678 || t.Year() > 2262 || t.After(time.Unix(0, math.MaxInt64)) {
+			return nil, ErrPage
+		}
+		return &t, nil
+	}
+	since, err := parse(r.UpdatedSince, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	until, err := parse(r.UpdatedUntil, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	if since != nil && until != nil && !since.Before(*until) {
+		return nil, nil, ErrPage
+	}
+	return since, until, nil
 }

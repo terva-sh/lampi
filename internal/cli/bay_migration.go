@@ -38,7 +38,7 @@ from select (session_uids and complete=true). No transcript text is parsed.
 
 select enumerates a complete bounded metadata snapshot, freezes exact IDs and
 applies deduplication and explicit exclusions. Filters combine with AND: --harness, --project,
---unlinked, --cwd-prefix, --cwd-hash, --machine. --bays means any selected bay,
+--unlinked, --cwd-prefix, --cwd-hash, --machine, --updated-since, --updated-until. --bays means any selected bay,
 intersected with host access. Limit 500 candidates per atomic batch; larger
 selections fail instead of sampling. Split them explicitly.
 
@@ -95,6 +95,8 @@ func runBayMigration(env Env, sub string, args []string) error {
 			fs.BoolVar(&yes, "yes", yes, "apply this reviewed plan")
 			fs.BoolVar(&create, "create-proposed", create, "explicitly create proposed destination bays")
 			fs.BoolVar(&proposedTarget, "proposed-target", proposedTarget, "hypothetical bay does not exist")
+			fs.StringVar(&filter.UpdatedSince, "updated-since", filter.UpdatedSince, "head updated on/after UTC time or date")
+			fs.StringVar(&filter.UpdatedUntil, "updated-until", filter.UpdatedUntil, "head updated before UTC time or through date")
 			fs.StringVar(&filter.Harness, "harness", filter.Harness, "match harness")
 			fs.StringVar(&filter.Project, "project", filter.Project, "match project ID")
 			fs.BoolVar(&filter.Unlinked, "unlinked", filter.Unlinked, "match sessions without project ID")
@@ -229,8 +231,8 @@ func runBayMigration(env Env, sub string, args []string) error {
 		result, err = cat.RecoverBayMigration(ctx, scope, position, now)
 	case "preview-rule":
 		match.CWDPrefix, match.CWDHash = filter.CWDPrefix, filter.CWDHash
-		if filter.Project != "" || filter.Unlinked || filter.Machine != "" {
-			return fmt.Errorf("future routing does not support project IDs, unlinked or machine filters")
+		if filter.Project != "" || filter.Unlinked || filter.Machine != "" || filter.UpdatedSince != "" || filter.UpdatedUntil != "" {
+			return fmt.Errorf("future routing does not support project IDs, unlinked, machine or time filters")
 		}
 		result, err = cat.PreviewBayRule(ctx, scope, catalog.BayRulePreviewRequest{Match: match, Harness: filter.Harness, Action: action, Bay: to, Proposed: proposedTarget}, now)
 	}

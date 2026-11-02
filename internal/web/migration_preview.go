@@ -26,6 +26,7 @@ func stringList(description string) map[string]any {
 
 func init() {
 	filter := object(nil, map[string]any{
+		"updated_since": prop("string", "Head updated on/after UTC time or date."), "updated_until": prop("string", "Head updated before UTC time, or through the date."),
 		"harness": prop("string", "Exact capture harness."), "project": prop("string", "Exact project ID."), "unlinked": prop("boolean", "Sessions without project IDs, including some rating companions."),
 		"cwd_prefix": prop("string", "Absolute directory and descendants on a path boundary."), "cwd_hash": prop("string", "Exact working directory hash."), "machine": prop("string", "Provenance machine ID."),
 	})

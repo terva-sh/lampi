@@ -27,7 +27,8 @@ The page limit defaults to 50, maximum 200. Keep filters and limit identical
 when continuing. Changes to the token's access scope require a fresh listing.
 
 Filters combine with AND: --harness H, --project ID, --unlinked,
---cwd-prefix PATH, --cwd-hash HASH and --machine ID. Bays accepts only
+--cwd-prefix PATH, --cwd-hash HASH, --machine ID, --updated-since TIME
+and --updated-until TIME (UTC dates or RFC3339; upper timestamps exclusive). Bays accepts only
 paging flags. Projects cannot use --unlinked: query sessions --unlinked
 shows sessions without project IDs, including some review companions.
 
@@ -38,7 +39,7 @@ No raw artifacts, device configuration or hidden bay memberships are read.
 
 func runQueryMetadata(env Env, kind string, args []string) error {
 	var lake, server, tokenFile, outPath, uid string
-	var harness, project, cwd, hash, machine, cursor, bays string
+	var harness, project, cwd, hash, machine, cursor, bays, updatedSince, updatedUntil string
 	var limit int
 	var unlinked bool
 	for {
@@ -48,7 +49,7 @@ func runQueryMetadata(env Env, kind string, args []string) error {
 				name, help string
 			}{
 				{&lake, "lake", "configured lake name"}, {&server, "server", "lake URL"}, {&tokenFile, "token-file", "read token file"}, {&outPath, "out", "output JSON file"},
-				{&harness, "harness", "only this harness"}, {&project, "project", "only this project ID"}, {&cwd, "cwd-prefix", "directory and descendants"}, {&hash, "cwd-hash", "exact directory hash"}, {&machine, "machine", "provenance machine ID"}, {&bays, "bays", "any selected bay IDs, names or aliases, comma-separated"}, {&cursor, "cursor", "continuation from the same filters"},
+				{&updatedSince, "updated-since", "head updated on/after UTC time or date"}, {&updatedUntil, "updated-until", "head updated before UTC time or through date"}, {&harness, "harness", "only this harness"}, {&project, "project", "only this project ID"}, {&cwd, "cwd-prefix", "directory and descendants"}, {&hash, "cwd-hash", "exact directory hash"}, {&machine, "machine", "provenance machine ID"}, {&bays, "bays", "any selected bay IDs, names or aliases, comma-separated"}, {&cursor, "cursor", "continuation from the same filters"},
 			} {
 				fs.StringVar(f.dest, f.name, *f.dest, f.help)
 			}
@@ -67,7 +68,7 @@ func runQueryMetadata(env Env, kind string, args []string) error {
 		uid, args = rest[0], rest[1:]
 	}
 	q := url.Values{}
-	for k, v := range map[string]string{"harness": harness, "project": project, "cwd_prefix": cwd, "cwd_hash": hash, "machine": machine, "cursor": cursor} {
+	for k, v := range map[string]string{"updated_since": updatedSince, "updated_until": updatedUntil, "harness": harness, "project": project, "cwd_prefix": cwd, "cwd_hash": hash, "machine": machine, "cursor": cursor} {
 		if v != "" {
 			q.Set(k, v)
 		}

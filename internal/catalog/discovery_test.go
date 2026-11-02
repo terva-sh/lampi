@@ -201,3 +201,37 @@ func TestDiscoveryClippedEvidenceAndOversizedProjectPaging(t *testing.T) {
 		t.Fatalf("projects seen=%d clipped=%d", seen, clipped)
 	}
 }
+
+func TestDiscoveryUpdatedBounds(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := t.Context()
+	uid := newSession(t, c, "timed")
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	if _, err := c.db.Exec(`UPDATE sessions SET web_updated_ns=? WHERE session_uid=?`, now.UnixNano(), uid); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		since, until string
+		count        int
+		invalid      bool
+	}{
+		{"2026-11-02", "2026-11-02", 1, false},
+		{"2026-11-02T12:00:00Z", "2026-11-02T12:00:01Z", 1, false},
+		{"", "2026-11-02T12:00:00Z", 0, false},
+		{"2026-11-03", "", 0, false},
+		{"bad", "", 0, true}, {"2263-01-01", "", 0, true},
+		{"2026-11-03", "2026-11-01", 0, true},
+	} {
+		r := DiscoveryRequest{UpdatedSince: tc.since, UpdatedUntil: tc.until}
+		p, err := c.DiscoverSessions(ctx, AllBays(), r)
+		if (err != nil) != tc.invalid || len(p.Items) != tc.count {
+			t.Fatalf("%+v: %+v %v", tc, p, err)
+		}
+		if !tc.invalid {
+			s, err := c.SelectSessions(ctx, AllBays(), SessionSelectionRequest{Filter: &r})
+			if err != nil || len(s.UIDs) != tc.count {
+				t.Fatalf("selection %+v %v", s, err)
+			}
+		}
+	}
+}

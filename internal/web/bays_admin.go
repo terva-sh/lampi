@@ -21,6 +21,7 @@ import (
 const adminBaysPath = "/admin/bays"
 
 func (s *Server) bayRoutes(m *http.ServeMux) {
+	s.organizationRoutes(m)
 	admin := func(h http.HandlerFunc) http.Handler { return s.auth.Guard(webauth.AdminOnly(h)) }
 	m.Handle("GET "+adminBaysPath, admin(s.baysPage))
 	m.Handle("POST "+adminBaysPath+"/move", admin(s.moveSessionPage))

@@ -176,6 +176,7 @@ type pageData struct {
 	ReadTokens readTokensView
 	// Bays is the admin's bays page, and SessionBays the bays a session
 	// is in that the reader may read.
+	Organize    organizeView
 	Bays        baysView
 	SessionBays []string
 	Codes       codesView

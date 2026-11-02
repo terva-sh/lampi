@@ -43,7 +43,7 @@ func (c *Catalog) SelectSessions(ctx context.Context, scope Scope, req SessionSe
 	ids := slices.Clone(req.UIDs)
 	if req.Filter != nil {
 		r := *req.Filter
-		if r.Cursor != "" || r.Limit != 0 || r.Harness == "" && r.Project == "" && !r.Unlinked && r.CWDPrefix == "" && r.CWDHash == "" && r.Machine == "" && !scope.selected {
+		if r.Cursor != "" || r.Limit != 0 || r.Harness == "" && r.Project == "" && !r.Unlinked && r.CWDPrefix == "" && r.CWDHash == "" && r.Machine == "" && r.UpdatedSince == "" && r.UpdatedUntil == "" && !scope.selected {
 			return out, ErrSelection
 		}
 		if _, err := r.validate("selection", scope); err != nil {

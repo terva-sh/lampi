@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF2NNAETK0YG9WVBQW21G
 title: "Bays: guided selection, multi-bay migration and inbox triage"
 type: task
-status: ready
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:18Z
-updated_at: 2026-11-02T22:57:44Z
+updated_at: 2026-11-02T23:29:14Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -47,8 +47,16 @@ Offer a separate reviewed step to route future matching sessions. Display exactl
 
 ## Acceptance criteria
 
-- [ ] A guided flow works from inbox, bay/session/search views and doctor suggestions, with exact selection, all filtered pages and exclusions.
-- [ ] Users can add multiple destination bays or move from explicit sources, with complete membership/access previews and unrelated memberships preserved.
-- [ ] Bulk held/refused triage retains explanations and explicit release rules; current admin, CSRF and recent-sign-in protections remain enforced.
-- [ ] Paging, keyboard/screen-reader use, missing project IDs, stale plans, errors, verification and correction are covered by interaction tests.
-- [ ] Routing future sessions is a separate previewed decision, and documentation distinguishes it from moving historical sessions.
+- [x] A guided flow works from inbox, bay/session/search views and doctor suggestions, with exact selection, all filtered pages and exclusions.
+- [x] Users can add multiple destination bays or move from explicit sources, with complete membership/access previews and unrelated memberships preserved.
+- [x] Bulk held/refused triage retains explanations and explicit release rules; current admin, CSRF and recent-sign-in protections remain enforced.
+- [x] Paging, keyboard/screen-reader use, missing project IDs, stale plans, errors, verification and correction are covered by interaction tests.
+- [x] Routing future sessions is a separate previewed decision, and documentation distinguishes it from moving historical sessions.
+
+## Implementation plan
+
+Add an admin-only server-rendered organize workflow using shared discovery/selection/migration services. Preserve exact selections across POST paging, filters, explicit exclusions and recoverable errors; offer directory-hash inspection for unlinked companions without auto-inclusion. Support add versus explicit-source moves to multiple existing/proposed bays, complete before/after/access previews, private plan export/import, fresh-sign-in/CSRF-protected apply, receipt verification and inverse previews. Retain held/refused explanations and add explicit bounded bulk hold release with per-item results. Keep future-rule catchment preview separate and provide an exact host installation handoff. Link inbox/bay/session/search and later doctor findings into the flow. Include updated-time metadata selectors, accessible labels/keyboard-native controls, empty/stale states and semantic interaction/auth tests.
+
+## Summary
+
+Shipped the admin organization workflow with exact cross-page selections, complete add/move previews, proposed bays, plan import/export, protected apply, durable receipt verification/correction, explicit hold release and separate future-rule catchment. Added semantic rendered-form interaction tests and UTC updated-time discovery/selection filters. Web/catalog tests pass. Full CLI run exposed pre-existing trimpath runtime.Caller fixture-path failures; repeat the repository gate without trimpath.

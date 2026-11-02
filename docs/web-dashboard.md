@@ -1078,3 +1078,43 @@ Before a real rollout, provide the actual origin/issuer/client/group/secret path
 verify the IdP callback and claim mapping, and apply the existing VPS go-live gates.
 The dashboard release does not certify the separate restore, canary-secret, crash
 or throttled-upload tickets. Building or testing this feature does not deploy it.
+
+## Organize stored sessions
+
+Administrators open **Bays → Organize sessions**, or follow **Organize this
+session** from a session or search hit. The initial listing is the default
+inbox; clear the bay filter to inspect all stored sessions, or enter any
+selected bay names. Use metadata filters for harness, project, directory/hash,
+provenance machine and head-update time. Fields combine with AND. Dates cover
+UTC days; an exact upper timestamp is exclusive. These times describe lake
+head updates, not the time a review ran.
+
+Check individual rows, move between pages, or select the complete filtered
+set. The exact UID list persists across paging and filter changes. Edit it
+or supply explicit exclusions. An edited list takes precedence over page
+checkboxes on that submission. Complete selections are capped at 500 candidates;
+large sets fail without sampling. **Inspect sessions sharing this directory**
+clears other filters to include possible companions outside the original bay
+or project. It retains the selection and never includes related sessions
+without an explicit choice. Unknown workflow provenance stays unknown.
+
+Choose **Add** to retain every current membership, or **Move** to remove only
+named sources. Select multiple destinations and optionally propose new names;
+preview creates nothing. Review every before/after row, blocked item, no-op
+and destination access warning. Apply requires an administrator, CSRF,
+a sign-in in the last ten minutes, confirmation of the reviewed plan and
+separate consent to create proposed bays. Grants remain separate. The complete
+plan can be downloaded privately and imported later for a fresh full preview.
+Expired or stale plans apply nothing and retain their exact request.
+
+A durable receipt links to current-membership verification and a preview of a
+state-checked correction. It retains unrelated later changes. Explicit bulk
+hold release reports each session's outcome using current requests and routing;
+refused requests are explained, never automatically granted. A code-review
+content bay and a quarantine review bay serve different purposes.
+
+**Future routing** separately previews the complete metadata catchment and
+provides the exact host command for an operator to review. Project IDs, UID
+sets, machine and time filters cannot become persistent routes. A route may
+catch future development too; later requests/rules may restore a membership
+removed by a historical move. See [the migration walkthrough](bay-migrations.md).

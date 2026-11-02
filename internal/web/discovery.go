@@ -71,10 +71,10 @@ func (s *Server) discover(ctx context.Context, scope catalog.Scope, kind, uid st
 }
 
 func parseDiscovery(q url.Values) (catalog.DiscoveryRequest, error) {
-	r := catalog.DiscoveryRequest{Harness: q.Get("harness"), Project: q.Get("project"), CWDPrefix: q.Get("cwd_prefix"), CWDHash: q.Get("cwd_hash"), Machine: q.Get("machine"), Cursor: q.Get("cursor")}
+	r := catalog.DiscoveryRequest{UpdatedSince: q.Get("updated_since"), UpdatedUntil: q.Get("updated_until"), Harness: q.Get("harness"), Project: q.Get("project"), CWDPrefix: q.Get("cwd_prefix"), CWDHash: q.Get("cwd_hash"), Machine: q.Get("machine"), Cursor: q.Get("cursor")}
 	for k, values := range q {
 		switch k {
-		case "harness", "project", "unlinked", "cwd_prefix", "cwd_hash", "machine", "limit", "cursor":
+		case "updated_since", "updated_until", "harness", "project", "unlinked", "cwd_prefix", "cwd_hash", "machine", "limit", "cursor":
 		default:
 			return r, recall.ErrInvalid
 		}
@@ -108,6 +108,8 @@ func discoveryTools() {
 	filters := func() map[string]any {
 		p := page()
 		p["bays"] = prop("string", "Any of up to 20 comma-separated visible bay IDs, names or aliases; intersects current scope.")
+		p["updated_since"] = prop("string", "Only sessions whose head was updated on/after this UTC RFC3339 time or date.")
+		p["updated_until"] = prop("string", "Only sessions updated before this UTC time; a date covers the whole day.")
 		p["harness"] = prop("string", "Only sessions from this harness.")
 		p["project"] = prop("string", "Only this project_id, discovered with list_projects.")
 		p["unlinked"] = prop("boolean", "Only sessions with no project_id; useful for review companions.")
