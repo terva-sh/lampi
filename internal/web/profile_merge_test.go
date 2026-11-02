@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestEditorMergesTickedRules(t *testing.T) {
 		t.Fatalf("plan: %d", w.Code)
 	}
 	for _, want := range []string{
-		`name="merge_prefix" value="/home/me/wt"`, `name="pick" value="allow.1" aria-label="Tick allow rule 1 to merge" checked`,
+		`name="merge_prefix" data-enter="merge-check" value="/home/me/wt"`, `name="pick" value="allow.1" aria-label="Tick allow rule 1 to merge" checked`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("merge panel lacks %q", want)
@@ -93,6 +94,15 @@ func TestEditorMergesTickedRules(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("merge panel lacks %q", want)
 		}
+	}
+	// Enter submits with the form's first submit button: Preview, even
+	// with the merge panel shown.
+	editor := page[strings.Index(page, `action="/profiles/default/preview"`):]
+	if first := regexp.MustCompile(`<button[^>]*type="submit"[^>]*>`).FindString(editor); first == "" || strings.Contains(first, "name=") {
+		t.Errorf("with the merge panel, the first submit button is %s", first)
+	}
+	if strings.Contains(page, `form="profile-form"`) || strings.Index(page, `name="merge_prefix"`) < strings.Index(page, `action="/profiles/default/preview"`) {
+		t.Error("the merge panel's fields sit outside the editor form")
 	}
 	if i, j := strings.Index(text, "/home/me/wt/zot/old"), strings.Index(text, "/home/me/wt/lampi/new"); i < 0 || j < i {
 		t.Error("the hidden project is not listed first")

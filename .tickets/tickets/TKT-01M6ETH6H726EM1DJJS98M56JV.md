@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:07:14Z
-updated_at: 2026-11-02T19:52:48Z
+updated_at: 2026-11-02T19:57:39Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -66,3 +66,7 @@ The doctor already offers a fold at the folders it finds on its own (`folder_fol
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:52:48Z
 
 Built on t3/profile-editor-merge, stacked on #243. Allow rows carry pick=allow.N checkboxes. readRules collects the ticked rules, normalized, before Move or Sort renumbers them. merge=allow plans and shows the panel without a preview. merge_apply=allow applies through withRules, so the rule takes the first replaced rule's place, then previews. The panel sits above the form and reaches it with form=profile-form. Merge covers allow rules only: deny rules have no 'newly admits', and a wider deny needs a different preview, so it is left for a later ticket if wanted. Wide prefixes use profiledoctor.WideFolder, and a remote prefix needs host/owner. GOFLAGS=-mod=mod just ci passes.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:57:39Z
+
+terva-review on #244 (run 2274): the merge panel sat above the editor form and reached it with form=profile-form. Its Check button therefore came first among the form's submit buttons, and Enter anywhere planned a merge instead of previewing. Fixed: the panel is inside the form, after the off-screen Preview default, and Enter in the prefix box presses Check through a small script. TestEditorMergesTickedRules checks that the first submit button with the panel shown carries no name, and that the panel's fields are inside the form.

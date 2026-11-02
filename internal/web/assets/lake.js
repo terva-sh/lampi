@@ -283,3 +283,12 @@ document.querySelectorAll('.rule-list').forEach(list => {
   });
   list.classList.add('can-drag');
 });
+// Enter in the merge panel's prefix checks the prefix, as its button
+// does, rather than previewing the form unchanged.
+document.querySelectorAll('[data-enter="merge-check"]').forEach(box => {
+  const check = box.form && box.form.querySelector('[data-merge-check]');
+  if (!check) return;
+  box.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); check.click(); }
+  });
+});
