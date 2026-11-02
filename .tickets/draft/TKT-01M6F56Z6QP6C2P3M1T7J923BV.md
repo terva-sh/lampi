@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:13:54Z
-updated_at: 2026-11-02T22:13:54Z
+updated_at: 2026-11-02T22:15:33Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -60,3 +60,13 @@ Using transcript search to infer an inventory loses sessions with no matching te
 - [ ] Session metadata exposes the permitted routing evidence needed to distinguish imported reviews from development, without exposing raw artifacts or hidden bay membership.
 - [ ] Recall can select a visible bay while retaining the token scope; hidden bays, sessions and project metadata cannot be enumerated.
 - [ ] CLI and MCP discovery share authorized query logic, with paging and scope tests and documented dogfooding examples.
+
+## Notes
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T22:15:33Z
+
+Supersedes the description's pending-token inspection state: the owner supplied a read token through the private secret card, and all six MCP tools succeeded through the installed terva-lampi stdio bridge against the configured local lake. The private credential file was read by the bridge; no value was printed or recorded. Initialization and tools/list confirmed the six advertised schemas. Search coverage at 2026-11-02T22:14:21Z reported ready_sessions=2237, indexed_sessions=2237, behind_sessions=0 and failed_sessions=0. This is the index's coverage report, not a fresh catalog inventory of every session.
+
+The owner clarified that the intended reviews were Vuoro reviews on Claude Code, rather than automated Forgejo reviews. Read_events inspected the opening events of sessions 01M6F532E20X2S9YFJQP9ZR4TR and 01M6F4Z4BV9SWF5TXE375T7XQ0: their first user prompt asks to review local commits. Companion 01M6F55Q2DJCFV57PGW0WFE87W asks to check findings and mark each with rate_draft. The first reviewer and companion share cwd_hash 1acee502fac9a9ab and the search label /home/sothr/.local/state/vuoro/worktrees/20261102-221134-b61304; the second reviewer has cwd_hash f882747de0e6661a and a neighboring timestamped worktree. Their normalized extra fields identify sdk-cli/sdk origins, which alone are too broad to establish review purpose. The companion has no project_id, so grouping solely by development project misses it. Project labels can also be remotes instead of paths, reinforcing the need for explicit session metadata.
+
+Copy_excerpt, tool_stats, diagnose_session and a bounded diagnose_lake call also succeeded. The bounded lake diagnosis correctly reported truncation; it is not a complete diagnosis of the lake. Literal user-message searches for vuoro and review each filled a 200-hit page with continuation, so neither sample is a complete review inventory. Search text is a useful probe, not the proposed move selector. No catalog access or membership/profile/grant/configuration changes were made.
