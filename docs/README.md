@@ -46,3 +46,5 @@ first run. The pages below are grouped by what you are trying to do.
 | [Dashboard and retrieval plan](web-ui-plan.md) | The design record for the web releases |
 | [e2e/README.md](../e2e/README.md) | The synthetic container, the browser smoke, and the go-live drills |
 | [Why the command is terva-lampi](naming.md) | The name collision with a LAMP installer, and the optional `lampi` shortcut |
+
+- [Reviewed multi-bay migrations](bay-migrations.md): exact selections, apply receipts and recovery.

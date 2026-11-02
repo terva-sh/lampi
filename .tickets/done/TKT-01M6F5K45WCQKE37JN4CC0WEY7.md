@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K45WCQKE37JN4CC0WEY7
 title: "Bays: plan and apply selected sessions to multiple destinations"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -20,17 +20,10 @@ dependencies:
   - TKT-01M6F5K3BTS8X9BTFZTECWYDCR
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3-6387cc8a
-  branch: t3/split-code-reviews-bay
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
-  commit: 85b4f73fa6c7658b51d8514455ba3d60a676eecb
-  session: null
-  claimed_at: 2026-11-02T23:10:05Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T23:10:05Z
+updated_at: 2026-11-02T23:17:51Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -56,13 +49,23 @@ Re-check authorization during apply. Reading or generating a plan grants no writ
 
 ## Acceptance criteria
 
-- [ ] Selections support exact IDs and exclusions as well as metadata filters, and enumerate all matches with explicit paging and limits.
-- [ ] A write-free plan shows complete before/after memberships and access implications for additions or moves to multiple destinations, including proposed new bays.
-- [ ] Apply uses the reviewed set, checks current authority and relevant state, and reports no-ops, rejected holds, conflicts and partial failures explicitly.
-- [ ] Tests cover multi-bay preservation, stale plans, missing destinations, last-bay/default behavior, retry idempotency and audit output.
-- [ ] Verification and state-checked recovery are available, with existing-session moves documented separately from future routing.
-- [ ] A proposed future-routing rule can be previewed without installing it, with its metadata-wide catchment and later-manifest effects distinguished from the exact historical selection.
+- [x] Selections support exact IDs and exclusions as well as metadata filters, and enumerate all matches with explicit paging and limits.
+- [x] A write-free plan shows complete before/after memberships and access implications for additions or moves to multiple destinations, including proposed new bays.
+- [x] Apply uses the reviewed set, checks current authority and relevant state, and reports no-ops, rejected holds, conflicts and partial failures explicitly.
+- [x] Tests cover multi-bay preservation, stale plans, missing destinations, last-bay/default behavior, retry idempotency and audit output.
+- [x] Verification and state-checked recovery are available, with existing-session moves documented separately from future routing.
+- [x] A proposed future-routing rule can be previewed without installing it, with its metadata-wide catchment and later-manifest effects distinguished from the exact historical selection.
 
 ## Implementation plan
 
 Build a bounded shared service that consumes all metadata pages into exact UID selections with exclusions, then previews add/move edits without writes. Plans include complete per-session visible before/after, holds/issues/no-ops, destination/access warnings and state fingerprints. Require current administrator authority for apply; re-derive the reviewed request and compare membership/routing/destination/grant state in one transaction before changes. Use a durable migration receipt for idempotent retries, verification and inverse previews that preserve unrelated later memberships and reject changed touched memberships. New destination creation is explicit and grants remain separate. Add host select/plan/apply/verify/recover CLI commands and an independent hypothetical routing catchment preview, with semantic concurrency/hold/audit/recovery tests and documentation. Limit each atomic operation to 500 sessions; excess selections fail rather than sampling.
+
+## Notes
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:17:50Z
+
+Implemented complete bounded selection (one metadata-query snapshot, exact UIDs/exclusions, reproducible selector) and 24-hour portable plans. Add/remove edits resolve aliases and preserve unrelated membership; new bays stay hypothetical until explicit creation at apply. Plans include all rows, no-ops/rejections, access warnings and state fingerprints. Apply requires independently established current administrator authority, re-derives the reviewed request inside one transaction and checks membership timestamps, holds/flags, routing metadata/requests and conservative lake/bay/alias/grant/rule state. Atomic batches cap at 500; 8 MiB plan bounds refuse instead of sampling. Durable receipts enable restart-safe retries, verification and inverse previews that preserve unrelated later bays and reject changed touched membership. No grants or routes are created implicitly. Added select/plan/apply-plan/verify-plan/recover-plan/preview-rule host commands, strict files and private atomic JSON output. Hypothetical future routing evaluates its own metadata-wide catchment without writes. Scoped proposed names deliberately do not test availability, preventing hidden-name collision probes; scoped policy state is unavailable and apply requires a full preview. Updated schema upgrade fixtures for the new receipt table. Full catalog/cli/web package tests passed; focused final migration/selection/CLI race tests, vet and whitespace checks passed. Tests cover stale membership/holds/grants/rules/names/routing/deletions, expired/tampered plans, multi-bay/no-op/fallback behavior, rejected-batch atomicity, receipts across reopen, inverse conflicts and audit actor/plan IDs. No live lake changed.
+
+## Summary
+
+Delivered the shared exact-selection and multi-bay plan/apply/receipt/recovery service plus six host CLI commands and docs/bay-migrations.md. Historical batches and hypothetical future-rule catchments are separate. Complete bounded previews, state/authority checks, explicit creation, atomic audited apply, idempotent retries and state-checked inverse plans are tested. MCP/dashboard adapters can now reuse this service.

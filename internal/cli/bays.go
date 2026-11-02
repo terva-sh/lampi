@@ -36,6 +36,7 @@ usage:
   terva-lampi serve bays release SESSION-UID [--data DIR]
   terva-lampi serve bays inbox [--data DIR]
   terva-lampi serve bays move BAY [--from BAY] FILTER... [--dry-run] [--data DIR]
+  terva-lampi serve bays select|plan|apply-plan|verify-plan|recover-plan|preview-rule [--help]
   terva-lampi serve bays apply-rules [--dry-run] [--data DIR]
 
 MATCH is one or more of --cwd-prefix P, --cwd-glob G, --cwd-hash H,
@@ -99,6 +100,12 @@ catalog and to audit.jsonl in the lake directory.
 `
 
 func runServeBays(env Env, args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "select", "plan", "apply-plan", "verify-plan", "recover-plan", "preview-rule":
+			return runBayMigration(env, args[0], args[1:])
+		}
+	}
 	if len(args) > 0 && isHelp(args[0]) {
 		fmt.Fprint(env.stdout(), baysUsage)
 		return nil

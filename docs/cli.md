@@ -286,3 +286,10 @@ once. Omit for all reachable sessions. Single-session reads enforce the
 selected context. Continue with the same selection; unknown/inaccessible
 selectors fail identically. See [bay selection](reading-the-lake.md#focus-on-selected-bays)
 for examples and coverage limits.
+
+### Plan and apply multi-bay migrations on the lake host
+
+`serve bays select`, `plan`, `apply-plan`, `verify-plan`, `recover-plan` and
+`preview-rule` provide exact reviewed batches, multiple destinations, explicit
+new-bay proposals, state checks and recovery. `--help` on any command lists its
+contract. See [bay migrations](bay-migrations.md) for JSON fields and examples.

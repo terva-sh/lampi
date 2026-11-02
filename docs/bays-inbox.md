@@ -93,3 +93,14 @@ places. The agent keeps it on the machine, lists it under `no_bay` in
 `status`, and sends it again every pass, so it uploads once a grant or a
 rule places it. Turn the default off once rules and requests place every
 new session, and the inbox holds only what was there before.
+
+## Reviewed multi-bay batches
+
+Use `serve bays select` to freeze exact IDs and exclusions, then `serve bays
+plan` to preview additions or moves to several bays while preserving unrelated
+memberships. `apply-plan` checks current state and authority; `verify-plan`
+inspects the durable receipt and `recover-plan` produces a fresh inverse preview.
+Proposed bays and future rules can be previewed without writes. See the
+[complete migration workflow](bay-migrations.md) for commands, limits, access
+implications and recovery constraints. The original single-destination `move`
+command remains available for simpler host workflows.
