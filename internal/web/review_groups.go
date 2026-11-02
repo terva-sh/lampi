@@ -2,6 +2,8 @@ package web
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"slices"
 	"time"
@@ -33,6 +35,11 @@ type reviewGroup struct {
 	// folder; the temporary group is its kind alone.
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
+	// Version fingerprints the group's projects. A form sends the
+	// version the page showed, and the lake refuses it once a project
+	// joined or left the group, so an action never reaches a project
+	// the operator did not see.
+	Version string `json:"version"`
 	// Rule is the allow rule that takes the whole group, absent for the
 	// temporary group, which is hidden rather than allowed.
 	Rule     *config.ProjectMatch `json:"rule,omitempty"`
@@ -107,7 +114,9 @@ func groupNeeds(rows []reviewRow) ([]reviewGroup, []reviewRow) {
 		if len(g.Rows) < profiledoctor.MinFold {
 			continue
 		}
+		sum := sha256.New()
 		for _, row := range g.Rows {
+			sum.Write([]byte(row.Key.String() + "\n"))
 			g.Keys = append(g.Keys, row.Key)
 			g.Sessions += row.Sessions
 			g.Bytes += row.Bytes
@@ -115,6 +124,7 @@ func groupNeeds(rows []reviewRow) ([]reviewGroup, []reviewRow) {
 				g.Newest = row.Newest
 			}
 		}
+		g.Version = hex.EncodeToString(sum.Sum(nil))[:16]
 		groups = append(groups, *g)
 	}
 	for i, row := range rows {
@@ -129,8 +139,9 @@ func groupNeeds(rows []reviewRow) ([]reviewGroup, []reviewRow) {
 }
 
 // groupFrom reads the group id names from the queue as it is now, under
-// the filter of the page the form came from.
-func (s *Server) groupFrom(r *http.Request, id string, f reviewFilter) (reviewGroup, bool, error) {
+// the filter of the page the form came from. False when the group is
+// gone or its projects are no longer the ones version fingerprints.
+func (s *Server) groupFrom(r *http.Request, id, version string, f reviewFilter) (reviewGroup, bool, error) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	q, err := s.readReview(ctx, f, s.now())
@@ -138,7 +149,7 @@ func (s *Server) groupFrom(r *http.Request, id string, f reviewFilter) (reviewGr
 		return reviewGroup{}, false, err
 	}
 	i := slices.IndexFunc(q.Groups, func(g reviewGroup) bool { return g.ID == id })
-	if i < 0 || len(q.Groups[i].Keys) > maxGroupKeys {
+	if i < 0 || q.Groups[i].Version != version || len(q.Groups[i].Keys) > maxGroupKeys {
 		return reviewGroup{}, false, nil
 	}
 	return q.Groups[i], true, nil
@@ -146,14 +157,14 @@ func (s *Server) groupFrom(r *http.Request, id string, f reviewFilter) (reviewGr
 
 // groupGone says what to do when a form names a group the queue no
 // longer holds.
-const groupGone = "That group is no longer on the queue as it was: its projects were allowed, hidden or decided since, or fewer than three are left. Reload to see the queue as it is now."
+const groupGone = "That group changed since the page showed it: a project joined it or left it, or fewer than three are left. Nothing was changed. Reload to see the queue as it is now."
 
 // reviewSelection reads the projects an Allow form names, by group or by
 // key, and the width to allow them at. It answers the request itself and
 // returns false when the form names none.
-func (s *Server) reviewSelection(w http.ResponseWriter, r *http.Request, back string) (keys []catalog.ProjectKey, width, group string, ok bool) {
-	if group = r.PostForm.Get("group"); group != "" {
-		g, found, err := s.groupFrom(r, group, filterOf(back))
+func (s *Server) reviewSelection(w http.ResponseWriter, r *http.Request, back string) (keys []catalog.ProjectKey, width string, group reviewGroup, ok bool) {
+	if id := r.PostForm.Get("group"); id != "" {
+		g, found, err := s.groupFrom(r, id, r.PostForm.Get("group_version"), filterOf(back))
 		switch {
 		case err != nil:
 			pageError(w, r, err)
@@ -162,19 +173,19 @@ func (s *Server) reviewSelection(w http.ResponseWriter, r *http.Request, back st
 		case g.Rule == nil:
 			s.renderBack(w, r, back, "Projects in temporary folders are hidden, not allowed: no new session starts there.", http.StatusBadRequest)
 		default:
-			return g.Keys, widthOwner, group, true
+			return g.Keys, widthOwner, g, true
 		}
-		return nil, "", "", false
+		return nil, "", reviewGroup{}, false
 	}
 	if keys, ok = readKeys(r.PostForm["key"]); !ok {
 		s.renderBack(w, r, back, "Choose at least one project to allow, and no more than 500 at once.", http.StatusBadRequest)
-		return nil, "", "", false
+		return nil, "", reviewGroup{}, false
 	}
 	if width, ok = readWidth(r.PostForm.Get("width")); !ok {
 		s.renderBack(w, r, back, "Allow each repository, or each repository's owner.", http.StatusBadRequest)
-		return nil, "", "", false
+		return nil, "", reviewGroup{}, false
 	}
-	return keys, width, "", true
+	return keys, width, reviewGroup{}, true
 }
 
 // groupNote is the note a group's Hide all records when the form gives

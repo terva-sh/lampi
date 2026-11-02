@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:06:27Z
-updated_at: 2026-11-02T19:14:04Z
+updated_at: 2026-11-02T19:23:40Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -72,3 +72,7 @@ Rejected alternatives: posting the expanded keys from the page breaks at 500 key
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:14:04Z
 
 Implemented on t3/review-groups. Groups come from profiledoctor.GroupOf, which the doctor's review_group finding and the Allow buttons' owner width now share, so a group's rule is the rule each row's Allow FOLDER/… would add. Groups sort by size, so the temporary group can come first. Select-all now ticks only its own table: before, one header box on a page of group tables would tick every group and overrun the 500 limit. GOFLAGS=-mod=mod just ci passes.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:23:40Z
+
+terva-review on #241 (run 2253): a group named only by kind and owner/folder let Hide all reach projects that joined the group after the page loaded. Fixed: each group carries a version, sha256 of its keys cut to 16 hex digits. Every group form sends it as group_version, and groupFrom refuses a mismatch, so a changed or unversioned group answers 409 and changes nothing. Test: TestReviewGroupRefusesChangedMembers.

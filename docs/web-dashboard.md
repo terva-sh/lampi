@@ -700,8 +700,8 @@ Needs review gathers its projects into groups before listing the rest:
 Open a group to see its projects, with the usual row actions. A group's
 actions name the group, and the lake reads its projects from the queue, under
 the page's filters, when the form arrives. A group can be larger than the 500
-projects one selection holds. If the group changed since the page loaded, the
-lake says so and changes nothing. Hide all records a note naming the group.
+projects one selection holds. If a project joined or left the group since the
+page loaded, the lake says so and changes nothing. Hide all records a note naming the group.
 
 Filters narrow by device, harness and profile. Operators get **Allow in
 PROFILE…** for each device's copy. It works like [Allow on a device's
