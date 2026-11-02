@@ -156,7 +156,17 @@ type readTokenForm struct {
 
 type readTokenPerm struct {
 	Value, Label string
-	Checked      bool
+	// Title and Use say what the permission is for, as the form offers
+	// it (TKT-01M6F5B6DCJEH3XPX3SZVPHY9X).
+	Title, Use string
+	Checked    bool
+}
+
+// readTokenPermUses is how the mint form offers each permission: what a
+// token holding it is for, and what reads with it.
+var readTokenPermUses = map[string]struct{ Title, Use string }{
+	catalog.PermEventsRead: {"Agent recall: search, query and MCP", "Pick this for an agent or a person looking back over past sessions: terva-lampi query, terva-lampi mcp, and the read MCP endpoint read normalized events."},
+	catalog.PermRawRead:    {"Raw files: download uploads as stored", "Fetches the uploaded transcript files byte for byte from /api/raw/v1, for a backup or your own script. No terva-lampi command needs it."},
 }
 
 func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v readTokensView, status int) {
@@ -182,8 +192,10 @@ func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v read
 	v.Lifetimes = readTokenLifetimes
 	// No permission is checked to begin with: the admin says what the
 	// token is for.
-	for _, p := range catalog.ReadTokenPermissions {
-		v.Perms = append(v.Perms, readTokenPerm{Value: p, Label: readTokenPermLabels[p], Checked: slices.Contains(v.Form.Perms, p)})
+	// Agent recall first: it is what most tokens are for.
+	for _, p := range []string{catalog.PermEventsRead, catalog.PermRawRead} {
+		u := readTokenPermUses[p]
+		v.Perms = append(v.Perms, readTokenPerm{Value: p, Label: readTokenPermLabels[p], Title: u.Title, Use: u.Use, Checked: slices.Contains(v.Form.Perms, p)})
 	}
 	if v.Form.Expires == "" {
 		v.Form.Expires = readTokenLifetimes[0].Value
@@ -207,7 +219,7 @@ var readTokenProblems = map[string]string{
 	"unknown_session":  "A listed session is not in the lake. Check the UIDs.",
 	"unknown_bay":      "A listed bay is not in the lake. serve bays list names them.",
 	"invalid_bays":     "The bays field holds separators and no bay. Leave it empty for no bay limit.",
-	"invalid_perms":    "Choose what the token reads: raw artifacts, normalized events, or both.",
+	"invalid_perms":    "Choose what the token is for: agent recall, raw file downloads, or both.",
 	"mint_failed":      "Minting failed. Operator logs hold the details.",
 	"audit_failed":     "Writing the mint to the audit log failed, so the token was revoked and is not shown. Operator logs hold the details. Fix the audit log and mint again.",
 }
