@@ -138,6 +138,15 @@ func rank(level string) int {
 
 // A device with no inventory leaves the doctor unsure what a rule
 // matches there, so a temporary rule is no longer safe to drop.
+// Root's home on macOS is a home folder, though no home or Users folder
+// holds it.
+func TestDiagnoseRootHome(t *testing.T) {
+	rep := Diagnose(Input{Projects: config.Projects{Allow: []config.ProjectMatch{cwd("/var/root")}}})
+	if f := find(rep, CodeHomeFolder, 0); f == nil {
+		t.Errorf("/var/root is not a home folder: %+v", rep.Findings)
+	}
+}
+
 func TestDiagnoseUnlisted(t *testing.T) {
 	in := Input{Projects: config.Projects{Allow: []config.ProjectMatch{cwd("/tmp/x/y")}},
 		Devices: []Device{{Name: "laptop", Listed: true}, {Name: "mac"}}}
