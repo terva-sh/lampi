@@ -240,6 +240,8 @@ own. Add a mount to the `lampi` service:
     volumes:
       - lake:/var/lib/terva-lampi
       - ./backups:/backups
+      # For encrypted archives: public keys only.
+      - ./backup-recipients:/config/backup-recipients:ro
 ```
 
 Make the directory writable by the lake's user, then run the backup:
@@ -261,8 +263,8 @@ before the prune, such as older restic snapshots, still hold what it
 removed; forget those too after a purge. The
 backup is the lake in plaintext, so keep `backups/` on encrypted
 storage, and copy it off the host. Back up Caddy's `caddy-data` volume
-too, or Caddy requests new certificates after a restore. [VPS
-bring-up](vps-bringup.md#backup) has the restore drill.
+too, or Caddy requests new certificates after a restore. [Restore
+the lake](#restore-the-lake) below has the restore drill.
 
 To copy backups off the host without an encrypted target, write an
 [encrypted archive](vps-bringup.md#encrypted-archive) instead. Mount a
@@ -276,8 +278,132 @@ docker compose exec lampi terva-lampi serve backup \
   --archive /backups/lake-$(date -u +%Y%m%dT%H%M%SZ).age
 ```
 
-Restore with the identity on another machine, with `terva-lampi serve
-restore`, into a fresh volume.
+The identity that decrypts the archives stays off the lake's host
+except during a restore; see [Restore the lake](#restore-the-lake).
+
+### Run it on a schedule
+
+The image has no shell, so a second container in the compose file
+cannot loop or run cron. Schedule the backup on the host and have it
+`exec` into the running service. Put the commands in a script beside
+`compose.yaml`, here `/srv/lampi/backup.sh`:
+
+```bash
+#!/bin/sh
+set -eu
+cd /srv/lampi
+docker compose exec -T lampi terva-lampi serve backup --out /backups/lake \
+  --token-file /var/lib/terva-lampi/tokens --prune
+docker compose exec -T lampi terva-lampi serve backup \
+  --token-file /var/lib/terva-lampi/tokens \
+  --recipients-file /config/backup-recipients \
+  --archive "/backups/lake-$(date -u +%Y%m%dT%H%M%SZ).age"
+```
+
+Run it from the host's crontab, or from a systemd timer:
+
+```text
+17 3 * * * /srv/lampi/backup.sh >> /var/log/lampi-backup.log 2>&1
+```
+
+`-T` is needed because cron gives the command no terminal. Keep the
+script in a script file rather than in the crontab line: cron treats
+`%` as a newline, which breaks the `date` format.
+
+On Kubernetes, a `CronJob` pod cannot mount a `ReadWriteOnce` volume
+that the lake's pod holds on another node. Have the `CronJob` run
+`kubectl exec` into the lake's pod instead, with a service account
+allowed only to exec into that pod.
+
+### Copy it off the host
+
+Copy only encrypted backups to storage you do not control.
+
+- **Archives** are encrypted, so any tool can copy them, for example
+  `rclone copy backups/ remote:lampi --include 'lake-*.age'`.
+- **The directory backup** is plaintext. Copy it only with a tool that
+  encrypts the target, such as restic or borg, for example
+  `restic -r sftp:backup-host:/srv/restic/lampi backup backups/lake`.
+  Do not `rsync` or `rclone` the directory to another host as it is.
+
+### Keep and expire backups
+
+The directory backup is one copy that follows the lake, and `--prune`
+removes from it what the lake removed. Each archive is a whole copy, so
+keep a set and delete the old ones, for example seven daily and four
+weekly archives. `serve purge` reaches neither the archives nor
+snapshots of the directory made by restic or borg. After a purge,
+delete the archives taken before it, and forget and prune the older
+snapshots, or the purged sessions stay in them.
+
+### Restore the lake
+
+Restore into a fresh volume, check it, and start the lake on it. Run
+the same release that took the backup, or a newer one, which migrates
+the catalog when it starts. These steps were run as a drill on
+2026-11-02 with v0.10.0 under Podman. Both kinds of restore came back
+with the source's lake identity and key, accepted the old device
+tokens, and an agent's next sync uploaded nothing.
+
+1. Stop the lake, and point the service at a new volume. In
+   `compose.yaml`, change the `lampi` mount to
+   `lake-restored:/var/lib/terva-lampi` and add `lake-restored:` under
+   `volumes:`. The old volume stays as it was until you remove it.
+
+   ```bash
+   docker compose stop lampi
+   ```
+
+2. Restore into the new volume. `docker compose run` creates the volume
+   owned by the lake's user.
+
+   - **From an archive.** The restore reads the identity, so bring it
+     to the lake's host for this one step. Put the archive and the
+     identity in `./restore`, mount them read-only, and delete the
+     identity from the host when the restore is done:
+
+     ```bash
+     docker compose run --rm -T -v ./restore:/restore:ro lampi \
+       serve restore --archive /restore/lake-20261102T171915Z.age \
+       --identity-file /restore/lampi-backup.key --data /var/lib/terva-lampi
+     ```
+
+     It prints the lake it restored, when the archive was taken, and by
+     which release.
+
+   - **From the directory backup.** The lake image has no `cp`, so make
+     the volume with the lake's image and copy in with a throwaway
+     container, as the lake's user. Compose names the volume
+     `lampi_lake-restored`:
+
+     ```bash
+     docker compose run --rm -T lampi --version
+     docker run --rm --user 65532:65532 -v lampi_lake-restored:/lake \
+       -v ./backups/lake:/backup:ro docker.io/library/alpine:3 cp -a /backup/. /lake/
+     ```
+
+     Copy into a volume made this way, not with `docker volume
+     import` or as root. Those leave the volume's top directory owned by
+     root, and `serve` then fails with `lakelock: ... permission denied`.
+
+3. Check the store, then start the lake:
+
+   ```bash
+   docker compose run --rm -T lampi serve fsck
+   docker compose up -d lampi
+   docker compose logs lampi | grep identity
+   ```
+
+   The log names the same `lake_...` identity as before. A different
+   one means the restore made a new lake, and agents will refuse it.
+
+4. From a machine that syncs to the lake, run `terva-lampi sync` and
+   `terva-lampi status`. The sync uploads nothing it had already sent,
+   and `lake_normalization` reaches `pending=0` as the lake rebuilds
+   its derived files.
+
+Restore Caddy's `caddy-data` volume the same way, or Caddy asks for new
+certificates.
 
 ## Upgrade and roll back
 
