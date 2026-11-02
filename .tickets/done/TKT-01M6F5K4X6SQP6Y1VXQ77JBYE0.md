@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:33Z
-updated_at: 2026-11-02T23:34:13Z
+updated_at: 2026-11-02T23:37:50Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -55,6 +55,12 @@ Recommendations change nothing. In particular, ApplySafe and serve profiles doct
 ## Implementation plan
 
 Implement internal/baydoctor as a shared bounded metadata report. Expose read-only MCP/HTTP, host CLI human/JSON and dashboard doctor entry with exact migration-preview handoff. User supplies mappings and scoped expiring ignores; no purpose guesses, safe fixes, profile writes, grants or routes. Test scope, alternatives, incomplete evidence and no mutation.
+
+## Notes
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:37:50Z
+
+Final self-review added a destination_limit status when overlapping compatible mappings exceed the migration service total of 20 destinations. The report withholds an unusable preview request; a focused fixture verifies the combined limit.
 
 ## Summary
 

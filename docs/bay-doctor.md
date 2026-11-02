@@ -165,3 +165,7 @@ source removals only when a move is intended. Scoped plans require a fresh
 full administrator preview. Read tokens and plan artifacts grant no mutation
 authority. Historical add/move, future routing and capture permission remain
 three separate decisions. See [migration review and recovery](bay-migrations.md).
+
+When several compatible mappings overlap, their combined destinations must
+still fit the migration service's limit of 20. A larger union produces
+`destination_limit` without a preview request; refine the policy first.

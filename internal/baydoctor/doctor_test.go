@@ -1,6 +1,7 @@
 package baydoctor
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -142,5 +143,31 @@ func TestPolicyValidationAndStableIDs(t *testing.T) {
 	b := Evaluate([]catalog.SessionMetadata{s}, p, resolved, "scope", true, time.Now())
 	if a.Findings[0].ID != b.Findings[0].ID {
 		t.Fatal("unstable finding IDs")
+	}
+}
+
+func TestOverlappingMappingsRespectMigrationDestinationLimit(t *testing.T) {
+	p := fixturePolicy()
+	p.Mappings = p.Mappings[:1]
+	for i := 0; i < 20; i++ {
+		name := fmt.Sprintf("category-%d", i)
+		p.Mappings[0].Destinations = append(p.Mappings[0].Destinations, name)
+		p.Mappings[0].Proposed = append(p.Mappings[0].Proposed, name)
+	}
+	// Each mapping is within its own limit, but their compatible union may be
+	// larger than an atomic migration accepts.
+	other := p.Mappings[0]
+	other.ID = "more"
+	other.Destinations = other.Destinations[10:]
+	other.Proposed = other.Proposed[8:]
+	p.Mappings[0].Destinations = p.Mappings[0].Destinations[:12]
+	p.Mappings[0].Proposed = p.Mappings[0].Proposed[:10]
+	p.Mappings = append(p.Mappings, other)
+	if err := Validate(p); err != nil {
+		t.Fatal(err)
+	}
+	r := Evaluate([]catalog.SessionMetadata{metadata("review", "/linux/vuoro/worktrees/run", "claude")}, p, map[string]string{"reviews": "reviews", "learning": "learning"}, "scope", true, time.Now())
+	if len(r.Findings) != 1 || r.Findings[0].Status != "destination_limit" || r.Findings[0].Preview != nil {
+		t.Fatal("unusable handoff", r)
 	}
 }

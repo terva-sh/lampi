@@ -270,6 +270,10 @@ func Evaluate(sessions []catalog.SessionMetadata, p Policy, resolved map[string]
 		f.Destinations = unique(f.Destinations)
 		f.Proposed = unique(f.Proposed)
 		f.Evidence = unique(f.Evidence)
+		if len(f.Destinations) > 20 || len(f.Proposed) > 20 {
+			f.Status = "destination_limit"
+			f.Uncertainty += " Refine compatible destinations to at most 20 before creating a migration preview."
+		}
 		if len(f.Destinations) == 0 {
 			r.AlreadyPlaced++
 			continue

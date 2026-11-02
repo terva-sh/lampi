@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M6F5K38C9N9Y1TRX4PZB7JSW
 title: Discover sessions and organize them into one or more bays
 type: epic
-status: in-progress
-status_reason: null
+status: blocked
+status_reason: Implementation is complete; live Vuoro dogfood remains blocked on deployment and authorized read/operator access. See TKT-01M6F5A01MX2ZCP9J7M3GGD7M0.
 priority: normal
 due_on: null
 labels:
@@ -19,17 +19,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3-6387cc8a
-  branch: t3/split-code-reviews-bay
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
-  commit: 58b3063e8e69b65967be973a14793101a8416d8d
-  session: null
-  claimed_at: 2026-11-02T22:57:42Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T22:57:45Z
+updated_at: 2026-11-02T23:37:50Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -61,9 +54,9 @@ Reuse existing query, scope, routing, audit and profile-doctor code. Keep member
 
 ## Acceptance criteria
 
-- [ ] MCP and CLI can discover reachable sessions and select bays consistently across recall tools.
-- [ ] CLI and dashboard support reviewed additions and moves into one or more bays using reproducible selections and exact membership previews.
-- [ ] Doctor suggests evidence-backed bay destinations, can abstain, and hands recommendations to the same preview without applying them automatically.
+- [x] MCP and CLI can discover reachable sessions and select bays consistently across recall tools.
+- [x] CLI and dashboard support reviewed additions and moves into one or more bays using reproducible selections and exact membership previews.
+- [x] Doctor suggests evidence-backed bay destinations, can abstain, and hands recommendations to the same preview without applying them automatically.
 - [ ] Documentation and the Vuoro exercise verify reviewer companions, mixed sessions, multi-bay membership and future routing behavior.
 
 ## Notes
@@ -88,3 +81,17 @@ The dashboard item reuses and expands the existing held/refused triage ticket, p
 **agent:codex/t3-6387cc8a** at 2026-11-02T22:57:45Z
 
 The owner explicitly promoted the epic and all ten children on 2026-11-02 and requested autonomous completion. This supersedes the earlier draft-only planning status. Start with the usage contract and metadata discovery, then follow dependency order through filters, migration services, MCP/dashboard, heuristics/doctor, documentation and dogfood. Commit small reviewable slices and keep decisions and checks in the relevant tickets. The initial working tree was clean. Do not mark live verification complete without actual access and evidence. Repository review/CI workflow applies; no new release tag or credential changes are inferred.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:37:50Z
+
+### Implementation and verification outcome
+
+Nine implementation/design/documentation children are complete on this branch: authorized metadata discovery, consistent bay filtering, exact session selection, atomic multi-bay plans/apply/receipts/recovery, read-only MCP previews, guided dashboard organization/triage, heuristic evaluation, shared advisory doctor, and the end-to-end guide. Full go test -trimpath=false ./... and go vet ./... passed; gofmt is clean and the isolated CLI build succeeds. The explicit trimpath=false test flag overrides this machine's persistent -trimpath setting without editing it; fixture-path failures under the default are environmental.
+
+The synthetic end-to-end case includes reviewer and unlinked rating companion plus same-repository development controls; exact exclusions, add/move into overlapping bays, receipt verification and subsequent manifests are exercised. Reingesting unchanged manifests preserves the move; an explicit later add rule targeting the removed source restores default membership, as documented. Doctor remains uncertain mapped metadata rather than a purpose classifier, and incomplete/alternative evidence cannot bypass preview.
+
+TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) remains blocked on a live read token/service-account access and deployment of the new server tools. No complete production inventory, approved split or live changes are claimed. Its precise prerequisites and observed access failures are recorded there. AC4 remains unchecked because synthetic success is not live dogfood completion. TKT-01M6F9QAGWW2PCF4ESFVVNN643 (Capture explicit workflow and companion provenance for session routing) is a separate draft follow-up for source-backed purpose evidence.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:37:50Z
+
+in-progress to blocked: Implementation is complete; live Vuoro dogfood remains blocked on deployment and authorized read/operator access. See TKT-01M6F5A01MX2ZCP9J7M3GGD7M0.
