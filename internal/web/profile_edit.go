@@ -15,6 +15,7 @@ import (
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/profiledoctor"
 	"terva.sh/lampi/internal/webauth"
 )
 
@@ -28,7 +29,7 @@ const (
 	// a few hundred rules fits.
 	maxProfileForm = 256 << 10
 	// maxRuleRows bounds the rules a dashboard save stores per list.
-	maxRuleRows = 500
+	maxRuleRows = profiledoctor.RuleCap
 	// maxFormRows bounds the rows one form may post per list: more than
 	// a save stores, so a profile stored some other way still opens and
 	// is refused with the limit named.
@@ -111,8 +112,8 @@ type profileEditView struct {
 	// Covered and Folds are the editor's offers to shorten the allow
 	// list, from the rules the form holds.
 	Covered     []coveredRule
-	Folds       []ownerFold
-	FolderFolds []folderFold
+	Folds       []profiledoctor.OwnerFold
+	FolderFolds []profiledoctor.FolderFold
 }
 
 // setReturn takes the form's return field, when it names a page the
@@ -336,7 +337,7 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
 	allow := normalizeRules(v.Form.Allow)
-	v.Covered, v.Folds, v.FolderFolds = coveredRules(allow), ownerFolds(allow), folderFolds(allow)
+	v.Covered, v.Folds, v.FolderFolds = coveredRules(allow), profiledoctor.OwnerFolds(allow), profiledoctor.FolderFolds(allow)
 	title := "Edit profile " + v.Name
 	if v.New {
 		title = "New profile " + v.Name
