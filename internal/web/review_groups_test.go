@@ -105,19 +105,22 @@ func TestReviewGroupAllowAndHide(t *testing.T) {
 	}
 
 	var api reviewView
-	if err := json.Unmarshal(get(h, "/api/web/v1/review", cookie).Body.Bytes(), &api); err != nil || len(api.Groups) != 2 || len(api.Groups[0].Keys) != n {
+	if err := json.Unmarshal(get(h, "/api/web/v1/review", cookie).Body.Bytes(), &api); err != nil || len(api.Groups) != 2 || len(api.Groups[0].Keys) != n || len(api.Groups[0].Version) != 16 {
 		t.Fatalf("api groups: %v %+v", err, api.Groups)
+	}
+	if !strings.Contains(page, `name="group_version" value="`+api.Groups[0].Version+`"`) {
+		t.Error("the group's form does not carry its version")
 	}
 
 	// Allow the folder group: one rule, though the group is past one batch.
-	group := url.Values{"csrf": {csrf}, "return": {"/review"}, "group": {"folder /home/me/wt"}}
+	group := url.Values{"csrf": {csrf}, "return": {"/review"}, "group": {"folder /home/me/wt"}, "group_version": {api.Groups[0].Version}}
 	w := postForm(h, "/review/allow", group, cookie)
 	confirm := w.Body.String()
 	if w.Code != 200 || !strings.Contains(confirm, "gains 1 allow rule</h2>") || !strings.Contains(confirm, "cwd_prefix /home/me/wt") {
 		t.Fatalf("group allow: %d", w.Code)
 	}
 	save := formFields(t, confirm, "/review/allow/save")
-	if save.Get("group") != "folder /home/me/wt" || len(save["key"]) != 0 {
+	if save.Get("group") != "folder /home/me/wt" || save.Get("group_version") != api.Groups[0].Version || len(save["key"]) != 0 {
 		t.Fatalf("the confirm form carries %v keys and group %q", len(save["key"]), save.Get("group"))
 	}
 	if w := postForm(h, "/review/allow/save", save, cookie); w.Code != 303 {
@@ -129,11 +132,11 @@ func TestReviewGroupAllowAndHide(t *testing.T) {
 	}
 
 	// The group is gone from the queue now, and a stale form says so.
-	if w := postForm(h, "/review/allow", group, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "no longer on the queue") {
+	if w := postForm(h, "/review/allow", group, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "That group changed") {
 		t.Errorf("stale group: %d", w.Code)
 	}
 	// A temporary group is hidden, not allowed.
-	tmp := url.Values{"csrf": {csrf}, "return": {"/review"}, "group": {"temporary"}}
+	tmp := url.Values{"csrf": {csrf}, "return": {"/review"}, "group": {"temporary"}, "group_version": {api.Groups[1].Version}}
 	if w := postForm(h, "/review/allow", tmp, cookie); w.Code != 400 {
 		t.Errorf("allow temporary: %d", w.Code)
 	}
@@ -160,11 +163,51 @@ func TestReviewGroupHidePastOneBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookie, _ := signIn(t, idp, h)
-	form := url.Values{"csrf": {csrfOf(t, h, cookie)}, "return": {"/review"}, "group": {"owner git.example/many"}, "note": {"forks"}}
+	var api reviewView
+	if err := json.Unmarshal(get(h, "/api/web/v1/review", cookie).Body.Bytes(), &api); err != nil || len(api.Groups) != 1 {
+		t.Fatalf("api groups: %v %+v", err, api.Groups)
+	}
+	form := url.Values{"csrf": {csrfOf(t, h, cookie)}, "return": {"/review"}, "group": {"owner git.example/many"}, "group_version": {api.Groups[0].Version}, "note": {"forks"}}
 	if w := postForm(h, "/review/hide", form, cookie); w.Code != 303 {
 		t.Fatalf("hide: %d %s", w.Code, w.Body.String())
 	}
 	if hides, _ := lake.Catalog.HiddenProjects(ctx); len(hides) != n || hides[0].Note != "forks" {
+		t.Fatalf("hid %d", len(hides))
+	}
+}
+
+// TKT-01M6ETFR3B: a group whose projects changed after the page showed
+// it is refused, though a group of that name is still on the queue, so
+// Hide all never reaches a project the operator did not see.
+func TestReviewGroupRefusesChangedMembers(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	ctx := t.Context()
+	tmp := func(dirs ...string) {
+		var ps []protocol.InventoryProject
+		for _, d := range dirs {
+			ps = append(ps, protocol.InventoryProject{CWD: d, CWDs: 1, Sessions: 1, Reason: config.RefusedNoMatch})
+		}
+		now := time.Now()
+		if _, err := lake.Catalog.PutDeviceInventory(ctx, ds[1].ID, protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: now, Projects: ps}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tmp("/tmp/a", "/tmp/b", "/tmp/c")
+	cookie, _ := signIn(t, idp, h)
+	var api reviewView
+	if err := json.Unmarshal(get(h, "/api/web/v1/review", cookie).Body.Bytes(), &api); err != nil || len(api.Groups) != 1 {
+		t.Fatalf("api groups: %v %+v", err, api.Groups)
+	}
+	seen := api.Groups[0].Version
+	tmp("/tmp/a", "/tmp/b", "/tmp/c", "/tmp/new")
+	form := url.Values{"csrf": {csrfOf(t, h, cookie)}, "return": {"/review"}, "group": {"temporary"}, "group_version": {seen}}
+	if w := postForm(h, "/review/hide", form, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "That group changed") {
+		t.Fatalf("hide a changed group: %d", w.Code)
+	}
+	if w := postForm(h, "/review/allow", url.Values{"csrf": form["csrf"], "return": {"/review"}, "group": {"temporary"}}, cookie); w.Code != 409 {
+		t.Errorf("a group form with no version: %d", w.Code)
+	}
+	if hides, _ := lake.Catalog.HiddenProjects(ctx); len(hides) != 0 {
 		t.Fatalf("hid %d", len(hides))
 	}
 }

@@ -117,7 +117,7 @@ func (s *Server) reviewHidePage(w http.ResponseWriter, r *http.Request) {
 	// Hide all on a group names the group, which can hold more projects
 	// than one batch; the lake reads them from its queue.
 	if id := r.PostForm.Get("group"); id != "" && action == "hide" && len(keys) == 0 {
-		g, found, err := s.groupFrom(r, id, filterOf(back))
+		g, found, err := s.groupFrom(r, id, r.PostForm.Get("group_version"), filterOf(back))
 		if err != nil {
 			pageError(w, r, err)
 			return

@@ -66,13 +66,14 @@ type allowView struct {
 	Keys    []string             `json:"-"`
 	// Group is the review group the plan was made for; the confirm page
 	// names it rather than its keys, which can be more than one batch.
-	Group       string `json:"-"`
-	Width       string `json:"-"`
-	Note        string `json:"-"`
-	Return      string `json:"-"`
-	ReturnLabel string `json:"-"`
-	CSRF        string `json:"-"`
-	Problem     string `json:"-"`
+	Group        string `json:"-"`
+	GroupVersion string `json:"-"`
+	Width        string `json:"-"`
+	Note         string `json:"-"`
+	Return       string `json:"-"`
+	ReturnLabel  string `json:"-"`
+	CSRF         string `json:"-"`
+	Problem      string `json:"-"`
 }
 
 // filterOf is the review filter a return names: the device of a device
@@ -323,7 +324,7 @@ func (s *Server) reviewAllowPage(w http.ResponseWriter, r *http.Request) {
 		s.renderBack(w, r, back, "No rule can be added for the selected projects: each is allowed, hidden, denied, no longer on a device, or only on devices whose config.json sets their own allow rules or that fetch no profile (run terva-lampi lakes adopt on those). Reload to see the queue as it is now.", http.StatusConflict)
 		return
 	}
-	v.Return, v.Group = back, group
+	v.Return, v.Group, v.GroupVersion = back, group.ID, group.Version
 	s.renderAllow(w, r, v, http.StatusOK)
 }
 
@@ -374,7 +375,7 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 		s.renderBack(w, r, back, "Nothing was saved, and no rule can be added for the selected projects any more.", status)
 		return
 	}
-	v.Return, v.Note, v.Group = back, note, group
+	v.Return, v.Note, v.Group, v.GroupVersion = back, note, group.ID, group.Version
 	v.Problem = msg
 	if msg == "" {
 		v.Problem = allowProblems[code]
