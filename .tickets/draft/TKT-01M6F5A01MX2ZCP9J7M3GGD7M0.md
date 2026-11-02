@@ -13,15 +13,18 @@ labels:
   - policy
 assignees: []
 milestone: null
-parent: null
+parent: TKT-01M6F5K38C9N9Y1TRX4PZB7JSW
 origin: null
-dependencies: []
+dependencies:
+  - TKT-01M6F5K49E9JCCE6C80FTTNRP3
+  - TKT-01M6F5K429GX4TZFJB35TV3KC7
+  - TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0
 blocks_on: none
 references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-02T22:15:33Z
+updated_at: 2026-11-02T22:21:09Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -45,7 +48,7 @@ The current agent consumes the default capture profile with 75 allow rules. Its 
 
 ### Proposed investigation and migration
 
-First obtain permitted metadata access to the current bay list, memberships, routing rules and working-directory evidence. The current events:read MCP surface cannot enumerate these; local lake data is protected by its service account. TKT-01M6F56Z6QP6C2P3M1T7J923BV (MCP: discover sessions and bays for lake triage) records that tooling gap.
+First obtain permitted metadata access to the current bay list, memberships, routing rules and working-directory evidence. The current events:read MCP surface cannot enumerate these; local lake data is protected by its service account. TKT-01M6F56Z6QP6C2P3M1T7J923BV (MCP and CLI: discover bays, projects and session metadata) records that tooling gap.
 
 Evaluate code-reviews as the target bay name and the verified Vuoro review working-directory prefix plus harness=claude as an initial selector. Check whether this folder holds only review workflows, enumerate other machines/layouts explicitly, and inspect controls before accepting that selector. Confirm intended readers because a bay is also an access boundary.
 
@@ -63,3 +66,11 @@ No live bays, memberships, grants, routing rules or profiles were changed. No co
 - [ ] Validate directory selectors against candidate prompts and representative development sessions, and produce a complete dry-run move list with exclusions.
 - [ ] Specify future routing and existing-session moves separately, including required reader grants and behavior on later manifests.
 - [ ] Record the approved split or the precise tooling still needed, without claiming a sampled search is a complete migration preview.
+- [ ] Exercise the new discovery/selection tools and doctor recommendations on the Vuoro case, recording false positives, companion coverage and any remaining UX/tool gaps.
+- [ ] Review add versus move and one versus multiple destinations explicitly, verify future manifests do not unexpectedly restore source memberships, and record any operator-approved live changes separately.
+
+## Notes
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T22:20:33Z
+
+The owner expanded the planning scope to multi-bay UX, agent/CLI tools and doctor heuristics. This ticket remains the real-world validation exercise under TKT-01M6F5K38C9N9Y1TRX4PZB7JSW (Discover sessions and organize them into one or more bays). Its original proposed single review bay is an initial case, not a one-destination restriction. Validate reviewer/rater cohorts and missing project IDs using TKT-01M6F56Z6QP6C2P3M1T7J923BV (MCP and CLI: discover bays, projects and session metadata); consume the shared plan from TKT-01M6F5K45WCQKE37JN4CC0WEY7 (Bays: plan and apply selected sessions to multiple destinations) and recommendations from TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0 (Doctor: suggest bay destinations with supporting evidence). Do not treat a text-search page or a heuristic suggestion as authorization to migrate the live lake. The new backlog can be implemented and tested on synthetic data before deployment; a deployment prerequisite and live operator decision must be explicit when this exercise is picked up.
