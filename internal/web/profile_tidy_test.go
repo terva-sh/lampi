@@ -156,3 +156,129 @@ func TestWithRules(t *testing.T) {
 		}
 	}
 }
+
+func TestWideFolder(t *testing.T) {
+	for dir, want := range map[string]bool{
+		"/home/me/.t3/worktrees": true,
+		"/var/folders/b1/x/T":    true,
+		"/mnt/h":                 true,
+		"/tmp":                   false,
+		"/":                      false,
+		"/home":                  false,
+		"/home/me":               false,
+		"/Users/me":              false,
+		"/var/home/me":           false,
+		"/var/root":              false,
+		"/var/rooted":            true,
+		"/mnt/c/Users":           false,
+		"/mnt/c/Users/me":        false,
+		"relative/path":          false,
+	} {
+		if got := wideFolder(dir); got != want {
+			t.Errorf("wideFolder(%q) = %v, want %v", dir, got, want)
+		}
+	}
+}
+
+func TestParentOf(t *testing.T) {
+	for _, c := range []struct{ remote, cwd, want string }{
+		{"", "/home/me/.local/state/vuoro/worktrees/20261102-a", "/home/me/.local/state/vuoro/worktrees"},
+		{"", "/home/me/.t3/worktrees/lampi/t3-1/", "/home/me/.t3/worktrees/lampi"},
+		{"git.example/team/app", "/work/app/x", ""},
+		{"", "/home/me/scratch", ""},
+		{"", "/tmp/x", ""},
+		{"", "/var/root/project", ""},
+		{"", "/", ""},
+		{"", "", ""},
+		{"", `C:\work\x`, ""},
+	} {
+		if got := parentOf(c.remote, c.cwd); got != c.want {
+			t.Errorf("parentOf(%q, %q) = %q, want %q", c.remote, c.cwd, got, c.want)
+		}
+	}
+}
+
+func TestFolderFolds(t *testing.T) {
+	cwd := func(s string) config.ProjectMatch { return config.ProjectMatch{CWDPrefix: s} }
+	wt := "/home/me/.t3/worktrees"
+	for _, c := range []struct {
+		name  string
+		rules []config.ProjectMatch
+		want  []folderFold
+	}{
+		{"three siblings", []config.ProjectMatch{cwd(wt + "/a/t1"), cwd(wt + "/a/t2"), cwd(wt + "/a/t3/")}, []folderFold{{wt + "/a", 3}}},
+		{"two is not enough", []config.ProjectMatch{cwd(wt + "/a/t1"), cwd(wt + "/a/t2")}, nil},
+		{"three under one child is one subfolder", []config.ProjectMatch{cwd(wt + "/a/t1"), cwd(wt + "/a/t2"), cwd(wt + "/a/t3"), cwd(wt + "/b/t1"), cwd(wt + "/c/t1")},
+			[]folderFold{{wt, 5}, {wt + "/a", 3}}},
+		{"never root's home", []config.ProjectMatch{cwd("/var/root/a"), cwd("/var/root/b"), cwd("/var/root/c")}, nil},
+		{"never a home or a top-level folder", []config.ProjectMatch{cwd("/home/me/a"), cwd("/home/me/b"), cwd("/home/you/c"), cwd("/tmp/x"), cwd("/tmp/y"), cwd("/tmp/z")}, nil},
+		{"not when a rule already covers the folder", []config.ProjectMatch{cwd(wt + "/a/t1"), cwd(wt + "/a/t2"), cwd(wt + "/a/t3"), cwd(wt)}, nil},
+		{"a rule with another field is not a folder rule", []config.ProjectMatch{cwd(wt + "/a/t1"), cwd(wt + "/a/t2"), {CWDPrefix: wt + "/a/t3", GitRemote: "h/o/r"}}, nil},
+	} {
+		if got := folderFolds(c.rules); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
+		}
+	}
+	rules := []config.ProjectMatch{{GitRemote: "h/o/r"}, cwd(wt + "/a/t1"), cwd("/other"), cwd(wt + "/b/t1/"), {CWDPrefix: wt + "/c", GitRemote: "h/o/s"}, cwd(wt + "/a/t2")}
+	got, n := foldFolder(rules, wt)
+	want := []config.ProjectMatch{{GitRemote: "h/o/r"}, cwd(wt), cwd("/other"), {CWDPrefix: wt + "/c", GitRemote: "h/o/s"}}
+	if n != 3 || !slices.Equal(got, want) {
+		t.Errorf("foldFolder: %d %+v, want 3 %+v", n, got, want)
+	}
+}
+
+// The editor offers to fold sibling folder rules into their folder, and
+// the offer goes through the preview like the owner fold.
+func TestEditorFoldsFolders(t *testing.T) {
+	lake, idp, h, _ := operatorLake(t, "", "readers", "admins")
+	ctx := t.Context()
+	wt := "/home/me/.t3/worktrees/lampi"
+	rules := []config.ProjectMatch{
+		{CWDPrefix: wt + "/t3-1"},
+		{GitRemote: "git.example/team/app"},
+		{CWDPrefix: wt + "/t3-2"},
+		{CWDPrefix: wt + "/t3-3"},
+		{CWDPrefix: "/home/me/a"},
+		{CWDPrefix: "/home/me/b"},
+		{CWDPrefix: "/home/me/c"},
+	}
+	doc, _ := json.Marshal(config.Profile{Projects: config.Projects{Allow: rules}})
+	p, _, err := lake.Catalog.PutProfile(ctx, config.DefaultProfile, doc, "test", "", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+
+	page := squash(html.UnescapeString(get(h, "/profiles/default/edit", cookie).Body.String()))
+	if !strings.Contains(page, "3 cwd_prefix rules name folders under "+wt+" . One cwd_prefix would cover them") {
+		t.Errorf("editor offers no fold of %s", wt)
+	}
+	if strings.Contains(page, `value="/home/me"`) {
+		t.Error("the editor offers to fold into a home directory")
+	}
+
+	v := ruleForm(csrf, p.Revision, rules)
+	v.Set("folder", wt)
+	w := postForm(h, "/profiles/default/preview", v, cookie)
+	if w.Code != 200 {
+		t.Fatalf("preview: %d %s", w.Code, w.Body)
+	}
+	var got config.Profile
+	if err := json.Unmarshal([]byte(hiddenValue(t, w.Body.String(), "document")), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []config.ProjectMatch{{CWDPrefix: wt}, rules[1], rules[4], rules[5], rules[6]}
+	if !slices.Equal(got.Projects.Allow, want) {
+		t.Errorf("fold: %+v, want %+v", got.Projects.Allow, want)
+	}
+	if note := hiddenValue(t, w.Body.String(), "note"); note != "Replace 3 cwd_prefix rules under "+wt+" with one cwd_prefix" {
+		t.Errorf("note %q", note)
+	}
+
+	v = ruleForm(csrf, p.Revision, rules)
+	v.Set("folder", "/home/me")
+	if w := postForm(h, "/profiles/default/preview", v, cookie); w.Code != 200 || !strings.Contains(w.Body.String(), "This changes nothing") {
+		t.Errorf("a fold the editor does not offer: %d", w.Code)
+	}
+}
