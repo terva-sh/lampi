@@ -233,15 +233,24 @@ document.querySelectorAll('[data-rule-tools]').forEach(tools => {
 // Drag to move: a rule's handle moves it within its list, and the rows'
 // field names are numbered again in their new order, which the next
 // preview keeps. Group headers hide, since they no longer describe the
-// rows below them until the preview draws them again.
+// rows below them until the preview draws them again. The doctor's fix
+// buttons name rules by their place in the order the page was drawn
+// with, so they are disabled until the preview offers them again.
 document.querySelectorAll('.rule-list').forEach(list => {
   const sort = list.parentElement.querySelector('[data-rule-moved]');
+  const form = list.closest('form');
   let dragged = null;
   const renumber = () => {
     list.querySelectorAll('[data-rule]').forEach((row, i) => {
       row.querySelectorAll('[name]').forEach(el => { el.name = el.name.replace(/^(allow|deny)\.\d+\./, `$1.${i}.`); });
-      row.querySelectorAll('button[value]').forEach(el => { el.value = el.value.replace(/^(allow|deny)\.\d+(?=\.|$)/, `$1.${i}`); });
+      row.querySelectorAll('button[name="remove"], button[name="move"], input[name="pick"]').forEach(el => { el.value = el.value.replace(/^(allow|deny)\.\d+(?=\.|$)/, `$1.${i}`); });
     });
+    if (form) {
+      form.querySelectorAll('button[name="narrow"], button[name="fold"], button[name="folder"], button[name="doctor"]').forEach(b => {
+        b.disabled = true;
+        b.title = 'Preview first: the rules moved';
+      });
+    }
     list.querySelectorAll('[data-rule-group]').forEach(g => { g.hidden = true; });
     if (sort) sort.hidden = false;
   };
