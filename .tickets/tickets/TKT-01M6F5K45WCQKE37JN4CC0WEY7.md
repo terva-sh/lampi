@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K45WCQKE37JN4CC0WEY7
 title: "Bays: plan and apply selected sessions to multiple destinations"
 type: task
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -20,10 +20,17 @@ dependencies:
   - TKT-01M6F5K3BTS8X9BTFZTECWYDCR
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3-6387cc8a
+  branch: t3/split-code-reviews-bay
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
+  commit: 85b4f73fa6c7658b51d8514455ba3d60a676eecb
+  session: null
+  claimed_at: 2026-11-02T23:10:05Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T22:57:43Z
+updated_at: 2026-11-02T23:10:05Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -55,3 +62,7 @@ Re-check authorization during apply. Reading or generating a plan grants no writ
 - [ ] Tests cover multi-bay preservation, stale plans, missing destinations, last-bay/default behavior, retry idempotency and audit output.
 - [ ] Verification and state-checked recovery are available, with existing-session moves documented separately from future routing.
 - [ ] A proposed future-routing rule can be previewed without installing it, with its metadata-wide catchment and later-manifest effects distinguished from the exact historical selection.
+
+## Implementation plan
+
+Build a bounded shared service that consumes all metadata pages into exact UID selections with exclusions, then previews add/move edits without writes. Plans include complete per-session visible before/after, holds/issues/no-ops, destination/access warnings and state fingerprints. Require current administrator authority for apply; re-derive the reviewed request and compare membership/routing/destination/grant state in one transaction before changes. Use a durable migration receipt for idempotent retries, verification and inverse previews that preserve unrelated later memberships and reject changed touched memberships. New destination creation is explicit and grants remain separate. Add host select/plan/apply/verify/recover CLI commands and an independent hypothetical routing catchment preview, with semantic concurrency/hold/audit/recovery tests and documentation. Limit each atomic operation to 500 sessions; excess selections fail rather than sampling.
