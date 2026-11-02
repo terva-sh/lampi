@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:06:27Z
-updated_at: 2026-11-02T19:23:40Z
+updated_at: 2026-11-02T19:26:28Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -76,3 +76,7 @@ Implemented on t3/review-groups. Groups come from profiledoctor.GroupOf, which t
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:23:40Z
 
 terva-review on #241 (run 2253): a group named only by kind and owner/folder let Hide all reach projects that joined the group after the page loaded. Fixed: each group carries a version, sha256 of its keys cut to 16 hex digits. Every group form sends it as group_version, and groupFrom refuses a mismatch, so a changed or unversioned group answers 409 and changes nothing. Test: TestReviewGroupRefusesChangedMembers.
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:26:28Z
+
+terva-review on #241 (run 2255): the confirm page's Save checked the group only when it re-rendered after a failed save. Fixed: reviewAllowSavePage checks the group and its version before writing any profile, and answers 409 when they no longer match. Test: TestReviewGroupAllowSaveRefusesChangedMembers.

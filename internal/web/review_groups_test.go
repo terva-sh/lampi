@@ -211,3 +211,39 @@ func TestReviewGroupRefusesChangedMembers(t *testing.T) {
 		t.Fatalf("hid %d", len(hides))
 	}
 }
+
+// TKT-01M6ETFR3B: a group Allow's confirm page saves nothing once the
+// group's projects changed after it was planned.
+func TestReviewGroupAllowSaveRefusesChangedMembers(t *testing.T) {
+	lake, idp, h, ds := reviewLake(t, "readers", "admins")
+	ctx := t.Context()
+	put := func(dirs ...string) {
+		var ps []protocol.InventoryProject
+		for _, d := range dirs {
+			ps = append(ps, protocol.InventoryProject{CWD: d, CWDs: 1, Sessions: 1, Reason: config.RefusedNoMatch})
+		}
+		now := time.Now()
+		if _, err := lake.Catalog.PutDeviceInventory(ctx, ds[1].ID, protocol.AgentInventory{Mode: protocol.InventorySociable, GeneratedAt: now, Projects: ps}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("/srv/wt/a", "/srv/wt/b", "/srv/wt/c")
+	cookie, _ := signIn(t, idp, h)
+	csrf := csrfOf(t, h, cookie)
+	var api reviewView
+	if err := json.Unmarshal(get(h, "/api/web/v1/review", cookie).Body.Bytes(), &api); err != nil || len(api.Groups) != 1 {
+		t.Fatalf("api groups: %v %+v", err, api.Groups)
+	}
+	w := postForm(h, "/review/allow", url.Values{"csrf": {csrf}, "return": {"/review"}, "group": {"folder /srv/wt"}, "group_version": {api.Groups[0].Version}}, cookie)
+	if w.Code != 200 {
+		t.Fatalf("plan: %d", w.Code)
+	}
+	save := formFields(t, w.Body.String(), "/review/allow/save")
+	put("/srv/wt/a", "/srv/wt/b", "/srv/wt/c", "/srv/wt/new")
+	if w := postForm(h, "/review/allow/save", save, cookie); w.Code != 409 || !strings.Contains(w.Body.String(), "That group changed") {
+		t.Fatalf("save a changed group: %d", w.Code)
+	}
+	if ci, _ := lake.Catalog.ProfileByName(ctx, "ci"); len(ci.Config.Projects.Allow) != 0 {
+		t.Fatalf("saved %+v", ci.Config.Projects.Allow)
+	}
+}
