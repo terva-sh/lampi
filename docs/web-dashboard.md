@@ -179,6 +179,15 @@ ID on hover; a machine no device names shows its ID shortened. Times read as
 UTC to the second, such as `2026-11-02 22:21:00Z`, with the full stored value
 on hover.
 
+The **Sessions** filters narrow by harness, normalization state, project and
+machine. The Project box suggests the repositories and folders your sessions
+come from. It first suggests the owners that hold two or more repositories,
+and the folders where two or more project folders branch, such as
+`/home/me/.t3/worktrees`. Type a repository or owner in any form a remote
+takes, or a folder, and the list shows the sessions in it and under it. The
+Machine list names each machine by its device. The suggestions are read
+again once a minute at most.
+
 Overview and the first session page refresh every 25 seconds while visible.
 Other pages stay still. Refresh pauses on failures, expired login, hidden tabs or
 keyboard focus inside the updated table. Manual refresh retries. Forms, navigation

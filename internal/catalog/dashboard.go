@@ -24,10 +24,10 @@ type PageRequest struct {
 	// machine posted (TKT-01M6F7JMQYGY3WGGV55H0M3FR5).
 	Remote, Folder, Machine string
 	Unlinked                bool
-	State    string
-	Limit    int
-	Cursor   string
-	Current  bool
+	State                   string
+	Limit                   int
+	Cursor                  string
+	Current                 bool
 	// Resolved includes resolved conflicts. Only the conflicts
 	// collection takes it.
 	Resolved bool
