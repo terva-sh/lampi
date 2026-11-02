@@ -115,6 +115,12 @@ func (c *Catalog) ProjectChoices(ctx context.Context, scope Scope) (projects []P
 		}
 		projects = append(projects, p)
 	}
+	// Next stops on an execution error too: a partial list must not pass
+	// for a whole one, since the dashboard caches it.
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, err
+	}
 	if err := rows.Close(); err != nil {
 		return nil, nil, err
 	}
