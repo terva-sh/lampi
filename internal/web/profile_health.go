@@ -41,6 +41,26 @@ func (s *Server) diagnose(r *http.Request, name string, p config.Projects) (prof
 	return profiledoctor.Diagnose(in), nil
 }
 
+// pendingHides is hide less the projects p still admits on a device.
+// A Remove and hide queues its projects for the save; an edit after it
+// that admits them again, such as putting the rule back, takes them off.
+func (s *Server) pendingHides(r *http.Request, name string, p config.Projects, hide []string) ([]string, error) {
+	if len(hide) == 0 {
+		return hide, nil
+	}
+	in, err := profiledoctor.Gather(r.Context(), s.catalog, name, p)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, h := range hide {
+		if k, ok := parseKey(h); ok && !profiledoctor.Admits(in, k) {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
 // health is the panel for p, or nil when the devices could not be read:
 // a report made without them would call rules safe to remove that are
 // in use.

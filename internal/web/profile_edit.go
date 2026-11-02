@@ -474,6 +474,10 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 		if problem != "" {
 			v.Problem, status = problem, http.StatusConflict
 		}
+		if f.Hide, err = s.pendingHides(r, name, p.Projects, f.Hide); err != nil {
+			pageError(w, r, err)
+			return
+		}
 	}
 	v.Form = f
 	if err == nil {
@@ -559,6 +563,14 @@ func (s *Server) profileSavePage(w http.ResponseWriter, r *http.Request) {
 	if herr != nil {
 		s.renderProfile(w, r, name, herr.Error()+" Nothing was saved.", http.StatusBadRequest)
 		return
+	}
+	// Hide only what the saved rules stop admitting, whatever the form
+	// queued.
+	if sp, _, perr := checkProfile(raw); perr == nil {
+		if hide, herr = s.pendingHides(r, name, sp.Projects, hide); herr != nil {
+			pageError(w, r, herr)
+			return
+		}
 	}
 	saved, status, code, msg := s.saveProfile(r, name, raw, base, r.PostForm.Get("note"))
 	back := returnPath(r.PostForm.Get("return"))

@@ -444,6 +444,19 @@ func pending(in Input, rep *Report) []Finding {
 	return out
 }
 
+// Admits reports whether in's rules admit the project k on any device
+// that holds it.
+func Admits(in Input, k catalog.ProjectKey) bool {
+	for _, d := range in.Devices {
+		for _, p := range d.Projects {
+			if pk, ok := catalog.ProjectKeyOf(p); ok && pk == k && in.Projects.Permitted(config.ProjectID{CWD: p.CWD, CWDHash: p.CWDHash, GitRemote: p.GitRemote}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ApplySafe removes every rule a safe finding names, and says how many
 // went. The report must be the one Diagnose made for these rules.
 func ApplySafe(p config.Projects, rep Report) (config.Projects, int) {

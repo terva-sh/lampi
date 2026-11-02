@@ -171,3 +171,38 @@ func TestRemoveAndHideStaysSavable(t *testing.T) {
 		t.Errorf("the save form hides %d projects, want the %d queued", len(save["hide"]), maxReviewBatch)
 	}
 }
+
+// A hide queued by Remove and hide is dropped once an edit admits the
+// project again, in the next preview and at the save.
+func TestRemoveAndHideUndone(t *testing.T) {
+	f, rules := healthLake(t)
+	ctx := t.Context()
+	stored, _ := f.lake.Catalog.ProfileByName(ctx, config.DefaultProfile)
+	v := ruleForm(f.csrf, stored.Revision, rules)
+	v.Set("narrow", "3")
+	w := postForm(f.h, "/profiles/default/preview", v, f.cookie)
+	if w.Code != 200 || !slices.Equal(formFields(t, w.Body.String(), "/profiles/default/save")["hide"], []string{"cwd /tmp/probe-1"}) {
+		t.Fatalf("remove and hide: %d", w.Code)
+	}
+
+	// Put the rule back, change something else, and preview again.
+	back := ruleForm(f.csrf, stored.Revision, append(slices.Clone(rules), config.ProjectMatch{GitRemote: "git.example/team/extra"}))
+	back.Add("hide", "cwd /tmp/probe-1")
+	w = postForm(f.h, "/profiles/default/preview", back, f.cookie)
+	if w.Code != 200 {
+		t.Fatalf("preview: %d %s", w.Code, w.Body)
+	}
+	save := formFields(t, w.Body.String(), "/profiles/default/save")
+	if len(save["hide"]) != 0 {
+		t.Errorf("the preview still hides %v", save["hide"])
+	}
+
+	// A save form that still names it hides nothing the saved rules admit.
+	save.Add("hide", "cwd /tmp/probe-1")
+	if w := postForm(f.h, "/profiles/default/save", save, f.cookie); w.Code != 303 {
+		t.Fatalf("save: %d %s", w.Code, w.Body)
+	}
+	if hidden, _ := f.lake.Catalog.HiddenProjects(ctx); len(hidden) != 0 {
+		t.Errorf("hid %+v, which the saved rules admit", hidden)
+	}
+}
