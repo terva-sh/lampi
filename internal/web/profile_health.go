@@ -2,7 +2,11 @@ package web
 
 import (
 	"net/http"
+	"slices"
+	"strconv"
+	"strings"
 
+	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/profiledoctor"
 )
@@ -16,12 +20,38 @@ type healthItem struct {
 	profiledoctor.Finding
 	RuleText, ByText string
 	ReplaceText      []string
+	// Edit shows the fix as a button, and Grouped leaves out the message
+	// its group already shows.
+	Edit, Grouped bool
+}
+
+// healthGroup is the findings of one code, in the order the doctor
+// listed them. A group of two or more shows as one row with the shared
+// message and, in the editor, one button that applies every fix of the
+// code (TKT-01M6F4MD2QAGQNJ9D6XSYWY7J2).
+type healthGroup struct {
+	Code, Level string
+	// Message is the message every finding shares, or "".
+	Message string
+	Items   []healthItem
+	// Admits counts the projects the group's rules admit today, each
+	// once however many of its rules admit it, Fixes
+	// the findings its bulk button applies, and Bulk is that button's
+	// label, "" when it offers none.
+	Admits, Fixes int
+	Bulk          string
 }
 
 // healthView is the panel.
 type healthView struct {
 	profiledoctor.Report
-	Items []healthItem
+	Items  []healthItem
+	Groups []healthGroup
+	// DenyTemporary is the deny rules the editor offers for the
+	// temporary folders in the findings and the hides a save queues,
+	// as text, and DenyRules the rules.
+	DenyTemporary []string
+	DenyRules     []config.ProjectMatch
 	// Safe counts the safe fixes, and Unmatched the rules that admit
 	// nothing today, safe or not.
 	Safe, Unmatched int
@@ -72,7 +102,7 @@ func (s *Server) health(r *http.Request, name string, p config.Projects, edit bo
 	}
 	v := &healthView{Report: rep, Edit: edit, EditURL: profileURL(name) + "/edit"}
 	for _, f := range rep.Findings {
-		it := healthItem{Finding: f}
+		it := healthItem{Finding: f, Edit: edit}
 		if f.Rule != nil {
 			it.RuleText = ruleText(*f.Rule)
 		}
@@ -93,5 +123,148 @@ func (s *Server) health(r *http.Request, name string, p config.Projects, edit bo
 		}
 		v.Items = append(v.Items, it)
 	}
+	v.Groups = groupFindings(v.Items, edit)
 	return v
+}
+
+// bulkFixable reports whether a finding's fix is one the group's bulk
+// button applies: a removal or a narrowing of one rule.
+func bulkFixable(f profiledoctor.Finding) bool {
+	return f.Rule != nil && f.Index >= 0 && (f.Fix == profiledoctor.FixSafe || f.Fix == profiledoctor.FixRemove || f.Fix == profiledoctor.FixNarrow)
+}
+
+// bulkFindings is the findings of code the bulk button applies.
+func bulkFindings(rep profiledoctor.Report, code string) []profiledoctor.Finding {
+	var out []profiledoctor.Finding
+	for _, f := range rep.Findings {
+		if f.Code == code && bulkFixable(f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// bulkLabel says what applying fs does, as "Remove 15 rules and hide 15
+// projects", or "" for fewer than two fixes.
+func bulkLabel(fs []profiledoctor.Finding) string {
+	if len(fs) < 2 {
+		return ""
+	}
+	var removes, narrows, exact int
+	var hide []catalog.ProjectKey
+	for _, f := range fs {
+		if f.Fix == profiledoctor.FixNarrow && len(f.Replace) > 0 {
+			narrows++
+			exact += len(f.Replace)
+		} else {
+			removes++
+		}
+		for _, h := range f.Hide {
+			if !slices.Contains(hide, h) {
+				hide = append(hide, h)
+			}
+		}
+	}
+	var parts []string
+	if removes > 0 {
+		parts = append(parts, "remove "+strconv.Itoa(removes)+" "+plural(removes, "rule", "rules"))
+	}
+	if narrows > 0 {
+		parts = append(parts, "narrow "+strconv.Itoa(narrows)+" "+plural(narrows, "rule", "rules")+" to "+strconv.Itoa(exact)+" exact "+plural(exact, "rule", "rules"))
+	}
+	if len(hide) > 0 {
+		parts = append(parts, "hide "+strconv.Itoa(len(hide))+" "+plural(len(hide), "project", "projects"))
+	}
+	out := parts[0]
+	if len(parts) > 1 {
+		out = strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+	return strings.ToUpper(out[:1]) + out[1:]
+}
+
+// groupFindings gathers items by code, in the order each code first
+// appears.
+func groupFindings(items []healthItem, edit bool) []healthGroup {
+	var out []healthGroup
+	at := map[string]int{}
+	// A project two of a group's rules admit counts once.
+	admits := map[string]map[catalog.ProjectKey]bool{}
+	for _, it := range items {
+		i, ok := at[it.Code]
+		if !ok {
+			i = len(out)
+			at[it.Code] = i
+			out = append(out, healthGroup{Code: it.Code, Level: it.Level, Message: it.Message})
+		}
+		g := &out[i]
+		if g.Message != it.Message {
+			g.Message = ""
+		}
+		g.Items = append(g.Items, it)
+		if admits[it.Code] == nil {
+			admits[it.Code] = map[catalog.ProjectKey]bool{}
+		}
+		for _, a := range it.Admits {
+			admits[it.Code][a.Key] = true
+		}
+		g.Admits = len(admits[it.Code])
+	}
+	for i := range out {
+		g := &out[i]
+		if len(g.Items) < 2 {
+			continue
+		}
+		var fs []profiledoctor.Finding
+		for j := range g.Items {
+			g.Items[j].Grouped = g.Message != ""
+			if bulkFixable(g.Items[j].Finding) {
+				fs = append(fs, g.Items[j].Finding)
+			}
+		}
+		// Apply safe fixes already removes a group of safe fixes.
+		allSafe := !slices.ContainsFunc(fs, func(f profiledoctor.Finding) bool { return f.Fix != profiledoctor.FixSafe })
+		if edit && !allSafe {
+			g.Fixes, g.Bulk = len(fs), bulkLabel(fs)
+		}
+	}
+	return out
+}
+
+// temporaryDenies is the deny rules that keep new sessions out of the
+// temporary folders rep flags and hide queues, less those deny already
+// covers: one per temp root or .cache folder, in the order first seen.
+func temporaryDenies(rep profiledoctor.Report, hide []string, deny []config.ProjectMatch) []config.ProjectMatch {
+	var dirs []string
+	for _, f := range rep.Findings {
+		if f.Code == profiledoctor.CodeTemporary && f.Rule != nil && f.Rule.CWDPrefix != "" {
+			dirs = append(dirs, f.Rule.CWDPrefix)
+		}
+	}
+	for _, h := range hide {
+		if k, ok := parseKey(h); ok && k.Kind == catalog.KeyCWD && profiledoctor.Temporary(k.Key) {
+			dirs = append(dirs, k.Key)
+		}
+	}
+	var out []config.ProjectMatch
+	for _, d := range dirs {
+		r, ok := profiledoctor.TemporaryDeny(d)
+		if !ok || slices.Contains(out, r) || slices.ContainsFunc(deny, func(x config.ProjectMatch) bool { return config.Covers(x, r) }) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// offerDeny sets the deny rules the editor offers for the temporary
+// folders in the report and in hide, the projects the save hides.
+func (v *healthView) offerDeny(hide []string, deny []config.ProjectMatch) {
+	if v == nil || !v.Edit {
+		return
+	}
+	v.DenyRules = temporaryDenies(v.Report, hide, deny)
+	v.DenyTemporary = nil
+	for _, r := range v.DenyRules {
+		v.DenyTemporary = append(v.DenyTemporary, ruleText(r))
+	}
 }

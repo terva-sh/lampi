@@ -397,6 +397,7 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
 	v.Health = s.health(r, v.Name, config.Projects{Allow: normalizeRules(v.Form.Allow), Deny: normalizeRules(v.Form.Deny)}, true)
+	v.Health.offerDeny(v.Form.Hide, normalizeRules(v.Form.Deny))
 	v.AllowRows, v.DenyRows = ruleRows("allow", v.Form.Allow, v.Form.AllowRaw, v.Health), ruleRows("deny", v.Form.Deny, v.Form.DenyRaw, nil)
 	for i := range v.AllowRows {
 		if r := normalizeRules(v.Form.Allow[i : i+1]); len(r) == 1 && slices.Contains(v.Form.Picked, r[0]) {
