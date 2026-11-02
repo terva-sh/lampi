@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T21:38:02Z
-updated_at: 2026-11-02T21:38:05Z
+updated_at: 2026-11-02T21:39:07Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -59,6 +59,12 @@ v0.12.0 was the other choice, since the release adds dashboard features. The own
 
 ## Acceptance criteria
 
-- [ ] An isolated v0.11.0 upgrade rehearsal and the release gates pass on the synchronized main commit
+- [x] An isolated v0.11.0 upgrade rehearsal and the release gates pass on the synchronized main commit
 - [ ] The tag is published on both forges, and the archives, checksums and images name the tag
 - [ ] Both release bodies describe the features, the upgrade and rollback
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T21:39:07Z
+
+Gates on main 527d5c3 (#245), in a detached scratch worktree: GOFLAGS=-mod=mod just ci passed; just release-check passed; just release-snapshot built all five archives and checksums. Isolated rehearsal (release-v0111.* under the agent-scratch lampi root, rehearse.sh and rehearse.log), old = GitHub's v0.11.0 linux_amd64 verified against checksums.txt, new = the snapshot's linux_amd64: v0.11.0 serve with web config and token, synthetic Claude session synced, profile imported; candidate: migrate --check reports schema 21 up to date, index stays 8, unchanged sync uploaded 0; serve profiles doctor ran while serve ran and flagged home_folder, covered, temporary; --write then set saved revision 2 without the covered rule; appended session uploaded; fsck 3 entries 0 bad; v0.11.0 reopened the lake, read revision 2, unchanged sync uploaded 0; no errors in serve logs. No live config, token, lake or agent touched.
