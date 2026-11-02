@@ -304,8 +304,8 @@ complete selection has been reviewed. Projects and sessions accept
 `harness`, `project`, `cwd_prefix`, `cwd_hash` and `machine`, combined with
 AND. `cwd_prefix` is an absolute directory and its descendants on a path
 boundary, including Unicode paths. Sessions also accepts `unlinked=true`.
-Bays accepts only paging parameters, and the single-session route accepts
-no query. Unknown, repeated or invalid parameters are refused.
+Bays accepts only paging parameters. Session/project discovery also
+accepts the `bays` selector below, including the single-session route. Unknown, repeated or invalid parameters are refused.
 
 Session metadata includes `session_uid`, native ID, harness, project ID
 and label, last head update, normalization state, `cwd`, `cwd_hash`,
@@ -331,6 +331,29 @@ characters. As with session discovery, pages reflect current catalog state.
 MCP `list_bays`, `list_projects`, `list_sessions` and `get_session` use the
 same query functions and schemas. `get_session` takes `session_uid`.
 See [agent discovery](reading-the-lake.md#discover-before-searching).
+
+### Bay selection in reads
+
+Search, event pages, excerpts, tool statistics, diagnosis, the read-token
+event stream and project/session metadata discovery accept `bays`:
+one comma-separated string containing up to 20 authorized bay IDs, names
+or aliases (maximum 4096 bytes, no empty references). `list_bays` has no
+selector. Unknown and inaccessible references both return 400
+`invalid_bay_selection` without echoing a name. Repeated/empty `bays`
+parameters are 400 `invalid_request`.
+
+Multiple selected bays mean any-of, intersected with current access and
+other filters. Membership checks deduplicate sessions before counts and
+aggregates. Single-session reads return 404 `not_found` outside selected
+bays. Search, event and discovery continuations bind the resolved selection
+and access scope; a changed context requires restarting. Current membership
+is rechecked even with an unchanged cursor. Omitting `bays` preserves the
+full authorized scope. Whole-lake index coverage is omitted for a selected
+scope, while search cursors and diagnosis truncation retain their existing
+meaning. This selector changes neither membership nor authorization.
+
+Example: `/api/read/v1/tools?bays=code-reviews,shared&all=true`.
+MCP uses the same `bays` string; CLI uses `--bays code-reviews,shared`.
 
 ### MCP recall tools
 

@@ -275,3 +275,14 @@ Restart the agent after you edit the `harnesses` map. The fields are in
 | `machines/<name>.json` | the config directory | The machine id for a lake other than `default` |
 | `lakes/<name>/` | the XDG state directory, `terva-lampi/` | Outbox, watermarks, last sync, cached profile |
 | `quarantine.jsonl`, `agent.pid` | the state directory | Redaction hits and the running agent's pid, shared by every lake |
+
+### Select bays for remote queries
+
+`query events`, `query tools`, `query diagnose`, `query sessions`,
+`query projects` and `query session UID` accept `--bays ID,NAME`.
+Choose any of up to 20 comma-separated bay IDs, names or aliases; results
+intersect current token access and other filters, counting shared sessions
+once. Omit for all reachable sessions. Single-session reads enforce the
+selected context. Continue with the same selection; unknown/inaccessible
+selectors fail identically. See [bay selection](reading-the-lake.md#focus-on-selected-bays)
+for examples and coverage limits.

@@ -138,6 +138,37 @@ development sessions before proposing a selection. See the
 [bay workflow](bay-workflow.md) for the identification and migration
 contract.
 
+### Focus on selected bays
+
+Pass `bays="code-reviews,project-history"` to search, event/excerpt reads,
+statistics, diagnosis or session/project discovery. Names, IDs and aliases
+are accepted, at most 20 comma-separated references. Multiple bays mean
+**any of** them, intersected with current access and all other filters.
+A session shared by selected bays counts once. Omit the selector for all
+reachable sessions. `list_bays` supplies the visible IDs and names.
+
+Remote CLI commands use `--bays code-reviews,project-history`, for example:
+
+```sh
+terva-lampi query tools --token-file read-token --bays code-reviews --all
+terva-lampi query events --token-file read-token --bays code-reviews \
+  --event-type tool_call --count-by tool.name
+terva-lampi query diagnose SESSION_UID --token-file read-token --bays code-reviews
+```
+
+Keep the same selected bays with every continuation. A cursor cannot be
+reused under another selection or access scope; aliases that still resolve
+to the same IDs are equivalent. Membership is checked again on each read:
+a session moved out of the selection becomes inaccessible in that context.
+Unknown and inaccessible selectors both return `invalid_bay_selection`.
+A known session outside the selection returns `not_found`.
+
+Selection happens before aggregates, examples and diagnosis. Search still
+has the index's coverage limits and can return short pages with a cursor;
+diagnosis can still be truncated. A selected read omits whole-lake index
+counts because they do not describe the selected bays. Selecting bays
+never grants access or changes membership.
+
 ## Read events
 
 ```sh

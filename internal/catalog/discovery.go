@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -73,10 +72,7 @@ func (r *DiscoveryRequest) validate(kind string, scope Scope) (pageCursor, error
 	}
 	filter := *r
 	filter.Cursor = ""
-	bays, sessions := slices.Clone(scope.bays), slices.Clone(scope.sessions)
-	slices.Sort(bays)
-	slices.Sort(sessions)
-	b, _ := json.Marshal([]any{filter, scope.all, bays, scope.limited, sessions})
+	b, _ := json.Marshal([]any{filter, scope.Fingerprint()})
 	hash := sha256.Sum256(b)
 	cur := pageCursor{Version: 1, Kind: kind, Filter: base64.RawURLEncoding.EncodeToString(hash[:])}
 	if r.Cursor == "" {

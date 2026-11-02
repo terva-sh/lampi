@@ -21,6 +21,8 @@ All commands accept --lake NAME or --server URL, --token-file FILE
 (or LAMPI_READ_TOKEN_FILE), and --out FILE (mode 0600; default stdout).
 Output is one JSON object. Listings carry items, next_cursor and as_of.
 Continue until next_cursor is empty before treating an inventory as complete.
+--bays ID,NAME focuses on any selected visible bay (up to 20 IDs, names or
+aliases), intersected with token scope. Omit for all reachable sessions.
 The page limit defaults to 50, maximum 200. Keep filters and limit identical
 when continuing. Changes to the token's access scope require a fresh listing.
 
@@ -36,7 +38,7 @@ No raw artifacts, device configuration or hidden bay memberships are read.
 
 func runQueryMetadata(env Env, kind string, args []string) error {
 	var lake, server, tokenFile, outPath, uid string
-	var harness, project, cwd, hash, machine, cursor string
+	var harness, project, cwd, hash, machine, cursor, bays string
 	var limit int
 	var unlinked bool
 	for {
@@ -46,7 +48,7 @@ func runQueryMetadata(env Env, kind string, args []string) error {
 				name, help string
 			}{
 				{&lake, "lake", "configured lake name"}, {&server, "server", "lake URL"}, {&tokenFile, "token-file", "read token file"}, {&outPath, "out", "output JSON file"},
-				{&harness, "harness", "only this harness"}, {&project, "project", "only this project ID"}, {&cwd, "cwd-prefix", "directory and descendants"}, {&hash, "cwd-hash", "exact directory hash"}, {&machine, "machine", "provenance machine ID"}, {&cursor, "cursor", "continuation from the same filters"},
+				{&harness, "harness", "only this harness"}, {&project, "project", "only this project ID"}, {&cwd, "cwd-prefix", "directory and descendants"}, {&hash, "cwd-hash", "exact directory hash"}, {&machine, "machine", "provenance machine ID"}, {&bays, "bays", "any selected bay IDs, names or aliases, comma-separated"}, {&cursor, "cursor", "continuation from the same filters"},
 			} {
 				fs.StringVar(f.dest, f.name, *f.dest, f.help)
 			}
@@ -82,6 +84,12 @@ func runQueryMetadata(env Env, kind string, args []string) error {
 			return fmt.Errorf("query session needs one SESSION_UID and no listing filters")
 		}
 		path = "/api/read/v1/sessions/" + url.PathEscape(uid)
+	}
+	if bays != "" {
+		if kind == "bays" {
+			return fmt.Errorf("query bays does not accept --bays")
+		}
+		q.Set("bays", bays)
 	}
 	server, token, err := queryTarget(env, lake, server, tokenFile)
 	if err != nil {

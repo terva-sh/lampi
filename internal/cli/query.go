@@ -52,6 +52,9 @@ with the events:read permission. It is read from --token-file, or from
 the file LAMPI_READ_TOKEN_FILE names. There is no default path. Keep
 the file mode 0600. The token is never printed.
 
+--bays ID,NAME focuses on any selected bay (at most 20 IDs, names or aliases),
+intersected with token scope and other filters. Shared sessions count once.
+
 The lake is --server, or the server of the config.json lake --lake
 names, or the only lake config.json lists.
 
@@ -101,13 +104,14 @@ func runQuery(env Env, args []string) error {
 		fmt.Fprint(env.stdout(), queryUsage)
 		return fmt.Errorf("unknown query %q", args[0])
 	}
-	var lake, server, tokenFile, outPath string
+	var lake, server, tokenFile, outPath, bays string
 	var ef eventFlags
 	rest, err := parseFlags(env, args[1:], queryUsage, func(fs *flag.FlagSet) {
 		fs.StringVar(&lake, "lake", "", "the config.json lake to read")
 		fs.StringVar(&server, "server", "", "the lake URL")
 		fs.StringVar(&tokenFile, "token-file", "", "file holding the read token (or LAMPI_READ_TOKEN_FILE)")
 		fs.StringVar(&outPath, "out", "", "JSONL path (default: stdout)")
+		fs.StringVar(&bays, "bays", "", "any selected bay IDs, names or aliases, comma-separated")
 		ef.register(fs)
 	})
 	if err != nil {
@@ -132,8 +136,12 @@ func runQuery(env Env, args []string) error {
 		return err
 	}
 
+	q := ef.query()
+	if bays != "" {
+		q.Set("bays", bays)
+	}
 	if outPath == "" || outPath == "-" {
-		_, err := streamEvents(env, server, token, ef.query(), env.stdout())
+		_, err := streamEvents(env, server, token, q, env.stdout())
 		return err
 	}
 	// The file appears only when the stream is complete, so a short one
@@ -143,7 +151,7 @@ func runQuery(env Env, args []string) error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	_, err = streamEvents(env, server, token, ef.query(), tmp)
+	_, err = streamEvents(env, server, token, q, tmp)
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}

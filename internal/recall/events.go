@@ -238,6 +238,7 @@ func (r *Reader) publication(ctx context.Context, uid string) (catalog.Publicati
 // cursor continues a page run. It is signed, so a client cannot move
 // Off away from the line that Pos names.
 type cursor struct {
+	Scope string `json:"scope,omitempty"`
 	V     int    `json:"v"`
 	UID   string `json:"u"`
 	Gen   int64  `json:"g"`
@@ -309,7 +310,7 @@ func (r *Reader) Events(ctx context.Context, scope catalog.Scope, uid string, re
 	var cur cursor
 	if req.Cursor != "" {
 		var err error
-		if cur, err = r.verify(req.Cursor); err != nil || cur.UID != uid {
+		if cur, err = r.verify(req.Cursor); err != nil || cur.UID != uid || cur.Scope != scope.Fingerprint() {
 			return EventPage{}, ErrInvalid
 		}
 	}
@@ -378,7 +379,7 @@ func (r *Reader) Events(ctx context.Context, scope catalog.Scope, uid string, re
 		}
 	}
 	if !page.End {
-		page.NextCursor = r.sign(cursor{V: 1, UID: uid, Gen: snap.pub.Gen, Head: snap.pub.Head, Size: snap.size, MTime: snap.mtime, Pos: pos, Off: off})
+		page.NextCursor = r.sign(cursor{Scope: scope.Fingerprint(), V: 1, UID: uid, Gen: snap.pub.Gen, Head: snap.pub.Head, Size: snap.size, MTime: snap.mtime, Pos: pos, Off: off})
 	}
 	return page, nil
 }

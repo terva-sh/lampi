@@ -56,7 +56,7 @@ did not. A Claude Code session used what it was offered, from the tool
 list it recorded, or called; other sessions what they called. It is a
 correlation hint, not a measurement.
 
-The read token, the lake and --out are as for query events.
+The read token, the lake, --bays and --out are as for query events.
 
 The most called tools of the last 7 days, with the five largest blocks:
   terva-lampi query tools --token-file read-token --largest 5
@@ -85,6 +85,7 @@ func runQueryTools(env Env, args []string) error {
 		fs.StringVar(&outPath, "out", "", "JSONL path (default: stdout)")
 		str(fs, "since", "since", "only calls recorded at or after this UTC time")
 		str(fs, "until", "until", "only calls recorded before this UTC time")
+		str(fs, "bays", "bays", "any selected bay IDs, names or aliases, comma-separated")
 		str(fs, "harness", "harness", "only sessions from this harness")
 		str(fs, "project", "project", "only sessions in this project id")
 		str(fs, "model", "model", "only calls by this model id")

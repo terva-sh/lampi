@@ -2,7 +2,10 @@ package catalog
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,6 +24,10 @@ type Scope struct {
 	// read token minted for named sessions (TKT-01M3FPWCFS).
 	limited  bool
 	sessions []string
+	// selected narrows session membership without changing which bay
+	// names the caller is permitted to learn.
+	selected  bool
+	selection []string
 }
 
 // AllBays reads every bay: an admin, or a command on the lake host.
@@ -35,13 +42,34 @@ func InBays(ids []string) Scope {
 // OnlySessions narrows s to the sessions named by uid. No uids reads
 // nothing.
 func (s Scope) OnlySessions(uids []string) Scope {
+	if s.limited {
+		uids = slices.DeleteFunc(slices.Clone(uids), func(uid string) bool { return !slices.Contains(s.sessions, uid) })
+	}
 	s.limited, s.sessions = true, slices.Clone(uids)
 	return s
 }
 
+// SelectBays intersects session membership with any selected bay. It never
+// broadens authorization; an empty selection reads nothing.
+func (s Scope) SelectBays(ids []string) Scope {
+	if s.selected {
+		ids = slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return !slices.Contains(s.selection, id) })
+	}
+	s.selected, s.selection = true, slices.Clone(ids)
+	return s
+}
+
+// Fingerprint binds continuations to authorization and read selection.
+func (s Scope) Fingerprint() string {
+	canonical := func(ids []string) []string { ids = slices.Clone(ids); slices.Sort(ids); return slices.Compact(ids) }
+	b, _ := json.Marshal([]any{s.all, canonical(s.bays), s.limited, canonical(s.sessions), s.selected, canonical(s.selection)})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
 // All reports whether the scope reads every bay and every session in
 // them.
-func (s Scope) All() bool { return s.all && !s.limited }
+func (s Scope) All() bool { return s.all && !s.limited && !s.selected }
 
 // readsBay reports whether the scope reads bay id, before any session
 // narrowing.
@@ -62,6 +90,9 @@ func (s Scope) Reads(bays []string) bool {
 	if s.limited {
 		return false
 	}
+	if s.selected && !slices.ContainsFunc(bays, func(id string) bool { return slices.Contains(s.selection, id) }) {
+		return false
+	}
 	if s.all {
 		return true
 	}
@@ -77,6 +108,13 @@ func (s Scope) Reads(bays []string) bool {
 // scope, with its arguments.
 func (s Scope) where(uidColumn string) (string, []any) {
 	cond, args := s.bayWhere(uidColumn)
+	if s.selected {
+		if len(s.selection) == 0 {
+			return "0=1", nil
+		}
+		selected, extra := InBays(s.selection).bayWhere(uidColumn)
+		cond, args = "("+cond+" AND "+selected+")", append(args, extra...)
+	}
 	if !s.limited || cond == "0=1" {
 		return cond, args
 	}
@@ -87,7 +125,7 @@ func (s Scope) where(uidColumn string) (string, []any) {
 	for _, uid := range s.sessions {
 		args = append(args, uid)
 	}
-	if s.all {
+	if s.all && !s.selected {
 		return in, args
 	}
 	return "(" + cond + " AND " + in + ")", args

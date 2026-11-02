@@ -162,6 +162,7 @@ func (r *Reader) EventNavigation(ctx context.Context, scope catalog.Scope, page 
 	}
 	nav := catalog.PageNavigation{Cursors: make([]string, len(starts))}
 	for i, start := range starts {
+		start.Scope = scope.Fingerprint()
 		nav.Cursors[i] = r.sign(start)
 		if start.Pos <= page.From {
 			nav.Current = i

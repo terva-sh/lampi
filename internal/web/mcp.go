@@ -383,6 +383,7 @@ func mcpQuery(args json.RawMessage) (url.Values, error) {
 
 // mcpHints say what each error code asks of the agent.
 var mcpHints = map[string]string{
+	"invalid_bay_selection":     "A selected bay is unknown or inaccessible. Use list_bays to find visible IDs or names; give at most 20 comma-separated refs.",
 	"invalid_filters_or_cursor": "A metadata filter or cursor is invalid. Use the same filters, page limit and access scope that produced the cursor, or restart enumeration without a cursor.",
 	"invalid_request":           "An argument is missing, unknown, out of range or of the wrong type. Text needs at least 3 characters unless a filter is given; limits run from 1 to 200; dates are RFC 3339 or YYYY-MM-DD in UTC; a cursor goes with the same other arguments that produced it.",
 	"not_found":                 "No session with this uid is readable with this token.",

@@ -47,8 +47,13 @@ type diagnosisFinding struct {
 }
 
 // diagnosis is uid's report for scope, its links under origin. The
-// session is the only parameter, so any query is refused.
+// only optional query parameter is the selected bay context.
 func (s *Server) diagnosis(ctx context.Context, scope catalog.Scope, uid string, q url.Values, origin string) (diagnosisReport, error) {
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return diagnosisReport{}, selectErr
+	}
+	scope, q = selected, query
 	if len(q) > 0 {
 		return diagnosisReport{}, recall.ErrInvalid
 	}
@@ -70,6 +75,11 @@ func (s *Server) diagnosis(ctx context.Context, scope catalog.Scope, uid string,
 // Unknown and repeated parameters are refused, and an empty value
 // means the default, as for tool statistics.
 func (s *Server) diagnosisLake(ctx context.Context, scope catalog.Scope, q url.Values) (recall.DiagnosisGroups, error) {
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return recall.DiagnosisGroups{}, selectErr
+	}
+	scope, q = selected, query
 	req := recall.DiagnoseLakeRequest{Scope: scope, Now: s.now(), Limit: recall.DiagnoseLakeLimit}
 	for k, v := range q {
 		switch k {

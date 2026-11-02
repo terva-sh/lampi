@@ -40,6 +40,14 @@ func (s *Server) readDiscoveryRoutes(m *http.ServeMux) {
 }
 
 func (s *Server) discover(ctx context.Context, scope catalog.Scope, kind, uid string, q url.Values) (any, error) {
+	if kind == "bays" && q.Has("bays") {
+		return nil, recall.ErrInvalid
+	}
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return nil, selectErr
+	}
+	scope, q = selected, query
 	if kind == "session" {
 		if len(q) > 0 {
 			return nil, recall.ErrInvalid
@@ -99,6 +107,7 @@ func discoveryTools() {
 	}
 	filters := func() map[string]any {
 		p := page()
+		p["bays"] = prop("string", "Any of up to 20 comma-separated visible bay IDs, names or aliases; intersects current scope.")
 		p["harness"] = prop("string", "Only sessions from this harness.")
 		p["project"] = prop("string", "Only this project_id, discovered with list_projects.")
 		p["unlinked"] = prop("boolean", "Only sessions with no project_id; useful for review companions.")
@@ -113,6 +122,6 @@ func discoveryTools() {
 		newDiscoveryTool("list_bays", "List visible bays", "List permitted bays with counts of reachable sessions. Names and counts never reveal other bays or sessions.", nil, page()),
 		newDiscoveryTool("list_projects", "List visible projects", "List projects linked to reachable stored sessions, with scoped counts. Use list_sessions with unlinked=true for sessions without a project.", nil, projects),
 		newDiscoveryTool("list_sessions", "List session metadata", "Enumerate reachable stored sessions, including those without indexed transcripts. Returns directory, remote, harness, machine provenance and visible bay memberships. Filters combine with AND. Workflow provenance is null when unknown. Continue through every page before treating a selection as complete.", nil, filters()),
-		newDiscoveryTool("get_session", "Inspect session metadata", "Read routing metadata for one reachable session. Reveals no raw artifacts, grants or hidden bay memberships.", []string{"session_uid"}, map[string]any{"session_uid": prop("string", "The session_uid from discovery or a search hit.")}),
+		newDiscoveryTool("get_session", "Inspect session metadata", "Read routing metadata for one reachable session. Reveals no raw artifacts, grants or hidden bay memberships.", []string{"session_uid"}, map[string]any{"bays": prop("string", "Read only within any selected visible bays, comma-separated."), "session_uid": prop("string", "The session_uid from discovery or a search hit.")}),
 	)
 }

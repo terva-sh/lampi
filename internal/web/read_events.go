@@ -55,13 +55,28 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 	// percent escape, so a malformed parameter is refused rather than
 	// left out of the filter (review 1682).
 	q, err := url.ParseQuery(r.URL.RawQuery)
+	var scope catalog.Scope
 	var f recall.EventFilter
 	var fields recall.Fields
-	if err == nil {
-		f, fields, err = parseReadEvents(q)
-	}
 	if err != nil {
 		apiError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	auditQuery := q.Encode()
+	if err == nil {
+		scope, err = s.catalog.ReadTokenScope(r.Context(), t)
+	}
+	if err == nil {
+		scope, q, err = s.selectedReadScope(r.Context(), scope, q)
+	}
+	if err == nil {
+		f, fields, err = parseReadEvents(q)
+		if err != nil {
+			err = recall.ErrInvalid
+		}
+	}
+	if err != nil {
+		fail(w, r, err)
 		return
 	}
 	var counter *recall.Counter
@@ -84,7 +99,7 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 	lake := s.reg.Lake()
 	// The event is durable in the outbox before a line leaves, as a raw
 	// read's is. The query names filters and paths, never content.
-	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: "query=" + q.Encode()}); err != nil {
+	if err := lake.Catalog.QueueAudit(ctx, now, audit.Event{Kind: audit.EventsRead, Actor: "token:" + t.ID + " (" + t.Label + ")", Detail: "query=" + auditQuery}); err != nil {
 		s.logError(r, "queueing an event read's audit line failed", err)
 		apiError(w, http.StatusInternalServerError, "audit_failed")
 		return
@@ -99,7 +114,11 @@ func (s *Server) readEvents(w http.ResponseWriter, r *http.Request) {
 		if !t.Allows(catalog.PermEventsRead, uid, now) {
 			return false, nil
 		}
-		return s.catalog.ReadTokenReaches(ctx, t, uid)
+		ok, err := s.catalog.ReadTokenReaches(ctx, t, uid)
+		if err != nil || !ok {
+			return ok, err
+		}
+		return s.catalog.SessionInScope(ctx, scope, uid)
 	}
 	h := w.Header()
 	h.Set("Content-Type", "application/x-ndjson")
@@ -220,7 +239,7 @@ func (k *keepaliveWriter) finish(end []byte) error {
 // or an empty value, is refused.
 func parseReadEvents(q url.Values) (recall.EventFilter, recall.Fields, error) {
 	var f recall.EventFilter
-	bad := errors.New("invalid request")
+	bad := recall.ErrInvalid
 	for k, v := range q {
 		if len(v) != 1 || v[0] == "" {
 			return f, nil, bad

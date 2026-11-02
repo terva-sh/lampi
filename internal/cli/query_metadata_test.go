@@ -63,3 +63,24 @@ func TestQueryMetadataUsesReadTokenAndExplicitPaging(t *testing.T) {
 		t.Fatalf("metadata help: %v %s", err, out.String())
 	}
 }
+
+func TestQueryBaySelectionAllRemoteCommands(t *testing.T) {
+	lake, srv, _ := mcpLake(t)
+	token := tokenFile(t, lake, catalog.PermEventsRead)
+	var out, stderr bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &stderr}
+	for _, args := range [][]string{
+		{"query", "sessions"}, {"query", "projects"}, {"query", "tools", "--all"},
+		{"query", "diagnose"}, {"query", "events", "--event-type", "tool_call"},
+	} {
+		full := append(append([]string{}, args...), "--server", srv.URL, "--token-file", token, "--bays", "default")
+		if err := Run(full, env); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		out.Reset()
+		full[len(full)-1] = "unknown"
+		if err := Run(full, env); err == nil || !strings.Contains(err.Error(), "invalid_bay_selection") || out.Len() != 0 {
+			t.Fatalf("%v unknown: %v output %s", args, err, out.String())
+		}
+	}
+}
