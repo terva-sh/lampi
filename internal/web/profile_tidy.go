@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -30,16 +31,18 @@ import (
 //
 // Each reads the doctor's report for the form's rules, so it acts only
 // on what the Health panel offered for them. An empty note is filled
-// with what was done, so the saved revision says why the rules went.
-func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *config.Profile) error {
+// with what was done, so the saved revision says why the rules went. A
+// fix that cannot be saved is not applied, and the problem returned
+// says why.
+func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *config.Profile) (string, error) {
 	v := r.PostForm
 	doctor, narrow, owner, folder := v.Get("doctor"), v.Get("narrow"), v.Get("fold"), v.Get("folder")
 	if doctor == "" && narrow == "" && owner == "" && folder == "" {
-		return nil
+		return "", nil
 	}
 	rep, err := s.diagnose(r, name, p.Projects)
 	if err != nil {
-		return err
+		return "", err
 	}
 	offered := func(code, group string) bool {
 		return slices.ContainsFunc(rep.Findings, func(f profiledoctor.Finding) bool { return f.Code == code && f.Group == group })
@@ -59,13 +62,24 @@ func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *confi
 			return err == nil && f.Index == i && f.Fix == profiledoctor.FixNarrow
 		})
 		if k < 0 {
-			return nil
+			return "", nil
 		}
 		fd := rep.Findings[k]
+		// One save hides at most maxReviewBatch projects, as the review
+		// queue does: a fix past that could be previewed but not saved.
+		queued := len(f.Hide)
+		for _, h := range fd.Hide {
+			if !slices.Contains(f.Hide, h.String()) {
+				queued++
+			}
+		}
+		if queued > maxReviewBatch {
+			return fmt.Sprintf("Removing %s would hide %d projects from review, and one save hides at most %d. Nothing was changed. Save the changes so far first, or hide its projects from the review queue and then remove the rule.", ruleText(*fd.Rule), queued, maxReviewBatch), nil
+		}
 		var hide []catalog.ProjectKey
 		var ok bool
 		if p.Projects, hide, ok = profiledoctor.ApplyNarrow(p.Projects, fd); !ok {
-			return nil
+			return "", nil
 		}
 		n = 1
 		for _, h := range hide {
@@ -85,25 +99,25 @@ func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *confi
 		// Only a fold the panel offers for these rules: a fold is a
 		// widening, and the offer is where its threshold lives.
 		if !offered(profiledoctor.CodeOwnerFold, owner) {
-			return nil
+			return "", nil
 		}
 		p.Projects.Allow, n = profiledoctor.FoldOwner(p.Projects.Allow, owner)
 		note = "Replace " + strconv.Itoa(n) + " git_remote " + plural(n, "rule", "rules") + " under " + owner + " with one git_remote_prefix"
 	case folder != "":
 		if !offered(profiledoctor.CodeFolderFold, folder) {
-			return nil
+			return "", nil
 		}
 		p.Projects.Allow, n = profiledoctor.FoldFolder(p.Projects.Allow, folder)
 		note = "Replace " + strconv.Itoa(n) + " cwd_prefix " + plural(n, "rule", "rules") + " under " + folder + " with one cwd_prefix"
 	}
 	if n == 0 {
-		return nil
+		return "", nil
 	}
 	f.Allow = withBlanks(p.Projects.Allow)
 	if strings.TrimSpace(f.Note) == "" {
 		f.Note = note
 	}
-	return nil
+	return "", nil
 }
 
 // The widths Allow can add a rule at: the project's own repository, or

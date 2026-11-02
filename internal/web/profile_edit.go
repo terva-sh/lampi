@@ -464,10 +464,15 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 	v := profileEditView{Name: name, Stored: stored, New: !stored && name != config.DefaultProfile}
 	s.setReturn(r, &v, r.PostForm.Get("return"))
 	f, p, err := readProfileForm(r.PostForm)
+	status := http.StatusOK
 	if err == nil {
-		if terr := s.tidyForm(r, name, &f, &p); terr != nil {
+		problem, terr := s.tidyForm(r, name, &f, &p)
+		if terr != nil {
 			pageError(w, r, terr)
 			return
+		}
+		if problem != "" {
+			v.Problem, status = problem, http.StatusConflict
 		}
 	}
 	v.Form = f
@@ -484,7 +489,7 @@ func (s *Server) profilePreviewPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	s.renderEditor(w, r, v, http.StatusOK)
+	s.renderEditor(w, r, v, status)
 }
 
 // saveProfile stores doc as the profile called name for the signed-in

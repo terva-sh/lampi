@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -141,5 +142,32 @@ func TestProfileHealth(t *testing.T) {
 	v.Set("hide", "not a key")
 	if w := postForm(f.h, "/profiles/default/preview", v, f.cookie); w.Code != 400 {
 		t.Errorf("a bad hide key: %d", w.Code)
+	}
+}
+
+// A Remove and hide that would queue more hides than one save takes is
+// refused with a reason, and the form stays savable.
+func TestRemoveAndHideStaysSavable(t *testing.T) {
+	f, rules := healthLake(t)
+	stored, _ := f.lake.Catalog.ProfileByName(t.Context(), config.DefaultProfile)
+	// An edit of its own, so the preview has a change to save.
+	v := ruleForm(f.csrf, stored.Revision, append(slices.Clone(rules), config.ProjectMatch{GitRemote: "git.example/team/extra"}))
+	for i := range maxReviewBatch {
+		v.Add("hide", "cwd /tmp/queued-"+strconv.Itoa(i))
+	}
+	v.Set("narrow", "3")
+	w := postForm(f.h, "/profiles/default/preview", v, f.cookie)
+	if w.Code != 409 || !strings.Contains(html.UnescapeString(w.Body.String()), "would hide 501 projects from review, and one save hides at most 500") {
+		t.Fatalf("an oversized hide list: %d", w.Code)
+	}
+	var p config.Profile
+	if err := json.Unmarshal([]byte(hiddenValue(t, w.Body.String(), "document")), &p); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(p.Projects.Allow, rules[3]) {
+		t.Error("the refused fix removed the rule")
+	}
+	if save := formFields(t, w.Body.String(), "/profiles/default/save"); len(save["hide"]) != maxReviewBatch {
+		t.Errorf("the save form hides %d projects, want the %d queued", len(save["hide"]), maxReviewBatch)
 	}
 }
