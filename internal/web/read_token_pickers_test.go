@@ -81,6 +81,13 @@ func TestReadTokenFormPickers(t *testing.T) {
 		t.Errorf("fill with no pick: %d", w.Code)
 	}
 
+	// A bay the checkboxes do not show, named by the older field, rides
+	// through a redisplay in a hidden field, so the next mint keeps it.
+	w = postForm(h, adminReadTokensPath, form(url.Values{"fill": {"1"}, "match": {"github.com/acme"}, "bays": {"elsewhere"}}), admin)
+	if body := w.Body.String(); w.Code != 200 || !strings.Contains(body, `<input type="hidden" name="bay" value="elsewhere">`) {
+		t.Errorf("a bay with no checkbox was dropped: %d", w.Code)
+	}
+
 	// A ticked bay limits the minted token.
 	w = postForm(h, adminReadTokensPath, form(url.Values{"bay": {"research"}, "sessions": {strings.Join(uids, "\n")}}), admin)
 	if w.Code != 200 || !mintedToken.MatchString(w.Body.String()) {

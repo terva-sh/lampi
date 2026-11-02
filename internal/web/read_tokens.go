@@ -145,7 +145,12 @@ type readTokensView struct {
 	Bays    []catalog.Bay
 	Pickers sessionPickers
 	// Filled says what List matching sessions put in the session list.
-	Filled  string
+	Filled string
+	// KeptBays are bays the form names that no checkbox shows: a bay
+	// given by id or alias, or every bay when the list could not be
+	// read. They ride in hidden fields, so a redisplayed form never
+	// mints a token wider than the one asked for.
+	KeptBays []string
 	Form    readTokenForm
 	Attempt string
 	Problem string
@@ -209,6 +214,11 @@ func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v read
 	}
 	// An admin reads every bay, and the admin guard sets no read scope.
 	v.Pickers = s.sessionPickersIn(r, catalog.AllBays())
+	for _, b := range v.Form.BayNames() {
+		if !slices.ContainsFunc(v.Bays, func(x catalog.Bay) bool { return x.Name == b }) && !slices.Contains(v.KeptBays, b) {
+			v.KeptBays = append(v.KeptBays, b)
+		}
+	}
 	v.Fresh = webauth.Fresh(r, now)
 	v.FreshURL = webauth.FreshLoginURL(adminReadTokensPath)
 	v.Attempt = s.attempts.issue(now)
