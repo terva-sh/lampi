@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:42:23Z
+updated_at: 2026-11-02T23:44:08Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -99,3 +99,11 @@ in-progress to blocked: Implementation is complete; live Vuoro dogfood remains b
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:42:23Z
 
 Integrated origin/main through 0bd109d, preserving the newer wide tables, named machines/timestamps, grouped profile Health panel and read-token choices. The newly landed project-column migration occupies schema 22, so durable bay migration receipts now append schema 23. Backward-migration fixtures remove both additions when constructing older catalogs; the project-column upgrade test verifies the ordered 21→22→23 steps. Focused catalog/dashboard/CLI integration tests pass after the merge. The pre-merge full race suite passed, and final full normal plus affected-package race/vet/build checks are running on the integrated head before PR handoff. No live deployment or migration has been attempted.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:44:08Z
+
+### PR and final local gates
+
+Implementation PR: https://git.local.sothr.com/terva-sh/lampi/pulls/253 (Organize sessions across bays with exact plans and advisory doctor), integrated code head 2b61867cb5feb7418b259be3141629edad538c3d. Final go test -trimpath=false ./... passed. Race tests for catalog, web, CLI, profiledoctor and baydoctor passed on the integrated head; the full race suite had also passed before main integration. go vet ./..., gofmt checks, isolated build and git diff --check passed. git ticket check reports zero errors and only the two pre-existing unrelated long-title warnings. All intended source/ticket changes are committed; no live configuration, credentials or memberships changed.
+
+Request the repository terva-review workflow for the final pushed head and monitor PR checks/review. No merge or live deployment is claimed. The epic and live Vuoro exercise remain blocked solely on the recorded production access/deployment prerequisite; nine software/design/documentation children are done and the explicit-provenance follow-up remains draft.
