@@ -810,7 +810,9 @@ is a button:
   temporary rule is safe only when every device sent an inventory.
 - **Narrow.** For a rule that names a home directory, a top-level folder or a
   whole host, it puts one exact rule for each project the rule admits today in
-  its place. A project in the home directory itself keeps a `cwd_hash` rule,
+  its place. Each new rule keeps the old rule's folder or host, so a
+  repository admitted under a home directory is not admitted in its checkouts
+  elsewhere. A project in the home directory itself keeps a `cwd_hash` rule,
   which names that folder alone. New folders under it then go to review.
 - **Remove and hide.** For a temporary rule a device still holds sessions for,
   it removes the rule. When you save, it also hides the projects the rule
