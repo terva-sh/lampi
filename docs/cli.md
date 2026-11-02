@@ -122,6 +122,29 @@ not normalized yet is named on stderr and left out.
 
 ## Query a lake
 
+`query bays`, `query projects`, `query sessions` and `query session UID`
+discover catalog metadata with an `events:read` token. Each writes one
+JSON object; lists carry `items`, `next_cursor` and `as_of`. Continue with
+`--cursor` and the same filters and `--limit` until the cursor is empty.
+The default page is 50 items, maximum 200. Scope changes invalidate
+continuations. `query sessions --help` lists all metadata options.
+
+The list filters are `--harness`, `--project`, `--unlinked`,
+`--cwd-prefix`, `--cwd-hash` and `--machine`, combined with AND. Bays
+accepts only paging options. Projects cannot use `--unlinked`; find
+sessions without project IDs through `query sessions --unlinked`.
+`query session UID` takes no listing filters. Every metadata command
+accepts `--lake` or `--server`, `--token-file` and `--out` like the event
+queries below. `--out` is a mode 0600 file published after a complete
+valid JSON reply.
+
+Session metadata includes directory, directory hash, remote, harness,
+bounded machine provenance and visible bay membership. Unknown workflow
+provenance is null. Metadata and machine truncation are explicit. No raw
+manifest/artifact, grant principal or device configuration is returned.
+These queries work independently of transcript/index readiness. See
+[Discover before searching](reading-the-lake.md#discover-before-searching).
+
 `terva-lampi query events` reads the lake's
 [event stream](web-api.md#event-stream) from any machine. It needs a read
 token that holds `events:read`. The filters and `--fields` are export's

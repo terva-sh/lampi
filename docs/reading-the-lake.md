@@ -73,10 +73,14 @@ too.
 3. Start a new agent session, and ask it about earlier work, such as
    "find the session where we fixed the search WAL".
 
-The agent gets six tools:
+The agent gets ten tools:
 
 | Tool | What it does |
 |------|--------------|
+| `list_bays` | Lists visible bays with counts of sessions the token can reach. |
+| `list_projects` | Lists projects linked to reachable stored sessions, with scoped counts. |
+| `list_sessions` | Pages through session metadata, including sessions with no project or indexed transcript. |
+| `get_session` | Shows one session's directory, remote, harness, machine provenance and visible bay memberships. |
 | `search` | Finds events by text, by filters such as `event_type`, `tool` and time, or both. Each hit names its session and position and links to the event in the dashboard. |
 | `read_events` | Reads consecutive events of one session, for example from a few positions before a hit. |
 | `copy_excerpt` | Renders up to 200 events of one session as plain text to paste into a new session or give to a person. |
@@ -92,6 +96,47 @@ lists every argument and error.
 The tools return transcript text as it was stored. A session can hold
 text that reads like instructions, and the agent sees it as tool output.
 Give the token only to agents you would let read those sessions.
+
+## Discover before searching
+
+Metadata discovery uses `events:read`, with the same session and bay scope
+as transcript recall. It reads the catalog, so sessions whose transcripts
+have not been normalized or indexed still appear. It grants no access to
+raw artifacts, device configuration or hidden bay memberships.
+
+Start with `list_bays`, then `list_projects` or `list_sessions`. Use
+`get_session` for a discovered `session_uid`. Sessions such as review
+companions can have no project ID; `list_sessions` with `unlinked=true`
+finds them. An inventory needs every page: continue with `next_cursor`
+until it is empty, retaining all filters and the page limit. A change to
+the token's scope requires starting again without a cursor.
+
+The remote CLI reads the same metadata:
+
+```sh
+terva-lampi query bays --token-file ~/.config/terva-lampi/read-token
+terva-lampi query sessions --token-file ~/.config/terva-lampi/read-token \
+  --harness claude --cwd-prefix /home/me/.local/state/vuoro/worktrees --limit 50
+terva-lampi query sessions --token-file ~/.config/terva-lampi/read-token --unlinked
+terva-lampi query session SESSION_UID --token-file ~/.config/terva-lampi/read-token
+```
+
+Directory prefixes match the folder and descendants on a path boundary.
+Filters combine with AND. `cwd_hash` selects one recorded directory;
+`machine` selects a provenance machine ID, not an arbitrary device name.
+Missing directory/remote values are empty strings. Unknown recorded
+workflow provenance is `null`; a directory or SDK origin is not itself
+proof of purpose. Metadata fields have size bounds and carry
+`metadata_truncated` when clipped. Machine provenance lists at most five
+IDs, with `machine_count` and `machines_truncated` to show completeness.
+Project listings mark oversized IDs with `id_truncated=true`; these previews
+are labels, so select the corresponding sessions by UID instead of using
+a clipped ID as an exact project filter.
+
+Use the evidence to distinguish reviewers, rating companions and
+development sessions before proposing a selection. See the
+[bay workflow](bay-workflow.md) for the identification and migration
+contract.
 
 ## Read events
 

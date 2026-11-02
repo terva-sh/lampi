@@ -90,6 +90,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	s.readEventRoutes(m)
 	s.readToolRoutes(m)
 	s.readDiagnosisRoutes(m)
+	s.readDiscoveryRoutes(m)
 	s.mcpRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }

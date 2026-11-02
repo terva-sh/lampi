@@ -26,6 +26,9 @@ import (
 const queryUsage = `terva-lampi query events — read normalized events from a lake with a read token
 
 usage:
+  terva-lampi query bays|projects|sessions [metadata filters] [--limit N --cursor C]
+  terva-lampi query session SESSION_UID
+                           (terva-lampi query sessions --help lists metadata flags)
   terva-lampi query events [--lake NAME | --server URL] [--token-file FILE]
                            [event filters] [--fields PATH,... | --count-by PATH]
                            [--out FILE]
@@ -87,6 +90,8 @@ func runQuery(env Env, args []string) error {
 		return nil
 	}
 	switch args[0] {
+	case "bays", "projects", "sessions", "session":
+		return runQueryMetadata(env, args[0], args[1:])
 	case "tools":
 		return runQueryTools(env, args[1:])
 	case "diagnose":

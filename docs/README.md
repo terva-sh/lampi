@@ -13,6 +13,7 @@ first run. The pages below are grouped by what you are trying to do.
 | [The agent](agent.md) | You want to know when the agent pushes, how it retries, or which signals it answers |
 | [Registration and lakes](registration-and-lakes.md) | You are adding a machine, or sending sessions to more than one lake |
 | [Read the lake from an agent](reading-the-lake.md) | An agent searches past sessions over MCP, or reads their events, such as every tool call, from its own machine |
+| [Find sessions and organize their bays](bay-workflow.md) | You want the selection and preview contract for organizing sessions into one or more bays |
 
 ## Run a lake
 

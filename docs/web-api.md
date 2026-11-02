@@ -282,6 +282,56 @@ or revoked token is `401 not_authenticated` with a
 `WWW-Authenticate: Bearer realm="lampi-events"` header, and a token
 without `events:read` is `404 not_found`.
 
+### Session metadata discovery
+
+Read-token metadata discovery requires `events:read` and intersects the
+token's current bay and fixed-session scope. It returns catalog metadata
+without raw artifacts, manifests, grant principals or device configuration.
+It works independently of transcript normalization and index readiness.
+
+| GET route | Result |
+|---|---|
+| `/api/read/v1/bays` | Visible bay IDs, names, default marker and reachable-session counts |
+| `/api/read/v1/projects` | Linked project IDs, display labels and reachable-session counts |
+| `/api/read/v1/sessions` | Stored session metadata with explicit routing evidence |
+| `/api/read/v1/sessions/{uid}` | Metadata for one reachable session |
+
+Listings return `{items,next_cursor,as_of}`. `limit` defaults to 50, range
+1–200; pass `cursor` with exactly the same filters and limit to continue.
+Cursors are bound to the current scope. Pages are not snapshots across
+requests: sessions can update between pages; freeze exact IDs when a
+complete selection has been reviewed. Projects and sessions accept
+`harness`, `project`, `cwd_prefix`, `cwd_hash` and `machine`, combined with
+AND. `cwd_prefix` is an absolute directory and its descendants on a path
+boundary, including Unicode paths. Sessions also accepts `unlinked=true`.
+Bays accepts only paging parameters, and the single-session route accepts
+no query. Unknown, repeated or invalid parameters are refused.
+
+Session metadata includes `session_uid`, native ID, harness, project ID
+and label, last head update, normalization state, `cwd`, `cwd_hash`,
+`git_remote`, `machines`, `machine_count`, visible `bays` and `workflow`.
+Unknown workflow is null; directory/remote values are empty when absent.
+Directory and remote fields are bounded to 4096 characters, directory
+hash to 128; `metadata_truncated` identifies clipping. At most five
+provenance machine IDs appear, with `machines_truncated` when more exist.
+No hidden co-membership is disclosed. Bay/project counts include only
+reachable sessions; session-scoped tokens enumerate only bays containing
+their sessions. Unknown and inaccessible sessions both return 404
+`not_found`. Invalid discovery filters or continuations return 400
+`invalid_filters_or_cursor`; malformed query arguments return 400
+`invalid_request`. Responses are `no-store` and every call is audited.
+
+Project discovery returns `project_id`, `id_truncated`, `label` and `sessions`.
+An ID over 4096 bytes is a 512-character preview with `id_truncated=true`;
+use session discovery and exact UIDs rather than a preview as a project filter.
+Project pages seek by an opaque representative session UID, so even oversized
+or multibyte project IDs have bounded continuations. Labels are capped at 512
+characters. As with session discovery, pages reflect current catalog state.
+
+MCP `list_bays`, `list_projects`, `list_sessions` and `get_session` use the
+same query functions and schemas. `get_session` takes `session_uid`.
+See [agent discovery](reading-the-lake.md#discover-before-searching).
+
 ### MCP recall tools
 
 `POST /api/read/v1/mcp` is a Model Context Protocol server over the

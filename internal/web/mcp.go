@@ -48,6 +48,7 @@ const (
 )
 
 const mcpInstructions = "Recall past agent sessions stored in this lampi lake, from every machine and project that uploaded. " +
+	"Use list_bays, list_projects and list_sessions to discover reachable metadata, and get_session to inspect routing evidence without searching transcript text. " +
 	"Start with search, by literal text, by filters such as event_type, tool and time, or both. " +
 	"Read around a hit with read_events, from a few positions before the hit's position. " +
 	"Use copy_excerpt for a span as plain text to paste into a new session. " +
@@ -297,6 +298,10 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 	}
 	var v any
 	switch name {
+	case "list_bays", "list_projects", "list_sessions":
+		v, err = s.discover(ctx, scope, strings.TrimPrefix(name, "list_"), "", q)
+	case "get_session":
+		v, err = s.discover(ctx, scope, "session", uid, q)
 	case "search":
 		page, err2 := s.runSearch(ctx, scope, q)
 		for i := range page.Items {
@@ -338,7 +343,7 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 // sessionTool says whether a tool reads one session, named by its
 // session_uid argument.
 func sessionTool(name string) bool {
-	return name == "read_events" || name == "copy_excerpt" || name == "diagnose_session"
+	return name == "read_events" || name == "copy_excerpt" || name == "diagnose_session" || name == "get_session"
 }
 
 // mcpQuery turns a tool's arguments into the query parameters of its
@@ -378,15 +383,16 @@ func mcpQuery(args json.RawMessage) (url.Values, error) {
 
 // mcpHints say what each error code asks of the agent.
 var mcpHints = map[string]string{
-	"invalid_request":        "An argument is missing, unknown, out of range or of the wrong type. Text needs at least 3 characters unless a filter is given; limits run from 1 to 200; dates are RFC 3339 or YYYY-MM-DD in UTC; a cursor goes with the same other arguments that produced it.",
-	"not_found":              "No session with this uid is readable with this token.",
-	"generation_changed":     "The session was normalized again after gen or the cursor was read. Call again without gen and cursor.",
-	"transcript_unavailable": "The session has no readable normalized transcript; state says why.",
-	"search_unavailable":     "This lake has no search index.",
-	"read_unavailable":       "The read ran out of time. Narrow it with filters, a project or a time range.",
-	"read_failed":            "The lake could not read. Try again later.",
-	"too_many_values":        "The statistics would read too many tool rows or distinct tools. Narrow them with a shorter range, a harness or a project.",
-	"rate_limited":           "Too many tool calls with this token. Wait a second and call again: after a burst of " + strconv.Itoa(mcpBurst) + " calls, the lake allows " + strconv.Itoa(mcpRate) + " a second.",
+	"invalid_filters_or_cursor": "A metadata filter or cursor is invalid. Use the same filters, page limit and access scope that produced the cursor, or restart enumeration without a cursor.",
+	"invalid_request":           "An argument is missing, unknown, out of range or of the wrong type. Text needs at least 3 characters unless a filter is given; limits run from 1 to 200; dates are RFC 3339 or YYYY-MM-DD in UTC; a cursor goes with the same other arguments that produced it.",
+	"not_found":                 "No session with this uid is readable with this token.",
+	"generation_changed":        "The session was normalized again after gen or the cursor was read. Call again without gen and cursor.",
+	"transcript_unavailable":    "The session has no readable normalized transcript; state says why.",
+	"search_unavailable":        "This lake has no search index.",
+	"read_unavailable":          "The read ran out of time. Narrow it with filters, a project or a time range.",
+	"read_failed":               "The lake could not read. Try again later.",
+	"too_many_values":           "The statistics would read too many tool rows or distinct tools. Narrow them with a shorter range, a harness or a project.",
+	"rate_limited":              "Too many tool calls with this token. Wait a second and call again: after a burst of " + strconv.Itoa(mcpBurst) + " calls, the lake allows " + strconv.Itoa(mcpRate) + " a second.",
 }
 
 func toolError(err error) *mcp.CallToolResult {

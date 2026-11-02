@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F56Z6QP6C2P3M1T7J923BV
 title: "MCP and CLI: discover bays, projects and session metadata"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3-6387cc8a
-  branch: t3/split-code-reviews-bay
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
-  commit: 58b3063e8e69b65967be973a14793101a8416d8d
-  session: null
-  claimed_at: 2026-11-02T22:57:43Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:13:54Z
-updated_at: 2026-11-02T22:58:22Z
+updated_at: 2026-11-02T23:06:26Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -59,11 +52,11 @@ Transcript search returns event hits, omits sessions with no matching text and d
 
 ## Acceptance criteria
 
-- [ ] An events:read client can page through visible bays, projects and sessions and inspect one session without transcript-text searches or browser authentication.
-- [ ] Metadata exposes permitted routing evidence including explicit directory/remote fields, harness, current visible memberships and available provenance, with absence/unknown distinguished.
-- [ ] Scope, counts and cursor validation prevent enumerating hidden bays, sessions, projects or device metadata; test both session-scoped and bay-scoped tokens.
-- [ ] CLI and MCP discovery use shared bounded queries with documented paging, machine-readable results, continuation and incomplete-coverage behavior.
-- [ ] Document the exact metadata permission contract and tool schemas; no raw artifacts or new mutation authority are implied by events:read.
+- [x] An events:read client can page through visible bays, projects and sessions and inspect one session without transcript-text searches or browser authentication.
+- [x] Metadata exposes permitted routing evidence including explicit directory/remote fields, harness, current visible memberships and available provenance, with absence/unknown distinguished.
+- [x] Scope, counts and cursor validation prevent enumerating hidden bays, sessions, projects or device metadata; test both session-scoped and bay-scoped tokens.
+- [x] CLI and MCP discovery use shared bounded queries with documented paging, machine-readable results, continuation and incomplete-coverage behavior.
+- [x] Document the exact metadata permission contract and tool schemas; no raw artifacts or new mutation authority are implied by events:read.
 
 ## Implementation plan
 
@@ -86,3 +79,11 @@ The owner requested a full tooling/UX/documentation backlog on 2026-11-02. Narro
 **agent:codex/t3-6387cc8a** at 2026-11-02T22:20:37Z
 
 Bay filters are now tracked in TKT-01M6F5K429GX4TZFJB35TV3KC7 (MCP and CLI: filter recall and analysis by selected bays); selection previews are in TKT-01M6F5K49E9JCCE6C80FTTNRP3 (MCP: preview session selections and bay migration plans). Discovery stays focused on the metadata these tools need.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:06:16Z
+
+Implemented four scoped catalog/HTTP/MCP discovery operations and remote query subcommands. Unknown workflow stays null; explicit cwd/remote/hash and bounded machine provenance support reviewer/companion investigation without transcript inventory guesses. Cursors bind filters, page size and scope; project pagination uses representative UIDs to keep oversized IDs bounded and marks ID previews explicitly. Scope and parity tests cover hidden co-memberships, fixed-session tokens, Unicode directory boundaries and clipped evidence. Validation: full catalog/web/cli packages pass with the documented -trimpath=false host override; go vet passes. The initial unadjusted run exposed fixture path failures from the host trimpath setting and one stale unknown-subcommand test, both addressed for validation. Race-focused validation is running. No live lake changed.
+
+## Summary
+
+Delivered authorized metadata discovery through list_bays/list_projects/list_sessions/get_session, HTTP and remote CLI with scoped counts, bounded evidence, strict continuations and docs. Full catalog/web/cli tests, focused race tests, go vet and diff whitespace checks pass (tests use documented -trimpath=false host override). Discovery is ready for bay filters and migration previews; live service remains unchanged.
