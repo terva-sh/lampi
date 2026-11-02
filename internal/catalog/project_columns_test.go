@@ -51,6 +51,28 @@ func TestProjectColumns(t *testing.T) {
 		t.Fatalf("ingest wrote %q %q for a folder project", r, d)
 	}
 
+	// A later head with a new project, and a post that only learns the
+	// project id, rewrite the columns with the manifest.
+	moved := protocol.Project{GitRemote: "https://git.example/team/lib", CWD: "/work/lib"}
+	old := []byte(`{"session":"sess-b"}` + "\n")
+	body := append(append([]byte{}, old...), `{"more":1}`+"\n"...)
+	blobs := memBlobs{digestHex(body): body, digestHex(old): old}
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: protocol.HarnessTerva, NativeSessionID: "sess-b", Project: moved,
+		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/sess-b.jsonl", Size: int64(len(body)), SHA256: digestHex(body)}}}
+	if _, err := c.Ingest(context.Background(), m, time.Now(), []Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, blobs); err != nil {
+		t.Fatal(err)
+	}
+	if r, d := columnsOf(t, c, b); r != protocol.NormalizeRemote(moved.GitRemote) || d != "/work/lib" {
+		t.Fatalf("a moved head wrote %q %q", r, d)
+	}
+	m.Project.CWD, m.Project.GitRoot = "/work/lib2", strings.Repeat("a", 40)
+	if _, err := c.Ingest(context.Background(), m, time.Now(), []Decision{{Relation: protocol.RelationHead}}, blobs); err != nil {
+		t.Fatal(err)
+	}
+	if _, d := columnsOf(t, c, b); d != "/work/lib2" {
+		t.Fatalf("a learned project id left the folder at %q", d)
+	}
+
 	// Back to schema 21, with a session whose manifest cannot be read.
 	if _, err := c.db.Exec(dropProjectColumns + `PRAGMA user_version = 21`); err != nil {
 		t.Fatal(err)
