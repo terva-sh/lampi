@@ -181,6 +181,19 @@ func ParentOf(remote, cwd string) string {
 	return ""
 }
 
+// GroupOf is the rule Allow at owner width adds for a project: its
+// remote's owner, or its folder's parent when it has no remote. False
+// when that width names nothing narrower than a host or a home.
+func GroupOf(remote, cwd string) (config.ProjectMatch, bool) {
+	if o := OwnerOf(remote); o != "" {
+		return config.ProjectMatch{GitRemotePrefix: o}, true
+	}
+	if d := ParentOf(remote, cwd); d != "" {
+		return config.ProjectMatch{CWDPrefix: d}, true
+	}
+	return config.ProjectMatch{}, false
+}
+
 // FolderFolds lists the folders that hold cwd_prefix rules in at least
 // MinFold of their own subfolders, that WideFolder accepts, and that no
 // rule already covers, most rules first. Worktrees and scratch trees

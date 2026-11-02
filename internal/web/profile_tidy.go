@@ -147,11 +147,8 @@ func readWidth(s string) (string, bool) {
 // or when the owner would be the bare host or the folder one ParentOf
 // refuses, allowRule's.
 func allowRuleAt(remote, cwd, width string) (config.ProjectMatch, bool) {
-	if o := profiledoctor.OwnerOf(remote); width == widthOwner && o != "" {
-		return config.ProjectMatch{GitRemotePrefix: o}, true
-	}
-	if d := profiledoctor.ParentOf(remote, cwd); width == widthOwner && d != "" {
-		return config.ProjectMatch{CWDPrefix: d}, true
+	if g, ok := profiledoctor.GroupOf(remote, cwd); width == widthOwner && ok {
+		return g, true
 	}
 	return allowRule(remote, cwd)
 }

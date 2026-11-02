@@ -62,6 +62,9 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"reviewTable": func(v reviewView, rows []reviewRow, caption string, allow bool) reviewTableView {
 		return reviewTableView{View: v, Rows: rows, Caption: caption, Allow: allow}
 	},
+	"reviewGroupView": func(v reviewView, g reviewGroup) reviewGroupView {
+		return reviewGroupView{View: v, Group: g}
+	},
 	"deviceURL":     deviceURL,
 	"allowable":     allowable,
 	"denied":        func(reason string) bool { return reason == config.RefusedByDeny },

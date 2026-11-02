@@ -197,9 +197,12 @@ showLatest(document);
   show();
   button.hidden = false;
 })();
-// Select all: a header checkbox ticks every row checkbox bound to its form.
+// Select all: a header checkbox ticks every row checkbox in its table
+// bound to its form. The review queue holds one table per group, and
+// ticking one group's header leaves the others alone.
 document.querySelectorAll('input[data-select-all]').forEach(all => {
-  const rows = () => document.querySelectorAll(`input[type=checkbox][name=key][form="${all.dataset.selectAll}"]`);
+  const scope = all.closest('table') || document;
+  const rows = () => scope.querySelectorAll(`input[type=checkbox][name=key][form="${all.dataset.selectAll}"]`);
   all.hidden = false;
   all.addEventListener('change', () => rows().forEach(box => { box.checked = all.checked; }));
 });
