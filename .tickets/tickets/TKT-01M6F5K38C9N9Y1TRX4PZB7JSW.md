@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:50:01Z
+updated_at: 2026-11-02T23:50:53Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -123,3 +123,11 @@ Fix head 010aa85611140863b39cbc87e22f5c5b6bf76693 is pushed to PR 253. Full norm
 Review 3012 finding-1 is accepted and recorded in the maintained disposition store: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37715. The command explicitly identifies this agent's technical assessment and does not claim human merge approval. Fresh full review is running at https://git.local.sothr.com/terva-sh/lampi/actions/runs/2326 (database run 30388), request organization-policy-010aa85. The CLI reported an unexpected-end-of-JSON error on the successful 204 dispatch response; authoritative run inspection confirmed delivery, so it was not blindly retried.
 
 This subsequent commit changes only ticket records. Request carry after the full review through the repository's serialized review workflow, then watch PR 253 for CI, the current-head verdict and new feedback. Do not claim a passing review before its published commit status. Live Vuoro work remains blocked on the separately recorded deployment and read/operator access prerequisites.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:50:53Z
+
+### Review delivery recovery
+
+The previous goal turn made implementation progress: explicit-authority policy fix 010aa85 plus passing normal/race/vet/build gates and accepted finding disposition. Current follow-up inspection found that run 2326 completed its model work but refused publication as superseded: the ticket-only push to 7333af4 arrived before publication. Run 2329 could not carry, because the latest published source review still preceded the code fix (carry_path_not_allowed for docs/bay-migrations.md). Neither failed run is a fresh published review or an accepted gate.
+
+Read both failing job logs using the mandated forgejo-job-log script before deciding the next action. Request a new full review after this ticket-only record is committed and pushed, and keep that head stable until publication. Do not retry carry against the older review. CI for the previous head was still running, and the working tree was clean before this note. Live deployment/read access remain unavailable; no lake changes or live completion are claimed.
