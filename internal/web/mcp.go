@@ -48,6 +48,7 @@ const (
 )
 
 const mcpInstructions = "Recall past agent sessions stored in this lampi lake, from every machine and project that uploaded. " +
+	"Use select_sessions to freeze exact cohorts and preview_bay_migration for read-only add/move plans; preview_bay_rule checks future routing separately. Plans grant no write authority. " +
 	"Use list_bays, list_projects and list_sessions to discover reachable metadata, and get_session to inspect routing evidence without searching transcript text. " +
 	"Start with search, by literal text, by filters such as event_type, tool and time, or both. " +
 	"Read around a hit with read_events, from a few positions before the hit's position. " +
@@ -263,6 +264,10 @@ func (s *Server) mcpAudit(limits *mcpLimits) mcp.Middleware {
 // have no session filter, so there it stays an argument their parsers
 // refuse, rather than being dropped (review 2103).
 func mcpArgs(tool string, args json.RawMessage) (uid string, q url.Values, err error) {
+	if previewTool(tool) {
+		q, err = previewAuditArgs(args)
+		return "", q, err
+	}
 	q, err = mcpQuery(args)
 	if sessionTool(tool) {
 		uid = q.Get("session_uid")
@@ -298,6 +303,8 @@ func (s *Server) mcpCall(ctx context.Context, req *mcp.CallToolRequest) (*mcp.Ca
 	}
 	var v any
 	switch name {
+	case "select_sessions", "preview_bay_migration", "preview_bay_rule":
+		v, err = s.previewCall(ctx, scope, name, req.Params.Arguments)
 	case "list_bays", "list_projects", "list_sessions":
 		v, err = s.discover(ctx, scope, strings.TrimPrefix(name, "list_"), "", q)
 	case "get_session":
@@ -383,6 +390,7 @@ func mcpQuery(args json.RawMessage) (url.Values, error) {
 
 // mcpHints say what each error code asks of the agent.
 var mcpHints = map[string]string{
+	"selection_too_large":       "The complete selection or plan exceeds its bound (500 candidates or 8 MiB). Narrow it or use explicit reviewed batches; no sample was returned.",
 	"invalid_bay_selection":     "A selected bay is unknown or inaccessible. Use list_bays to find visible IDs or names; give at most 20 comma-separated refs.",
 	"invalid_filters_or_cursor": "A metadata filter or cursor is invalid. Use the same filters, page limit and access scope that produced the cursor, or restart enumeration without a cursor.",
 	"invalid_request":           "An argument is missing, unknown, out of range or of the wrong type. Text needs at least 3 characters unless a filter is given; limits run from 1 to 200; dates are RFC 3339 or YYYY-MM-DD in UTC; a cursor goes with the same other arguments that produced it.",

@@ -42,7 +42,7 @@ func (c *Catalog) PreviewBayRule(ctx context.Context, scope Scope, req BayRulePr
 		return out, ErrMigrationInput
 	}
 	if err := (config.Projects{Allow: []config.ProjectMatch{req.Match}}).Validate(); err != nil {
-		return out, err
+		return out, ErrMigrationInput
 	}
 	if req.Proposed {
 		if !ValidBayName(req.Bay) {

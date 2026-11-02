@@ -91,6 +91,7 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	s.readToolRoutes(m)
 	s.readDiagnosisRoutes(m)
 	s.readDiscoveryRoutes(m)
+	s.migrationPreviewRoutes(m)
 	s.mcpRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }
@@ -148,6 +149,10 @@ func failure(err error) (int, map[string]string) {
 		status, code = 503, "search_unavailable"
 	case errors.Is(err, recall.ErrGenerationChanged):
 		status, code = 409, "generation_changed"
+	case errors.Is(err, catalog.ErrSelectionLimit), errors.Is(err, catalog.ErrMigrationSize):
+		status, code = 400, "selection_too_large"
+	case errors.Is(err, catalog.ErrSelection), errors.Is(err, catalog.ErrMigrationInput), errors.Is(err, catalog.ErrSameBay), errors.Is(err, catalog.ErrBayName), errors.Is(err, catalog.ErrRuleEmpty):
+		status, code = 400, "invalid_request"
 	case errors.Is(err, catalog.ErrBaySelection):
 		status, code = 400, "invalid_bay_selection"
 	case errors.Is(err, recall.ErrInvalid):

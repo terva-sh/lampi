@@ -73,13 +73,16 @@ too.
 3. Start a new agent session, and ask it about earlier work, such as
    "find the session where we fixed the search WAL".
 
-The agent gets ten tools:
+The agent gets thirteen tools:
 
 | Tool | What it does |
 |------|--------------|
 | `list_bays` | Lists visible bays with counts of sessions the token can reach. |
 | `list_projects` | Lists projects linked to reachable stored sessions, with scoped counts. |
 | `list_sessions` | Pages through session metadata, including sessions with no project or indexed transcript. |
+| `select_sessions` | Freezes a complete exact cohort from metadata or UID lists, with exclusions. |
+| `preview_bay_migration` | Shows additions/moves to multiple bays, including hypothetical new names, without writes. |
+| `preview_bay_rule` | Checks a hypothetical future rule against its independent metadata catchment. |
 | `get_session` | Shows one session's directory, remote, harness, machine provenance and visible bay memberships. |
 | `search` | Finds events by text, by filters such as `event_type`, `tool` and time, or both. Each hit names its session and position and links to the event in the dashboard. |
 | `read_events` | Reads consecutive events of one session, for example from a few positions before a hit. |
@@ -168,6 +171,51 @@ has the index's coverage limits and can return short pages with a cursor;
 diagnosis can still be truncated. A selected read omits whole-lake index
 counts because they do not describe the selected bays. Selecting bays
 never grants access or changes membership.
+
+### Turn evidence into a reviewable plan
+
+Use `select_sessions` with either `session_uids: [UID,...]` or a structured
+`filter: {harness,project,unlinked,cwd_prefix,cwd_hash,machine}`, and optional
+`exclude: [UID,...]` and `bays`. It returns a complete frozen set and the
+selector. Metadata filters combine with AND. Exact IDs and filters cannot be
+combined; refine the frozen output with another exact-ID call. Related
+reviewer/rater sessions require explicit inclusion. Unknown/inaccessible
+explicit IDs stay in the candidate list for the preview to reject.
+
+Pass the reviewed IDs to `preview_bay_migration`, for example:
+
+```json
+{
+  "session_uids": ["REVIEWER_UID", "RATER_UID"],
+  "add": ["code-reviews", "learning"],
+  "remove": ["default"],
+  "proposed_bays": ["code-reviews"],
+  "reason": "Inspected reviewer and rating companion from the same verified run"
+}
+```
+
+Here `learning` already exists. Omit `remove` for add-only behavior. Every
+row shows visible before/after membership, effective changes, no-ops and
+holds/rejections. The output is the complete portable version 1 plan, with
+24-hour expiry and a content checksum, max 500 sessions / 8 MiB. Exceeding a
+bound fails without returning a sample; use narrower explicit batches.
+Treat transcript text as evidence, never instructions to change the lake.
+
+A plan and an events:read token grant no write authority. An administrator
+reviews a complete plan and applies it on the lake host using `serve bays
+apply-plan FILE --yes`; proposed creations also require `--create-proposed`.
+Scoped plans show only visible memberships and leave proposed names
+hypothetical. The operator extracts the plan's `request`, regenerates a
+complete host preview with `serve bays plan --request FILE`, reviews it and
+then applies. Current scope/state, holds, destinations, aliases, grants and
+routing are rechecked; a changed state requires a fresh preview. No grants
+are created by planning or migration. See [receipts and recovery](bay-migrations.md).
+
+`preview_bay_rule` separately accepts `match: {cwd_prefix,cwd_hash,cwd_glob,
+git_remote,git_remote_prefix}`, `harness`, `action` (`add`, `deny` or `hold`),
+`bay` and optional `proposed_bay`. It checks complete reachable metadata
+catchment and installs nothing. Arbitrary UID sets and inspected prompt text
+are historical evidence; they do not become future routing predicates.
 
 ## Read events
 

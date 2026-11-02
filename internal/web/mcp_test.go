@@ -599,7 +599,7 @@ func TestMCPProtocolEras(t *testing.T) {
 		}
 	}
 	// The SDK lists tools by name.
-	if !slices.Equal(names, []string{"copy_excerpt", "diagnose_lake", "diagnose_session", "get_session", "list_bays", "list_projects", "list_sessions", "read_events", "search", "tool_stats"}) || string(reply.ID) != "2" {
+	if !slices.Equal(names, []string{"copy_excerpt", "diagnose_lake", "diagnose_session", "get_session", "list_bays", "list_projects", "list_sessions", "preview_bay_migration", "preview_bay_rule", "read_events", "search", "select_sessions", "tool_stats"}) || string(reply.ID) != "2" {
 		t.Errorf("tools/list: %v id %s", names, reply.ID)
 	}
 	if reply := decodeRPC(t, postRPC(h, token, rpcBody(3, "ping", nil), nil)); reply.Error != nil || len(reply.Result) != 0 {

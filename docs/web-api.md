@@ -355,6 +355,51 @@ meaning. This selector changes neither membership nor authorization.
 Example: `/api/read/v1/tools?bays=code-reviews,shared&all=true`.
 MCP uses the same `bays` string; CLI uses `--bays code-reviews,shared`.
 
+### Read-only selection and migration previews
+
+These authenticated POST endpoints require `events:read` and use the same
+scope and implementations as their corresponding MCP tools:
+
+| POST route | MCP tool | JSON body |
+|---|---|---|
+| `/api/read/v1/select-sessions` | `select_sessions` | `session_uids` or `filter`, optional `exclude`, `bays` |
+| `/api/read/v1/preview-bay-migration` | `preview_bay_migration` | `session_uids`, `add`, optional `remove`, `exclude`, `proposed_bays`, `reason`, `bays` |
+| `/api/read/v1/preview-bay-rule` | `preview_bay_rule` | `match`, `action`, `bay`, optional `harness`, `proposed_bay`, `bays` |
+
+UID/exclusion fields are arrays of strings, at most 500 inputs per selection;
+bay arrays have at most 20 references. Metadata `filter` fields are `harness`,
+`project`, `unlinked`, `cwd_prefix`, `cwd_hash` and `machine`, combined with
+AND. A selector must be deliberate, with IDs, a metadata field or selected
+bays. `filter` cannot be combined with exact candidate IDs. The complete
+bounded metadata snapshot is frozen before migration; there is no silent
+sample or continuation to accidentally omit. Larger catchments return 400
+`selection_too_large`; use narrower explicit batches. Every preview includes
+the full bounded rows/UIDs, not a page of examples.
+
+Migration bodies use uniform add/remove edits for an exact cohort. IDs,
+names and aliases resolve before conflicting add/remove references are
+refused. Hypothetical names also appear in `add`; scoped name availability is
+left unresolved to avoid probing hidden bays. `reason` is bounded to 1024
+bytes and is evidence prose only. Future-rule `match` supports `cwd_prefix`,
+`cwd_hash`, `cwd_glob`, `git_remote` and `git_remote_prefix`; actions are
+`add`, `deny`, `hold`. The historical cohort never defines rule catchment.
+
+Bodies are limited to 64 KiB; malformed/unknown fields and query parameters
+are refused with 400 `invalid_request`. Invalid catalog filters return
+`invalid_filters_or_cursor`; unknown/inaccessible bay refs conflate as
+`invalid_bay_selection`. Plans over 8 MiB are `selection_too_large`.
+Responses are no-store, audited and annotated read-only in MCP. Audit records
+operation/counts/lengths, without copying nested filters or free-text reasons.
+No MCP/API mutation endpoint, grant, profile or routing write is introduced.
+
+Plan artifacts follow [the migration schema and lifecycle](bay-migrations.md).
+They are untrusted portable data with a checksum and 24-hour expiry, stored
+only by the caller until an independently authorized apply creates a receipt.
+A scoped plan requires a complete administrator re-preview. Applying a full
+plan rechecks the exact reviewed request and current state inside one atomic
+transaction; generating a plan supplies no authority. Unknown/inaccessible
+UIDs are reported identically, and hidden co-memberships/policy remain hidden.
+
 ### MCP recall tools
 
 `POST /api/read/v1/mcp` is a Model Context Protocol server over the
