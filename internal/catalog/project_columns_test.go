@@ -74,7 +74,7 @@ func TestProjectColumns(t *testing.T) {
 	}
 
 	// Back to schema 21, with a session whose manifest cannot be read.
-	if _, err := c.db.Exec(dropProjectColumns + `PRAGMA user_version = 21`); err != nil {
+	if _, err := c.db.Exec(dropProjectColumns + `DROP TABLE bay_migrations; PRAGMA user_version = 21`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.db.Exec(`INSERT INTO sessions(session_uid,harness,native_session_id,head_sha256,manifest_json,ingested_at) VALUES('bad','terva','bad','head','not json','2026-11-02T00:00:00Z')`); err != nil {
@@ -88,7 +88,7 @@ func TestProjectColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	if m := c.Migrated(); m.From != 21 || !slices.Equal(m.Steps, []string{"migrateProjectColumns"}) {
+	if m := c.Migrated(); m.From != 21 || !slices.Equal(m.Steps, []string{"migrateProjectColumns", "migrateBayMigrations"}) {
 		t.Fatalf("migration %+v", m)
 	}
 	if r, d := columnsOf(t, c, a); r != want || d != "/work/app" {
