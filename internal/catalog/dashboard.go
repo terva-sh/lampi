@@ -16,9 +16,14 @@ import (
 var ErrPage = errors.New("invalid filters or cursor")
 
 type PageRequest struct {
-	Harness  string
-	Project  string
-	Unlinked bool
+	Harness string
+	Project string
+	// Remote and Folder narrow to sessions whose normalized git remote,
+	// or folder, is the value or under it, as an allow rule's
+	// git_remote_prefix and cwd_prefix match; Machine to sessions a
+	// machine posted (TKT-01M6F7JMQYGY3WGGV55H0M3FR5).
+	Remote, Folder, Machine string
+	Unlinked                bool
 	State    string
 	Limit    int
 	Cursor   string
@@ -98,7 +103,9 @@ func (r *PageRequest) validate(kind string) (pageCursor, error) {
 	if r.Limit == 0 {
 		r.Limit = 50
 	}
-	if r.Limit < 1 || r.Limit > 200 || len(r.Project) > 4096 || len(r.Cursor) > 8192 || r.Unlinked && r.Project != "" {
+	if r.Limit < 1 || r.Limit > 200 || len(r.Project) > 4096 || len(r.Cursor) > 8192 || r.Unlinked && r.Project != "" ||
+		len(r.Remote) > 1024 || len(r.Folder) > 4096 || len(r.Machine) > 128 ||
+		r.Folder != "" && (!strings.HasPrefix(r.Folder, "/") || r.Folder == "/") || strings.HasSuffix(r.Remote, "/") {
 		return pageCursor{}, ErrPage
 	}
 	if !validHarness(r.Harness) {
@@ -277,6 +284,19 @@ func sessionFilters(scope Scope, r PageRequest) ([]string, []any) {
 		args = append(args, r.Project)
 	} else if r.Unlinked {
 		where = append(where, "s.project_id=''")
+	}
+	// A prefix and everything under it: the value itself, or one
+	// sorting from "value/" up to "value0", '0' being the byte after '/'.
+	// Both forms read the column's index.
+	for _, f := range []struct{ col, v string }{{"s.project_remote", r.Remote}, {"s.project_cwd", strings.TrimRight(r.Folder, "/")}} {
+		if f.v != "" {
+			where = append(where, "("+f.col+"=? OR ("+f.col+">=? AND "+f.col+"<?))")
+			args = append(args, f.v, f.v+"/", f.v+"0")
+		}
+	}
+	if r.Machine != "" {
+		where = append(where, "EXISTS(SELECT 1 FROM provenance pm WHERE pm.machine_id=? AND pm.session_uid=s.session_uid)")
+		args = append(args, r.Machine)
 	}
 	if r.State != "" {
 		where = append(where, "("+normalizationStateSQL+")=?")
