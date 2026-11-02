@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:13:54Z
-updated_at: 2026-11-02T22:57:43Z
+updated_at: 2026-11-02T22:58:22Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -64,6 +64,10 @@ Transcript search returns event hits, omits sessions with no matching text and d
 - [ ] Scope, counts and cursor validation prevent enumerating hidden bays, sessions, projects or device metadata; test both session-scoped and bay-scoped tokens.
 - [ ] CLI and MCP discovery use shared bounded queries with documented paging, machine-readable results, continuation and incomplete-coverage behavior.
 - [ ] Document the exact metadata permission contract and tool schemas; no raw artifacts or new mutation authority are implied by events:read.
+
+## Implementation plan
+
+Add scoped catalog discovery queries with bounded keyset pagination, explicit session directory/remote/harness/provenance fields, visible bay memberships, and reachable project/bay counts. Bind discovery cursors to both filters and scope; return not-found identically for unknown and inaccessible sessions. Expose identical results through four read-token HTTP routes, MCP list_bays/list_projects/list_sessions/get_session tools and remote query subcommands. Use existing events:read authentication and durable audit conventions, without raw manifests/artifacts or administrative grants. Add semantic tests for session/bay scopes, hidden co-membership, paginated filters/cursor changes and remote CLI/MCP parity. Update reference help/docs, run targeted gates and record results before completing this slice.
 
 ## Notes
 
