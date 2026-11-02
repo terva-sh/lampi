@@ -56,7 +56,8 @@ narrowing ones:
 - `folder` is an absolute folder other than `/`. It matches sessions started
   in it or under it, as an allow rule's `cwd_prefix` does.
 - `match` is the dashboard's Project box: a value starting with `/` is a
-  `folder`, and anything else a `remote`. It cannot be combined with either.
+  `folder`, and anything else a `remote`. A non-empty `match` replaces any
+  `remote` and `folder` sent with it.
 - `machine` is a machine ID. It matches sessions that machine posted.
 
 These only narrow the sessions in `/sessions`; `/search` and the other routes

@@ -206,10 +206,10 @@ func parsePage(q url.Values, sessionFilters bool, collection string) (catalog.Pa
 	// (TKT-01M6F7JMQYGY3WGGV55H0M3FR5). A remote is compared as allow
 	// rules compare it, so git@host:owner and https://host/owner agree.
 	remote, folder := q.Get("remote"), q.Get("folder")
+	// A typed match replaces both, so a form that carries remote and
+	// folder in hidden fields can be narrowed again from its box.
 	if m := strings.TrimSpace(q.Get("match")); m != "" {
-		if remote != "" || folder != "" {
-			return p, catalog.ErrPage
-		}
+		remote, folder = "", ""
 		if strings.HasPrefix(m, "/") {
 			folder = m
 		} else {

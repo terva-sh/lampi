@@ -110,7 +110,22 @@ func TestSessionsPickers(t *testing.T) {
 	if w := get(h, "/sessions?match="+url.QueryEscape("/home/me/.t3/worktrees"), admin); !strings.Contains(w.Body.String(), `name="match" list="project-choices" value="/home/me/.t3/worktrees"`) {
 		t.Error("the Project box does not keep the folder")
 	}
-	for _, q := range []string{"match=/", "match=x&remote=y", "folder=relative/dir"} {
+	// remote and folder together survive the form: they ride in hidden
+	// fields, and the Project box stays empty, since match cannot be
+	// sent with either.
+	both := get(h, "/sessions?remote=github.com/acme&folder=/w", admin).Body.String()
+	for _, want := range []string{`<input type="hidden" name="remote" value="github.com/acme">`, `<input type="hidden" name="folder" value="/w">`, `name="match" list="project-choices" value=""`} {
+		if !strings.Contains(both, want) {
+			t.Errorf("remote and folder: the form lacks %q", want)
+		}
+	}
+	if got := shows("remote=github.com/acme&folder=/w&machine=machine-b"); !slices.Equal(got, []string{"s-lib"}) {
+		t.Errorf("remote, folder and machine: %v", got)
+	}
+	if got := shows("match=" + url.QueryEscape("/home/me/.t3/worktrees") + "&remote=github.com/acme&folder=/w"); !slices.Equal(got, []string{"s-wt1", "s-wt2"}) {
+		t.Errorf("a typed match does not replace remote and folder: %v", got)
+	}
+	for _, q := range []string{"match=/", "folder=relative/dir"} {
 		if w := get(h, "/sessions?"+q, admin); w.Code != 400 {
 			t.Errorf("%s: %d, want 400", q, w.Code)
 		}
