@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6ETZV536S1Z3SP2D5KZ4GJX
 title: "Profile editor: one line per rule, matches, inline findings, filter"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/profile-editor-redesign
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 98d247e49c147d3b0f5eb39b38e3e72a95a82f25
-  session: null
-  claimed_at: 2026-11-02T19:15:15Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T19:15:14Z
-updated_at: 2026-11-02T19:34:41Z
+updated_at: 2026-11-02T19:52:48Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -71,3 +64,7 @@ terva-review on #242 (run 2257), two findings, both fixed. (1) A rule the form c
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:34:41Z
 
 terva-review on #242 (run 2265): Remove and the inline fixes came before Preview in the editor form, so Enter in a value box submitted the first rule's Remove. Fixed with an off-screen, untabbable Preview button first in the form. It is not display:none, which some browsers skip for implicit submission. TestEditorRuleLines checks that the first submit button carries no name. The run before it (2263) flagged filtered rows staying visible under display:grid. That was not real: lake.css has a global [hidden]{display:none!important}, which I said on the PR.
+
+## Summary
+
+Merged in #242. The profile editor lists each rule on one line, a kind picker and a full-width value per condition, with what it admits, the doctor's findings and fixes beside it, Remove, folder and owner headers, and a filter box. Old field names still read. A refused rule comes back as sent, and Preview stays the form's default submit.

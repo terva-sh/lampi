@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6ETFR3B1KT33JGS4F1W41D9
 title: "Review queue: group projects by owner or folder, hide temporary ones"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/review-groups
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 2f03aa5124cd3c8f030f0c1b08c84b5f458cba3d
-  session: null
-  claimed_at: 2026-11-02T19:06:37Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T19:06:27Z
-updated_at: 2026-11-02T19:26:28Z
+updated_at: 2026-11-02T19:52:48Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -80,3 +73,7 @@ terva-review on #241 (run 2253): a group named only by kind and owner/folder let
 **agent:claude-code/t3-43103b81** at 2026-11-02T19:26:28Z
 
 terva-review on #241 (run 2255): the confirm page's Save checked the group only when it re-rendered after a failed save. Fixed: reviewAllowSavePage checks the group and its version before writing any profile, and answers 409 when they no longer match. Test: TestReviewGroupAllowSaveRefusesChangedMembers.
+
+## Summary
+
+Merged in #241. The review queue groups projects by the rule one owner-width Allow adds (three or more), and puts projects in temporary folders in a hide-only group. Group actions name the group and its version; the lake expands it from its own queue, refuses it once its projects change (on Allow, Allow save and Hide), and works past the 500-project batch limit. GET /api/web/v1/review lists the groups.
