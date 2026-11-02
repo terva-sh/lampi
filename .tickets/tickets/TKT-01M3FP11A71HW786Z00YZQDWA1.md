@@ -18,21 +18,21 @@ dependencies:
 blocks_on: none
 references: []
 claim:
-  actor: agent:claude-code/e4a47e8c
-  branch: rollout/onboarding
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-e4a47e8c
-  commit: d9aa2615dcd5a50866929a9b9dbf0151d4df18c5
+  actor: agent:claude-code/d4b24133
+  branch: tickets/reclaim-stale
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
+  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
   session: null
-  claimed_at: 2026-09-27T13:15:36Z
+  claimed_at: 2026-11-02T16:46:34Z
   expires_at: null
 archive: null
 created_at: 2026-09-26T20:20:39Z
-updated_at: 2026-09-28T23:40:49Z
+updated_at: 2026-11-02T16:46:34Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/aa1afd80
+  id: agent:claude-code/d4b24133
   name: ""
 extensions: {}
 ---
@@ -118,3 +118,11 @@ Upgrade step for brokkr once the catalog-profiles PRs land (#69, #70 and the imp
 **agent:claude-code/aa1afd80** at 2026-09-28T23:40:49Z
 
 The lake and workstation agent are now on v0.2.0 (TKT-01M3N5R5, 2026-09-28). The profiles import from note 6 has run: the default profile is at revision 1, from serve profiles import at 2026-09-28T18:27:31Z.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:34Z
+
+2026-11-02: claim taken over by agent:claude-code/d4b24133 at the owner's request. The claim's branch rollout/onboarding is merged into main and the ticket has not changed since 2026-09-28. No local worktree holds this ticket's branch.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:34Z
+
+claim taken from agent:claude-code/e4a47e8c by agent:claude-code/d4b24133

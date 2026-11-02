@@ -19,21 +19,21 @@ dependencies:
 blocks_on: none
 references: []
 claim:
-  actor: agent:claude-code/aa1afd80
-  branch: self-host/backups
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-aa1afd80
-  commit: b3fe43033b0f2e879ffd0c78d4490b5249c911ab
+  actor: agent:claude-code/d4b24133
+  branch: tickets/reclaim-stale
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
+  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
   session: null
-  claimed_at: 2026-09-28T21:35:10Z
+  claimed_at: 2026-11-02T16:46:35Z
   expires_at: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-09-28T21:35:10Z
+updated_at: 2026-11-02T16:46:35Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
 updated_by:
-  id: agent:claude-code/aa1afd80
+  id: agent:claude-code/d4b24133
   name: ""
 extensions: {}
 ---
@@ -87,3 +87,11 @@ The derived files (`normalized/`, `parquet/`, `search.db`) aren't in a backup. T
 - Compact keeps a cutoff so it doesn't remove objects uploaded but not yet named. The backup has no in-flight uploads, so prune doesn't need one.
 
 `--every` is filed separately as draft TKT-01M3MZ2G (Ops: serve backup --every for an in-container backup schedule), at the owner's request.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+2026-11-02: claim taken over by agent:claude-code/d4b24133 at the owner's request. The claim's branch self-host/backups is merged into main (serve backup --prune, #105) and the ticket has not changed since 2026-09-28. No local worktree holds this ticket's branch.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+claim taken from agent:claude-code/aa1afd80 by agent:claude-code/d4b24133

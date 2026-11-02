@@ -17,21 +17,21 @@ dependencies: []
 blocks_on: none
 references: []
 claim:
-  actor: agent:claude-code/27b21f4b
-  branch: search/pass-writes
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-27b21f4b
-  commit: af10f1578763f89faedb517c6eb35733c02b4a04
+  actor: agent:claude-code/d4b24133
+  branch: tickets/reclaim-stale
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
+  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
   session: null
-  claimed_at: 2026-10-01T07:40:04Z
+  claimed_at: 2026-11-02T16:46:35Z
   expires_at: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-10-01T14:38:24Z
+updated_at: 2026-11-02T16:46:35Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
 updated_by:
-  id: agent:claude-code/27b21f4b
+  id: agent:claude-code/d4b24133
   name: ""
 extensions: {}
 ---
@@ -149,3 +149,11 @@ Merged in #180 (e680473). Reviews 1715 and 1717 led to: a freelist-empty check t
 **agent:claude-code/27b21f4b** at 2026-10-01T14:38:24Z
 
 The automerge spike split out from this ticket, TKT-01M3V7ZNT0, is done with no code change. A higher automerge did not lower the per-transaction WAL peak over a workload. The peak is documented in docs/web-dashboard.md, and the Size bullet there now points to serve compact.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+2026-11-02: claim taken over by agent:claude-code/d4b24133 at the owner's request. The claim's branch search/pass-writes is merged into main and the ticket has not changed since 2026-10-01. No local worktree holds this ticket's branch.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+claim taken from agent:claude-code/27b21f4b by agent:claude-code/d4b24133

@@ -18,21 +18,21 @@ dependencies: []
 blocks_on: none
 references: []
 claim:
-  actor: agent:claude-code/d8436f9f
-  branch: normalize/zstd-events
-  worktree: /home/sothr/.t3/worktrees/lampi/t3code-d8436f9f
-  commit: f78ca7b7f6cef29c22255d334798d05814021dc6
+  actor: agent:claude-code/d4b24133
+  branch: tickets/reclaim-stale
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
+  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
   session: null
-  claimed_at: 2026-09-29T00:23:33Z
+  claimed_at: 2026-11-02T16:46:35Z
   expires_at: null
 archive: null
 created_at: 2026-09-28T04:25:34Z
-updated_at: 2026-10-01T06:24:58Z
+updated_at: 2026-11-02T16:46:35Z
 created_by:
   id: agent:claude-code/e4a47e8c
   name: ""
 updated_by:
-  id: agent:claude-code/27b21f4b
+  id: agent:claude-code/d4b24133
   name: ""
 extensions: {}
 ---
@@ -195,3 +195,11 @@ The index took 2958 MiB on disk: `fts_data` 2102 MiB, `docs` 751 MiB, the rest i
 **agent:claude-code/27b21f4b** at 2026-10-01T06:24:58Z
 
 Correction to the previous note: the dead-rows ticket is TKT-01M3NPFNMH (Search index: FTS segments hold 0.5 GiB over live size after rebuild), and the WAL ticket is TKT-01M3NPFNJA (Search index WAL keeps its peak size). TKT-01M3V1AJJ5 and TKT-01M3V1AJGS, which that note named, are archived as their duplicates.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+2026-11-02: claim taken over by agent:claude-code/d4b24133 at the owner's request. The claim's branch normalize/zstd-events is merged into main and the ticket has not changed since 2026-10-01. No local worktree holds this ticket's branch.
+
+**agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
+
+claim taken from agent:claude-code/d8436f9f by agent:claude-code/d4b24133
