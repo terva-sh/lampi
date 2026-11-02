@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:48:16Z
+updated_at: 2026-11-02T23:50:01Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -113,3 +113,13 @@ Request the repository terva-review workflow for the final pushed head and monit
 Review 3012 on 7ad15f673019ada95df7faca703040a29b224326 found that unrestricted events:read previews exposed grant principals by conflating data reach with administrator authority. Accepted and fixed in this follow-up; rationale, caller audit and regression coverage are recorded under TKT-01M6F5K49E9JCCE6C80FTTNRP3 (MCP: preview session selections and bay migration plans). Fresh model review is required after this substantive fix; earlier implementation-complete notes do not mean the review gate passed.
 
 The live dogfood prerequisite is unchanged: the installed CLI is still v0.11.1 (527d5c368339), and the newly built query bays again refuses before any request because no read token is configured. No lampi connector is currently exposed to this agent. Existing service-account restrictions and the required backed-up deployment remain unresolved; no complete live inventory or split is claimed. Continue through PR review while keeping the live criteria unchecked.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:50:01Z
+
+### Authorization fix validation and review follow-up
+
+Fix head 010aa85611140863b39cbc87e22f5c5b6bf76693 is pushed to PR 253. Full normal tests, catalog/web/CLI race suites, vet, isolated build, whitespace checks and ticket validation passed. Ticket validation retains only the same two unrelated existing long-title warnings. No live state was changed.
+
+Review 3012 finding-1 is accepted and recorded in the maintained disposition store: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37715. The command explicitly identifies this agent's technical assessment and does not claim human merge approval. Fresh full review is running at https://git.local.sothr.com/terva-sh/lampi/actions/runs/2326 (database run 30388), request organization-policy-010aa85. The CLI reported an unexpected-end-of-JSON error on the successful 204 dispatch response; authoritative run inspection confirmed delivery, so it was not blindly retried.
+
+This subsequent commit changes only ticket records. Request carry after the full review through the repository's serialized review workflow, then watch PR 253 for CI, the current-head verdict and new feedback. Do not claim a passing review before its published commit status. Live Vuoro work remains blocked on the separately recorded deployment and read/operator access prerequisites.
