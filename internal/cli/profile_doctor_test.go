@@ -49,11 +49,11 @@ func TestServeProfilesDoctor(t *testing.T) {
 	for _, want := range []string{
 		"profile default: 4 of 500 allow rules, 0 deny rules; 0 projects wait in review",
 		"devices: deck",
-		"problem  home_folder     allow[2] cwd_prefix /home/steamos",
+		"problem  home_folder      allow[2] cwd_prefix /home/steamos",
 		"fix: replace it with cwd_prefix /home/steamos/games",
-		"warning  broad_folder    allow[0] cwd_prefix /work",
-		"tidy     covered         allow[1] cwd_prefix /work/app",
-		"tidy     temporary       allow[3] cwd_prefix /tmp/gone-1",
+		"warning  broad_folder     allow[0] cwd_prefix /work",
+		"tidy     covered          allow[1] cwd_prefix /work/app",
+		"tidy     temporary        allow[3] cwd_prefix /tmp/gone-1",
 		"2 safe fixes change no project's verdict",
 	} {
 		if !strings.Contains(out, want) {
