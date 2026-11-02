@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3MC0S0VZDF9A9SF80WV2SWR
 title: "Ops: scheduled and off-host lake backups for container deployments"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M3MC0QVMMW0TQ6RGAYDZEF82
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: tickets/reclaim-stale
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
-  session: null
-  claimed_at: 2026-11-02T16:46:35Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-28T16:01:57Z
-updated_at: 2026-11-02T16:46:35Z
+updated_at: 2026-11-02T17:22:04Z
 created_by:
   id: agent:claude-code/aa1afd80
   name: ""
@@ -56,10 +49,10 @@ Settle the dependency on TKT-01M3FBQX: the container docs should use encrypted b
 
 ## Acceptance criteria
 
-- [ ] A documented schedule for serve backup works with the shell-less image
-- [ ] Off-host copy to an encrypted target is documented
-- [ ] A container restore drill was run and documented
-- [ ] The relationship to TKT-01M3FBQX is recorded
+- [x] A documented schedule for serve backup works with the shell-less image
+- [x] Off-host copy to an encrypted target is documented
+- [x] A container restore drill was run and documented
+- [x] The relationship to TKT-01M3FBQX is recorded
 
 ## Notes
 
@@ -95,3 +88,27 @@ The derived files (`normalized/`, `parquet/`, `search.db`) aren't in a backup. T
 **agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
 
 claim taken from agent:claude-code/aa1afd80 by agent:claude-code/d4b24133
+
+**agent:claude-code/d4b24133** at 2026-11-02T17:22:03Z
+
+### Container restore drill, 2026-11-02
+
+Run on the development workstation under rootless Podman, with the published `ghcr.io/terva-sh/lampi:0.10.0` image, in scratch volumes on loopback ports 18791 to 18793, away from the live lake. The steps followed `docs/container.md`.
+
+1. Made an operator token with `terva-lampi login`, stored it in a fresh volume with `login` run in the image, and started the lake with the image's own flags, without `--behind-proxy`.
+2. An isolated agent synced four synthetic Claude sessions (4.1 MiB, from `lampi-perf -keep-data`): uploaded 4, refused 0.
+3. While `serve` ran: `serve backup --out /backups/lake --prune` (prune removed nothing) and `serve backup --recipients-file ... --archive /backups/lake-….age` (9 entries, 0.7 MiB, 1 recipient). The age key pair was throwaway, made in scratch with `filippo.io/age`, and deleted with the drill.
+4. Stopped the source. Recorded lake `lake_icg4kixei4xdvnpiqjfyif3ezu`, key `f6e1784079030f27`.
+5. **Archive:** `serve restore` in the image into a fresh volume: "restored 9 files … catalog.db: 4 sessions"; `serve fsck`: 4 entries, 0 bad, same identity.
+6. **Directory:** the first attempt used `podman volume import` of a tar of the backup. `fsck` passed, but `serve` failed with `lakelock: open /var/lib/terva-lampi/lake.lock: permission denied`, because the import left the volume's top directory owned by root. Making the volume through the lake image first, then `cp -a` from a throwaway container running as 65532, worked: `fsck` clean, same identity.
+7. Each restored volume was served on its own port. The logs named the same identity at catalog schema 21. The agent's original token was accepted, `sync` reported unchanged 4 and uploaded 0, and status showed `ready=4 pending=0 failed=0`.
+
+The docs record the working directory procedure, and warn against `volume import` and root copies.
+
+### Relationship to TKT-01M3FBQX
+
+TKT-01M3FBQX (Add optional compressed age-encrypted backups and restore) is done. The container docs use its archives for everything that leaves the host, and its `serve restore` for the archive restore. The plaintext directory backup stays for a fast local copy, with `--prune`, and leaves the host only through an encrypting tool such as restic or borg. `serve backup --every`, a schedule inside the container, remains the draft TKT-01M3MZ2GPQZQ2MANBXPH77F1F9; the docs schedule from the host instead, which works with the shell-less image today.
+
+## Summary
+
+docs/container.md now covers backups end to end for the container setup: a host-side schedule (a script run by cron or a systemd timer that execs serve backup into the running service, since the image has no shell; a kubectl-exec CronJob on Kubernetes), off-host copies (archives with any tool, the plaintext directory only through restic or borg), retention and what serve purge does not reach, and a restore section for both an archive and the directory backup. The restore steps were run as a drill on 2026-11-02 with the v0.10.0 image under Podman; the note on this ticket has the results, including the volume-ownership failure the docs now warn about. The compose snippet mounts the recipients file. Encrypted archives (TKT-01M3FBQX) are what leave the host.
