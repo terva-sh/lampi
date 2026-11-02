@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:37:50Z
+updated_at: 2026-11-02T23:42:23Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -95,3 +95,7 @@ TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into 
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:37:50Z
 
 in-progress to blocked: Implementation is complete; live Vuoro dogfood remains blocked on deployment and authorized read/operator access. See TKT-01M6F5A01MX2ZCP9J7M3GGD7M0.
+
+**agent:codex/t3-6387cc8a** at 2026-11-02T23:42:23Z
+
+Integrated origin/main through 0bd109d, preserving the newer wide tables, named machines/timestamps, grouped profile Health panel and read-token choices. The newly landed project-column migration occupies schema 22, so durable bay migration receipts now append schema 23. Backward-migration fixtures remove both additions when constructing older catalogs; the project-column upgrade test verifies the ordered 21→22→23 steps. Focused catalog/dashboard/CLI integration tests pass after the merge. The pre-merge full race suite passed, and final full normal plus affected-package race/vet/build checks are running on the integrated head before PR handoff. No live deployment or migration has been attempted.
