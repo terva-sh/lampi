@@ -26,7 +26,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T23:06:10Z
+updated_at: 2026-11-02T23:10:33Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -55,3 +55,13 @@ Screenshot each changed view at 1500px and at a narrow width.
 - [ ] Machines show by device name, falling back to the short ID
 - [ ] Times show as readable UTC with the full value in datetime and title
 - [ ] Screenshots at wide and narrow widths checked; tests pin the markup
+
+## Implementation plan
+
+Template funcs: when (RFC 3339 to 'YYYY-MM-DD HH:MM:SSZ' UTC, else as given), wrapPath (escape, <wbr> after / and :), wideView (views whose main is wide), named (hands sessions/records tables their rows plus device names). All 27 plain <time> elements get title= and when. pageData.MachineNames from Server.machineNames (factored out of newConflictsView) on overview, sessions, detail, conflicts; sessions Machines column and provenance show machineName with the ID on hover. CSS: session-name and project-label wrap (overflow-wrap:anywhere) instead of ellipsis; sessions-table column widths; harness badge nowrap. Wide views: overview, sessions, detail, search, activity, usage, operations, devices, device, review, profiles, profile, profile-edit, bays, conflicts, registrations, read-tokens, minted, raw. Narrow: transcript, refused, review-allow, conflict.
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T23:10:33Z
+
+Screenshots at 1800px and 900px of /sessions with long remotes and folders (scratch wide.*): projects wrap at separators, machines show 'brokkr', times read as 2026-11-02 23:14:10Z. At 900px the harness badge wrapped mid-word with 8%; widened to 10%. GOFLAGS=-mod=mod just ci passes.
