@@ -171,6 +171,14 @@ configuration bypass.
   an earlier page; refresh to start over. Large labels/paths are display previews.
   The [browser API contract](web-api.md) describes exact limits.
 
+Pages that hold tables use the full width of a wide screen, up to 1600
+pixels; transcripts and short forms keep a narrow column. A long project
+remote or folder wraps at its `/` and `:` separators instead of being cut
+off. Machines show by the name of the device bound to them, with the machine
+ID on hover; a machine no device names shows its ID shortened. Times read as
+UTC to the second, such as `2026-11-02 22:21:00Z`, with the full stored value
+on hover.
+
 Overview and the first session page refresh every 25 seconds while visible.
 Other pages stay still. Refresh pauses on failures, expired login, hidden tabs or
 keyboard focus inside the updated table. Manual refresh retries. Forms, navigation
