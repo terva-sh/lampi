@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NNF2NNAETK0YG9WVBQW21G
 title: "Bays: guided selection, multi-bay migration and inbox triage"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:18Z
-updated_at: 2026-11-02T22:20:35Z
+updated_at: 2026-11-02T22:57:44Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""

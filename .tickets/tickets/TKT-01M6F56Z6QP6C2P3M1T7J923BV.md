@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F56Z6QP6C2P3M1T7J923BV
 title: "MCP and CLI: discover bays, projects and session metadata"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -17,10 +17,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3-6387cc8a
+  branch: t3/split-code-reviews-bay
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
+  commit: 58b3063e8e69b65967be973a14793101a8416d8d
+  session: null
+  claimed_at: 2026-11-02T22:57:43Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:13:54Z
-updated_at: 2026-11-02T22:21:09Z
+updated_at: 2026-11-02T22:57:43Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""

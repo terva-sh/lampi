@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K4SJPKTM2867HZEHSWR0
 title: "Spike: validate heuristics for bay recommendations"
 type: spike
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T22:20:35Z
+updated_at: 2026-11-02T22:57:44Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""

@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5A01MX2ZCP9J7M3GGD7M0
 title: Preview and separate Vuoro review sessions into a bay
 type: spike
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-02T22:21:09Z
+updated_at: 2026-11-02T22:57:45Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""

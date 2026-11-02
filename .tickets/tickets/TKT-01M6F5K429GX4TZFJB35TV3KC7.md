@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K429GX4TZFJB35TV3KC7
 title: "MCP and CLI: filter recall and analysis by selected bays"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T22:20:34Z
+updated_at: 2026-11-02T22:57:43Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""

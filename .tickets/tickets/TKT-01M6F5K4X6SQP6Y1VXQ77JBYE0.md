@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0
 title: "Doctor: suggest bay destinations with supporting evidence"
 type: task
-status: draft
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:33Z
-updated_at: 2026-11-02T22:20:35Z
+updated_at: 2026-11-02T22:57:44Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""

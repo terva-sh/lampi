@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5K3BTS8X9BTFZTECWYDCR
 title: "Spike: session identification and multi-bay migration UX"
 type: spike
-status: draft
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,10 +18,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3-6387cc8a
+  branch: t3/split-code-reviews-bay
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
+  commit: 58b3063e8e69b65967be973a14793101a8416d8d
+  session: null
+  claimed_at: 2026-11-02T22:57:42Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T22:20:31Z
+updated_at: 2026-11-02T22:57:42Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
