@@ -11,6 +11,7 @@ import (
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
+	"terva.sh/lampi/internal/profiledoctor"
 	"terva.sh/lampi/internal/protocol"
 )
 
@@ -116,5 +117,18 @@ func TestHealthBulkFixAndTemporaryDeny(t *testing.T) {
 	v.Set("fix_all", "temporary")
 	if body, got, code = preview(v); code != 409 || !strings.Contains(html.UnescapeString(body), "Fixing every temporary finding would hide 502 projects") || len(got.Projects.Allow) != 5 {
 		t.Errorf("an oversized bulk fix: %d", code)
+	}
+}
+
+// A project two rules of a group admit counts once in the group's total.
+func TestGroupFindingsCountsEachProjectOnce(t *testing.T) {
+	app := profiledoctor.Project{Key: catalog.ProjectKey{Kind: catalog.KeyCWD, Key: "/work/app/sub"}}
+	other := profiledoctor.Project{Key: catalog.ProjectKey{Kind: catalog.KeyCWD, Key: "/work/app/x"}}
+	items := []healthItem{
+		{Finding: profiledoctor.Finding{Code: profiledoctor.CodeCovered, Admits: []profiledoctor.Project{app, other}}},
+		{Finding: profiledoctor.Finding{Code: profiledoctor.CodeCovered, Admits: []profiledoctor.Project{app}}},
+	}
+	if g := groupFindings(items, true); len(g) != 1 || g[0].Admits != 2 {
+		t.Errorf("groups %+v, want one group admitting 2 projects", g)
 	}
 }

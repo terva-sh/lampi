@@ -34,7 +34,8 @@ type healthGroup struct {
 	// Message is the message every finding shares, or "".
 	Message string
 	Items   []healthItem
-	// Admits counts the projects the group's rules admit today, Fixes
+	// Admits counts the projects the group's rules admit today, each
+	// once however many of its rules admit it, Fixes
 	// the findings its bulk button applies, and Bulk is that button's
 	// label, "" when it offers none.
 	Admits, Fixes int
@@ -186,6 +187,8 @@ func bulkLabel(fs []profiledoctor.Finding) string {
 func groupFindings(items []healthItem, edit bool) []healthGroup {
 	var out []healthGroup
 	at := map[string]int{}
+	// A project two of a group's rules admit counts once.
+	admits := map[string]map[catalog.ProjectKey]bool{}
 	for _, it := range items {
 		i, ok := at[it.Code]
 		if !ok {
@@ -198,7 +201,13 @@ func groupFindings(items []healthItem, edit bool) []healthGroup {
 			g.Message = ""
 		}
 		g.Items = append(g.Items, it)
-		g.Admits += len(it.Admits)
+		if admits[it.Code] == nil {
+			admits[it.Code] = map[catalog.ProjectKey]bool{}
+		}
+		for _, a := range it.Admits {
+			admits[it.Code][a.Key] = true
+		}
+		g.Admits = len(admits[it.Code])
 	}
 	for i := range out {
 		g := &out[i]
