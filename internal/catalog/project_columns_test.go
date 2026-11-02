@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +17,13 @@ const dropProjectColumns = `DROP INDEX sessions_by_remote; DROP INDEX sessions_b
 
 func projectSession(t *testing.T, c *Catalog, native string, p protocol.Project) string {
 	t.Helper()
+	return projectSessionOn(t, c, "machine-a", native, p)
+}
+
+func projectSessionOn(t *testing.T, c *Catalog, machine, native string, p protocol.Project) string {
+	t.Helper()
 	body := []byte(`{"session":"` + native + `"}` + "\n")
-	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: "machine-a", Harness: protocol.HarnessTerva, NativeSessionID: native, Project: p,
+	m := protocol.Manifest{CaptureProtocol: protocol.Version, MachineID: machine, Harness: protocol.HarnessTerva, NativeSessionID: native, Project: p,
 		Artifacts: []protocol.Artifact{{Kind: protocol.KindTranscriptJSONL, RelPath: "sessions/" + native + ".jsonl", Size: int64(len(body)), SHA256: digestHex(body)}}}
 	ack, err := c.Ingest(context.Background(), m, time.Now(), []Decision{{Relation: protocol.RelationHead, Record: true, Head: true}}, memBlobs{digestHex(body): body})
 	if err != nil {
@@ -119,5 +125,68 @@ func TestProjectColumns(t *testing.T) {
 		if !strings.Contains(plan.String(), index) {
 			t.Errorf("%s plans %s, not using %s", q, plan.String(), index)
 		}
+	}
+}
+
+// TKT-01M6F7JMQYGY3WGGV55H0M3FR5: the sessions list narrows by remote
+// prefix, folder prefix and machine, a prefix matching whole segments
+// only, and the choices list each remote and each folder without one.
+func TestSessionPrefixFilters(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx := context.Background()
+	app := projectSession(t, c, "s-app", protocol.Project{GitRemote: "git@github.com:acme/app.git", CWD: "/work/app"})
+	lib := projectSessionOn(t, c, "machine-b", "s-lib", protocol.Project{GitRemote: "https://github.com/acme/lib", CWD: "/work/lib"})
+	projectSession(t, c, "s-x", protocol.Project{GitRemote: "github.com/acmex/z", CWD: "/work/x"})
+	wa := projectSession(t, c, "s-wa", protocol.Project{CWD: "/scratch/a"})
+	wa2 := projectSession(t, c, "s-wa2", protocol.Project{CWD: "/scratch/a/deep"})
+	projectSession(t, c, "s-wab", protocol.Project{CWD: "/scratch/ab"})
+	uids := func(r PageRequest) []string {
+		t.Helper()
+		p, err := c.DashboardSessions(ctx, AllBays(), r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, s := range p.Items {
+			out = append(out, s.UID)
+		}
+		slices.Sort(out)
+		return out
+	}
+	sorted := func(s ...string) []string { slices.Sort(s); return s }
+	for name, c := range map[string]struct {
+		r    PageRequest
+		want []string
+	}{
+		"owner":        {PageRequest{Remote: "github.com/acme"}, sorted(app, lib)},
+		"repository":   {PageRequest{Remote: "github.com/acme/app"}, sorted(app)},
+		"folder":       {PageRequest{Folder: "/scratch/a"}, sorted(wa, wa2)},
+		"folder slash": {PageRequest{Folder: "/scratch/a/"}, sorted(wa, wa2)},
+		"machine":      {PageRequest{Machine: "machine-b"}, sorted(lib)},
+		"both":         {PageRequest{Remote: "github.com/acme", Machine: "machine-a"}, sorted(app)},
+	} {
+		if got := uids(c.r); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+	for _, r := range []PageRequest{{Folder: "/"}, {Folder: "scratch"}, {Remote: "github.com/"}} {
+		if _, err := c.DashboardSessions(ctx, AllBays(), r); err != ErrPage {
+			t.Errorf("%+v: %v, want ErrPage", r, err)
+		}
+	}
+	projects, machines, err := c.ProjectChoices(ctx, AllBays())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(machines, []string{"machine-a", "machine-b"}) {
+		t.Errorf("machines %v", machines)
+	}
+	var got []string
+	for _, p := range projects {
+		got = append(got, p.Remote+"|"+p.Folder+"|"+strconv.Itoa(p.Sessions))
+	}
+	slices.Sort(got)
+	if want := sorted("|/scratch/a/deep|1", "|/scratch/a|1", "|/scratch/ab|1", "github.com/acme/app||1", "github.com/acme/lib||1", "github.com/acmex/z||1"); !slices.Equal(got, want) {
+		t.Errorf("choices %v, want %v", got, want)
 	}
 }

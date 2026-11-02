@@ -45,7 +45,23 @@ first, then session UID descending. These are live views: concurrent ingestion
 can move rows, so restart pagination to refresh the list.
 
 Session filters are exact `harness`, exact `project`, `unlinked=true` (mutually
-exclusive with project), and `state=pending|failed|ready|unknown`. Unknown or
+exclusive with project), and `state=pending|failed|ready|unknown`, and these
+narrowing ones:
+
+- `remote` is a git remote or a prefix of one, in any form: `github.com/acme`,
+  `git@github.com:acme` and `https://github.com/acme` are the same owner. It
+  matches sessions whose remote is that value or lies under it, segment by
+  segment, as an allow rule's `git_remote_prefix` does: `github.com/acme`
+  does not match `github.com/acmex`.
+- `folder` is an absolute folder other than `/`. It matches sessions started
+  in it or under it, as an allow rule's `cwd_prefix` does.
+- `match` is the dashboard's Project box: a value starting with `/` is a
+  `folder`, and anything else a `remote`. A non-empty `match` replaces any
+  `remote` and `folder` sent with it.
+- `machine` is a machine ID. It matches sessions that machine posted.
+
+These only narrow the sessions in `/sessions`; `/search` and the other routes
+do not take them. Unknown or
 repeated parameters, invalid limits/cursors and unsupported filter values are
 refused. Other collections accept only limit/cursor, the artifact current
 selector and the conflict resolved selector. Detail and overview accept no

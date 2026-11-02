@@ -20,7 +20,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T22:55:13Z
+updated_at: 2026-11-02T23:26:54Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -56,7 +56,17 @@ Document the new query parameters in `web-api.md`. Keep `project=` working for l
 
 ## Acceptance criteria
 
-- [ ] Project input suggests projects, owners and folders in scope and filters by exact ID, remote prefix or folder prefix
-- [ ] Machine select filters by device through provenance
+- [x] Project input suggests projects, owners and folders in scope and filters by exact ID, remote prefix or folder prefix
+- [x] Machine select filters by device through provenance
 - [ ] Search and Usage take the same filters; picker lists come from a short-lived cache, not a scan per render
-- [ ] web-api.md documents the parameters; project= keeps working
+- [x] web-api.md documents the parameters; project= keeps working
+
+## Implementation plan
+
+Catalog: PageRequest gains Remote, Folder and Machine. sessionFilters matches a prefix with col=v OR (col>='v/' AND col<'v0') on the catalog 22 indexes, so github.com/acme does not match acmex, and machine through EXISTS on provenance. ProjectChoices lists distinct remotes, folders of remote-less sessions, and machines in scope. Web: parsePage takes remote, folder, machine and match (a value starting with / is a folder, otherwise a remote, normalized with config.NormalizeRemote). sessionPickers caches choices per scope for a minute. projectOptions offers owners holding two or more repositories and folders where two or more project folders branch, then each repository and folder, at most 500. The Project box is an input with a datalist, and Machine a select by device name. project= still works and is kept as a hidden field when set.
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T23:26:53Z
+
+Shipped for Sessions only. Search and Usage read search.db, which holds only project_id, and Search drops out-of-scope hits after the query, so narrowing them that way empties pages. Split into TKT-01M6F9CM9YTMC0C0F67A51HH1J (Search and Usage: filter by remote, folder and machine), which needs an indexVersion bump. AC 3 is left unticked for that reason. Screenshots at 1700px checked: the Project box widened to flex 3 after the first render was too narrow. Tests: TestSessionPrefixFilters (catalog), TestProjectOptions and TestSessionsPickers (web). GOFLAGS=-mod=mod just ci passes.
