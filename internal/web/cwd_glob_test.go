@@ -33,7 +33,7 @@ func TestEditorSavesACWDGlob(t *testing.T) {
 	cookie, _ := signIn(t, idp, h)
 	csrf := csrfOf(t, h, cookie)
 
-	if page := get(h, "/profiles/default/edit", cookie).Body.String(); !strings.Contains(page, `name="allow.0.cwd_glob"`) || !strings.Contains(page, `name="deny.0.cwd_glob"`) {
+	if page := get(h, "/profiles/default/edit", cookie).Body.String(); !strings.Contains(page, `name="allow.0.c.0.kind"`) || !strings.Contains(page, `name="deny.0.c.0.kind"`) || !strings.Contains(page, `<option value="cwd_glob"`) {
 		t.Fatal("the editor has no cwd_glob fields")
 	}
 	w := postForm(h, "/profiles/default/preview", ruleForm(csrf, 0, []config.ProjectMatch{{CWDGlob: " /home/*/notes "}}), cookie)

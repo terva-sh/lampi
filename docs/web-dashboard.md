@@ -779,8 +779,28 @@ banner gives the `serve profiles import` command that brings it in.
 ### Editing a profile
 
 Operators get **Edit profile** on a profile's page, and a form to create one on
-`/profiles`. The editor has a row for every rule and three empty rows per list;
-preview to get more. Clearing every field of a rule removes it.
+`/profiles`. The editor uses the full page width and lists each rule on one
+line:
+
+- **What it names, and the value.** The picker chooses Folder (`cwd_prefix`),
+  Repository (`git_remote`), Remote prefix (`git_remote_prefix`), Folder hash
+  (`cwd_hash`) or Folder pattern (`cwd_glob`). A rule that sets two fields,
+  such as a folder and its hash, shows each on its own line, and **+** adds a
+  condition to a rule. Every condition must match. A rule that sets one field
+  twice is refused, and the editor shows the form again as sent.
+- **What it admits.** An allow rule shows how many projects and sessions it
+  admits in the newest inventories of the devices on the profile, or that it
+  admits nothing.
+- **What the doctor says.** A finding on the rule, such as `covered` or
+  `home_folder`, shows beside it, with its fix where it has one. The Health
+  panel at the foot still sums them up.
+- **Remove**, which drops the rule and previews. Clearing every value of a
+  rule also removes it.
+
+Rules in a row that share a folder, a repository owner or a remote prefix's
+host are listed under a header naming it and counting them. Where scripts run,
+a filter box above each list narrows it to the rules whose values hold the
+text. Each list ends with three empty rows; preview to get more.
 
 **Preview** checks the profile as an agent would and shows:
 

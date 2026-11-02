@@ -14,13 +14,14 @@ assignees: []
 milestone: null
 parent: null
 origin: null
-dependencies: []
+dependencies:
+  - TKT-01M6ETZV7C0P5F2RDKQPAQCCFW
 blocks_on: none
 references: []
 claim: null
 archive: null
 created_at: 2026-11-02T19:07:14Z
-updated_at: 2026-11-02T19:07:14Z
+updated_at: 2026-11-02T19:15:15Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
