@@ -19,12 +19,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-10-28T21:24:00Z
-updated_at: 2026-10-28T21:24:00Z
+updated_at: 2026-11-02T18:38:58Z
 created_by:
   id: agent:claude-code/d4b24133
   name: ""
 updated_by:
-  id: agent:claude-code/d4b24133
+  id: agent:claude-code/t3-43103b81
   name: ""
 extensions: {}
 ---
@@ -48,3 +48,9 @@ Blank `Since` along with `AsOf`, or pass an explicit `since` on all three calls 
 ## Acceptance criteria
 
 - [ ] The three lake reports are compared with Since fixed or blanked
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T18:38:58Z
+
+Seen again on 2026-11-02 in Forgejo run 2249 (PR #240, a ticket-only change): the lake surfaces differ only in Since, 18:29:25Z against 18:29:26Z for the third surface. The fix this ticket describes still applies; the run was retried by pushing this note.
