@@ -28,7 +28,11 @@ import (
 //   - "narrow=INDEX" applies the narrowing fix for the allow rule at
 //     INDEX, and adds the projects it hides to the form;
 //   - "fold=OWNER" and "folder=DIR" fold the rules under an owner or a
-//     folder, when the doctor offers that fold.
+//     folder, when the doctor offers that fold;
+//   - "fix_all=CODE" applies every removal and narrowing of the code's
+//     findings, when the Health panel groups two or more;
+//   - "deny_temporary=1" adds the deny rules the panel offers for
+//     temporary folders.
 //
 // Each reads the doctor's report for the form's rules, so it acts only
 // on what the Health panel offered for them. An empty note is filled
@@ -38,7 +42,8 @@ import (
 func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *config.Profile) (string, error) {
 	v := r.PostForm
 	doctor, narrow, owner, folder := v.Get("doctor"), v.Get("narrow"), v.Get("fold"), v.Get("folder")
-	if doctor == "" && narrow == "" && owner == "" && folder == "" {
+	fixAll, denyTemp := v.Get("fix_all"), v.Get("deny_temporary") != ""
+	if doctor == "" && narrow == "" && owner == "" && folder == "" && fixAll == "" && !denyTemp {
 		return "", nil
 	}
 	rep, err := s.diagnose(r, name, p.Projects)
@@ -96,6 +101,55 @@ func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *confi
 		default:
 			note = "Narrow " + ruleText(*fd.Rule) + " to " + strconv.Itoa(len(fd.Replace)) + " exact " + plural(len(fd.Replace), "rule", "rules")
 		}
+	case fixAll != "":
+		fs := bulkFindings(rep, fixAll)
+		if len(fs) < 2 {
+			return "", nil
+		}
+		queued := len(f.Hide)
+		var hide []catalog.ProjectKey
+		for _, fd := range fs {
+			for _, h := range fd.Hide {
+				if !slices.Contains(hide, h) {
+					hide = append(hide, h)
+					if !slices.Contains(f.Hide, h.String()) {
+						queued++
+					}
+				}
+			}
+		}
+		if queued > maxReviewBatch {
+			return fmt.Sprintf("Fixing every %s finding would hide %d projects from review, and one save hides at most %d. Nothing was changed. Save the changes so far first, or fix them one at a time.", fixAll, queued, maxReviewBatch), nil
+		}
+		label := bulkLabel(fs)
+		if p.Projects, hide, n = profiledoctor.ApplyFixes(p.Projects, fs); n == 0 {
+			return "", nil
+		}
+		for _, h := range hide {
+			if !slices.Contains(f.Hide, h.String()) {
+				f.Hide = append(f.Hide, h.String())
+			}
+		}
+		note = label + ": " + fixAll
+		if hide != nil {
+			note = strings.Replace(note, " project:", " project from review:", 1)
+			note = strings.Replace(note, " projects:", " projects from review:", 1)
+		}
+	case denyTemp:
+		add := temporaryDenies(rep, f.Hide, p.Projects.Deny)
+		if len(add) == 0 {
+			return "", nil
+		}
+		p.Projects.Deny = append(p.Projects.Deny, add...)
+		f.Deny = withBlanks(p.Projects.Deny)
+		var texts []string
+		for _, r := range add {
+			texts = append(texts, ruleText(r))
+		}
+		if strings.TrimSpace(f.Note) == "" {
+			f.Note = "Deny new sessions in temporary folders: " + strings.Join(texts, ", ")
+		}
+		return "", nil
 	case owner != "":
 		// Only a fold the panel offers for these rules: a fold is a
 		// widening, and the offer is where its threshold lives.

@@ -291,6 +291,25 @@ func Temporary(dir string) bool {
 	return false
 }
 
+// TemporaryDeny is the deny rule that keeps new sessions under a
+// temporary folder dir out of capture and review: a cwd_prefix for the
+// temp root dir is under, or for the .cache folder that holds it. A
+// folder that is temporary only by its name, as mktemp and Go tests
+// name them, has no such root and gets none. See
+// TKT-01M6F4MD2QAGQNJ9D6XSYWY7J2.
+func TemporaryDeny(dir string) (config.ProjectMatch, bool) {
+	dir = path.Clean(dir)
+	for _, root := range tempRoots {
+		if dir == root || strings.HasPrefix(dir, root+"/") {
+			return config.ProjectMatch{CWDPrefix: root}, true
+		}
+	}
+	if i := strings.Index(dir+"/", "/.cache/"); i > 0 {
+		return config.ProjectMatch{CWDPrefix: dir[:i+len("/.cache")]}, true
+	}
+	return config.ProjectMatch{}, false
+}
+
 // admitted maps each allow rule's index to the projects it admits on the
 // listed devices: projects it matches that no deny rule refuses.
 func admitted(in Input) map[int][]Project {
@@ -507,6 +526,42 @@ func ApplyNarrow(p config.Projects, f Finding) (config.Projects, []catalog.Proje
 	allow := slices.Concat(p.Allow[:f.Index], f.Replace, p.Allow[f.Index+1:])
 	p.Allow = allow
 	return p, f.Hide, true
+}
+
+// ApplyFixes applies the fixes of findings fs together, each from the
+// report Diagnose made for p: a safe or remove fix removes its rule, and
+// a narrowing puts its Replace rules in the rule's place. It returns the
+// projects to hide from review, each once, and how many fixes it
+// applied. A finding that names no rule at its index, or a rule already
+// fixed, is skipped. See TKT-01M6F4MD2QAGQNJ9D6XSYWY7J2.
+func ApplyFixes(p config.Projects, fs []Finding) (config.Projects, []catalog.ProjectKey, int) {
+	fs = slices.Clone(fs)
+	// From the end of the list, so an earlier index still names its rule.
+	slices.SortStableFunc(fs, func(a, b Finding) int { return cmp.Compare(b.Index, a.Index) })
+	allow := slices.Clone(p.Allow)
+	var hide []catalog.ProjectKey
+	n, last := 0, -1
+	for _, f := range fs {
+		if f.Index < 0 || f.Index >= len(allow) || f.Index == last || f.Rule == nil || allow[f.Index] != *f.Rule {
+			continue
+		}
+		switch f.Fix {
+		case FixSafe, FixRemove:
+			allow = slices.Delete(allow, f.Index, f.Index+1)
+		case FixNarrow:
+			allow = slices.Concat(allow[:f.Index], f.Replace, allow[f.Index+1:])
+			for _, h := range f.Hide {
+				if !slices.Contains(hide, h) {
+					hide = append(hide, h)
+				}
+			}
+		default:
+			continue
+		}
+		n, last = n+1, f.Index
+	}
+	p.Allow = allow
+	return p, hide, n
 }
 
 // removeAt is p less the allow rules at the indexes in drop.

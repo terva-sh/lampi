@@ -911,13 +911,32 @@ is a button:
   today. It is not a safe fix, because such a rule may be for a project nobody
   has opened yet.
 
+Two or more findings of one code show as one row: the shared message, how
+many projects their rules admit today, and **Show the N findings**, which lists
+each rule with its own button. In the editor the row also has one button that
+applies every removal, narrowing and remove-and-hide of that code at once, such
+as **Remove 15 rules and hide 15 projects**. A group whose fixes are all safe
+fixes gets no button of its own, since **Apply safe fixes** removes them. A
+bulk fix that would hide more projects than one save takes is refused, and
+changes nothing.
+
+- **Deny temporary folders.** While temporary rules are flagged, or after a
+  fix has removed them and queued their projects to hide, the editor offers a
+  deny rule for their temporary roots: `cwd_prefix /tmp`, `cwd_prefix
+  /var/folders`, or the `.cache` folder that holds them. A deny rule refuses
+  new sessions there on every device that takes the profile, so they are not
+  captured and do not reach the review queue. It is never added for you; the
+  preview lists what it drops. A folder that is temporary only by its name,
+  as `mktemp` and Go tests name folders, has no root to deny, and a root an
+  existing deny rule covers is not offered again.
+
 The panel also says how many allow rules the profile holds of its 500, and how
 many projects wait in review, and it groups the waiting projects that one Allow
 at owner width would take as one rule.
 
 Each fix changes the form, fills an empty note with what it did, and previews.
-Nothing is saved until you save. Deny rules are not offered, since a redundant
-deny rule is harmless. When the lake cannot read the devices, the panel is left
+Nothing is saved until you save. Redundant deny rules are not flagged, since a
+redundant deny rule is harmless. When the lake cannot read the devices, the panel is left
 out rather than shown without them, since without them a rule in use would look
 unused.
 
