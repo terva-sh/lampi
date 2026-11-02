@@ -16,3 +16,4 @@ tickets, and the next fix pass overwrites it.
 | [TKT-01M3S9TCEE0TKQFGS4DSV15ZAF](draft/TKT-01M3S9TCEE0TKQFGS4DSV15ZAF.md) | Search: a page built for recall | draft |
 | [TKT-01M3W3PZSDCB5FGKJS06MSZH65](draft/TKT-01M3W3PZSDCB5FGKJS06MSZH65.md) | Easy deployment: a personal laptop lake and a lake for a fleet | draft |
 | [TKT-01M6F5K38C9N9Y1TRX4PZB7JSW](tickets/TKT-01M6F5K38C9N9Y1TRX4PZB7JSW.md) | Discover sessions and organize them into one or more bays | blocked |
+| [TKT-01M6F7JMD2S5S9Q418SYSYDM34](draft/TKT-01M6F7JMD2S5S9Q418SYSYDM34.md) | Dashboard: wider screens, project and machine pickers | draft |

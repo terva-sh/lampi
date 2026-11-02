@@ -223,6 +223,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateBays,
 	migrateBayScopes,
 	migrateBayRules,
+	migrateProjectColumns,
 	migrateBayMigrations,
 }
 
@@ -552,18 +553,19 @@ func (c *Catalog) ingest(ctx context.Context, m protocol.Manifest, route Route, 
 		return protocol.ManifestAck{}, false, fmt.Errorf("catalog: manifest did not name a session head")
 	}
 	ingested := now.UTC().Format(time.RFC3339Nano)
+	remote, cwd := projectColumns(m.Project)
 	if !exists {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at, project_id, web_updated_ns)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID, now.UnixNano()); err != nil {
+			INSERT INTO sessions (session_uid, harness, native_session_id, head_sha256, manifest_json, ingested_at, project_id, web_updated_ns, project_remote, project_cwd)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			uid, m.Harness, m.NativeSessionID, newHead, string(raw), ingested, m.Project.ProjectID, now.UnixNano(), remote, cwd); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
 	} else if newHead != head {
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE sessions SET head_sha256 = ?, manifest_json = ?, ingested_at = ?, web_updated_ns = ?
+			UPDATE sessions SET head_sha256 = ?, manifest_json = ?, ingested_at = ?, web_updated_ns = ?, project_remote = ?, project_cwd = ?
 			WHERE session_uid = ?`,
-			newHead, string(raw), ingested, now.UnixNano(), uid); err != nil {
+			newHead, string(raw), ingested, now.UnixNano(), remote, cwd, uid); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: session: %w", err)
 		}
 	}
@@ -574,8 +576,8 @@ func (c *Catalog) ingest(ctx context.Context, m protocol.Manifest, route Route, 
 	// whose checkout has no .git must not unlink the session.
 	if m.Project.ProjectID != "" {
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE sessions SET project_id = ?, manifest_json = ? WHERE session_uid = ?`,
-			m.Project.ProjectID, string(raw), uid); err != nil {
+			UPDATE sessions SET project_id = ?, manifest_json = ?, project_remote = ?, project_cwd = ? WHERE session_uid = ?`,
+			m.Project.ProjectID, string(raw), remote, cwd, uid); err != nil {
 			return protocol.ManifestAck{}, false, fmt.Errorf("catalog: project: %w", err)
 		}
 	}

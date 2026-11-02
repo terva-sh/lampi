@@ -171,6 +171,14 @@ configuration bypass.
   an earlier page; refresh to start over. Large labels/paths are display previews.
   The [browser API contract](web-api.md) describes exact limits.
 
+Pages that hold tables use the full width of a wide screen, up to 1600
+pixels; transcripts and short forms keep a narrow column. A long project
+remote or folder wraps at its `/` and `:` separators instead of being cut
+off. Machines show by the name of the device bound to them, with the machine
+ID on hover; a machine no device names shows its ID shortened. Times read as
+UTC to the second, such as `2026-11-02 22:21:00Z`, with the full stored value
+on hover.
+
 Overview and the first session page refresh every 25 seconds while visible.
 Other pages stay still. Refresh pauses on failures, expired login, hidden tabs or
 keyboard focus inside the updated table. Manual refresh retries. Forms, navigation
@@ -297,10 +305,13 @@ agents that read the lake without a browser session. The API is in
 
 A token reads what its permissions name, and nothing else:
 
-| Permission | Reads |
-|---|---|
-| `raw:read` | Raw artifacts, the uploaded files as stored. |
-| `events:read` | Normalized events, for agents that look back over past sessions. |
+| Form choice | Permission | Reads | Used by |
+|---|---|---|---|
+| **Agent recall: search, query and MCP** | `events:read` | Normalized events. | `terva-lampi query`, `terva-lampi mcp`, and the read MCP endpoint: an agent or a person looking back over past sessions. |
+| **Raw files: download uploads as stored** | `raw:read` | Raw artifacts, the uploaded files as stored. | `/api/raw/v1`, for a backup or your own script. No `terva-lampi` command needs it. |
+
+The form lists both choices on one row, each with what uses it, and ticks
+neither.
 
 A read token is its own principal. It reads what its permissions and
 scope allow, not what the admin who minted it can read, and it keeps
@@ -908,13 +919,32 @@ is a button:
   today. It is not a safe fix, because such a rule may be for a project nobody
   has opened yet.
 
+Two or more findings of one code show as one row: the shared message, how
+many projects their rules admit today, and **Show the N findings**, which lists
+each rule with its own button. In the editor the row also has one button that
+applies every removal, narrowing and remove-and-hide of that code at once, such
+as **Remove 15 rules and hide 15 projects**. A group whose fixes are all safe
+fixes gets no button of its own, since **Apply safe fixes** removes them. A
+bulk fix that would hide more projects than one save takes is refused, and
+changes nothing.
+
+- **Deny temporary folders.** While temporary rules are flagged, or after a
+  fix has removed them and queued their projects to hide, the editor offers a
+  deny rule for their temporary roots: `cwd_prefix /tmp`, `cwd_prefix
+  /var/folders`, or the `.cache` folder that holds them. A deny rule refuses
+  new sessions there on every device that takes the profile, so they are not
+  captured and do not reach the review queue. It is never added for you; the
+  preview lists what it drops. A folder that is temporary only by its name,
+  as `mktemp` and Go tests name folders, has no root to deny, and a root an
+  existing deny rule covers is not offered again.
+
 The panel also says how many allow rules the profile holds of its 500, and how
 many projects wait in review, and it groups the waiting projects that one Allow
 at owner width would take as one rule.
 
 Each fix changes the form, fills an empty note with what it did, and previews.
-Nothing is saved until you save. Deny rules are not offered, since a redundant
-deny rule is harmless. When the lake cannot read the devices, the panel is left
+Nothing is saved until you save. Redundant deny rules are not flagged, since a
+redundant deny rule is harmless. When the lake cannot read the devices, the panel is left
 out rather than shown without them, since without them a rule in use would look
 unused.
 

@@ -86,7 +86,7 @@ func TestOrganizeSelectionPagingAndRelated(t *testing.T) {
 		t.Fatal(page.Code, page.Body.String())
 	}
 	body := page.Body.String()
-	for _, want := range []string{`<caption>`, `scope="col"`, `role="status"`, `aria-describedby="selection-help"`, `name="mode"`, `name="exclude"`} {
+	for _, want := range []string{`<main id="main" class="wide">`, `<caption>`, `scope="col"`, `role="status"`, `aria-describedby="selection-help"`, `name="mode"`, `name="exclude"`} {
 		if !strings.Contains(body, want) {
 			t.Error("missing accessible control", want)
 		}

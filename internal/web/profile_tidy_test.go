@@ -53,8 +53,9 @@ func TestEditorOffersFewerRules(t *testing.T) {
 	page := html.UnescapeString(get(h, "/profiles/default/edit", cookie).Body.String())
 	for _, want := range []string{
 		"2 rules change nothing on any device if removed",
-		"cwd_prefix /work/app covered Another rule covers it, so it adds nothing. By cwd_prefix /work .",
-		"git_remote github.com/solo/one covered Another rule covers it, so it adds nothing. By git_remote github.com/solo/one .",
+		"tidy 2 findings covered Another rule covers it, so it adds nothing. Show the 2 findings",
+		"cwd_prefix /work/app covered By cwd_prefix /work .",
+		"git_remote github.com/solo/one covered By git_remote github.com/solo/one .",
 		"3 git_remote rules name repositories under git.example/team.",
 	} {
 		if !strings.Contains(squash(page), want) {

@@ -170,7 +170,7 @@ an upper timestamp is exclusive. These filter lake head-update times.
 
 ## Deployment and access review
 
-This release upgrades the catalog from schema 21 to 22, appending
+This release upgrades the catalog from schema 22 to 23, appending
 `bay_migrations` to retain durable plan receipts. Upgrade the lake under its normal backup/migration procedure;
 a previous binary cannot open the newer schema. Rollback requires the catalog
 backup, not simply replacing the executable. The normalizer and search-index

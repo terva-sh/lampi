@@ -44,7 +44,7 @@ func TestBayMigrationPutsEverySessionAndDeviceInDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Back to the schema before bays: a lake with sessions and a device.
-	if _, err := c.db.Exec(`DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; DROP TABLE bay_rules; DROP TABLE session_holds; DROP TABLE bay_migrations; ALTER TABLE registrations DROP COLUMN bays; ALTER TABLE read_tokens DROP COLUMN bay_scoped; PRAGMA user_version = 18`); err != nil {
+	if _, err := c.db.Exec(dropProjectColumns + `DROP TABLE bays; DROP TABLE bay_aliases; DROP TABLE session_bays; DROP TABLE session_bay_requests; DROP TABLE bay_grants; DROP TABLE bay_rules; DROP TABLE session_holds; DROP TABLE bay_migrations; ALTER TABLE registrations DROP COLUMN bays; ALTER TABLE read_tokens DROP COLUMN bay_scoped; PRAGMA user_version = 18`); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Close(); err != nil {
