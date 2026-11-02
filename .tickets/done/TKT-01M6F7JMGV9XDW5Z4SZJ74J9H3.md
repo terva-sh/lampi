@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F7JMGV9XDW5Z4SZJ74J9H3
 title: "Dashboard: wide list pages, wrapping project cells, machine names"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/wide-layout
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 05b9765e4514c17fcc3425e1138563085a56fee1
-  session: null
-  claimed_at: 2026-11-02T23:06:10Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T23:10:33Z
+updated_at: 2026-11-02T23:57:13Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -51,10 +44,10 @@ Screenshot each changed view at 1500px and at a narrow width.
 
 ## Acceptance criteria
 
-- [ ] List and table pages use the wide main; project, path and session cells wrap instead of eliding
-- [ ] Machines show by device name, falling back to the short ID
-- [ ] Times show as readable UTC with the full value in datetime and title
-- [ ] Screenshots at wide and narrow widths checked; tests pin the markup
+- [x] List and table pages use the wide main; project, path and session cells wrap instead of eliding
+- [x] Machines show by device name, falling back to the short ID
+- [x] Times show as readable UTC with the full value in datetime and title
+- [x] Screenshots at wide and narrow widths checked; tests pin the markup
 
 ## Implementation plan
 
@@ -65,3 +58,7 @@ Template funcs: when (RFC 3339 to 'YYYY-MM-DD HH:MM:SSZ' UTC, else as given), wr
 **agent:claude-code/t3-43103b81** at 2026-11-02T23:10:33Z
 
 Screenshots at 1800px and 900px of /sessions with long remotes and folders (scratch wide.*): projects wrap at separators, machines show 'brokkr', times read as 2026-11-02 23:14:10Z. At 900px the harness badge wrapped mid-word with 8%; widened to 10%. GOFLAGS=-mod=mod just ci passes.
+
+## Summary
+
+Merged in #250. Pages with tables use main.wide (1600px); transcripts and short forms stay narrow. Project labels wrap at / and : (wrapPath), and session names wrap instead of being cut off. The sessions Machines column and provenance show device names (Server.machineNames) with the ID on hover. Every plain <time> reads YYYY-MM-DD HH:MM:SSZ, with the stored value in datetime and title.

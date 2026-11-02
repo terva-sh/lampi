@@ -283,10 +283,13 @@ document.querySelectorAll('.rule-list').forEach(list => {
   });
   list.classList.add('can-drag');
 });
-// Enter in the merge panel's prefix checks the prefix, as its button
-// does, rather than previewing the form unchanged.
-document.querySelectorAll('[data-enter="merge-check"]').forEach(box => {
-  const check = box.form && box.form.querySelector('[data-merge-check]');
+// Enter in a box marked data-enter=NAME presses its form's button
+// marked data-enter-target=NAME, rather than the form's default: the
+// merge panel's prefix checks the prefix, and the read token form's
+// Project lists its sessions.
+document.querySelectorAll('[data-enter]').forEach(box => {
+  const name = box.getAttribute('data-enter');
+  const check = box.form && (box.form.querySelector('[data-enter-target="' + name + '"]') || (name === 'merge-check' && box.form.querySelector('[data-merge-check]')));
   if (!check) return;
   box.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); check.click(); }

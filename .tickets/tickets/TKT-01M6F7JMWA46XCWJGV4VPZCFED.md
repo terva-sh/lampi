@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F7JMWA46XCWJGV4VPZCFED
 title: "Read token form: bay checkboxes, session scope from a pick"
 type: task
-status: draft
+status: in-progress
 status_reason: null
 priority: low
 due_on: null
@@ -18,10 +18,17 @@ dependencies:
   - TKT-01M6F7JMQYGY3WGGV55H0M3FR5
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:claude-code/t3-43103b81
+  branch: t3/read-token-pickers
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
+  commit: 82ba348836178a700b7fd890e3e45e9b53573f37
+  session: null
+  claimed_at: 2026-11-02T23:53:45Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T22:55:14Z
+updated_at: 2026-11-02T23:53:45Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""

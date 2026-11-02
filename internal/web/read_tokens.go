@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -137,7 +139,13 @@ type readTokensView struct {
 	FreshURL  string
 	Lifetimes []struct{ Value, Label string }
 	// Perms are the form's permission checkboxes.
-	Perms   []readTokenPerm
+	Perms []readTokenPerm
+	// Bays are the bays the form offers as checkboxes, and Pickers the
+	// choices for filling the session list.
+	Bays    []catalog.Bay
+	Pickers sessionPickers
+	// Filled says what List matching sessions put in the session list.
+	Filled  string
 	Form    readTokenForm
 	Attempt string
 	Problem string
@@ -152,6 +160,14 @@ type readTokensView struct {
 type readTokenForm struct {
 	Label, Sessions, Bays, Expires string
 	Perms                          []string
+	// Match and Machine pick the sessions List matching sessions puts
+	// in Sessions (TKT-01M6F7JMWA46XCWJGV4VPZCFED).
+	Match, Machine string
+}
+
+// BayNames is the bays the form names, for its checkboxes.
+func (f readTokenForm) BayNames() []string {
+	return strings.FieldsFunc(f.Bays, func(r rune) bool { return unicode.IsSpace(r) || r == ',' })
 }
 
 type readTokenPerm struct {
@@ -186,6 +202,13 @@ func (s *Server) renderReadTokens(w http.ResponseWriter, r *http.Request, v read
 	for _, t := range tokens {
 		v.Tokens = append(v.Tokens, viewReadToken(t, names, now))
 	}
+	if bays, err := s.catalog.Bays(r.Context()); err != nil {
+		s.logError(r, "reading bays for the read token form failed", err)
+	} else {
+		v.Bays = bays
+	}
+	// An admin reads every bay, and the admin guard sets no read scope.
+	v.Pickers = s.sessionPickersIn(r, catalog.AllBays())
 	v.Fresh = webauth.Fresh(r, now)
 	v.FreshURL = webauth.FreshLoginURL(adminReadTokensPath)
 	v.Attempt = s.attempts.issue(now)
@@ -235,7 +258,15 @@ func (s *Server) mintReadTokenPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, webauth.FreshLoginURL(adminReadTokensPath), http.StatusSeeOther)
 		return
 	}
-	form := readTokenForm{Label: strings.TrimSpace(r.PostForm.Get("label")), Sessions: r.PostForm.Get("sessions"), Bays: r.PostForm.Get("bays"), Expires: r.PostForm.Get("expires"), Perms: r.PostForm["permissions"]}
+	// Bays come as checkboxes, bay, and as the older free-text field,
+	// bays, which a script may still send.
+	bays := strings.Join(append(slices.Clone(r.PostForm["bay"]), r.PostForm.Get("bays")), " ")
+	form := readTokenForm{Label: strings.TrimSpace(r.PostForm.Get("label")), Sessions: r.PostForm.Get("sessions"), Bays: strings.TrimSpace(bays), Expires: r.PostForm.Get("expires"), Perms: r.PostForm["permissions"],
+		Match: strings.TrimSpace(r.PostForm.Get("match")), Machine: r.PostForm.Get("machine")}
+	if r.PostForm.Has("fill") {
+		s.fillReadTokenSessions(w, r, form)
+		return
+	}
 	attempt := r.PostForm.Get("attempt")
 	if prior, ok := s.attempts.claim(attempt, now); !ok {
 		problem := "This form was already sent, or is out of date. Mint again from the form below."
@@ -480,4 +511,62 @@ func newReadTokenSecret() (string, error) {
 func hashReadToken(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
+}
+
+// fillReadTokenSessions puts the newest sessions the form's Project and
+// Machine pick into its session list, and shows the form again. It
+// mints nothing: the admin checks the list, then mints. A token names
+// at most catalog.MaxReadTokenSessions sessions, so a pick that matches
+// more says so and suggests a bay.
+func (s *Server) fillReadTokenSessions(w http.ResponseWriter, r *http.Request, f readTokenForm) {
+	if !slices.ContainsFunc(readTokenLifetimes, func(l struct{ Value, Label string }) bool { return l.Value == f.Expires }) {
+		f.Expires = ""
+	}
+	q := url.Values{}
+	if f.Match != "" {
+		q.Set("match", f.Match)
+	}
+	if f.Machine != "" {
+		q.Set("machine", f.Machine)
+	}
+	if len(q) == 0 {
+		s.renderReadTokens(w, r, readTokensView{Form: f, Problem: "Choose a project or a machine to list its sessions."}, http.StatusBadRequest)
+		return
+	}
+	p, err := parsePage(q, true, "")
+	if err != nil {
+		s.renderReadTokens(w, r, readTokensView{Form: f, Problem: "That project or machine is not one the session list can filter by. A folder starts with /; a remote is host/owner or host/owner/repository."}, http.StatusBadRequest)
+		return
+	}
+	p.Limit = catalog.MaxReadTokenSessions + 1
+	page, err := s.catalog.DashboardSessions(r.Context(), catalog.AllBays(), p)
+	if err != nil {
+		s.logError(r, "listing sessions for a read token failed", err)
+		s.renderReadTokens(w, r, readTokensView{Form: f, Problem: readTokenProblems["mint_failed"]}, http.StatusInternalServerError)
+		return
+	}
+	items := page.Items
+	more := page.NextCursor != "" || len(items) > catalog.MaxReadTokenSessions
+	if len(items) > catalog.MaxReadTokenSessions {
+		items = items[:catalog.MaxReadTokenSessions]
+	}
+	var uids []string
+	for _, it := range items {
+		uids = append(uids, it.UID)
+	}
+	// No match leaves the list as it was: an empty list is every
+	// session, the widest token, not the narrowest.
+	if len(uids) > 0 {
+		f.Sessions = strings.Join(uids, "\n")
+	}
+	v := readTokensView{Form: f}
+	switch {
+	case len(uids) == 0:
+		v.Filled = "No session matches that project and machine. The session list was left as it was."
+	case more:
+		v.Filled = fmt.Sprintf("More than %d sessions match, and a token names at most %d. The newest %d are listed. To reach them all, limit the token by bay instead.", catalog.MaxReadTokenSessions, catalog.MaxReadTokenSessions, len(uids))
+	default:
+		v.Filled = fmt.Sprintf("Listed the %d matching %s, newest first. Check the list, then mint.", len(uids), plural(len(uids), "session", "sessions"))
+	}
+	s.renderReadTokens(w, r, v, http.StatusOK)
 }
