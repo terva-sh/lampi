@@ -342,6 +342,11 @@ upgrade, a rollback reads every blob stored before the upgrade and none
 stored since. So take a backup before that upgrade, and restore it to
 roll back.
 
+Such an upgrade compresses only the objects stored after it. The
+objects stored before it stay raw, and the lake stays about as large as
+the raw sessions it holds, until `serve compact` rewrites them. Once
+you no longer need to roll back, run it as in [maintenance that needs the lake stopped](#run-maintenance-that-needs-the-lake-stopped).
+
 Do not let a tool such as Watchtower pull a new release on its own. An
 update tool that opens a pull request for the version bump, such as
 Renovate, leaves you the step of reading the release notes.

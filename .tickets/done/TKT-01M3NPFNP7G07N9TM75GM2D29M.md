@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NPFNP7G07N9TM75GM2D29M
 title: "Upgrade docs: run serve compact to compress blobs stored raw"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/d4b24133
-  branch: tickets/reclaim-stale
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-d4b24133
-  commit: e63e8a7cd6f110e94b6057fbc215468ebde36117
-  session: null
-  claimed_at: 2026-11-02T16:46:35Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T04:24:06Z
-updated_at: 2026-11-02T16:46:35Z
+updated_at: 2026-11-02T16:58:44Z
 created_by:
   id: agent:claude-code/65ab7244
   name: ""
@@ -47,7 +40,7 @@ Add the step to both documents: after the upgrade, stop serve, run `serve compac
 
 ## Acceptance criteria
 
-- [ ] vps-bringup.md and container.md say to run serve compact after upgrading to zstd at rest
+- [x] vps-bringup.md and container.md say to run serve compact after upgrading to zstd at rest
 
 ## Notes
 
@@ -58,3 +51,7 @@ Add the step to both documents: after the upgrade, stop serve, run `serve compac
 **agent:claude-code/d4b24133** at 2026-11-02T16:46:35Z
 
 claim taken from agent:claude-code/65ab7244 by agent:claude-code/d4b24133
+
+## Summary
+
+The upgrade sections of docs/container.md and docs/vps-bringup.md now say that an upgrade to zstd at rest compresses only new objects, and that serve compact rewrites the old ones once a rollback is no longer needed, linking each guide's own compact procedure. The text is PR #138's, applied to current main because that branch was 671 commits behind; #138 is closed as superseded.
