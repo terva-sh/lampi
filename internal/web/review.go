@@ -131,6 +131,9 @@ type reviewRow struct {
 	// Seeded is a project first seen when the lake began recording
 	// sightings: it may have been on the device before.
 	Seeded bool `json:"first_seen_at_or_before,omitempty"`
+	// Temporary is a project every device holds in a temporary folder:
+	// hide it rather than allow it.
+	Temporary bool `json:"temporary,omitempty"`
 }
 
 // hiddenRow is one hidden project and how many active devices refuse it
@@ -150,6 +153,12 @@ type reviewView struct {
 	Denied         []reviewRow              `json:"denied"`
 	Hidden         []hiddenRow              `json:"hidden"`
 	Strict         []catalog.StrictRefusals `json:"strict"`
+	// Groups gather the projects that need review by the rule one Allow
+	// would add for all of them, and the ones in temporary folders.
+	// needs_review still lists every project.
+	Groups []reviewGroup `json:"groups"`
+	// Singles are the projects that need review and no group holds.
+	Singles []reviewRow `json:"-"`
 	// The page's forms and filter choices.
 	Actions  bool        `json:"-"`
 	CSRF     string      `json:"-"`
@@ -175,7 +184,7 @@ func isNoProfile(err error) bool { return errors.Is(err, catalog.ErrNoProfile) }
 
 // readReview builds the queue, narrowed by f.
 func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) (reviewView, error) {
-	v := reviewView{AsOf: now.UTC().Format(time.RFC3339Nano), Filter: f, Needs: []reviewRow{}, Pending: []reviewRow{}, Denied: []reviewRow{}, Hidden: []hiddenRow{}, Strict: []catalog.StrictRefusals{}}
+	v := reviewView{AsOf: now.UTC().Format(time.RFC3339Nano), Filter: f, Needs: []reviewRow{}, Pending: []reviewRow{}, Denied: []reviewRow{}, Hidden: []hiddenRow{}, Strict: []catalog.StrictRefusals{}, Groups: []reviewGroup{}}
 	q, err := s.catalog.ReviewQueue(ctx)
 	if err != nil {
 		return v, err
@@ -320,6 +329,7 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 	for _, list := range [][]reviewRow{v.Needs, v.Pending, v.Denied} {
 		slices.SortStableFunc(list, func(a, b reviewRow) int { return b.FirstSeen.Compare(a.FirstSeen) })
 	}
+	v.Groups, v.Singles = groupNeeds(v.Needs)
 	hides, err := s.catalog.HiddenProjects(ctx)
 	if err != nil {
 		return v, err

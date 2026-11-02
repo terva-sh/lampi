@@ -27,7 +27,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T19:06:27Z
-updated_at: 2026-11-02T19:06:37Z
+updated_at: 2026-11-02T19:14:04Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -52,10 +52,10 @@ The owner chose (2026-11-02): a grouped queue on the review page, temporary fold
 
 ## Acceptance criteria
 
-- [ ] Needs review collapses projects sharing an owner or parent folder (3 or more) into one group row with Allow OWNER/… and Hide all
-- [ ] Temporary-folder projects group under a hide-only group
-- [ ] Group actions work past the 500-project batch limit and expand under the page's filter
-- [ ] GET /api/web/v1/review lists the groups; tests and docs cover the change
+- [x] Needs review collapses projects sharing an owner or parent folder (3 or more) into one group row with Allow OWNER/… and Hide all
+- [x] Temporary-folder projects group under a hide-only group
+- [x] Group actions work past the 500-project batch limit and expand under the page's filter
+- [x] GET /api/web/v1/review lists the groups; tests and docs cover the change
 
 ## Implementation plan
 
@@ -66,3 +66,9 @@ The owner chose (2026-11-02): a grouped queue on the review page, temporary fold
 5. Tests: grouping (owner, folder, temporary, under MinFold, wide folders), the group allow and hide past 500, a stale group, the API groups. Docs: web-dashboard.md and web-api.md.
 
 Rejected alternatives: posting the expanded keys from the page breaks at 500 keys and sends a megabyte form; raising maxReviewBatch everywhere loosens the API for one case; a separate triage page was the owner's second choice.
+
+## Notes
+
+**agent:claude-code/t3-43103b81** at 2026-11-02T19:14:04Z
+
+Implemented on t3/review-groups. Groups come from profiledoctor.GroupOf, which the doctor's review_group finding and the Allow buttons' owner width now share, so a group's rule is the rule each row's Allow FOLDER/… would add. Groups sort by size, so the temporary group can come first. Select-all now ticks only its own table: before, one header box on a page of group tables would tick every group and overrun the 500 limit. GOFLAGS=-mod=mod just ci passes.

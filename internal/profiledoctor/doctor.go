@@ -422,10 +422,8 @@ func pending(in Input, rep *Report) []Finding {
 				continue
 			}
 			keys[k] = true
-			if o := OwnerOf(p.GitRemote); o != "" {
-				groups[config.ProjectMatch{GitRemotePrefix: o}]++
-			} else if d := ParentOf(p.GitRemote, p.CWD); d != "" {
-				groups[config.ProjectMatch{CWDPrefix: d}]++
+			if g, ok := GroupOf(p.GitRemote, p.CWD); ok {
+				groups[g]++
 			}
 		}
 	}

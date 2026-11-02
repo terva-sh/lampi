@@ -634,7 +634,7 @@ func (s *Server) hideAfterSave(r *http.Request, hide []string, note string) (str
 	} else {
 		note = "Removed from the profile: " + clean
 	}
-	if _, status, code := s.changeHides(r, "hide", keys, truncate(note, catalog.MaxHideNote)); code != "" {
+	if _, status, code := s.changeHides(r, "hide", keys, truncate(note, catalog.MaxHideNote), maxReviewBatch); code != "" {
 		return "The profile is saved, but hiding the projects it stopped admitting failed: " + hideProblems[code] + " Hide them from the review queue.", status
 	}
 	return "", 0

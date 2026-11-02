@@ -1079,7 +1079,13 @@ narrow the queue; an empty value means all. Anything else is
   "denied": [],
   "hidden": [{"key": {"kind": "cwd", "key": "/home/me/scratch"}, "hidden_by": "oidc:...",
               "hidden_at": "2026-09-28T14:50:00Z", "note": "throwaway", "devices": 1}],
-  "strict": [{"device_id": "dev_...", "device_name": "locked", "sessions": 3, "bytes": 12288}]
+  "strict": [{"device_id": "dev_...", "device_name": "locked", "sessions": 3, "bytes": 12288}],
+  "groups": [
+    {"id": "folder /home/me/worktrees", "kind": "folder",
+     "rule": {"cwd_prefix": "/home/me/worktrees"},
+     "keys": [{"kind": "cwd", "key": "/home/me/worktrees/a1"}, "..."],
+     "sessions": 1054, "bytes": 168820736, "newest": "2026-09-28T14:40:02Z"}
+  ]
 }
 ```
 
@@ -1106,6 +1112,14 @@ narrow the queue; an empty value means all. Anything else is
   how many active devices refuse it now.
 - A `strict` device names no refused project; `strict` gives its totals.
 - Sections are ordered by `first_seen`, newest first.
+- `groups` gathers the `needs_review` projects as the review page shows them,
+  three or more to a group, most projects first. A group of `kind` `owner` or
+  `folder` holds the projects one Allow at owner width takes as its `rule`: a
+  `git_remote_prefix` for a repository's owner, or a `cwd_prefix` for the
+  folder above a folder project. The `temporary` group holds projects that
+  every device keeps in a temporary folder, and has no `rule`. Each project
+  is in at most one group, and is still listed in `needs_review`, where a
+  temporary one is marked `temporary`.
 
 ### Hiding projects
 

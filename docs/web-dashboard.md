@@ -684,6 +684,25 @@ and checkouts.
 - A strict device appears as a line with its refused session count and size,
   since it names none of those projects.
 
+Needs review gathers its projects into groups before listing the rest:
+
+- **An owner or folder group** holds three or more projects that one Allow
+  at owner width takes as one rule: repositories under one owner, or folders
+  with one parent, such as worktrees. Its row names the rule and counts the
+  projects, sessions and size. **Allow RULE…** opens the confirmation for that
+  one rule. **Hide all N** hides every project in the group.
+- **Temporary folders** holds three or more projects that every device keeps
+  in a temporary folder: under `/tmp`, a test's temporary directory, a
+  `.cache` folder, or a folder named as `mktemp` names them. No new session
+  starts there, so the group offers **Hide all N** and no Allow. A temporary
+  project outside such a group is marked on its row.
+
+Open a group to see its projects, with the usual row actions. A group's
+actions name the group, and the lake reads its projects from the queue, under
+the page's filters, when the form arrives. A group can be larger than the 500
+projects one selection holds. If the group changed since the page loaded, the
+lake says so and changes nothing. Hide all records a note naming the group.
+
 Filters narrow by device, harness and profile. Operators get **Allow in
 PROFILE…** for each device's copy. It works like [Allow on a device's
 page](#a-devices-page), and Back and Save both return to the queue with its
@@ -719,7 +738,7 @@ rules, is left out, and the page says so. **Edit PROFILE in the full editor…**
 opens that profile in the editor with its rules added. A device's page has
 the same checkboxes, with **Allow selected…** and **Hide selected**, for that
 device's copies alone. A checkbox in each table's header selects every row
-where scripts run. A denied project can be selected, to hide it; Allow
+of that table where scripts run. A denied project can be selected, to hide it; Allow
 selected leaves it out.
 
 Operators can also **Hide** a project they will not import, from its row, or

@@ -47,11 +47,13 @@ func parseKey(s string) (catalog.ProjectKey, bool) {
 // changeHides hides or unhides keys for the signed-in operator. It
 // returns the keys it changed, an HTTP status, and an error code that is
 // empty on success.
-func (s *Server) changeHides(r *http.Request, action string, keys []catalog.ProjectKey, note string) ([]catalog.ProjectKey, int, string) {
+// limit bounds len(keys): maxReviewBatch for keys a client names, and
+// maxGroupKeys for a group the lake read from its own queue.
+func (s *Server) changeHides(r *http.Request, action string, keys []catalog.ProjectKey, note string, limit int) ([]catalog.ProjectKey, int, string) {
 	if action != "hide" && action != "unhide" {
 		return nil, http.StatusNotFound, "not_found"
 	}
-	if len(keys) == 0 || len(keys) > maxReviewBatch {
+	if len(keys) == 0 || len(keys) > limit {
 		return nil, http.StatusBadRequest, "invalid_request"
 	}
 	note, ok := cleanNote(note)
@@ -111,9 +113,27 @@ func (s *Server) reviewHidePage(w http.ResponseWriter, r *http.Request) {
 		keys = append(keys, k)
 	}
 	back := returnPath(r.PostForm.Get("return"))
+	limit, note := maxReviewBatch, r.PostForm.Get("note")
+	// Hide all on a group names the group, which can hold more projects
+	// than one batch; the lake reads them from its queue.
+	if id := r.PostForm.Get("group"); id != "" && action == "hide" && len(keys) == 0 {
+		g, found, err := s.groupFrom(r, id, filterOf(back))
+		if err != nil {
+			pageError(w, r, err)
+			return
+		}
+		if !found {
+			s.renderBack(w, r, back, groupGone, http.StatusConflict)
+			return
+		}
+		keys, limit = g.Keys, maxGroupKeys
+		if note == "" {
+			note = groupNote(g)
+		}
+	}
 	status, code := http.StatusBadRequest, "invalid_request"
 	if !bad {
-		_, status, code = s.changeHides(r, action, keys, r.PostForm.Get("note"))
+		_, status, code = s.changeHides(r, action, keys, note, limit)
 	}
 	if code == "" {
 		if back == "" {
@@ -150,7 +170,7 @@ func (s *Server) reviewHideAPI(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	changed, status, code := s.changeHides(r, action, req.Keys, req.Note)
+	changed, status, code := s.changeHides(r, action, req.Keys, req.Note, maxReviewBatch)
 	body := map[string]any{"changed": changed}
 	if changed == nil {
 		body["changed"] = []catalog.ProjectKey{}

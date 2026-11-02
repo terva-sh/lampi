@@ -62,14 +62,17 @@ type allowView struct {
 	// Skipped are selected projects no rule is added for: they no
 	// longer need review in the devices the page showed, or are only on
 	// devices whose config.json sets their allow rules.
-	Skipped     []catalog.ProjectKey `json:"skipped"`
-	Keys        []string             `json:"-"`
-	Width       string               `json:"-"`
-	Note        string               `json:"-"`
-	Return      string               `json:"-"`
-	ReturnLabel string               `json:"-"`
-	CSRF        string               `json:"-"`
-	Problem     string               `json:"-"`
+	Skipped []catalog.ProjectKey `json:"skipped"`
+	Keys    []string             `json:"-"`
+	// Group is the review group the plan was made for; the confirm page
+	// names it rather than its keys, which can be more than one batch.
+	Group       string `json:"-"`
+	Width       string `json:"-"`
+	Note        string `json:"-"`
+	Return      string `json:"-"`
+	ReturnLabel string `json:"-"`
+	CSRF        string `json:"-"`
+	Problem     string `json:"-"`
 }
 
 // filterOf is the review filter a return names: the device of a device
@@ -303,14 +306,8 @@ func (s *Server) reviewAllowPage(w http.ResponseWriter, r *http.Request) {
 	if back == "" {
 		back = reviewPath
 	}
-	keys, ok := readKeys(r.PostForm["key"])
+	keys, width, group, ok := s.reviewSelection(w, r, back)
 	if !ok {
-		s.renderBack(w, r, back, "Choose at least one project to allow, and no more than 500 at once.", http.StatusBadRequest)
-		return
-	}
-	width, ok := readWidth(r.PostForm.Get("width"))
-	if !ok {
-		s.renderBack(w, r, back, "Allow each repository, or each repository's owner.", http.StatusBadRequest)
 		return
 	}
 	v, err := s.planAllow(r, keys, filterOf(back), width)
@@ -326,7 +323,7 @@ func (s *Server) reviewAllowPage(w http.ResponseWriter, r *http.Request) {
 		s.renderBack(w, r, back, "No rule can be added for the selected projects: each is allowed, hidden, denied, no longer on a device, or only on devices whose config.json sets their own allow rules or that fetch no profile (run terva-lampi lakes adopt on those). Reload to see the queue as it is now.", http.StatusConflict)
 		return
 	}
-	v.Return = back
+	v.Return, v.Group = back, group
 	s.renderAllow(w, r, v, http.StatusOK)
 }
 
@@ -360,14 +357,8 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Show the confirm page again, planned against what is stored now.
-	keys, ok := readKeys(r.PostForm["key"])
+	keys, width, group, ok := s.reviewSelection(w, r, back)
 	if !ok {
-		s.renderBack(w, r, back, "The confirmation form is not valid. Select the projects again.", http.StatusBadRequest)
-		return
-	}
-	width, ok := readWidth(r.PostForm.Get("width"))
-	if !ok {
-		s.renderBack(w, r, back, "The confirmation form is not valid. Select the projects again.", http.StatusBadRequest)
 		return
 	}
 	v, err := s.planAllow(r, keys, filterOf(back), width)
@@ -383,7 +374,7 @@ func (s *Server) reviewAllowSavePage(w http.ResponseWriter, r *http.Request) {
 		s.renderBack(w, r, back, "Nothing was saved, and no rule can be added for the selected projects any more.", status)
 		return
 	}
-	v.Return, v.Note = back, note
+	v.Return, v.Note, v.Group = back, note, group
 	v.Problem = msg
 	if msg == "" {
 		v.Problem = allowProblems[code]
