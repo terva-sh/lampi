@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
 	"slices"
@@ -157,23 +158,69 @@ func allowRuleAt(remote, cwd, width string) (config.ProjectMatch, bool) {
 // one of add covers and is wider than, and the rules it removed. A rule
 // of add that a kept rule, or another rule of add, covers is not added,
 // so a rule already there stays where it is.
+//
+// A rule added goes beside its folder or owner (TKT-01M6ETZV7C0P5F2RDKQPAQCCFW):
+// after the last rule listed under the same header, or where the first
+// rule it replaces stood, or else at the end. A list grouped by hand or
+// by Sort stays grouped, and an order the operator set is kept.
 func withRules(allow, add []config.ProjectMatch) (out, removed []config.ProjectMatch) {
 	add, _ = profiledoctor.WithoutCovered(add)
 	coveredByAny := func(rules []config.ProjectMatch, r config.ProjectMatch) bool {
 		return slices.ContainsFunc(rules, func(a config.ProjectMatch) bool { return config.Covers(a, r) })
 	}
+	// at[j] is where add[j] replaced its first rule, as an index in out.
+	at := make([]int, len(add))
+	for j := range at {
+		at[j] = -1
+	}
 	for _, r := range allow {
-		if slices.ContainsFunc(add, func(a config.ProjectMatch) bool { return config.Covers(a, r) && !config.Covers(r, a) }) {
+		replaced := false
+		for j, a := range add {
+			if config.Covers(a, r) && !config.Covers(r, a) {
+				if at[j] < 0 {
+					at[j] = len(out)
+				}
+				replaced = true
+			}
+		}
+		if replaced {
 			removed = append(removed, r)
 			continue
 		}
 		out = append(out, r)
 	}
 	kept := slices.Clone(out)
-	for _, r := range add {
-		if !coveredByAny(kept, r) {
-			out = append(out, r)
+	// Insert from the end of the list, so an earlier position still
+	// names the same place.
+	type insert struct {
+		pos, j int
+		r      config.ProjectMatch
+	}
+	var ins []insert
+	for j, r := range add {
+		if coveredByAny(kept, r) {
+			continue
 		}
+		pos := len(kept)
+		if at[j] >= 0 {
+			pos = at[j]
+		}
+		if key := groupKey(r); key != "" {
+			for i := len(kept) - 1; i >= 0; i-- {
+				if groupKey(kept[i]) == key {
+					pos = i + 1
+					break
+				}
+			}
+		}
+		ins = append(ins, insert{pos, j, r})
+	}
+	// Insert the last place first, so each earlier place still names the
+	// same spot; at one place the later rule goes in first, which leaves
+	// them in the order add gave.
+	slices.SortFunc(ins, func(a, b insert) int { return cmp.Or(b.pos-a.pos, b.j-a.j) })
+	for _, in := range ins {
+		out = slices.Insert(out, in.pos, in.r)
 	}
 	return out, removed
 }

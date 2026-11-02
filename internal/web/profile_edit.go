@@ -236,6 +236,9 @@ func readRules(v url.Values, list string) ([]config.ProjectMatch, map[int][]rule
 			}
 		}
 	}
+	if first == nil {
+		rows = reorder(v, list, rows)
+	}
 	return rows, raw, first
 }
 

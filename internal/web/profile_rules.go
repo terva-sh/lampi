@@ -1,9 +1,11 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -202,4 +204,42 @@ func newRuleCondView(row ruleRowView, m int, c ruleCond) ruleCondView {
 		}
 	}
 	return v
+}
+
+// reorder applies the form's Move and Sort buttons to rows, the rules of
+// list as posted. Order changes nothing an agent does: any deny rule
+// refuses, then any allow rule admits. It is the operator's to set. See
+// TKT-01M6ETZV7C0P5F2RDKQPAQCCFW.
+func reorder(v url.Values, list string, rows []config.ProjectMatch) []config.ProjectMatch {
+	if mv, ok := strings.CutPrefix(v.Get("move"), list+"."); ok {
+		n, dir, _ := strings.Cut(mv, ".")
+		i, err := strconv.Atoi(n)
+		j := i - 1
+		if dir == "down" {
+			j = i + 1
+		}
+		if err == nil && (dir == "up" || dir == "down") && i >= 0 && i < len(rows) && j >= 0 && j < len(rows) {
+			rows[i], rows[j] = rows[j], rows[i]
+		}
+	}
+	if v.Get("sort") == list {
+		slices.SortStableFunc(rows, func(a, b config.ProjectMatch) int { return cmp.Compare(sortKey(a), sortKey(b)) })
+	}
+	return rows
+}
+
+// sortKey orders rules for Sort: folder rules by path, then repository
+// and remote prefix rules by remote, so each folder's and owner's rules
+// sit together; empty rows last.
+func sortKey(m config.ProjectMatch) string {
+	conds := condsOf(m)
+	if len(conds) == 0 {
+		return "9"
+	}
+	v := strings.TrimSuffix(strings.TrimSpace(conds[0].Value), "/")
+	switch conds[0].Kind {
+	case "cwd_prefix", "cwd_glob", "cwd_hash":
+		return "0" + v + "\x00" + conds[0].Kind
+	}
+	return "1" + config.NormalizeRemote(v) + "\x00" + conds[0].Kind
 }
