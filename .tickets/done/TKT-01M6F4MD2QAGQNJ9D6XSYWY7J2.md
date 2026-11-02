@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F4MD2QAGQNJ9D6XSYWY7J2
 title: "Health panel: group findings by kind with a bulk fix, offer temp deny"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/health-bulk
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 9e0ffba4d95d30874714e129714c58106887fde9
-  session: null
-  claimed_at: 2026-11-02T22:03:45Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:03:45Z
-updated_at: 2026-11-02T22:09:01Z
+updated_at: 2026-11-02T22:54:45Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -52,11 +45,15 @@ The live default profile's Health panel lists 15 temporary-folder rules one afte
 
 ## Acceptance criteria
 
-- [ ] Two or more findings of one code show as one Health row with a count, the shared message, and the rules in an expandable list
-- [ ] The group's bulk button applies every remove, narrow and remove-and-hide fix of that code in one preview, within the one-save hide limit
-- [ ] The editor offers a deny rule for the temporary roots of removed or flagged temporary folders, not covered by an existing deny, and applies it only when pressed
-- [ ] Tests cover grouping, the bulk fix and the deny offer; docs describe them
+- [x] Two or more findings of one code show as one Health row with a count, the shared message, and the rules in an expandable list
+- [x] The group's bulk button applies every remove, narrow and remove-and-hide fix of that code in one preview, within the one-save hide limit
+- [x] The editor offers a deny rule for the temporary roots of removed or flagged temporary folders, not covered by an existing deny, and applies it only when pressed
+- [x] Tests cover grouping, the bulk fix and the deny offer; docs describe them
 
 ## Implementation plan
 
 profiledoctor gains ApplyFixes (apply many remove/narrow/safe findings from one report, highest index first, on a copy) and TemporaryDeny (temp root or .cache folder for a temporary dir). web: healthView.Groups groups items by code in first-seen order; a group of 2+ shows the shared message once, the projects its rules admit, a details list of the per-rule findings (their own buttons kept), and in the editor a fix_all=CODE button labelled from bulkLabel, except when every fix is safe (Apply safe fixes covers that). tidyForm handles fix_all (refused past maxReviewBatch hides, like narrow) and deny_temporary (adds temporaryDenies: roots of flagged temporary rules and of temporary cwd keys queued to hide, less roots an existing deny covers). renderEditor sets the offer via offerDeny, so it survives the bulk fix through the queued hides, and shows outside the findings list so it remains when no finding does.
+
+## Summary
+
+Merged in #247. The Health panel groups findings of one code into one row with the shared message, the distinct projects the rules admit, and the per-rule findings under Show the N findings. In the editor a group gets one fix_all=CODE button (profiledoctor.ApplyFixes), except a group of only safe fixes; it is refused past one save's hide limit. The editor offers deny rules for the temporary roots (profiledoctor.TemporaryDeny) of flagged or just-removed temporary folders, never applied unasked. terva-review found the group count summed overlapping admits; fixed with a test.

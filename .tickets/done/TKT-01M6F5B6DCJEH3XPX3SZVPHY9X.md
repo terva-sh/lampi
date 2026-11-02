@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F5B6DCJEH3XPX3SZVPHY9X
 title: "Read token form: say what each Reads choice is for, one line each"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -17,17 +17,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/read-token-reads
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 9e0ffba4d95d30874714e129714c58106887fde9
-  session: null
-  claimed_at: 2026-11-02T22:16:12Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:16:12Z
-updated_at: 2026-11-02T22:19:59Z
+updated_at: 2026-11-02T22:54:46Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -55,10 +48,14 @@ Put the choices on their own full-width row, each a checkbox beside a purpose-fi
 
 ## Acceptance criteria
 
-- [ ] Each Reads choice is a checkbox on the same line as its title, with the permission name and what uses it
-- [ ] The titles lead with purpose: agent recall (events:read) and raw file downloads (raw:read)
-- [ ] No box is checked on a fresh form, and a test pins the wording and layout markup
+- [x] Each Reads choice is a checkbox on the same line as its title, with the permission name and what uses it
+- [x] The titles lead with purpose: agent recall (events:read) and raw file downloads (raw:read)
+- [x] No box is checked on a fresh form, and a test pins the wording and layout markup
 
 ## Implementation plan
 
 readTokenPerm gains Title and Use from readTokenPermUses; the form lists events:read first, then raw:read, as a full-width fieldset.token-reads below the fields, each a label.token-read row (checkbox, bold title, mono permission, one-line use). Fresh form still ticks nothing. invalid_perms reworded. Docs: web-dashboard.md table gains the form choice and its users; reading-the-lake.md names the new choice.
+
+## Summary
+
+Merged in #248. The mint form's choices sit on one full-width row, each a checkbox beside a purpose-first title: Agent recall: search, query and MCP (events:read, first) and Raw files: download uploads as stored (raw:read), each with what uses it. Nothing is ticked on a fresh form. Docs updated.
