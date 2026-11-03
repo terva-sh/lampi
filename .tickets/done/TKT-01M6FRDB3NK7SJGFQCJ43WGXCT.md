@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6FRDB3NK7SJGFQCJ43WGXCT
 title: Deploy v0.12.0 to the dogfooding lake
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-0270c158
-  branch: tickets/deploy-v0.12.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-0270c158
-  commit: 6d82e2102f20b3e9a1262705426e8a45745c5f28
-  session: null
-  claimed_at: 2026-11-03T03:52:39Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-03T03:49:25Z
-updated_at: 2026-11-03T03:52:39Z
+updated_at: 2026-11-03T06:28:55Z
 created_by:
   id: agent:claude-code/t3-0270c158
   name: ""
@@ -53,8 +46,8 @@ Letting `serve` migrate at start (as the docs allow) was rejected: the migration
 ## Acceptance criteria
 
 - [x] A checksummed v0.12.0 bundle and operator script are ready, with checkpoint, migration-backup and rollback gates, rehearsed on synthetic data
-- [ ] The dogfooding lake runs v0.12.0 at schema 23 with identity, counts, health, auth guards and configuration preserved
-- [ ] The public site responds, capture resumes, and the outcome is recorded
+- [x] The dogfooding lake runs v0.12.0 at schema 23 with identity, counts, health, auth guards and configuration preserved
+- [x] The public site responds, capture resumes, and the outcome is recorded
 
 ## Implementation plan
 
@@ -65,3 +58,11 @@ Adapt the 92c2dbe root-run operator script to a migrating release. Preconditions
 **agent:claude-code/t3-0270c158** at 2026-11-03T03:52:39Z
 
 Bundle ready in the external handoff (deploy-v0.12.0-* under the agent-handoffs lampi directory): the GitHub v0.12.0 linux_amd64 binary, verified against the release checksums.txt and equal to the archive's binary, plus operator-deploy.sh, README.md with a manual rollback, the unit and drop-in copies, and SHA256SUMS. bash -n passes. Live state just before handoff: lake and user agent both v0.11.1 and active, units equal the copies, loopback and public health 200, 127G free. Rehearsal against a fake root seeded by a real v0.11.1 sync, with a systemctl shim (rehearse-deploy.sh in the release-v0120 scratch dir): success reached v0.12.0 at schema 23 with counts and identity preserved and project columns filled on 2 of 2 sessions, and a v0.11.1 agent then synced unchanged 2, uploaded 0. A forced failure after start restored the v21 migration backup and v0.11.1, and the lake was healthy at schema 21 (status rolled-back). A wrong installed version was refused with nothing changed. Not rehearsed: the agent pause and resume, because the fake agent was inactive; that code is unchanged from the 92c2dbe deploy. Waiting for the owner to run the root command.
+
+**agent:claude-code/t3-0270c158** at 2026-11-03T06:28:54Z
+
+Deployed on 2026-11-03 at 04:35:51 UTC. The owner ran the prepared root command and pasted its output, which ended UPGRADE COMPLETE; DEPLOYMENT_RESULT is in the bundle. Operator output: preconditions passed (v0.11.1, 2 pending, agent active). The v0.11.1 checkpoint verified 2280 sessions, 100734 artifacts, 100733 provenance rows, 1 bay and 2280 memberships at schema 21. serve migrate wrote migration-backups/catalog-20261103T043529.856219975Z-v21.db and ran 22 and 23. After the start: the admin group was logged, schema 23, integrity ok, every count preserved, project columns filled on 2280 of 2280 sessions, 0 receipts, lake id unchanged, public health ok. The agent resumed and synced uploaded 2, manifests 2. Independent checks afterwards: the installed binary's sha256 equals the bundle binary's and reports v0.12.0 (ccb9e4cc5111); both units active; loopback and public healthz 200; anonymous overview, read sessions, read bays and stats all 401 on the public URL. Capture continues: the latest sync at 06:28Z uploaded 1. Its refused 4 and quarantined 18 are unchanged from hundreds of syncs before the upgrade. The checkpoint is root-only, so its upgrade-status was not read; the paths of the checkpoint and the v21 backup are in DEPLOYMENT_RESULT. The capture agent binary, profile, web.json and memberships are unchanged; the agent is still v0.11.1.
+
+## Summary
+
+The dogfooding lake runs v0.12.0 (ccb9e4cc5111) at catalog schema 23 since 2026-11-03 04:35 UTC. The owner ran the rehearsed, checksummed bundle. It kept a verified v0.11.1 checkpoint and serve migrate's v21 backup, preserved every count (2280 sessions) and the lake identity, filled project columns on every session, and resumed capture. Health, the auth guards (including the new read routes) and the public URL check out independently, and capture keeps uploading. The workstation agent is still v0.11.1, and the Vuoro migration has not run. Rolling back means restoring the v21 backup, as the external handoff describes.
