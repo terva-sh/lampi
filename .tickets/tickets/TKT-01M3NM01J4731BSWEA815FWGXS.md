@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01J4731BSWEA815FWGXS
 title: "Concise profile rules: wider matches and fewer rules"
 type: epic
-status: ready
+status: in-progress
 status_reason: null
 priority: normal
 due_on: null
@@ -18,15 +18,22 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3-6387cc8a
+  branch: feat/profile-hide-prefix
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
+  commit: 20e91767d34ae7037d2f8011b0c613254429ca39
+  session: null
+  claimed_at: 2026-11-03T17:26:49Z
+  expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T06:17:57Z
+updated_at: 2026-11-03T17:26:58Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
 updated_by:
-  id: agent:claude-code/58fb7d84
+  id: agent:codex/t3-6387cc8a
   name: ""
 extensions: {}
 ---
@@ -59,6 +66,10 @@ An operator can describe the sessions they care about in a handful of rules, and
 - **No `git_remote_glob` for now.** `git_remote_prefix` already covers an owner, a group or a host. The case left over, one repository name under any owner (forks), has no user yet. File it when one appears.
 - **No named rule sets or rule sharing between profiles.** Several profiles hold the same list only when several profiles exist. The problem today is one profile that is too long.
 - **Widening stays an operator decision.** The tools suggest and preview. Nothing widens a profile without a save the operator makes.
+
+## Implementation plan
+
+Implement the owner-requested prefix hide increment: consolidate selected temporary allow rules into a profile-local review hide prefix, with narrower show rules or structurally narrower allow rules as exceptions. Keep deny-wins capture matching unchanged. Store review policy in profile revisions for atomic saves and rollback, but strip it from resolved device profiles so older agents receive the same capture schema and versions. Match directory boundaries using inventoried paths, never lake-host filesystem resolution. Preserve explicit per-project hides and mixed temporary/non-temporary copies. Add editor rules, merge-to-hide preview including dropped capture reach and visibility changes, API/CLI document support, and docs. Validate boundary/tie/exception behavior, future inventories, filtered queues, round trips, stale saves, rollback and device profile compatibility. No live profile or capture changes are authorized by this implementation. The existing live consolidation child remains independent.
 
 ## Notes
 
