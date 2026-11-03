@@ -1135,6 +1135,10 @@ and destination access warning. Apply requires an administrator, CSRF,
 a sign-in in the last ten minutes, confirmation of the reviewed plan and
 separate consent to create proposed bays. Grants remain separate. The complete
 plan can be downloaded privately and imported later for a fresh full preview.
+Imported names and aliases restore the selected existing bays, so refining the
+selection retains the requested sources and destinations. Proposed bays stay
+separate. A destination or source that disappears remains visibly selected as
+unavailable until you replace or remove it.
 Expired or stale plans apply nothing and retain their exact request.
 
 A durable receipt links to current-membership verification and a preview of a

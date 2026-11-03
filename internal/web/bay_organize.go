@@ -46,24 +46,26 @@ type organizeRow struct {
 }
 
 type organizeView struct {
-	Form           organizeForm
-	Rows           []organizeRow
-	Bays           []catalog.BayReference
-	Selected       []string
-	Next           string
-	Previous       bool
-	Problem        string
-	Done           string
-	Fresh          bool
-	FreshURL       string
-	Plan           *catalog.BayMigrationPlan
-	PlanJSON       string
-	Receipt        *catalog.BayMigrationReceipt
-	Verification   *catalog.MigrationVerification
-	Rule           *catalog.BayRulePreview
-	RuleCommand    string
-	Doctor         *bayDoctorView
-	ReleaseResults []string
+	Form              organizeForm
+	Rows              []organizeRow
+	Bays              []catalog.BayReference
+	UnavailableAdd    []string
+	UnavailableRemove []string
+	Selected          []string
+	Next              string
+	Previous          bool
+	Problem           string
+	Done              string
+	Fresh             bool
+	FreshURL          string
+	Plan              *catalog.BayMigrationPlan
+	PlanJSON          string
+	Receipt           *catalog.BayMigrationReceipt
+	Verification      *catalog.MigrationVerification
+	Rule              *catalog.BayRulePreview
+	RuleCommand       string
+	Doctor            *bayDoctorView
+	ReleaseResults    []string
 }
 
 func (s *Server) organizationRoutes(m *http.ServeMux) {
@@ -172,6 +174,16 @@ func (s *Server) renderOrganize(w http.ResponseWriter, r *http.Request, v organi
 	for _, b := range bays {
 		v.Bays = append(v.Bays, catalog.BayReference{ID: b.ID, Name: b.Name, Default: b.Default})
 	}
+	unavailable := func(refs []string) []string {
+		var missing []string
+		for _, ref := range refs {
+			if !slices.ContainsFunc(v.Bays, func(b catalog.BayReference) bool { return b.ID == ref }) {
+				missing = append(missing, ref)
+			}
+		}
+		return missing
+	}
+	v.UnavailableAdd, v.UnavailableRemove = unavailable(v.Form.Add), unavailable(v.Form.Remove)
 	scope, err := s.organizationScope(ctx, v.Form)
 	if err == nil {
 		req := v.Form.Filter
@@ -272,6 +284,15 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := readContext(r)
 	defer cancel()
 	who, _ := webauth.Current(r)
+	restore := func(req catalog.BayMigrationRequest) bool {
+		var err error
+		v.Form, err = s.formFromMigration(ctx, f, req)
+		if err != nil {
+			problem(err)
+			return false
+		}
+		return true
+	}
 	switch {
 	case action == "doctor":
 		policy, err := baydoctor.DecodePolicy([]byte(f.DoctorPolicy))
@@ -319,7 +340,9 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v.Plan = &plan
-		v.Form = formFromMigration(f, plan.Request)
+		if !restore(plan.Request) {
+			return
+		}
 	case action == "browse":
 		v.Form.Cursor, v.Form.History, v.Form.Focus = "", nil, ""
 	case r.PostForm.Has("next"):
@@ -397,7 +420,9 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v.Plan = &fresh
-		v.Form = formFromMigration(f, fresh.Request)
+		if !restore(fresh.Request) {
+			return
+		}
 	case action == "download":
 		plan, err := readOrganizationPlan(r.PostForm.Get("plan"))
 		if err != nil {
@@ -416,7 +441,9 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v.Plan, v.PlanJSON = &plan, r.PostForm.Get("plan")
-		v.Form = formFromMigration(f, plan.Request)
+		if !restore(plan.Request) {
+			return
+		}
 		if !webauth.Fresh(r, s.now()) {
 			v.Problem = "Sign in again before applying. This reviewed plan and exact selection are retained below; export it to resume later."
 			s.renderOrganize(w, r, v, http.StatusForbidden)
@@ -446,7 +473,9 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v.Plan = &plan
-		v.Form = formFromMigration(f, plan.Request)
+		if !restore(plan.Request) {
+			return
+		}
 	case action == "release":
 		if !webauth.Fresh(r, s.now()) || r.PostForm.Get("confirm_release") != "true" {
 			v.Problem = "Release requires a recent sign-in and explicit confirmation that selected holds will place their requested bays."
@@ -498,7 +527,7 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 	s.renderOrganize(w, r, v, http.StatusOK)
 }
 
-func formFromMigration(f organizeForm, req catalog.BayMigrationRequest) organizeForm {
+func (s *Server) formFromMigration(ctx context.Context, f organizeForm, req catalog.BayMigrationRequest) (organizeForm, error) {
 	f.Selected = strings.Join(req.UIDs, "\n")
 	if len(req.Edits) > 0 {
 		ids := []string{}
@@ -512,7 +541,39 @@ func formFromMigration(f organizeForm, req catalog.BayMigrationRequest) organize
 	if len(req.Remove) > 0 {
 		f.Mode = "move"
 	}
-	return f
+	// Existing-bay controls submit IDs. Preserve intent from imported names
+	// and aliases by resolving them before checking those controls. Proposed
+	// destinations remain names in their separate input, never checkboxes.
+	resolve := func(refs []string, proposed []string) ([]string, error) {
+		ids := []string{}
+		for _, ref := range refs {
+			if slices.Contains(proposed, ref) {
+				continue
+			}
+			bay, err := s.catalog.ResolveBay(ctx, ref)
+			if errors.Is(err, catalog.ErrNoBay) {
+				// A stale reference stays selected as an unavailable control.
+				// Do not discard intent or prevent an idempotent apply retry.
+				ids = append(ids, ref)
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			ids = append(ids, bay.ID)
+		}
+		return uniqueIDs(ids), nil
+	}
+	add, err := resolve(req.Add, req.Proposed)
+	if err != nil {
+		return f, err
+	}
+	remove, err := resolve(req.Remove, nil)
+	if err != nil {
+		return f, err
+	}
+	f.Add, f.Remove = add, remove
+	return f, nil
 }
 
 func ruleHostCommand(req catalog.BayRulePreviewRequest, data string) string {

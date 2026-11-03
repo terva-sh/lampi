@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,133 @@ func TestOrganizePreviewApplyVerifyCorrection(t *testing.T) {
 	page = postForm(h, organizePath, f, admin)
 	if page.Code != 400 || !strings.Contains(page.Body.String(), "Nothing was applied") || !strings.Contains(page.Body.String(), uid) {
 		t.Fatal("stale handling", page.Code)
+	}
+}
+
+func TestOrganizeRestoresReferencedBaysBeforeSelectionRefinement(t *testing.T) {
+	for _, tc := range []struct {
+		name, action, mode string
+		alias              bool
+	}{
+		{"import-add-names", "import", "add", false},
+		{"import-move-aliases", "import", "move", true},
+		{"doctor-move-names", "doctor-preview", "move", false},
+		{"import-add-aliases", "import", "add", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lake, idp, h, _ := rawLake(t, nil)
+			ctx, now := t.Context(), time.Now()
+			one := ingestHead(t, lake, "reviewer", strings.Repeat("ab", 32), 4)
+			two := ingestHead(t, lake, "companion", strings.Repeat("cd", 32), 4)
+			dst, err := lake.Catalog.CreateBay(ctx, "code-reviews", "test", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			learning, err := lake.Catalog.CreateBay(ctx, "learning", "test", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			destination, source := dst.Name, "default"
+			if tc.alias {
+				if err := lake.Catalog.AliasBay(ctx, dst.ID, "reviews-alias", "test", now); err != nil {
+					t.Fatal(err)
+				}
+				if err := lake.Catalog.AliasBay(ctx, "default", "inbox-alias", "test", now); err != nil {
+					t.Fatal(err)
+				}
+				destination, source = "reviews-alias", "inbox-alias"
+			}
+			req := catalog.BayMigrationRequest{UIDs: []string{one, two}, Add: []string{destination, learning.Name, "proposed-bay"}, Proposed: []string{"proposed-bay"}, Reason: "Reviewed cohort"}
+			if tc.mode == "move" {
+				req.Remove = []string{source}
+			}
+			plan, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), false, req, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(plan)
+			admin := signInAs(t, idp, h, "owners")
+			f := url.Values{"csrf": {csrfOf(t, h, admin)}, "action": {tc.action}, "plan": {string(raw)}}
+			if tc.action == "doctor-preview" {
+				raw, _ = json.Marshal(req)
+				f.Set("request", string(raw))
+			}
+			page := postForm(h, organizePath, f, admin)
+			if page.Code != 200 {
+				t.Fatal(page.Code, page.Body.String())
+			}
+			// Re-preview the imported request before changing the exact cohort.
+			// Both restoration paths must preserve the checked controls.
+			for _, repreview := range []bool{false, true} {
+				if repreview {
+					pf := organizationForm(t, page.Body.String(), "plan-form")
+					pf.Set("action", "repreview")
+					page = postForm(h, organizePath, pf, admin)
+					if page.Code != 200 {
+						t.Fatal(page.Code, page.Body.String())
+					}
+				}
+				f = organizationForm(t, page.Body.String(), "organize-form")
+				if !slices.Contains(f["add"], dst.ID) || !slices.Contains(f["add"], learning.ID) || len(f["add"]) != 2 || f.Get("proposed") != "proposed-bay" || f.Get("mode") != tc.mode {
+					t.Fatalf("restored destinations lost intent: %v", f)
+				}
+				if tc.mode == "move" && (len(f["remove"]) != 1 || f.Get("remove") != catalog.DefaultBayID) {
+					t.Fatalf("restored source lost intent: %v", f)
+				}
+			}
+			f.Set("exclude", two)
+			f.Set("action", "preview")
+			page = postForm(h, organizePath, f, admin)
+			if page.Code != 200 {
+				t.Fatal(page.Code, page.Body.String())
+			}
+			pf := organizationForm(t, page.Body.String(), "plan-form")
+			if err := json.Unmarshal([]byte(pf.Get("plan")), &plan); err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Items) != 1 || plan.Items[0].UID != one || !slices.Equal(plan.Request.Exclude, []string{two}) || len(plan.Items[0].Add) != 3 || plan.Rejected != 0 || !slices.Contains(plan.Items[0].Add, dst.ID) || !slices.Contains(plan.Items[0].Add, learning.ID) {
+				t.Fatalf("refined plan lost destinations or selection: %+v", plan)
+			}
+			if tc.mode == "move" && !slices.Equal(plan.Items[0].Remove, []string{catalog.DefaultBayID}) || tc.mode == "add" && len(plan.Items[0].Remove) != 0 {
+				t.Fatalf("refined operation changed source intent: %+v", plan)
+			}
+		})
+	}
+}
+
+func TestOrganizeRetainsUnavailableDestinationAndAllowsReceiptRetry(t *testing.T) {
+	lake, idp, h, _ := rawLake(t, nil)
+	ctx, now := t.Context(), time.Now()
+	uid := ingestHead(t, lake, "reviewer", strings.Repeat("ab", 32), 4)
+	dst, err := lake.Catalog.CreateBay(ctx, "code-reviews", "test", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := lake.Catalog.PlanBayMigration(ctx, catalog.AllBays(), true, catalog.BayMigrationRequest{UIDs: []string{uid}, Add: []string{dst.Name}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(plan)
+	admin := signInAs(t, idp, h, "owners")
+	f := url.Values{"csrf": {csrfOf(t, h, admin)}, "action": {"apply"}, "plan": {string(raw)}, "confirm": {"true"}}
+	if page := postForm(h, organizePath, f, admin); page.Code != 200 {
+		t.Fatal(page.Code, page.Body.String())
+	}
+	if _, err := lake.Catalog.DeleteBay(ctx, dst.ID, "test", now); err != nil {
+		t.Fatal(err)
+	}
+	page := postForm(h, organizePath, f, admin)
+	if page.Code != 200 || !strings.Contains(page.Body.String(), "already applied") {
+		t.Fatal("form restoration prevented idempotent receipt retry", page.Code, page.Body.String())
+	}
+	f = organizationForm(t, page.Body.String(), "organize-form")
+	if !slices.Equal(f["add"], []string{dst.Name}) || !strings.Contains(page.Body.String(), "Unavailable destination") {
+		t.Fatal("unavailable destination was silently discarded", f)
+	}
+	f.Set("action", "preview")
+	page = postForm(h, organizePath, f, admin)
+	if page.Code != 400 || !strings.Contains(page.Body.String(), "selected bay is unavailable") {
+		t.Fatal("unavailable intent was accepted as a different operation", page.Code, page.Body.String())
 	}
 }
 

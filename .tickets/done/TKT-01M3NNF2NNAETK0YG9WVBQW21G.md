@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:18Z
-updated_at: 2026-11-02T23:29:14Z
+updated_at: 2026-11-03T00:01:27Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -56,6 +56,20 @@ Offer a separate reviewed step to route future matching sessions. Display exactl
 ## Implementation plan
 
 Add an admin-only server-rendered organize workflow using shared discovery/selection/migration services. Preserve exact selections across POST paging, filters, explicit exclusions and recoverable errors; offer directory-hash inspection for unlinked companions without auto-inclusion. Support add versus explicit-source moves to multiple existing/proposed bays, complete before/after/access previews, private plan export/import, fresh-sign-in/CSRF-protected apply, receipt verification and inverse previews. Retain held/refused explanations and add explicit bounded bulk hold release with per-item results. Keep future-rule catchment preview separate and provide an exact host installation handoff. Link inbox/bay/session/search and later doctor findings into the flow. Include updated-time metadata selectors, accessible labels/keyboard-native controls, empty/stale states and semantic interaction/auth tests.
+
+## Notes
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:01:27Z
+
+### Review 3014 finding-1: preserve imported bay reference intent
+
+Published review 3014 at 96b9d88f0a595e3fc2148bc9b40e5798ca55906c confirms the hidden-membership finding is resolved, but finds a real dashboard refinement bug. formFromMigration retained name/alias references while checkbox values were bay IDs, so subsequent selection/exclusion refinements could lose destinations or sources. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37729.
+
+Accepted: form restoration now resolves existing add/remove references to current IDs, deduplicates the controls, and retains proposed names in the separate proposed-destination field. This shared restoration path covers import, re-preview, doctor handoff, apply-result/error retention and recovery. Normalizing only the template comparison was rejected because the editable form should carry canonical existing references and keep hypothetical names separate.
+
+Unavailable references are retained as explicit checked controls, rather than silently discarded. A disappeared bay does not prevent an idempotent receipt retry; a later newly requested preview still refuses the unavailable reference until the user replaces or removes it. No destination, source, selected UID or exclusion is inferred.
+
+Rendered-form regression tests import real name/alias plans, re-preview them, refine exclusions and submit another membership preview in add/move modes with multiple existing and proposed destinations. They also exercise a doctor handoff and a deleted-destination receipt retry followed by refusal of a new invalid preview. Focused organization tests pass. Full normal tests, web race tests, vet/build and formatting checks are running before the final source/ticket push and fresh model review. No live lake state changed.
 
 ## Summary
 
