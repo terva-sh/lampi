@@ -388,6 +388,7 @@ func ChangedProfileFields(a, b config.Profile) []string {
 	}{
 		{"projects.allow", a.Projects.Allow, b.Projects.Allow},
 		{"projects.deny", a.Projects.Deny, b.Projects.Deny},
+		{"review", a.Review, b.Review},
 		{"harnesses", a.Harnesses, b.Harnesses},
 		{"agent", a.Agent, b.Agent},
 		{"redaction", a.Redaction, b.Redaction},

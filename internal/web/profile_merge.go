@@ -42,6 +42,8 @@ type mergeView struct {
 	// Kind is the field the merged rule sets, cwd_prefix or
 	// git_remote_prefix, and Prefix its value.
 	Kind, Prefix string
+	HideRule     bool
+	Visibility   *profileVisibility
 	Picked       []string
 	Problem      string
 	RuleText     string
@@ -92,7 +94,7 @@ func commonPrefix(values []string) string {
 // planMerge works out what merging picked into one rule does to p's
 // allow rules for the devices on profile name. prefix is the operator's
 // edit of the proposal, or "" to propose one.
-func (s *Server) planMerge(r *http.Request, name string, p config.Projects, picked []config.ProjectMatch, prefix string) (mergeView, error) {
+func (s *Server) planMerge(r *http.Request, name string, p config.Projects, picked []config.ProjectMatch, prefix string, review config.ReviewConfig) (mergeView, error) {
 	var v mergeView
 	for _, m := range picked {
 		v.Picked = append(v.Picked, ruleText(m))
@@ -137,7 +139,7 @@ func (s *Server) planMerge(r *http.Request, name string, p config.Projects, pick
 	v.RuleText = ruleText(v.rule)
 	next := p
 	var removed []config.ProjectMatch
-	next.Allow, removed = withRules(p.Allow, []config.ProjectMatch{v.rule})
+	next.Allow, removed = withRules(p.Allow, []config.ProjectMatch{v.rule}, review)
 	for _, m := range removed {
 		v.Replaces = append(v.Replaces, ruleText(m))
 	}
@@ -207,15 +209,19 @@ func (s *Server) planMerge(r *http.Request, name string, p config.Projects, pick
 // the planned rule to the form. It returns the panel to show, or nil
 // when the merge was applied or not asked for.
 func (s *Server) mergeForm(r *http.Request, name string, f *profileForm, p *config.Profile) (*mergeView, error) {
+	mode := cmp.Or(r.PostForm.Get("merge_apply"), r.PostForm.Get("merge"))
+	if mode == "hide" {
+		return s.mergeHideForm(r, name, f, p)
+	}
 	plan, apply := r.PostForm.Get("merge") == "allow", r.PostForm.Get("merge_apply") == "allow"
 	if !plan && !apply {
 		return nil, nil
 	}
-	v, err := s.planMerge(r, name, p.Projects, f.Picked, r.PostForm.Get("merge_prefix"))
+	v, err := s.planMerge(r, name, p.Projects, f.Picked, r.PostForm.Get("merge_prefix"), p.Review)
 	if err != nil || !apply || v.Problem != "" {
 		return &v, err
 	}
-	p.Projects.Allow, _ = withRules(p.Projects.Allow, []config.ProjectMatch{v.rule})
+	p.Projects.Allow, _ = withRules(p.Projects.Allow, []config.ProjectMatch{v.rule}, p.Review)
 	f.Allow, f.Picked = withBlanks(p.Projects.Allow), nil
 	if f.Note == "" {
 		n := len(v.Replaces)

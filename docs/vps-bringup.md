@@ -241,6 +241,35 @@ terva-lampi serve profiles delete ci --data /var/lib/terva-lampi
 profile whose document has not changed is left alone. `delete` refuses
 `default` and a profile a device uses.
 
+Profiles may also hold lake-side review visibility rules. `serve profiles
+show`, `set` and `import`, as well as the dashboard profile API, retain the
+`review.rules` field:
+
+```json
+{
+  "projects": {"allow": [{"cwd_prefix": "/srv/work"}]},
+  "review": {
+    "rules": [
+      {"cwd_prefix": "/tmp", "action": "hide"},
+      {"cwd_prefix": "/tmp/keep", "action": "show"}
+    ]
+  }
+}
+```
+
+Each prefix must be a clean absolute directory; at most 500 review rules are
+allowed. The deepest matching prefix wins, with Hide winning equal-prefix
+ties. More specific capture allows also act as visibility exceptions. These
+rules hide projects from review for devices using this profile, including
+newly inventoried projects; they do not change capture permissions or stored
+sessions. See [the profile editor](web-dashboard.md#editing-a-profile) for
+exception precedence, manual hides and inventory limits.
+
+Review rules are versioned with the stored profile, so saves, conflict checks
+and rollback include them. The lake omits them from signed device profiles.
+A review-only edit therefore leaves the device's capture document and version
+unchanged and works with existing agents.
+
 ### Check a profile with the doctor
 
 A profile that grows one Allow at a time collects rules that add
@@ -272,6 +301,10 @@ covered or shadowed rule, and removing a temporary rule that no device
 holds sessions for. A temporary rule is safe only when every device sent
 an inventory. `--write FILE` writes the profile with only these applied.
 Read the file before you `set` it.
+
+The doctor preserves allow rules that serve as review visibility exceptions,
+even when another rule covers their capture permission. It also excludes
+prefix-hidden sightings from its pending count and review-group suggestions.
 
 The other fixes change what uploads, so they are offered in the
 dashboard's profile editor, where the preview lists what each admits or

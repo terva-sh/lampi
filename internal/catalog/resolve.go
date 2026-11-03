@@ -74,6 +74,7 @@ func resolveProfile(ctx context.Context, q querier, d Device) (EffectiveProfile,
 		}
 		e.Layers = append(e.Layers, name)
 	}
+	e.Config = e.Config.DeviceProfile()
 	e.Version = e.Config.Version()
 	return e, nil
 }

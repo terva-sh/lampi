@@ -140,7 +140,9 @@ type reviewRow struct {
 // now.
 type hiddenRow struct {
 	catalog.ProjectHide
-	Devices int `json:"devices"`
+	Devices int    `json:"devices"`
+	Rule    string `json:"rule,omitempty"`
+	Profile string `json:"profile,omitempty"`
 }
 
 // reviewView is the review page and GET /api/web/v1/review.
@@ -180,6 +182,12 @@ type reviewTableView struct {
 	Allow   bool
 }
 
+// ManualHides limits Unhide controls to explicit project hides. Prefix-hidden
+// entries are edited through their profile, so Unhide cannot change them.
+func (v reviewView) ManualHides() bool {
+	return slices.ContainsFunc(v.Hidden, func(h hiddenRow) bool { return h.Rule == "" })
+}
+
 func isNoProfile(err error) bool { return errors.Is(err, catalog.ErrNoProfile) }
 
 // readReview builds the queue, narrowed by f.
@@ -205,19 +213,23 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 		}
 	}
 	// Each device's effective profile, resolved once.
-	effective := map[string]config.Projects{}
-	projectsOf := func(sg catalog.ReviewSighting) (config.Projects, error) {
+	effective := map[string]config.Profile{}
+	profileOf := func(sg catalog.ReviewSighting) (config.Profile, error) {
 		if p, ok := effective[sg.DeviceID]; ok {
 			return p, nil
 		}
-		e, err := s.catalog.ResolveProfile(ctx, catalog.Device{ID: sg.DeviceID, Profile: sg.Profile})
+		name := sg.Profile
+		if name == "" {
+			name = config.DefaultProfile
+		}
+		e, err := s.catalog.ProfileByName(ctx, name)
 		if err != nil && !isNoProfile(err) {
-			return config.Projects{}, err
+			return config.Profile{}, err
 		}
 		// A device set to a profile the lake no longer holds gets
 		// nothing from it: every project still needs a decision.
-		effective[sg.DeviceID] = e.Config.Projects
-		return e.Config.Projects, nil
+		effective[sg.DeviceID] = e.Config
+		return e.Config, nil
 	}
 	// caughtUp reports whether device id has applied its current
 	// profile and sent an inventory after both that profile's save and
@@ -255,6 +267,7 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 		return got.After(at) && got.After(reported.Add(time.Second)), nil
 	}
 	seen := map[catalog.ProjectKey]int{}
+	autoHidden := map[string]int{}
 	for _, p := range q.Projects {
 		byState := map[string]*reviewRow{}
 		for _, sg := range p.Sightings {
@@ -274,11 +287,23 @@ func (s *Server) readReview(ctx context.Context, f reviewFilter, now time.Time) 
 			// No profile reaches a device that fetches none, whatever its
 			// report says about its allow rules.
 			rs.LocalAllow = rows[sg.DeviceID].AllowSource == config.OriginLocal || rs.NoProfile
-			projects, err := projectsOf(sg)
+			profile, err := profileOf(sg)
 			if err != nil {
 				return v, err
 			}
 			id := config.ProjectID{CWD: sg.Project.CWD, CWDHash: sg.Project.CWDHash, GitRemote: sg.Project.GitRemote}
+			if rule, hidden := hiddenByProfile(profile, sg.Project); hidden {
+				key := p.Key.String() + "\n" + name + "\n" + rule.CWDPrefix
+				index, exists := autoHidden[key]
+				if !exists {
+					index = len(v.Hidden)
+					autoHidden[key] = index
+					v.Hidden = append(v.Hidden, hiddenRow{ProjectHide: catalog.ProjectHide{Key: p.Key, Note: "Hidden by prefix rule"}, Rule: rule.CWDPrefix, Profile: name})
+				}
+				v.Hidden[index].Devices++
+				continue
+			}
+			projects := profile.Projects
 			switch {
 			// A profile's deny rules are added to the device's own, whatever
 			// its deny source says (config.ApplyLakeProfile), so a

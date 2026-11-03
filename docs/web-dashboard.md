@@ -788,7 +788,7 @@ version, the revision that saved it, who saved it and when, and how many
 active devices fetch it. A default no one has saved is listed as not saved
 yet; the lake serves it empty.
 
-`/profiles/NAME` shows what the profile sends to agents:
+`/profiles/NAME` shows the profile's capture settings and review visibility:
 
 - **Allow** and **Deny** rules, with every field a rule can set:
   `cwd_prefix`, `git_remote`, `git_remote_prefix` and `cwd_hash`. Every
@@ -796,6 +796,9 @@ yet; the lake serves it empty.
 - **Harnesses** it turns on or off. One it does not set keeps the agent's
   own setting.
 - **Agent** `debounce` and `debounce_max`.
+- **Hide from review** folder prefixes, which the lake applies to this
+  profile's review queue. These are kept on the lake, separate from the
+  capture settings sent to agents.
 - **Devices** that fetch it. A device whose `config.json` sets its own allow
   rules is marked, since this profile's allow rules do not reach it.
 - **Revisions**, newest first, with who saved each and the note they left.
@@ -860,6 +863,42 @@ that names a whole host. **Apply the merge and preview** puts the rule where
 the first rule it replaces stood, fills an empty note, and previews. Nothing
 is saved until you save.
 
+For temporary folders, use **Hide this prefix instead…** in the merge panel.
+For example, select the old `/tmp/probe-*` folder allow rules and replace them
+with one Hide prefix `/tmp`. Unlike an Allow merge, a Hide prefix may name a
+top-level folder. The plan removes only the selected allow rules that the
+prefix covers, preserving unticked exceptions. **Replace selected rules with
+hide and preview** shows both the capture changes from removing those allow
+rules and the review visibility changes. Save to apply them together.
+
+The **Hide from review** section also lets you add, edit and remove Hide and
+Show prefixes directly. A Hide rule covers current and future projects under
+that directory for devices using this profile. Prefixes match whole directory
+names: `/tmp` matches `/tmp/new`, but not `/tmp-other`. The deepest matching
+prefix wins, with Hide winning a tie. Thus `/tmp` Hide, `/tmp/keep` Show and
+`/tmp/keep/private` Hide leave only the middle tree visible.
+
+A matching capture allow rule is also a visibility exception when it is
+provably narrower than the winning Hide prefix: a deeper folder, the same
+folder with additional conditions, or an exact folder hash. A remote-only
+allow rule, or one for the same folder or a folder above it, does not override
+a directory Hide. Automatic cleanup preserves these explicit exceptions.
+Capture denies still win over all capture allows; a Show rule never permits
+an upload.
+
+Review visibility applies to each device's copy. A hidden temporary copy does
+not hide a visible checkout of the same repository elsewhere or under another
+profile. Existing manual project hides remain lake-wide and take precedence;
+unhide those separately if you want a Show exception to appear. The Hidden tab
+and device inventory link prefix-hidden projects to their profile's editor.
+Neither kind of hide moves or deletes stored sessions.
+
+The lake evaluates inventoried paths without resolving symlinks on the lake
+host. If an inventory combines several checkouts into one representative path,
+the lake leaves that entry visible because it cannot prove that every checkout
+matches the prefix. Devices that send no refused-project list are named in
+the preview; their full visibility effects cannot be enumerated.
+
 Rules in a row that share a folder, a repository owner or a remote prefix's
 host are listed under a header naming it and counting them. Where scripts run,
 a filter box above each list narrows it to the rules whose values hold the
@@ -874,6 +913,8 @@ text. Each list ends with three empty rows; preview to get more.
   rules will not reach;
 - when the allow or deny rules change, the projects the change admits and the
   projects it stops, each with its devices and session count.
+- when review rules or allow exceptions change, the projects it hides or shows
+  in review, separately from capture changes.
 
 The project list reads the newest inventory of each device on the profile
 under the saved rules and the edited ones. Check it before you save a wider

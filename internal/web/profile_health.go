@@ -65,10 +65,13 @@ type healthView struct {
 
 // diagnose reads name's devices and runs the doctor over p, which may
 // be an edit not saved yet.
-func (s *Server) diagnose(r *http.Request, name string, p config.Projects) (profiledoctor.Report, error) {
+func (s *Server) diagnose(r *http.Request, name string, p config.Projects, review ...config.ReviewConfig) (profiledoctor.Report, error) {
 	in, err := profiledoctor.Gather(r.Context(), s.catalog, name, p)
 	if err != nil {
 		return profiledoctor.Report{}, err
+	}
+	if len(review) > 0 {
+		in.Review = review[0]
 	}
 	return profiledoctor.Diagnose(in), nil
 }
@@ -96,8 +99,8 @@ func (s *Server) pendingHides(r *http.Request, name string, p config.Projects, h
 // health is the panel for p, or nil when the devices could not be read:
 // a report made without them would call rules safe to remove that are
 // in use.
-func (s *Server) health(r *http.Request, name string, p config.Projects, edit bool) *healthView {
-	rep, err := s.diagnose(r, name, p)
+func (s *Server) health(r *http.Request, name string, p config.Projects, edit bool, review ...config.ReviewConfig) *healthView {
+	rep, err := s.diagnose(r, name, p, review...)
 	if err != nil {
 		s.logError(r, "reading the profile's devices for its health failed", err)
 		return nil

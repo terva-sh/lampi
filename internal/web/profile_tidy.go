@@ -46,7 +46,8 @@ func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *confi
 	if doctor == "" && narrow == "" && owner == "" && folder == "" && fixAll == "" && !denyTemp {
 		return "", nil
 	}
-	rep, err := s.diagnose(r, name, p.Projects)
+	rep, err := s.diagnose(r, name, p.Projects, p.Review)
+	beforeAllow := slices.Clone(p.Projects.Allow)
 	if err != nil {
 		return "", err
 	}
@@ -168,6 +169,7 @@ func (s *Server) tidyForm(r *http.Request, name string, f *profileForm, p *confi
 	if n == 0 {
 		return "", nil
 	}
+	p.Projects.Allow = preserveReviewAllows(beforeAllow, p.Projects.Allow, p.Review)
 	f.Allow = withBlanks(p.Projects.Allow)
 	if strings.TrimSpace(f.Note) == "" {
 		f.Note = note
@@ -217,8 +219,14 @@ func allowRuleAt(remote, cwd, width string) (config.ProjectMatch, bool) {
 // after the last rule listed under the same header, or where the first
 // rule it replaces stood, or else at the end. A list grouped by hand or
 // by Sort stays grouped, and an order the operator set is kept.
-func withRules(allow, add []config.ProjectMatch) (out, removed []config.ProjectMatch) {
+func withRules(allow, add []config.ProjectMatch, visibility ...config.ReviewConfig) (out, removed []config.ProjectMatch) {
+	var review config.ReviewConfig
+	if len(visibility) > 0 {
+		review = visibility[0]
+	}
+	originalAdd := add
 	add, _ = profiledoctor.WithoutCovered(add)
+	add = preserveReviewAllows(originalAdd, add, review)
 	coveredByAny := func(rules []config.ProjectMatch, r config.ProjectMatch) bool {
 		return slices.ContainsFunc(rules, func(a config.ProjectMatch) bool { return config.Covers(a, r) })
 	}
@@ -230,7 +238,7 @@ func withRules(allow, add []config.ProjectMatch) (out, removed []config.ProjectM
 	for _, r := range allow {
 		replaced := false
 		for j, a := range add {
-			if config.Covers(a, r) && !config.Covers(r, a) {
+			if config.Covers(a, r) && !config.Covers(r, a) && !review.ProtectsAllow(r) {
 				if at[j] < 0 {
 					at[j] = len(out)
 				}
@@ -252,7 +260,7 @@ func withRules(allow, add []config.ProjectMatch) (out, removed []config.ProjectM
 	}
 	var ins []insert
 	for j, r := range add {
-		if coveredByAny(kept, r) {
+		if coveredByAny(kept, r) && (!review.ProtectsAllow(r) || slices.Contains(kept, r)) {
 			continue
 		}
 		pos := len(kept)

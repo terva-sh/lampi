@@ -166,3 +166,28 @@ func TestServeProfilesSetRefusesOversizedStdin(t *testing.T) {
 		t.Fatalf("oversized stdin: %v", err)
 	}
 }
+
+func TestServeProfilesRetainsReviewPolicyAcrossDoctorWrite(t *testing.T) {
+	_, run := profilesLake(t)
+	doc := `{"projects":{"allow":[{"cwd_prefix":"/tmp"},{"cwd_prefix":"/tmp/keep"}]},"review":{"rules":[{"cwd_prefix":"/tmp","action":"hide"}]}}`
+	if _, err := run(doc, "set", "default", "-"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "fixed.json")
+	if _, err := run("", "doctor", "default", "--write", file); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"review"`) || !strings.Contains(string(raw), "/tmp/keep") {
+		t.Fatalf("doctor discarded policy or exception: %s", raw)
+	}
+	if _, err := run(string(raw), "set", "default", "-"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run("", "show", "default"); err != nil || !strings.Contains(out, `"action": "hide"`) {
+		t.Fatalf("show lost review policy: %v %s", err, out)
+	}
+}

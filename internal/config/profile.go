@@ -36,6 +36,7 @@ type Profile struct {
 	Agent     AgentConfig     `json:"agent,omitzero"`
 	Redaction RedactionConfig `json:"redaction,omitzero"`
 	Projects  Projects        `json:"projects,omitzero"`
+	Review    ReviewConfig    `json:"review,omitzero"`
 }
 
 // Profiles is a lake's profiles by name. It always holds the default
@@ -137,11 +138,15 @@ func (p Profile) Validate() error {
 	if _, _, err := p.Agent.Windows(); err != nil {
 		return err
 	}
-	return p.Projects.Validate()
+	if err := p.Projects.Validate(); err != nil {
+		return err
+	}
+	return p.Review.Validate()
 }
 
 // Version names the profile's content: the same fields give the same
-// version.
+// version. Stored profiles include lake-side review policy; use DeviceProfile
+// before computing the capture version served to agents.
 func (p Profile) Version() string {
 	raw, _ := json.Marshal(p)
 	sum := sha256.Sum256(raw)
