@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:codex/t3-6387cc8a
-  branch: feat/profile-hide-prefix
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
-  commit: 20e91767d34ae7037d2f8011b0c613254429ca39
-  session: null
-  claimed_at: 2026-11-03T17:26:49Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-11-03T17:38:26Z
+updated_at: 2026-11-03T17:52:22Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -121,3 +114,11 @@ Opened https://git.local.sothr.com/terva-sh/lampi/pulls/259 with implementation 
 Passed full `mise exec -- go test -trimpath=false ./...`, vet, gofmt, diff checks, and build (`-buildvcs=false`, output under agent scratch). Passed race tests for config, catalog, profiledoctor, web and API. CLI coverage verifies doctor-write/set/show preserve policy and protected exceptions. `git ticket check` reports zero errors and two pre-existing long-title warnings in unrelated completed tickets; regenerated the epic index to reflect the claimed epic.
 
 This final ticket-only commit will be newer than the requested implementation review. Once that review completes, carry its verdict to the ticket-only head before merging. Continue with CI and finding dispositions; no live deployment or profile editing is part of this increment.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T17:52:17Z
+
+### Clean model review and final merge gate
+
+PR #259 received a clean full code review of implementation head d66aba174651091607684176e05adbded3726470 against base 20e91767d34ae7037d2f8011b0c613254429ca39. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/259#issuecomment-37789 ; run 8e2e97b7-016d-4a12-884b-735859b7718f in Actions #2376. No findings or dispositions were needed. The review was limited to the supplied diff, with local regression/race tests and CI covering execution.
+
+Both CI checks passed on 454b6fac9799cf7a88d56b5fbb6fb0479665375f. All commits after the reviewed implementation touch only this ticket. Carry the clean verdict to the final ticket head, wait for that head's CI, then merge #259 and sync the two main branches. The prefix-hide implementation is complete; the epic remains open for its separate live consolidation child. No live service, release or profile change was made.
