@@ -33,7 +33,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:28:53Z
+updated_at: 2026-11-03T21:30:01Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -171,3 +171,9 @@ The independent Linux root future-rule preview refuses selection_too_large. Comp
 Filed draft follow-ups TKT-01M6HMDAFCSN0N540295A4Y3FZ (Read bounded opening evidence for exact session cohorts) and TKT-01M6HMDAJG6AM55ZER5AG5Z9D4 (Preview large routing catchments without sampling), attached as children of this exercise. Their design/docs criteria preserve scope, bounds and explicit incomplete outcomes. They were not promoted.
 
 Acceptance audit: AC2 is satisfied for a complete inspected exact list and scoped dry-run; AC5 is satisfied for live discovery/selection/doctor use, companion coverage and observed false-positive/tool gaps. AC1 remains unchecked for full membership inventory, AC3 for approved readership/current future-routing review, and AC6 for live later-manifest/receipt verification. Existing AC4 remains satisfied by the precise tooling/access record; no approved live split is claimed. The epic's last criterion remains unchecked. No live bay, membership, route, grant, profile, credential, service or workstation-agent installation changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:30:01Z
+
+### Exercise record submitted for review
+
+Opened PR #261 (Dogfood Vuoro organization with exact inspected session batches), https://git.local.sothr.com/terva-sh/lampi/pulls/261, with the ticket-linked exact proposal, real MCP/CLI evidence, documentation and two unpromoted tooling spikes. CI and the required full model review are pending. Requested the owner's concrete live-split decision through an asynchronous card: move the exact 1,287 sessions from default to code-reviews with no new grants after a fresh full administrator preview, add-only instead, or keep previews only. The question explains that default-only readers can lose reach. No answer has arrived and no live change is authorized by elapsed time or read access. Keep AC1/3/6 and the epic's final criterion unchecked until their remaining evidence is obtained.
