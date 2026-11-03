@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T21:49:04Z
+updated_at: 2026-11-03T23:06:16Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -254,3 +254,11 @@ Audited the original nine implementation/design/docs children: all are done and 
 The owner explicitly approved the frozen 1,287-session historical move from default into new code-reviews, with no new reader grants, after a fresh full administrator preview. Approval is no longer outstanding; do not ask for it again. PR #261 merged and both mains are synced at 58d4127a5837e6e8f1cc60256809e2be948878fb. The approved host runner and updated authorization/access record are under full review in PR #262, https://git.local.sothr.com/terva-sh/lampi/pulls/262.
 
 The runner's full 500/500/287 synthetic CLI rehearsal verifies complete previews, backup, fresh later-batch plans, exact apply, receipts, unselected preservation and unchanged grants/rules. This is preparation, not live completion. The private sudo card timed out without delivery, while the host requires a password and the working events:read token cannot apply. The remaining prerequisite is host execution access for full administrator inspection and the approved move, followed by real membership/receipt/later-manifest verification. Keep the last epic criterion and unsatisfied live criteria open. No live mutations have occurred.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T23:06:16Z
+
+### Approved live historical split now applied and verified
+
+TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) has completed the owner-approved 1,287-session move after fresh full administrator previews and a checked backup. All 645 reviewers, 640 finding raters and two draft mergers are now only in new code-reviews; all 13 controls and all other memberships are preserved. No reader grants or routing rules were added. The lake has 1,287 sessions in code-reviews and 1,034 in default. Three receipts match immediate/follow-up administrator verification; complete read-interface traversal independently matches the frozen set. The ticket-linked vuoro-live-split-result.json records the production evidence and exact receipts.
+
+Host access is resolved; the approved runner landed through PR #262 and both forges were synced at bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae. All nine implementation/design/documentation children remain done. Only the final production later-manifest observation is outstanding: current grants/rules/requests were inspected, but no selected session uploaded again during verification. The synthetic future-manifest behavior is already verified and is not mislabeled as a real upload. Keep the last epic criterion and live AC6 unchecked pending that remaining evidence. Future automatic routing remains a separate operator decision, not part of the applied historical split.

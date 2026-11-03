@@ -273,6 +273,14 @@ inventory, inspected roles and exclusions, exact batches, previews and remaining
 operator decisions. Consult that record rather than treating an earlier sample
 or a documentation example as a complete move list.
 A deployed server does not give an agent read authority; use an existing
-`events:read` token rather than a device upload token. Keep the live exercise
-incomplete until the real cohort and migration previews have been verified.
-No live membership, grant, profile or routing change is claimed here.
+`events:read` token rather than a device upload token.
+
+The approved historical split moved exactly 1,287 inspected sessions into
+`code-reviews`, preserving all 13 excluded controls and every unselected
+membership. Complete administrator previews, three applied batches, matching
+receipts and a full read-interface traversal are recorded in the
+[live result artifact](../.tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-live-split-result.json).
+No grants or future routing rules were added. New review sessions are not
+automatically routed by this historical move. Production later-upload
+observation remains open in the ticket; synthetic manifest tests do not prove
+that a moved production session has uploaded again.

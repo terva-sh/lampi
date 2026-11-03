@@ -25,6 +25,8 @@ references:
     path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json
   - ref: artifact:vuoro-approved-host-runner
     path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro_approved_move.py
+  - ref: artifact:vuoro-live-split-20261103
+    path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-live-split-result.json
 claim:
   actor: agent:codex/t3-6387cc8a
   branch: dogfood/vuoro-live-preview
@@ -35,7 +37,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:56:55Z
+updated_at: 2026-11-03T23:06:16Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -49,31 +51,37 @@ extensions: {}
 
 ### Owner goal and authority
 
-Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and prepare a reviewed split from development into one or more bays. A capture profile controls uploads; stored bays perform this organization without re-registration or re-import. The owner approved moving exactly the 1,287 frozen UIDs from default into a new code-reviews bay, with no new reader grants, after a fresh full administrator preview. Preserve unrelated memberships and all explicit exclusions. No future routing, profile or service change is authorized. Host execution access remains outstanding; do not ask for the same split approval again.
+Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and separate the reviewed historical cohort from development. A capture profile controls uploads; stored bays perform organization without re-registration or re-import. The owner approved exactly 1,287 frozen UIDs moving from default to a new code-reviews bay, preserving unrelated memberships and exclusions, with no new reader grants, after fresh complete administrator previews. That approved operation is now applied and receipt-verified. Do not replay it or request the same approval again. No future routing, profile, agent or service change was authorized or performed.
 
-### Current verified state
+### Verified cohort and evidence limits
 
-The lake runs v0.12.0 and owner-provided events:read access succeeds through the deployed CLI and direct MCP. Complete reachable metadata traversal on 2026-11-03 found 2,319 unique sessions and one visible bay, default. Full administrator membership, reader-grant and installed routing inspection remains unavailable through that read interface. Historical notes below preserve earlier access blockers; they are resolved, not current prerequisites.
+The initial complete reachable metadata traversal found 2,319 unique sessions. Bounded opening inspection covered all 1,298 broad Vuoro candidates/controls plus two same-repository development controls. The verified Linux/macOS worktree cohort contains 1,287 sessions: 645 reviewers (including one change-scope opening), 640 finding raters and two draft mergers; 1,247 have no project ID. Fix-editor, development and synthetic controls are excluded. Purpose is based on visible opening templates, not trusted workflow provenance or proof of every later turn; 820 selected openings contain truncated diffs with role evidence visible before truncation.
 
-All 1,298 broad Vuoro directory/project candidates and controls received a bounded opening-event inspection. The verified Linux/macOS worktree cohort contains 1,287 sessions: 645 reviewers (including one change-scope opening), 640 finding raters and two draft mergers. Of these, 1,247 have no project ID. Fix-editor, development and synthetic controls are excluded. Purpose is based on visible opening templates, not trusted workflow provenance or proof of every later turn; 820 selected openings contain truncated diffs, with role evidence visible before truncation.
+The unchanged vuoro-proposed-split.json artifact freezes every selected UID and all 13 controls in related-run-preserving 500/500/287 batches. Its SHA256 remains 1c93128d1c84225ecf59bc740ee714e72f9c4a2543b62fc2be0d5ddb6eae6b4f. Search pages, metadata heuristics and read tokens do not confer write authority.
 
-### Exact proposal and artifacts
+### Applied historical split
 
-The ticket-linked .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json records the exact frozen UIDs in three requests (500, 500 and 287), observed purpose counts, explicit exclusions, scope/cutoff, evidence digest and operator decisions. Related directory groups remain together. Each scoped MCP move preview changes every selected row with zero rejections; complete_memberships=false requires a fresh administrator preview. These are separate batches, not one atomic operation. Plan IDs/expiry in the artifact are observations, not persistent apply authority.
+The adjacent vuoro-live-split-result.json records the production administrator previews, backup check, receipts, membership verification, read-interface traversal and limitations. Fresh full administrator inspection found 2,321 stored sessions, one existing bay, 12 grants, zero routing rules, zero selected explicit/stored bay requests, and no hidden memberships in the approved cohort. All three full plans matched the frozen UIDs and exactly removed default/added the new bay, with no rejection or no-op. The online catalog backup passed quick_check.
 
-The proposal adds a hypothetical code-reviews bay, removes default only, and creates no reader grants. Administrators and unrestricted/fixed-session tokens may retain access; default-only readers may lose it. The owner confirmed no new reader grants; verify current readership and name availability during full administrator review. Add-only retains default. A six-session comparison also exercised two hypothetical destinations, code-reviews and project-history; the latter is not part of the proposed live split.
+The service-account CLI applied all three batches to code-reviews (bay_6ikhsnvjtdcshjxgn2zj4wdd6a). All 1,287 are in that bay and out of default; default retains 1,034. All 13 controls remain unchanged in default, and every unselected membership is preserved. Grants and rules are unchanged. All three stored receipts match both immediate and follow-up administrator verification. A complete seven-page events:read traversal of code-reviews independently matches exactly the frozen UID set.
+
+Default-only readers lose reach to the moved sessions. Source readership had two explicit group read grants; no destination grants were created. Administrators and unrestricted/session-scoped tokens may retain access. This is a historical move, not future routing or an access expansion.
 
 ### Future routing and remaining validation
 
-Future routing is separate from these exact historical UIDs. Candidate predicates are harness=claude plus each verified worktree prefix. No rule is installed. The Linux root predicate exceeds the 500-match preview cap; seven complete dated-glob catchment previews union exactly to all 1,281 inventoried root matches. The macOS worktree prefix previews all six. Neither dated subrules nor current purpose evidence predict all future runs. Current installed rules/manifest requests must be inspected before asserting that later uploads will preserve removal from default.
+No routing rule is installed. The selected stored manifests have no requested bays, and the administrator backup contains no stored bay requests for them. Current policy therefore matches the integrated synthetic walkthrough where unchanged later manifests preserve the move; an explicit later source add rule or newly accepted source request can restore default. The walkthrough is synthetic evidence, not a claim that a moved production session has uploaded again.
 
-Doctor was exercised through CLI and MCP: complete exact reports cover the cohort; a broad Linux request correctly supplies no preview handoffs when incomplete. A deliberately broad macOS parent mapping includes the known fix editor; narrowing to worktrees excludes it. The synthetic CLI walkthrough passed apply/verify and later-manifest behavior, but no production move, receipt or post-move upload has been verified. Owner approval is recorded. Remaining work is host execution access, full administrator membership/readership/routing review, any separately approved live apply/routing and subsequent verification. Never use a search page, metadata heuristic, read token or this artifact as write authorization.
+Future selection remains separate from these historical UIDs. Candidate predicates are harness=claude plus verified worktree prefixes. The Linux root exceeds the 500-match preview cap; seven complete dated-glob previews covered all 1,281 inventoried root matches. The macOS worktree prefix covered six. Those partitions and opening-role evidence do not predict all future workflows or authorize installation.
+
+Doctor was exercised through CLI and MCP: complete exact reports covered the cohort, an incomplete broad Linux report supplied no preview handoffs, and a broad macOS parent mapping included the fix editor until narrowed to worktrees. Add-only, move-one and multiple-destination comparisons were inspected separately; project-history was illustrative and was not created live.
+
+Only production later-upload observation remains unverified: no selected ingested_at changed between administrator preview and follow-up verification. Leave AC6 and the epic's final criterion open until a real subsequent selected manifest can be checked. Do not manufacture uploads, repurpose a device token, modify capture, or install routing to manufacture that evidence. The expired access blockers in older notes are resolved; sudo delivery and the approved live split succeeded.
 
 ## Acceptance criteria
 
-- [ ] Inventory current bay membership and enumerate candidate review sessions, including finding-rating companions and sessions without project IDs.
+- [x] Inventory current bay membership and enumerate candidate review sessions, including finding-rating companions and sessions without project IDs.
 - [x] Validate directory selectors against candidate prompts and representative development sessions, and produce a complete dry-run move list with exclusions.
-- [ ] Specify future routing and existing-session moves separately, including required reader grants and behavior on later manifests.
+- [x] Specify future routing and existing-session moves separately, including required reader grants and behavior on later manifests.
 - [x] Record the approved split or the precise tooling still needed, without claiming a sampled search is a complete migration preview.
 - [x] Exercise the new discovery/selection tools and doctor recommendations on the Vuoro case, recording false positives, companion coverage and any remaining UX/tool gaps.
 - [ ] Review add versus move and one versus multiple destinations explicitly, verify future manifests do not unexpectedly restore source memberships, and record any operator-approved live changes separately.
@@ -239,3 +247,17 @@ Added adjacent operator instructions and repeatable six-case isolated tests usin
 PR #262 has a clean full code review at head 155adf94fdd8883f7d1ce4d0510a58cd0ffa1b48 against base 58d4127a5837e6e8f1cc60256809e2be948878fb: https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37922 . Run 2d7184ed-6cea-4551-b8e6-c7600dcad24e, Actions #2404 (database 30563), explicitly resolves all three findings from review 3023 and reports no additional findings. Their accepted technical dispositions are recorded at https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37920 . The reviewer did not run tests or prove production CLI/host behavior; the six executable isolated rehearsals are separate validation evidence.
 
 Current-head CI remains running at Actions #2400; do not merge until final-head checks pass. This commit records only the review, so carry the clean verdict across it without another model run. The previous goal turn made executable, documentation and test progress; this turn confirms clean review and resolves the next integration step. The exact approved production split is still pending host access: fresh sudo -n service-account readability again requires a password. The expired private card is not retried automatically. No production bay, membership, grant, route, profile or service changed, and the incomplete live acceptance criteria remain unchecked.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T23:06:16Z
+
+### Approved production split completed
+
+PR #262 (Prepare host execution for the approved Vuoro review move) passed all three checks at a1835e8580529ed3f469d93410973b0b97f70762 and merged as bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae. Both forges were synced. A fresh owner-requested private sudo card delivered host access. Its credential file was read only for sudo; no secret content is recorded here.
+
+Fresh administrator preview on 2026-11-03T23:02:17Z found 2,321 sessions, all selected only in default, 12 grants and no routing rules. Every approved row in 500/500/287 matched the exact before/after edit; all 13 controls stayed excluded. Source had two explicit group read grants; the approved move creates none. Selected manifest requests were empty, with zero stored bay requests. The catalog backup passed quick_check. Review therefore matched the owner's exact existing approval without another permission request.
+
+Applied all three exact batches into code-reviews, bay_6ikhsnvjtdcshjxgn2zj4wdd6a. Receipt IDs: 1b21b51f51b9904d845cdc5769f6150ecef38409f202b72e2493159322db5630 (500), a75b0d657105de6028835f2bac4c8b5adce7c11b7e9bd699f3f2ba4388d1c419 (500), 731c2cf16161999be508cbe5ea8b045036d5b108ebf046fc8ebee1a7527e3673 (287). Immediate and later verify-plan results match all three. The full administrator state has 1,287 only in code-reviews and 1,034 in default; all 13 excluded controls and every unselected membership are unchanged. Grants remain exactly the original 12, with no destination grants, and rules remain zero. Profiles, capture agents, services and credential configuration were not changed.
+
+The deployed query CLI independently traversed all seven code-reviews metadata pages using existing events:read authority: exactly 1,287 frozen UIDs, no omissions/extras. Their sorted newline UID-set digest is 9519bb3dc95da453f42830c064ccead142cb6defdb5f80d9948a89ffaddaee04. The artifact vuoro-live-split-result.json records bounded sanitized evidence; private catalog and raw outputs stay outside the repository.
+
+AC1 and AC3 now have complete administrator evidence. AC6 stays open: no selected session has posted a later manifest since the preview, so the production later-upload claim remains unproven. Existing source and synthetic walkthrough checks establish current expected semantics, not a real later upload. The remaining step is to observe a natural later manifest of a moved UID and verify its receipt/current memberships, without changing capture, adding rules or replaying production data. Do not mark the live ticket or epic complete yet.
