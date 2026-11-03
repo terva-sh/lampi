@@ -37,7 +37,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T23:08:24Z
+updated_at: 2026-11-03T23:16:56Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -271,3 +271,11 @@ Opened PR #263 (Record the verified live Vuoro review split), https://git.local.
 This note corrects the preceding note's claim that no selected session posted a later manifest. The observed fact is zero selected ingested_at changes, which is weaker: internal/catalog/catalog.go updates ingested_at when the head changes, while routeSession runs for unchanged reposts too. Thus the counter cannot confirm or rule out unchanged manifest arrivals. No later request has been independently confirmed. Corrected the runner's misleading later_selected_manifest_posts output name to selected_ingested_at_changes_since_preview and documented its exact limit; the six isolated CLI rehearsals passed again. The result artifact uses the accurate metric, and AC6 remains open. Receipt and exact membership verification of the applied move are unaffected.
 
 For continuation, observe an independently confirmed later manifest request or a genuine post-move head update for a frozen UID, then compare its membership/receipt and current rules/requests. Do not treat a quiet ingested_at timestamp as proof that no request occurred. Do not synthesize production uploads or change future routing for this check.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T23:16:56Z
+
+### Clean live-result review and later membership check
+
+PR #263 (Record the verified live Vuoro review split) has a clean full code review for head 590552a50019d6ffc76242f42dd15328647b2d2b against bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae: https://git.local.sothr.com/terva-sh/lampi/pulls/263#issuecomment-37973 . Run 40ab4023-7b05-45c2-b16a-ed8d29ee79a9, Actions #2412 (database 30623), reports no findings. It is a static review of the supplied diff, not independent access to private live receipts or proof of a later manifest. No dispositions are needed. All three checks passed at that source head: review, Lint and Test, and Build Image (CI #2411).
+
+A new administrator verify on this update still matches all three stored receipts, all 1,287 moved sessions, zero remaining, unchanged grants/rules and preserved unselected memberships. The corrected timestamp-change counter remains zero. That cannot rule out unchanged reposts; no later selected manifest has been independently confirmed. AC6 remains open. This commit records only ticket evidence, so carry the clean review over it and wait for final-head CI before merging/syncing. Do not rerun the historical move or alter routing/capture to force the remaining observation.
