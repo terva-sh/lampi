@@ -78,6 +78,35 @@ Different machines may use different directory layouts. Discover them from
 metadata and inspect each; do not extrapolate a Linux home path to macOS.
 A hash is an exact directory, not an enduring classification of future runs.
 
+### Inspect large cohorts in resumable batches
+
+Keep the complete metadata inventory and its cutoff, exact UIDs and head
+hashes before inspecting content. Paging with a head-update cutoff limits the
+cohort, but does not make the lake an immutable snapshot. Record the generation,
+head and event position used for each purpose decision. Keep unread sessions
+separate from explicit exclusions, and recheck changed evidence before planning.
+
+MCP permits a burst of 30 calls per token, then two calls per second. Pace a
+long inspection and checkpoint successful results. On `rate_limited`, wait and
+retry the same read; an error is neither a purpose decision nor an empty
+transcript. A small opening span may end before the first user message. Continue
+within an explicit event/byte budget, or leave that session unclassified.
+`content_truncated` can mean an opening prompt contains a large diff; record
+which visible evidence supports the decision without claiming the entire prompt
+was read. Keep transcript excerpts private rather than copying them into tickets.
+
+Review workflows can include finding raters and draft mergers as well as
+reviewers. A fix-editor session asks to implement findings and may belong with
+development instead. Choose that boundary explicitly. Shared directories help
+find companions, but neither include them nor prove their roles.
+
+Partition the inspected exact set into batches of at most 500 candidates,
+keeping each related run together. Check that the batch union equals the
+intended set, with no duplicates or omitted companions. The cap also applies
+before exclusions, so leave room for controls when demonstrating an exclusion.
+Each migration preview is an independent plan; several plans are not one atomic
+operation. An operator must review the full union and revalidate each batch.
+
 ## Use doctor as a second opinion
 
 Provide an explicit private mapping from a verified directory/hash/layout to
@@ -212,6 +241,15 @@ development and unlinked companions, and installs nothing. Historical UIDs,
 search prompts, project IDs, machine/time filters and exclusions cannot become
 persistent routes. Future matches can differ from current evidence.
 
+A rule matching more than 500 sessions is refused without a sampled preview.
+Narrower rule previews can help investigate the catchment, but each evaluates
+a different predicate. If verified dated subdirectories partition the current
+inventory, compare their complete preview union with every root-prefix match
+from the paginated metadata inventory. Record the original predicate, partition
+coverage and any changes during inspection. This comparison is evidence about
+current sessions; it does not turn dated predicates into the intended future
+root rule or predict the purpose of new runs.
+
 After checking the broader catchment and intended readers, an operator can
 separately create the bay/grants and install the reviewed metadata rule.
 Add rules apply to subsequent manifests; they can re-add a removed source bay.
@@ -230,11 +268,10 @@ layouts, uncertain reused directories and later routing. These fixtures contain
 no production transcript or credential.
 
 The live Vuoro exercise is tracked in TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview
-and separate Vuoro review sessions into a bay). Initial sampled prompt evidence
-identified reviewers and a rating companion; it is not a complete move list.
-The implementation session could not inventory the current production lake:
-no read token was available and the service-owned catalog was inaccessible.
-The live ticket records current deployment and read/operator access prerequisites.
+and separate Vuoro review sessions into a bay). The ticket records the current
+inventory, inspected roles and exclusions, exact batches, previews and remaining
+operator decisions. Consult that record rather than treating an earlier sample
+or a documentation example as a complete move list.
 A deployed server does not give an agent read authority; use an existing
 `events:read` token rather than a device upload token. Keep the live exercise
 incomplete until the real cohort and migration previews have been verified.

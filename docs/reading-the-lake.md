@@ -76,7 +76,7 @@ too.
 3. Start a new agent session, and ask it about earlier work, such as
    "find the session where we fixed the search WAL".
 
-The agent gets thirteen tools:
+The agent gets fourteen tools:
 
 | Tool | What it does |
 |------|--------------|

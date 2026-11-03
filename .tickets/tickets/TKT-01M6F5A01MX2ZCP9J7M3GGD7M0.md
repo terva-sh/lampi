@@ -31,7 +31,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:16:24Z
+updated_at: 2026-11-03T21:20:31Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -78,7 +78,7 @@ No live bays, memberships, grants, routing rules or profiles were changed. No co
 
 ## Implementation plan
 
-Verify local configuration and read access without changing the running agent/lake. Exercise new services on a sanitized Vuoro-shaped synthetic lake, separately record any live inventory/reader/routing evidence that is actually available, and leave unsupported production assertions unchecked. Do not deploy, mint credentials or apply a live split without concrete access and reviewed intent.
+Use the verified deployed CLI and owner-provided read token for a complete paginated metadata inventory; record scope, cutoff and non-snapshot limits. Inspect bounded opening evidence for every real Vuoro worktree candidate and representative same-repository/harness development, editor and synthetic controls, with per-session generation/head and explicit unknown states. Freeze exact historical batches of at most 500 without splitting related directory groups; preserve all unlinked companions and explicit exclusions. Compare MCP add/move and multiple hypothetical destinations, and run CLI/MCP doctor reports including incomplete inventory and broad-path false-positive controls. Preview future predicates independently; compare complete dated Linux catchment partitions to the original root-prefix inventory without claiming a single oversized server preview passed. Keep exact request/evidence metadata as a ticket-linked artifact, never transcript or credentials. Record source/destination readership limits and current-rule visibility gaps, present a concrete split for owner approval, then require a fresh full administrator preview before any live creation/move/grant/route. Verify later manifests and receipts only after an authorized apply; synthetic lifecycle checks remain separate evidence. Publish substantive exercise/docs/ticket changes through the required PR review and sync workflow.
 
 ## Notes
 
