@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T23:06:16Z
+updated_at: 2026-11-03T23:08:24Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -262,3 +262,9 @@ The runner's full 500/500/287 synthetic CLI rehearsal verifies complete previews
 TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) has completed the owner-approved 1,287-session move after fresh full administrator previews and a checked backup. All 645 reviewers, 640 finding raters and two draft mergers are now only in new code-reviews; all 13 controls and all other memberships are preserved. No reader grants or routing rules were added. The lake has 1,287 sessions in code-reviews and 1,034 in default. Three receipts match immediate/follow-up administrator verification; complete read-interface traversal independently matches the frozen set. The ticket-linked vuoro-live-split-result.json records the production evidence and exact receipts.
 
 Host access is resolved; the approved runner landed through PR #262 and both forges were synced at bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae. All nine implementation/design/documentation children remain done. Only the final production later-manifest observation is outstanding: current grants/rules/requests were inspected, but no selected session uploaded again during verification. The synthetic future-manifest behavior is already verified and is not mislabeled as a real upload. Keep the last epic criterion and live AC6 unchecked pending that remaining evidence. Future automatic routing remains a separate operator decision, not part of the applied historical split.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T23:08:24Z
+
+### Clarify the remaining production observation
+
+The previous live-result note's claim that no selected session uploaded again is too strong. Zero selected ingested_at changes confirms no observed head-ingestion timestamp change; unchanged reposts need not update it. No later manifest request has been independently confirmed. PR #263 (Record the verified live Vuoro review split), https://git.local.sothr.com/terva-sh/lampi/pulls/263, corrects that metric label and documents the limit alongside the verified live move. The actual 1,287-session split, unchanged grants/rules, preserved controls and matching receipts are established. Keep the final live criterion open for independently confirmed subsequent-request evidence; the lack of timestamp changes does not satisfy it.

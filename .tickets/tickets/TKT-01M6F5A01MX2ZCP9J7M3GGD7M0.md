@@ -37,7 +37,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T23:06:16Z
+updated_at: 2026-11-03T23:08:24Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -261,3 +261,13 @@ Applied all three exact batches into code-reviews, bay_6ikhsnvjtdcshjxgn2zj4wdd6
 The deployed query CLI independently traversed all seven code-reviews metadata pages using existing events:read authority: exactly 1,287 frozen UIDs, no omissions/extras. Their sorted newline UID-set digest is 9519bb3dc95da453f42830c064ccead142cb6defdb5f80d9948a89ffaddaee04. The artifact vuoro-live-split-result.json records bounded sanitized evidence; private catalog and raw outputs stay outside the repository.
 
 AC1 and AC3 now have complete administrator evidence. AC6 stays open: no selected session has posted a later manifest since the preview, so the production later-upload claim remains unproven. Existing source and synthetic walkthrough checks establish current expected semantics, not a real later upload. The remaining step is to observe a natural later manifest of a moved UID and verify its receipt/current memberships, without changing capture, adding rules or replaying production data. Do not mark the live ticket or epic complete yet.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T23:08:24Z
+
+### Result review and later-manifest observation correction
+
+Opened PR #263 (Record the verified live Vuoro review split), https://git.local.sothr.com/terva-sh/lampi/pulls/263, for the sanitized live result, updated acceptance evidence and guide. The actual historical move is complete; repository review of the record remains pending. Request a full first model review at the stable final head.
+
+This note corrects the preceding note's claim that no selected session posted a later manifest. The observed fact is zero selected ingested_at changes, which is weaker: internal/catalog/catalog.go updates ingested_at when the head changes, while routeSession runs for unchanged reposts too. Thus the counter cannot confirm or rule out unchanged manifest arrivals. No later request has been independently confirmed. Corrected the runner's misleading later_selected_manifest_posts output name to selected_ingested_at_changes_since_preview and documented its exact limit; the six isolated CLI rehearsals passed again. The result artifact uses the accurate metric, and AC6 remains open. Receipt and exact membership verification of the applied move are unaffected.
+
+For continuation, observe an independently confirmed later manifest request or a genuine post-move head update for a frozen UID, then compare its membership/receipt and current rules/requests. Do not treat a quiet ingested_at timestamp as proof that no request occurred. Do not synthesize production uploads or change future routing for this check.

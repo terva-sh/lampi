@@ -304,7 +304,9 @@ def main():
     report = {'work': str(work), 'phase': a.action, 'moved': len(ids), 'remaining': len(uids) - len(ids),
               'complete': len(ids) == len(uids), 'target_id': target_id,
               'no_new_grants': True, 'rules_unchanged': True, 'unselected_memberships_preserved': True,
-              'all_receipts_match': True, 'later_selected_manifest_posts': sum(after['selected_ingested_at'].get(u) != before['selected_ingested_at'].get(u) for u in ids),
+              # ingested_at advances for head changes, not every manifest
+              # request. This cannot confirm or rule out unchanged reposts.
+              'all_receipts_match': True, 'selected_ingested_at_changes_since_preview': sum(after['selected_ingested_at'].get(u) != before['selected_ingested_at'].get(u) for u in ids),
               'receipt_ids': receipts}
     write(work / ('apply-summary.json' if a.action == 'apply' else f'verify-{verify_tag}-summary.json'), report)
     print(json.dumps(report), flush=True)

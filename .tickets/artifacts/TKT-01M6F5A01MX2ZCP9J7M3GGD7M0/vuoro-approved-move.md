@@ -29,8 +29,11 @@ tickets and artifacts; use private credential delivery for sudo.
    move. The runner does not install rules or grant access.
 4. Run `sudo /usr/bin/python3 -I RUNNER verify --work WORK`. Review the
    receipts, actual membership, exclusions, grant/rule inventory and
-   reported `complete`, `moved`, `remaining`, and later manifest count.
-   Zero later manifests is not evidence about real subsequent uploads.
+   reported `complete`, `moved`, `remaining`, and
+   `selected_ingested_at_changes_since_preview`. That last counter measures
+   head-ingestion timestamp changes, not manifest requests: unchanged
+   reposts may leave it at zero. Use independent request evidence or a
+   confirmed later head update to establish real subsequent uploads.
 
 The runner pins the original proposal digest in every phase, including
 the exact batch partition. The completion manifest binds the preview

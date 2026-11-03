@@ -120,10 +120,11 @@
   },
   "access_effect": "Default-only readers lose reach to the moved sessions. Administrators and unrestricted/session-scoped tokens may retain it. No destination reader grants were created.",
   "future_manifests": {
-    "observed_selected_manifest_posts_since_preview": 0,
-    "production_later_upload_confirmation": "pending; no selected later upload observed",
+    "production_later_upload_confirmation": "pending; no later manifest request independently confirmed",
     "current_policy": "No installed rules or selected explicit bay requests. Existing synthetic walkthrough verifies unchanged manifests preserve the move and an explicit later source add rule can restore default.",
-    "future_routing_installed": false
+    "future_routing_installed": false,
+    "selected_ingested_at_changes_since_preview": 0,
+    "observation_limit": "ingested_at advances for changed session heads, not every manifest request. Zero timestamp changes cannot confirm or rule out unchanged reposts."
   },
   "limits": [
     "This changes only the frozen historical cohort, not future session routing.",
