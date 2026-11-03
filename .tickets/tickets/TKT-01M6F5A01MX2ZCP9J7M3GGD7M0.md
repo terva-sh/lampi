@@ -35,7 +35,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:46:56Z
+updated_at: 2026-11-03T21:47:59Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -49,7 +49,7 @@ extensions: {}
 
 ### Owner goal and authority
 
-Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and prepare a reviewed split from development into one or more bays. A capture profile controls uploads; stored bays perform this organization without re-registration or re-import. This ticket does not authorize live membership, bay, grant, route, profile or service changes. Present the exact proposed split and intended readership for owner approval, then regenerate a complete administrator preview before any apply.
+Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and prepare a reviewed split from development into one or more bays. A capture profile controls uploads; stored bays perform this organization without re-registration or re-import. The owner approved moving exactly the 1,287 frozen UIDs from default into a new code-reviews bay, with no new reader grants, after a fresh full administrator preview. Preserve unrelated memberships and all explicit exclusions. No future routing, profile or service change is authorized. Host execution access remains outstanding; do not ask for the same split approval again.
 
 ### Current verified state
 
@@ -61,13 +61,13 @@ All 1,298 broad Vuoro directory/project candidates and controls received a bound
 
 The ticket-linked .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json records the exact frozen UIDs in three requests (500, 500 and 287), observed purpose counts, explicit exclusions, scope/cutoff, evidence digest and operator decisions. Related directory groups remain together. Each scoped MCP move preview changes every selected row with zero rejections; complete_memberships=false requires a fresh administrator preview. These are separate batches, not one atomic operation. Plan IDs/expiry in the artifact are observations, not persistent apply authority.
 
-The proposal adds a hypothetical code-reviews bay, removes default only, and creates no reader grants. Administrators and unrestricted/fixed-session tokens may retain access; default-only readers may lose it. Confirm intended readers and name availability during full administrator review. Add-only retains default. A six-session comparison also exercised two hypothetical destinations, code-reviews and project-history; the latter is not part of the proposed live split.
+The proposal adds a hypothetical code-reviews bay, removes default only, and creates no reader grants. Administrators and unrestricted/fixed-session tokens may retain access; default-only readers may lose it. The owner confirmed no new reader grants; verify current readership and name availability during full administrator review. Add-only retains default. A six-session comparison also exercised two hypothetical destinations, code-reviews and project-history; the latter is not part of the proposed live split.
 
 ### Future routing and remaining validation
 
 Future routing is separate from these exact historical UIDs. Candidate predicates are harness=claude plus each verified worktree prefix. No rule is installed. The Linux root predicate exceeds the 500-match preview cap; seven complete dated-glob catchment previews union exactly to all 1,281 inventoried root matches. The macOS worktree prefix previews all six. Neither dated subrules nor current purpose evidence predict all future runs. Current installed rules/manifest requests must be inspected before asserting that later uploads will preserve removal from default.
 
-Doctor was exercised through CLI and MCP: complete exact reports cover the cohort; a broad Linux request correctly supplies no preview handoffs when incomplete. A deliberately broad macOS parent mapping includes the known fix editor; narrowing to worktrees excludes it. The synthetic CLI walkthrough passed apply/verify and later-manifest behavior, but no production move, receipt or post-move upload has been verified. Remaining work is owner approval, full administrator membership/readership/routing review, any separately approved live apply/routing and subsequent verification. Never use a search page, metadata heuristic, read token or this artifact as write authorization.
+Doctor was exercised through CLI and MCP: complete exact reports cover the cohort; a broad Linux request correctly supplies no preview handoffs when incomplete. A deliberately broad macOS parent mapping includes the known fix editor; narrowing to worktrees excludes it. The synthetic CLI walkthrough passed apply/verify and later-manifest behavior, but no production move, receipt or post-move upload has been verified. Owner approval is recorded. Remaining work is host execution access, full administrator membership/readership/routing review, any separately approved live apply/routing and subsequent verification. Never use a search page, metadata heuristic, read token or this artifact as write authorization.
 
 ## Acceptance criteria
 
@@ -205,3 +205,9 @@ Attached a constrained host runner at the new artifact reference. It accepts onl
 Rehearsed all three phases against a separate synthetic schema-23 lake using the actual deployed CLI: 1,287 fixture sessions moved in 500/500/287, all receipts and follow-up verification match, and the development control and zero grants/rules are preserved. The rehearsal substitutes the current unprivileged account for service-account dropping; real service-account access is still verified during the first host preview. A fixture startup race initially stopped before schema 23; the rehearsal now waits for the correct schema, and the host runner refuses any other schema. No production mutation occurred during these checks.
 
 The private sudo card remains pending and sudo -n still requires a password. Approval is not missing; host execution access is. Do not request approval of the same split again or use the read token as write authority. After host access is delivered, run preview first and inspect current grants/rules/requested bays before apply; preserve the exact approved membership edits and separately verify later manifests.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:47:59Z
+
+### Host credential delivery timed out
+
+The single private sudo card timed out without delivery. No sudo credential file/value was received or read. Existing events:read access still works but cannot produce complete administrator previews or apply. Do not retry the card automatically. The owner already approved the exact move; the remaining requirement is host execution access (private sudo delivery when the owner requests a new card, or owner execution of the prepared preview). No live membership, bay, grant, route, profile or service change occurred. The complete runner rehearsal passed on the isolated schema-23 fixture; it is not a production move or post-move upload result.
