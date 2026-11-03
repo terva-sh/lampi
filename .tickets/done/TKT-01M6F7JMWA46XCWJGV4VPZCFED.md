@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F7JMWA46XCWJGV4VPZCFED
 title: "Read token form: bay checkboxes, session scope from a pick"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: low
 due_on: null
@@ -18,17 +18,10 @@ dependencies:
   - TKT-01M6F7JMQYGY3WGGV55H0M3FR5
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/read-token-pickers
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 82ba348836178a700b7fd890e3e45e9b53573f37
-  session: null
-  claimed_at: 2026-11-02T23:53:45Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T23:57:30Z
+updated_at: 2026-11-03T00:10:07Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -61,3 +54,7 @@ Bays as checkboxes (name=bay, the bay names), joined with the older free-text ba
 **agent:claude-code/t3-43103b81** at 2026-11-02T23:57:30Z
 
 TestReadTokenFormPickers covers the checkboxes, the suggestions, a fill (no token minted), a no-match fill that keeps a typed list, a fill with no pick (400), and a mint with a ticked bay. Screenshot after a fill checked. GOFLAGS=-mod=mod just ci passes.
+
+## Summary
+
+Merged in #254. The mint form offers bays as checkboxes, and a Project box and Machine select whose List matching sessions fills Session UIDs with up to 100 of the newest matches, minting nothing. No match keeps the list; more than 100 suggests a bay. A bay the checkboxes cannot show (named by id or alias, or a bay list that failed to load) rides in a hidden field, after terva-review found that a redisplay could otherwise mint without the bay limit. Enter mints; Enter in Project lists sessions.
