@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M6F5A01MX2ZCP9J7M3GGD7M0
 title: Preview and separate Vuoro review sessions into a bay
 type: spike
-status: blocked
-status_reason: Live lake inventory requires read-token or service-account access and deployment of the new server tools; neither is available in this session. No live migration was applied.
+status: in-progress
+status_reason: null
 priority: normal
 due_on: null
 labels:
@@ -21,10 +21,17 @@ dependencies:
   - TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3-6387cc8a
+  branch: dogfood/vuoro-live-preview
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
+  commit: a5e6954de885b78e716f6e69909dffd879372037
+  session: null
+  claimed_at: 2026-11-03T21:16:07Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T18:14:22Z
+updated_at: 2026-11-03T21:16:24Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -130,3 +137,15 @@ The five remaining live acceptance checks remain unproven: complete candidate/me
 PR #260 (Record deployed discovery tools and remaining Vuoro access blocker), https://git.local.sothr.com/terva-sh/lampi/pulls/260, has a clean full code review for head 1d892fe66614d1bb833d35b7a8117159f60778c7 against base 9e1ae278b4e590390d93b38fadc391d4bf553a35. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/260#issuecomment-37801 ; run f5ec29b5-3128-44fb-bc41-4aa5ac7d29ea in Actions #2385. No findings or dispositions. This is a documentation review and does not independently establish live completion. Carry the verdict over this ticket-only review record and merge only after final-head CI passes, then sync both forges.
 
 The next resumed goal turn revalidated that no read-token environment configuration or exposed lampi tools are available, query bays still refuses for missing read-token access, and service-account sudo still requires a password. No new secret request was made and no live state changed. The original implementation remains complete, while all five live dogfood checks remain unproven. Do not manufacture further implementation work or repeated documentation PRs to stand in for the missing live inspection; the next substantive exercise step requires authorized access.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:16:24Z
+
+### Authorized read discovery resumed
+
+Deployment and authorized read access are now verified. This supersedes the old blocked status and prior access prerequisite notes: the deployed v0.12.0 CLI and direct MCP read_events both succeed with an owner-provided private events:read token. The private credential file was read; no credential contents are recorded here. Token delivery authorizes inspection and previews only. No live state changed.
+
+Complete reachable metadata pagination at cutoff 2026-11-03T21:10:40.365031Z returned 2,319 unique sessions across 12 pages and one visible bay, default (bay_default), with 2,319 reachable sessions. All rows report ready normalization; no metadata or machine list truncation. There are 1,620 unlinked sessions. This is a complete traversal within the token's scope, not an immutable snapshot or evidence about hidden memberships/grant principals.
+
+Broad Vuoro directory/project matching produced 1,298 candidates/controls, not 1,298 proven reviews. The Linux worktree prefix has 1,281 Claude sessions, including 1,242 unlinked sessions across two provenance machines. The macOS worktree prefix has six Claude sessions, five unlinked; the separate macOS editor prefix has one. The other ten include development and synthetic test worktrees. Opening inspection verifies recent reviewer/rater pairs and the macOS reviewer, rater and draft-merger roles; the editor prompt requests fixing findings and is excluded from the initial review-only proposal. Full bounded opening inspection is in progress. The MCP limiter is 30-call burst then two calls/second; early burst errors are incomplete reads and must be retried with pacing, never counted as exclusions or successful classification.
+
+Next: finish per-session purpose evidence, freeze exact paired batches of at most 500, compare one/multiple destination add/move previews, run doctor with incomplete and bounded cases, and preview independent future routing. Full administrator membership, readership and current routing review remains necessary before any live apply. Do not mark live acceptance checks complete from this initial inventory alone.
