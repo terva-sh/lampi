@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6FK6T3EBN2V08Q19M8PMPB9
 title: "Release v0.12.0: organize sessions into bays, catalog 23"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: high
 due_on: null
@@ -18,17 +18,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-0270c158
-  branch: tickets/v0.12.0
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-0270c158
-  commit: ccb9e4cc5111a02b9010319c6e13fd97621ac450
-  session: null
-  claimed_at: 2026-11-03T02:20:56Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-03T02:18:28Z
-updated_at: 2026-11-03T02:20:56Z
+updated_at: 2026-11-03T02:29:46Z
 created_by:
   id: agent:claude-code/t3-0270c158
   name: ""
@@ -63,8 +56,8 @@ v0.11.2 was rejected: a schema migration with a restore-only rollback, plus new 
 ## Acceptance criteria
 
 - [x] An isolated v0.11.1 upgrade rehearsal and the release gates pass on the synchronized main commit
-- [ ] The tag is published on both forges, and the archives, checksums and images name the tag
-- [ ] Both release bodies describe the features, the migration, and the restore-based rollback
+- [x] The tag is published on both forges, and the archives, checksums and images name the tag
+- [x] Both release bodies describe the features, the migration, and the restore-based rollback
 
 ## Notes
 
@@ -75,3 +68,11 @@ Gates on main ccb9e4c (#256), in a detached scratch worktree (release-v0120.* un
 Isolated rehearsal (rehearse.sh, rehearse.log): old = GitHub's v0.11.1 linux_amd64 verified against checksums.txt, new = the snapshot's linux_amd64. v0.11.1 serve synced two synthetic Claude sessions (/work/app, /work/review), catalog 21, index 8. Candidate: `migrate --check` reported 21 -> 23, 2 pending; serve wrote migration-backups/catalog-...-v21.db, migrated to 23, filled project_cwd for both rows, index stayed 8, unchanged sync uploaded 0. `serve bays plan` -> `apply-plan --yes --create-proposed` created code-reviews and added the review session while keeping default; `verify-plan` matched the receipt; `recover-plan` wrote an inverse; bay_migrations held 1 receipt. An appended session ingested a new manifest; fsck 3 entries 0 bad. Rollback: v0.11.1 refused schema 23 with the restore message; after copying the backup over catalog.db and removing -wal/-shm, v0.11.1 opened schema 21 with both sessions, fsck 0 bad, no errors in serve logs.
 
 Rollback cost seen in the rehearsal: the head ingested after the upgrade is not in the restored catalog, and the agent's next sync reports it unchanged, so that session stays at its pre-upgrade head on the lake until it changes again. Bays, plans and receipts made after the upgrade are lost as well. The release notes say so. No live config, token, lake or agent touched.
+
+**agent:claude-code/t3-0270c158** at 2026-11-03T02:29:46Z
+
+Published. Tag v0.12.0 (annotated) on ccb9e4c, main after #256; both mains were at ccb9e4c, so no sync was needed. Release runs passed: GitHub 41565627251, Forgejo 30436. Each forge's five archives pass sha256sum -c against that forge's checksums.txt; linux_amd64 from both prints 'terva-lampi v0.12.0 (ccb9e4cc5111)'. ghcr.io/terva-sh/lampi 0.12.0, 0.12, 0 and latest are one index, sha256:0258973c7ea3…, with linux/amd64 and linux/arm64 plus attestations, and the image prints v0.12.0 (ccb9e4c). Both releases are titled 'v0.12.0 — Organize sessions into bays, catalog schema 23'. Their bodies hold the notes, the upgrade section (schema 21 to 23, index 8, no renormalize, agents unchanged), the restore-based rollback and what it loses, and goreleaser's Install and Changelog. The live lake is not upgraded.
+
+## Summary
+
+v0.12.0 is published on both forges and GHCR, from ccb9e4c. It ships bay organization: metadata discovery over MCP, CLI and the read API, exact selections, reviewed migration plans with apply, verify and recover, and the advisory bay doctor (#253). It also ships the dashboard's project and machine pickers and wide pages (#250-#252, #254), and the Health panel bulk fix and read-token form changes (#247, #248). The catalog migrates from schema 21 to 23 with a backup first. The index stays 8 and agents are unchanged. Rollback means restoring the v21 backup, which drops anything recorded after the upgrade. The live lake has not been upgraded. The sqlitesnap load flake seen in the gates is TKT-01M6FKBA80623P016NJ4Q7FD9T.
