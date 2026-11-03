@@ -33,7 +33,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:30:56Z
+updated_at: 2026-11-03T21:38:24Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -183,3 +183,11 @@ Opened PR #261 (Dogfood Vuoro organization with exact inspected session batches)
 ### Clean source review
 
 PR #261 received a clean full code review for head daf82e97a51a5a53ee99cb6e317950c054b0d8aa against base a5e6954de885b78e716f6e69909dffd879372037. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/261#issuecomment-37901 ; run 920c9dcc-0516-4234-b9e2-9b38cf2ded4b in Actions #2391. No findings or dispositions. The reviewer explicitly limits its verdict to the supplied diff, not independent proof of live classifications or tests. Actual tool evidence remains the exercise record and private responses; administrator membership/readership/routing checks remain required. Carry this verdict over this ticket-only record, wait for final-head CI, then merge and sync both forges under the authorized repository workflow. No live apply is authorized by the clean review.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:38:24Z
+
+### Owner approved the exact historical move
+
+The owner answered the concrete proposal card: "Approve move; no new grants". This authorizes moving exactly the 1,287 ticket-artifact UIDs from default into a new code-reviews bay after a fresh full administrator preview, while preserving unrelated memberships and excluding editor/development/synthetic controls. It authorizes no new reader grants or future routing rules. This supersedes the description's earlier statement that no live membership/bay change is authorized; that statement now describes the pre-approval boundary. Do not ask the owner to approve this same operation again.
+
+The noninteractive host-access check still fails because sudo requires a password; the read token remains read-only. Opened a private sudo credential card for the approved preview/apply/verify operation. Credential delivery is not a new approval. While waiting, prepare a constrained service-account CLI runner with exact-UID/request checks, complete administrator plans, backup/receipt checks and no grant/rule writes. After the first batch creates code-reviews, later batches require fresh previews resolving that existing destination because bay creation changes the policy fingerprint. No live mutation has occurred yet.
