@@ -20,7 +20,10 @@ import (
 const organizePath = "/admin/bays/organize"
 const maxOrganizeForm = 25 << 20 // one URL-encoded 8 MiB artifact plus selection
 
+var errPerSessionCohort = errors.New("session has no retained per-session migration edit")
+
 type organizeForm struct {
+	PerSession   *catalog.BayMigrationRequest
 	DoctorPolicy string
 	Filter       catalog.DiscoveryRequest
 	Bays         string
@@ -115,6 +118,24 @@ func uniqueIDs(ids []string) []string {
 
 func parseOrganizeForm(v url.Values) (organizeForm, error) {
 	f := organizeForm{DoctorPolicy: v.Get("doctor_policy"), Filter: catalog.DiscoveryRequest{Harness: v.Get("harness"), Project: v.Get("project"), Unlinked: v.Get("unlinked") == "true", CWDPrefix: v.Get("cwd_prefix"), CWDHash: v.Get("cwd_hash"), Machine: v.Get("machine"), UpdatedSince: v.Get("updated_since"), UpdatedUntil: v.Get("updated_until")}, Bays: v.Get("bays"), Focus: v.Get("focus"), Selected: v.Get("selected"), Exclude: v.Get("exclude"), Mode: v.Get("mode"), Add: v["add"], Remove: v["remove"], Proposed: v.Get("proposed"), Reason: v.Get("reason"), Cursor: v.Get("cursor"), History: strings.Split(v.Get("history"), "\n"), RuleBay: v.Get("rule_bay"), RuleAction: v.Get("rule_action"), RuleProposed: v.Get("rule_proposed") == "true"}
+	if raw := v.Get("per_session_request"); raw != "" {
+		if len(raw) > 8<<20 {
+			return f, catalog.ErrMigrationSize
+		}
+		var req catalog.BayMigrationRequest
+		d := json.NewDecoder(strings.NewReader(raw))
+		d.DisallowUnknownFields()
+		if d.Decode(&req) != nil || d.Decode(new(any)) != io.EOF || len(req.Edits) == 0 || len(req.UIDs)+len(req.Add)+len(req.Remove) != 0 {
+			return f, catalog.ErrMigrationInput
+		}
+		if len(req.Edits) > catalog.MigrationMaxSessions {
+			return f, catalog.ErrSelectionLimit
+		}
+		f.PerSession = &req
+		if f.Mode != "per-session" {
+			return f, catalog.ErrMigrationInput
+		}
+	}
 	if v.Get("history") == "" {
 		f.History = nil
 	}
@@ -140,14 +161,67 @@ func parseOrganizeForm(v url.Values) (organizeForm, error) {
 	if f.Mode == "" {
 		f.Mode = "add"
 	}
-	if f.Mode != "add" && f.Mode != "move" {
+	if f.Mode != "add" && f.Mode != "move" && (f.Mode != "per-session" || f.PerSession == nil) {
 		return f, catalog.ErrMigrationInput
 	}
 	return f, nil
 }
 
+func migrationRequestFromForm(f organizeForm) (catalog.BayMigrationRequest, error) {
+	if f.PerSession == nil {
+		req := catalog.BayMigrationRequest{UIDs: splitSessionText(f.Selected), Exclude: splitSessionText(f.Exclude), Add: slices.Clone(f.Add), Proposed: splitSessionText(f.Proposed), Reason: f.Reason}
+		req.Add = append(req.Add, req.Proposed...)
+		if f.Mode == "move" {
+			if len(f.Remove) == 0 {
+				return req, catalog.ErrMigrationInput
+			}
+			req.Remove = f.Remove
+		}
+		return req, nil
+	}
+	if len(f.Add)+len(f.Remove) != 0 || f.Proposed != "" || len(f.PerSession.Edits) > catalog.MigrationMaxSessions {
+		return catalog.BayMigrationRequest{}, catalog.ErrMigrationInput
+	}
+	byUID := map[string]catalog.MigrationEdit{}
+	for _, edit := range f.PerSession.Edits {
+		if _, duplicate := byUID[edit.UID]; duplicate {
+			return catalog.BayMigrationRequest{}, catalog.ErrMigrationInput
+		}
+		byUID[edit.UID] = edit
+	}
+	req := *f.PerSession
+	req.Edits, req.Proposed = nil, nil
+	req.Exclude, req.Reason = splitSessionText(f.Exclude), f.Reason
+	for _, uid := range uniqueIDs(splitSessionText(f.Selected)) {
+		edit, ok := byUID[uid]
+		if !ok {
+			return req, errPerSessionCohort
+		}
+		req.Edits = append(req.Edits, edit)
+		if !slices.Contains(req.Exclude, uid) {
+			for _, name := range f.PerSession.Proposed {
+				if slices.Contains(edit.Add, name) {
+					req.Proposed = append(req.Proposed, name)
+				}
+			}
+		}
+	}
+	req.Proposed = uniqueIDs(req.Proposed)
+	if len(req.Edits) == 0 {
+		return req, catalog.ErrSelection
+	}
+	return req, nil
+}
+
 func (s *Server) organizationScope(ctx context.Context, f organizeForm) (catalog.Scope, error) {
 	scope := catalog.AllBays()
+	if f.PerSession != nil {
+		ids := []string{}
+		for _, edit := range f.PerSession.Edits {
+			ids = append(ids, edit.UID)
+		}
+		scope = scope.OnlySessions(ids)
+	}
 	if f.Bays != "" {
 		var err error
 		scope, err = s.catalog.SelectReadBays(ctx, scope, f.Bays)
@@ -238,6 +312,8 @@ func organizationProblem(err error) string {
 		return "The filters or page context changed. Your selection is retained. Choose Browse to restart paging with these filters."
 	case errors.Is(err, catalog.ErrSelection):
 		return "Choose exact sessions or deliberate metadata filters. Keep IDs valid and use exclusions to refine the set."
+	case errors.Is(err, errPerSessionCohort):
+		return "This per-session plan has no retained edits for a newly selected session. Narrow the selection to its original sessions or start a separate operation."
 	case errors.Is(err, catalog.ErrSameBay):
 		return "A destination also names a removed source. Choose separate sources and destinations."
 	case errors.Is(err, catalog.ErrMigrationAuthority):
@@ -393,14 +469,10 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 		v.Form.Selected = strings.Join(selection.UIDs, "\n")
 		v.Done = fmt.Sprintf("Frozen complete filtered selection: %d sessions. Related sessions require explicit inclusion.", len(selection.UIDs))
 	case action == "preview":
-		req := catalog.BayMigrationRequest{UIDs: splitSessionText(f.Selected), Exclude: splitSessionText(f.Exclude), Add: slices.Clone(f.Add), Proposed: splitSessionText(f.Proposed), Reason: f.Reason}
-		req.Add = append(req.Add, req.Proposed...)
-		if f.Mode == "move" {
-			if len(f.Remove) == 0 {
-				problem(catalog.ErrMigrationInput)
-				return
-			}
-			req.Remove = f.Remove
+		req, err := migrationRequestFromForm(f)
+		if err != nil {
+			problem(err)
+			return
 		}
 		plan, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), true, req, s.now())
 		if err != nil {
@@ -412,6 +484,10 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 		plan, err := readOrganizationPlan(r.PostForm.Get("plan"))
 		if err != nil {
 			problem(err)
+			return
+		}
+		v.Plan = &plan
+		if !restore(plan.Request) {
 			return
 		}
 		fresh, err := s.catalog.PlanBayMigration(ctx, catalog.AllBays(), true, plan.Request, s.now())
@@ -536,7 +612,13 @@ func (s *Server) formFromMigration(ctx context.Context, f organizeForm, req cata
 		}
 		f.Selected = strings.Join(ids, "\n")
 	}
+	f.PerSession = nil
 	f.Exclude, f.Add, f.Remove, f.Proposed, f.Reason = strings.Join(req.Exclude, "\n"), req.Add, req.Remove, strings.Join(req.Proposed, ","), req.Reason
+	if len(req.Edits) > 0 {
+		f.PerSession = &req
+		f.Mode = "per-session"
+		return f, nil
+	}
 	f.Mode = "add"
 	if len(req.Remove) > 0 {
 		f.Mode = "move"
@@ -603,3 +685,20 @@ func (s *Server) organizeReceipt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f organizeForm) HistoryText() string { return strings.Join(f.History, "\n") }
+
+func (f organizeForm) PerSessionJSON() string {
+	if f.PerSession == nil {
+		return ""
+	}
+	raw, _ := json.Marshal(f.PerSession)
+	return string(raw)
+}
+
+func (v organizeView) BayLabel(ref string) string {
+	for _, bay := range v.Bays {
+		if bay.ID == ref {
+			return bay.Name
+		}
+	}
+	return ref
+}

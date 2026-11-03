@@ -226,6 +226,59 @@ func TestMigrationRejectsHoldsAndRecoveryTouchedChanges(t *testing.T) {
 	}
 }
 
+func TestRecoveryRepreviewChecksReceiptAndAllowsUnchangedSubset(t *testing.T) {
+	c, _ := openTemp(t)
+	ctx, now := t.Context(), time.Now()
+	one, two := newSession(t, c, "reviewer"), newSession(t, c, "companion")
+	project, _ := c.CreateBay(ctx, "project", "test", now)
+	reviews, _ := c.CreateBay(ctx, "reviews", "test", now)
+	for _, uid := range []string{one, two} {
+		if _, err := c.AddToBay(ctx, Membership{SessionUID: uid, Bay: project.ID, Actor: "test", Via: ViaCLI}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original, err := c.PlanBayMigration(ctx, AllBays(), true, BayMigrationRequest{UIDs: []string{one, two}, Add: []string{reviews.ID}, Remove: []string{"default"}}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyBayMigration(ctx, AllBays(), true, original, false, "test", ViaCLI, now); err != nil {
+		t.Fatal(err)
+	}
+	inverse, err := c.RecoverBayMigration(ctx, AllBays(), true, original.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A refreshed correction must not adopt someone else's removal/re-add,
+	// even when the current bay set looks exactly like the receipt again.
+	if err := c.RemoveFromBay(ctx, Membership{SessionUID: one, Bay: reviews.ID, Actor: "later", Via: ViaCLI}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddToBay(ctx, Membership{SessionUID: one, Bay: reviews.ID, Actor: "later", Via: ViaCLI}, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.PlanBayMigration(ctx, AllBays(), true, inverse.Request, now.Add(3*time.Second)); !errors.Is(err, ErrMigrationStale) {
+		t.Fatalf("re-preview bypassed receipt state: %v", err)
+	}
+	req := inverse.Request
+	req.Exclude = []string{one}
+	subset, err := c.PlanBayMigration(ctx, AllBays(), true, req, now.Add(3*time.Second))
+	if err != nil || len(subset.Items) != 1 || subset.Items[0].UID != two {
+		t.Fatalf("unchanged recovery subset: %+v %v", subset, err)
+	}
+	// A recovery-labelled request must retain the actual inverse edits.
+	req.Edits = []MigrationEdit{{UID: two, Add: []string{project.ID}}}
+	if _, err := c.PlanBayMigration(ctx, AllBays(), true, req, now.Add(3*time.Second)); !errors.Is(err, ErrMigrationInput) {
+		t.Fatalf("recovery accepted substituted edits: %v", err)
+	}
+	if _, err := c.ApplyBayMigration(ctx, AllBays(), true, subset, false, "test", ViaCLI, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	bays, _ := c.SessionBays(ctx, one)
+	if !slices.Contains(bays, reviews.ID) {
+		t.Fatal("excluded later membership was undone", bays)
+	}
+}
+
 func TestSelectionFreezeAndHypotheticalRouting(t *testing.T) {
 	c, _ := openTemp(t)
 	ctx, now := t.Context(), time.Now()

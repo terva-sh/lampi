@@ -185,6 +185,20 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 		"Unrestricted read tokens and fixed-session tokens may retain access. New bays have no grants; grants require a separate explicit action.",
 		"Historical selection is frozen. Later manifests, explicit bay requests or routing rules can re-add removed membership; future routing is a separate operation.",
 	}}
+	var recovery map[string]MigrationReceiptItem
+	if req.RecoveryOf != "" {
+		if !out.CompleteMemberships {
+			return out, ErrMigrationAuthority
+		}
+		receipt, err := migrationReceipt(ctx, tx, req.RecoveryOf)
+		if err != nil {
+			return out, err
+		}
+		recovery = map[string]MigrationReceiptItem{}
+		for _, entry := range receipt.Items {
+			recovery[entry.UID] = entry
+		}
+	}
 	if !out.CompleteMemberships {
 		out.Warnings = append(out.Warnings, "This advisory preview shows visible memberships and generic readership only. An administrator must regenerate a complete preview before applying it.")
 		out.Warnings = append(out.Warnings, "Removing every visible membership needs administrator review: final reachability and any default fallback are unknown in an advisory preview.")
@@ -267,6 +281,19 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 		if slices.Contains(req.Exclude, edit.UID) {
 			continue
 		}
+		if recovery != nil {
+			entry, ok := recovery[edit.UID]
+			if !ok {
+				return out, ErrMigrationInput
+			}
+			state, err := migrationTouchedState(ctx, tx, edit.UID, touchedIDs(entry))
+			if err != nil {
+				return out, err
+			}
+			if state != entry.TouchedState {
+				return out, ErrMigrationStale
+			}
+		}
 		item := MigrationItem{UID: edit.UID, Before: []BayReference{}, After: []BayReference{}, Add: []string{}, Remove: []string{}, Reason: req.Reason, Status: "change"}
 		cond, args := scope.where("s.session_uid")
 		var n int
@@ -299,6 +326,15 @@ func planBayMigration(ctx context.Context, tx *sql.Tx, scope Scope, admin bool, 
 		adds = slices.Compact(adds)
 		slices.Sort(removes)
 		removes = slices.Compact(removes)
+		if recovery != nil {
+			entry := recovery[edit.UID]
+			expectedAdd, expectedRemove := slices.Clone(entry.Removed), slices.Clone(entry.Added)
+			slices.Sort(expectedAdd)
+			slices.Sort(expectedRemove)
+			if !slices.Equal(adds, expectedAdd) || !slices.Equal(removes, expectedRemove) {
+				return out, ErrMigrationInput
+			}
+		}
 		for _, id := range adds {
 			if slices.Contains(removes, id) {
 				return out, ErrSameBay

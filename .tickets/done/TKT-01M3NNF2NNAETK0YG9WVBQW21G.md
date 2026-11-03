@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:18Z
-updated_at: 2026-11-03T00:01:27Z
+updated_at: 2026-11-03T00:09:39Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -70,6 +70,20 @@ Accepted: form restoration now resolves existing add/remove references to curren
 Unavailable references are retained as explicit checked controls, rather than silently discarded. A disappeared bay does not prevent an idempotent receipt retry; a later newly requested preview still refuses the unavailable reference until the user replaces or removes it. No destination, source, selected UID or exclusion is inferred.
 
 Rendered-form regression tests import real name/alias plans, re-preview them, refine exclusions and submit another membership preview in add/move modes with multiple existing and proposed destinations. They also exercise a doctor handoff and a deleted-destination receipt retry followed by refusal of a new invalid preview. Focused organization tests pass. Full normal tests, web race tests, vet/build and formatting checks are running before the final source/ticket push and fresh model review. No live lake state changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:09:39Z
+
+### Review 3016 finding-1: retain heterogeneous per-session edits
+
+Review 3016 at 2bbe0822915add18508af8aeaa27ae8212cab63b confirms name/alias restoration is resolved but finds that imported and recovery request.edits were represented by empty uniform Add/Move fields. Refinement therefore discarded the correction. Accepted. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37738.
+
+The dashboard now has a retained per-session mode. It carries the strict typed request in a hidden field, shows each session's retained additions/removals, and refines the exact cohort/exclusions without converting edits to a uniform operation. Browsing and filtered selection are limited to the original edit cohort. New sessions without an existing edit, a missing retained request or conflicting uniform fields are refused; a separate explicit operation is available for new membership intent. Proposed bays unused by the narrowed effective cohort are omitted, and recovery provenance/reason are retained. Existing uniform name/alias restoration remains intact.
+
+A union/intersection of per-session sources/destinations was rejected because it changes intent. Merely disabling refinement was also rejected because the user needs to refine actual migration/correction cohorts. The dedicated mode supports that workflow while keeping each selected session's operation exact.
+
+Rendered-form tests create a heterogeneous original migration and recovery, refine exclusions/exact/filtered selection, re-preview and apply only the selected inverse; unselected and unrelated sessions remain unchanged. They reject newly selected sessions and missing retained state. Another imported-edit test retains alias-based edits while dropping an excluded session's unused proposed bay. Refreshing an old correction after a receipt-touched change is refused while retaining the per-session request in the form. The shared planner now checks that receipt on every recovery preview; the catalog ticket records this related audit fix.
+
+Focused catalog/web migration/recovery/organization tests pass. Full normal tests, catalog/web/CLI race checks, vet/build and formatting checks are running before the single final push and fresh full review. No live lake state changed.
 
 ## Summary
 

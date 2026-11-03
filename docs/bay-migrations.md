@@ -125,6 +125,10 @@ server restarts and backups in the catalog and have no automatic expiry.
 
 Recovery reverses only effective additions/removals. It checks touched membership
 state, including remove/re-add timestamps, and refuses conflicting later edits.
+Every recovery re-preview/import repeats that receipt check and accepts only
+the original effective inverse edits for each selected session. You may narrow
+the cohort or exclude conflicting sessions; refreshing cannot adopt someone
+else's later touched-membership changes.
 Unrelated later memberships survive. The inverse is a fresh preview with normal
 state/hold/authority checks at apply. Newly created bays remain, and grants and
 routing are never restored or removed by recovery.

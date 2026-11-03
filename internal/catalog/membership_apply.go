@@ -229,13 +229,6 @@ func (c *Catalog) RecoverBayMigration(ctx context.Context, scope Scope, admin bo
 	}
 	req := BayMigrationRequest{RecoveryOf: id, Reason: "inverse of effective changes from migration " + id}
 	for _, entry := range receipt.Items {
-		state, err := migrationTouchedState(ctx, tx, entry.UID, touchedIDs(entry))
-		if err != nil {
-			return BayMigrationPlan{}, err
-		}
-		if state != entry.TouchedState {
-			return BayMigrationPlan{}, ErrMigrationStale
-		}
 		if len(entry.Added)+len(entry.Removed) > 0 {
 			req.Edits = append(req.Edits, MigrationEdit{UID: entry.UID, Add: slices.Clone(entry.Removed), Remove: slices.Clone(entry.Added)})
 		}
@@ -243,6 +236,8 @@ func (c *Catalog) RecoverBayMigration(ctx context.Context, scope Scope, admin bo
 	if len(req.Edits) == 0 {
 		return BayMigrationPlan{}, fmt.Errorf("%w: receipt has no effective edits to reverse", ErrMigrationInput)
 	}
+	// The common planner validates receipt state on every preview/import,
+	// including refinements, so refreshing a plan cannot bypass recovery safety.
 	return planBayMigration(ctx, tx, scope, admin, req, now)
 }
 

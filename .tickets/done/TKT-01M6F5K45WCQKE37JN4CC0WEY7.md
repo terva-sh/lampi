@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:32Z
-updated_at: 2026-11-02T23:39:19Z
+updated_at: 2026-11-03T00:09:39Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -69,6 +69,16 @@ Implemented complete bounded selection (one metadata-query snapshot, exact UIDs/
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:39:19Z
 
 Final UX review expanded full-administrator access previews from grant counts to bounded named read-grant principals for destinations and removed sources, with retained-membership/token caveats and explicit clipping. Scoped previews still disclose no grant principals. A focused test verifies both sides of that boundary; deployment docs now call out the durable receipt schema migration and backup-based rollback.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:09:39Z
+
+### Keep recovery checks across imported/refined previews
+
+While fixing review 3016's dashboard per-session refinement issue, the caller audit found that only RecoverBayMigration checked the original receipt's touched state. Importing or re-previewing its request through PlanBayMigration could adopt a later remove/re-add as current state and then undo it. That violates the documented state-checked correction contract even when current bay names look unchanged.
+
+The common planner now requires independently established complete administrator authority for recovery provenance, loads its receipt, checks touched membership state for every effective selected UID, and verifies that resolved additions/removals are exactly that receipt item's inverse. RecoverBayMigration delegates to this shared validation. Excluded or omitted sessions do not block an unchanged selected subset. Apply still independently revalidates state and returns an already-existing receipt before attempting any replay.
+
+A catalog regression creates an inverse, removes/re-adds a touched membership with a later timestamp, proves a refreshed inverse is stale, then previews/applies only the unchanged companion subset. It also rejects substituted edits labelled as recovery. Dashboard import/re-preview retains the exact old request when receipt validation refuses it. The full focused migration/recovery/organization suite passes; final normal/race/vet/build gates are running. No schema change, live membership edit or new write authority is involved.
 
 ## Summary
 

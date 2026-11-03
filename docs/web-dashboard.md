@@ -1142,7 +1142,13 @@ unavailable until you replace or remove it.
 Expired or stale plans apply nothing and retain their exact request.
 
 A durable receipt links to current-membership verification and a preview of a
-state-checked correction. It retains unrelated later changes. Explicit bulk
+state-checked correction. Imported per-session plans and corrections use a
+retained-edits form: refine the original cohort with selections, filters and
+exclusions while keeping each session's additions/removals. Start a separate
+operation for new sessions or different membership edits. Unused hypothetical
+destinations are omitted from a narrowed preview. Refreshing a correction
+rechecks its receipt; it cannot adopt later changes to touched memberships.
+It retains unrelated later changes. Explicit bulk
 hold release reports each session's outcome using current requests and routing;
 refused requests are explained, never automatically granted. A code-review
 content bay and a quarantine review bay serve different purposes.
