@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-11-03T17:26:58Z
+updated_at: 2026-11-03T17:36:51Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -99,3 +99,15 @@ TKT-01M3NM01T (Consolidate the internal lake's default profile) is blocked on tw
 - `git_remote_glob`: no user yet.
 - Coverage between deny rules: a redundant deny rule is harmless.
 - Glob-contains-glob in `Covers`: only identical patterns count.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T17:36:51Z
+
+### Prefix hiding increment
+
+Implemented the owner's requested alternative to the refused broad `/tmp` allow merge. Profiles now retain `review.rules` with directory Hide/Show actions. The deepest matching prefix wins, Hide wins a tie, and a matching structurally narrower capture allow (or exact cwd_hash) is an exception. Conversion removes only selected covered folder allow rules, preserving unticked exceptions and existing Show rules. Preview separates stopped uploads from review visibility changes; saving and rollback treat both as one profile document.
+
+Kept capture deny-wins semantics rather than overloading deny: making narrower allows override denies would change the upload privacy boundary. Review policy stays on the lake and is stripped from signed device documents before versioning, keeping existing agents compatible. Manual per-project hides remain authoritative and lake-wide. Prefix matching uses inventoried path boundaries without resolving paths on the lake host. Mixed-checkout inventories remain visible because one representative path cannot prove all copies match. Hiding one sighting never hides another profile/device's visible copy.
+
+Automatic allow insertion and doctor cleanup preserve review exceptions, including otherwise capture-redundant rules. Folder folds involving exceptions are not offered. The doctor excludes prefix-hidden sightings from pending suggestions. Review-only saves can conservatively keep an already-allowed refusal pending until another inventory arrives, since the existing caught-up check uses the latest save time; no permission inference was weakened.
+
+Regression coverage exercises the 21-rule `/tmp` scenario via actual rendered editor forms, preview without mutation, later inventories, directory boundaries, Show/deeper-Hide exceptions, separate profile/device sightings, mixed checkouts, manual hides, stale saves, rollback, protected cleanup, and signed device schema/version stability. Documented editor usage and CLI/API JSON. Focused regression tests and vet pass; full suite, affected race suites and build are being completed before PR submission. No live profile, capture setup or service was changed. The existing live consolidation child remains independent.
