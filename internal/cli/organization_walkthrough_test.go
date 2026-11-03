@@ -85,6 +85,18 @@ func TestOrganizationWalkthroughCompanionsExclusionsAndLaterManifests(t *testing
 	if json.Unmarshal(out.Bytes(), &report) != nil || len(report.Findings) != 2 || report.Unmatched != 1 {
 		t.Fatal("doctor cohort", out.String())
 	}
+	// An exact reviewer cohort can target the existing empty learning bay;
+	// neither that cohort nor --bays default restricts destination authority.
+	for _, doctor := range []func(...string){
+		func(args ...string) { host(append([]string{"doctor"}, args...)...) },
+		func(args ...string) { remote(append([]string{"recommend-bays"}, args...)...) },
+	} {
+		doctor("--policy", policyFile, "--json", "--session", reviewer, "--bays", "default")
+		var exact baydoctor.Report
+		if json.Unmarshal(out.Bytes(), &exact) != nil || exact.Inspected != 1 || len(exact.Findings) != 1 || exact.Findings[0].UID != reviewer || exact.Findings[0].Preview == nil || len(exact.Findings[0].Preview.Add) != 2 {
+			t.Fatal("exact doctor destination authority", out.String())
+		}
+	}
 	selectionFile := filepath.Join(dir, "selection.json")
 	host("select", "--session", reviewer, "--session", rater, "--session", development, "--session", reviewer, "--exclude", development, "--out", selectionFile)
 	selectedRaw, _ := os.ReadFile(selectionFile)

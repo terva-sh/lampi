@@ -131,3 +131,128 @@ func TestBayDoctorInvalidAuthAndIncompleteReport(t *testing.T) {
 		}
 	}
 }
+
+func TestBayDoctorExactCohortKeepsDestinationAuthority(t *testing.T) {
+	lake, idp, h, _, _ := mcpLake(t)
+	ctx, now := t.Context(), time.Now()
+	reviewer := seedDoctorSession(t, lake.Catalog, "selected-reviewer", "/review-runs/one")
+	other := seedDoctorSession(t, lake.Catalog, "other-reviewer", "/review-runs/two")
+	destination, err := lake.Catalog.CreateBay(ctx, "existing-reviews", "test", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = lake.Catalog.AddToBay(ctx, catalog.Membership{SessionUID: other, Bay: destination.ID, Actor: "test", Via: catalog.ViaCLI}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := doctorPolicy()
+	policy.Mappings[0].Destinations = []string{destination.Name}
+	policy.Mappings[0].Proposed = nil
+	admin := signInAs(t, idp, h, "owners")
+	unrestricted, _ := mintReadTokenWith(t, h, admin, "doctor-existing", "", catalog.PermEventsRead)
+	fixed := ReadTokenPrefix + "synthetic-doctor-fixed"
+	_, err = lake.Catalog.CreateReadToken(ctx, catalog.ReadToken{Label: "fixed", Permissions: []string{catalog.PermEventsRead}, Sessions: []string{reviewer}, CreatedBy: "test", Expires: now.Add(time.Hour)}, hashReadToken(fixed), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped := ReadTokenPrefix + "synthetic-doctor-authorized-bays"
+	sourceOnly := ReadTokenPrefix + "synthetic-doctor-source-only"
+	fixedWithDestination := ReadTokenPrefix + "synthetic-doctor-fixed-with-destination"
+	for _, tok := range []struct {
+		secret   string
+		bays     []string
+		sessions []string
+	}{
+		{scoped, []string{catalog.DefaultBayID, destination.ID}, nil},
+		{sourceOnly, []string{catalog.DefaultBayID}, nil},
+		{fixedWithDestination, nil, []string{reviewer, other}},
+	} {
+		_, err := lake.Catalog.CreateReadToken(ctx, catalog.ReadToken{Label: "doctor-destination-scope", Permissions: []string{catalog.PermEventsRead}, Sessions: tok.sessions, BayScoped: tok.bays != nil, Bays: tok.bays, CreatedBy: "test", Expires: now.Add(time.Hour)}, hashReadToken(tok.secret), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, token string
+		wantPreview bool
+	}{
+		{"unrestricted", unrestricted, true},
+		{"authorized-bays", scoped, true},
+		{"source-only", sourceOnly, false},
+		{"fixed-session", fixed, false},
+		{"fixed-with-destination", fixedWithDestination, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := baydoctor.Request{Policy: policy, UIDs: []string{reviewer}, Bays: "default"}
+			raw, _ := json.Marshal(req)
+			var args map[string]any
+			_ = json.Unmarshal(raw, &args)
+			text, bad := callTool(t, h, tc.token, "recommend_bays", args)
+			w := postPreview(h, "/api/read/v1/recommend-bays", tc.token, req)
+			for _, body := range []string{text, w.Body.String()} {
+				var report baydoctor.Report
+				if bad || w.Code != 200 || json.Unmarshal([]byte(body), &report) != nil || report.Inspected != 1 || len(report.Findings) != 1 {
+					t.Fatal("exact report", bad, w.Code, body)
+				}
+				f := report.Findings[0]
+				if f.UID != reviewer || (f.Preview != nil) != tc.wantPreview {
+					t.Fatal("destination authorization", f)
+				}
+				if tc.wantPreview {
+					if f.Status != "suggestion" || len(f.Preview.Add) != 1 || f.Preview.Add[0] != destination.ID {
+						t.Fatal("missing destination", f)
+					}
+				} else if f.Status != "unknown_or_inaccessible_destination" || strings.Contains(body, destination.ID) || strings.Contains(body, other) {
+					t.Fatal("fixed-session destination leak", body)
+				}
+			}
+		})
+	}
+	rawPolicy, _ := json.Marshal(policy)
+	for _, mode := range []string{"exact", "focus-exact", "focus-filter", "per-session-exact", "per-session-filter", "empty-focus-filter"} {
+		t.Run("dashboard-"+mode, func(t *testing.T) {
+			form := organizationForm(t, get(h, organizePath, admin).Body.String(), "organize-form")
+			form.Set("doctor_policy", string(rawPolicy))
+			form.Set("bays", "default")
+			form.Set("selected", reviewer)
+			if strings.HasPrefix(mode, "focus") || strings.HasPrefix(mode, "empty-focus") {
+				form.Set("focus", reviewer)
+			}
+			if strings.HasPrefix(mode, "per-session") {
+				retained, _ := json.Marshal(catalog.BayMigrationRequest{Edits: []catalog.MigrationEdit{{UID: reviewer, Add: []string{catalog.DefaultBayID}}}})
+				form.Set("mode", "per-session")
+				form.Set("per_session_request", string(retained))
+			}
+			if strings.HasSuffix(mode, "filter") {
+				form.Set("selected", "")
+				form.Set("harness", "claude")
+			}
+			if mode == "empty-focus-filter" {
+				form.Set("cwd_prefix", "/no-matching-reviewers")
+			}
+			form.Set("action", "doctor")
+			page := postForm(h, organizePath, form, admin)
+			if mode == "empty-focus-filter" {
+				if page.Code != 200 || !strings.Contains(page.Body.String(), "0 inspected") || strings.Contains(page.Body.String(), `name="request"`) {
+					t.Fatal("empty cohort expanded", page.Code, page.Body.String())
+				}
+				return
+			}
+			preview := stdhtml.UnescapeString(between(page.Body.String(), `name="request" value="`, `"`))
+			var req catalog.BayMigrationRequest
+			if page.Code != 200 || json.Unmarshal([]byte(preview), &req) != nil || len(req.UIDs) != 1 || req.UIDs[0] != reviewer || len(req.Add) != 1 || req.Add[0] != destination.ID {
+				t.Fatal("dashboard destination or cohort", page.Code, preview, page.Body.String())
+			}
+		})
+	}
+	w := postPreview(h, "/api/read/v1/recommend-bays", unrestricted, baydoctor.Request{Policy: policy, UIDs: []string{}})
+	var empty baydoctor.Report
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &empty) != nil || empty.Inspected != 0 || len(empty.Findings) != 0 || !empty.Complete {
+		t.Fatal("empty explicit cohort", w.Code, w.Body.String())
+	}
+	w = postPreview(h, "/api/read/v1/recommend-bays", fixed, baydoctor.Request{Policy: policy, UIDs: []string{reviewer, other}})
+	var restricted baydoctor.Report
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &restricted) != nil || restricted.Inspected != 1 || strings.Contains(w.Body.String(), other) {
+		t.Fatal("request broadened credential authority", w.Code, w.Body.String())
+	}
+}

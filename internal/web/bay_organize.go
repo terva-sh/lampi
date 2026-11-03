@@ -384,10 +384,15 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 			problem(err)
 			return
 		}
-		request := baydoctor.Request{Policy: policy}
+		request := baydoctor.Request{Policy: policy, Bays: f.Bays}
 		if ids := splitSessionText(f.Selected); len(ids) > 0 {
 			for _, uid := range ids {
-				if !slices.Contains(splitSessionText(f.Exclude), uid) {
+				inScope, err := s.catalog.SessionInScope(ctx, scope, uid)
+				if err != nil {
+					problem(err)
+					return
+				}
+				if inScope && !slices.Contains(splitSessionText(f.Exclude), uid) {
 					request.UIDs = append(request.UIDs, uid)
 				}
 			}
@@ -395,11 +400,35 @@ func (s *Server) organizePost(w http.ResponseWriter, r *http.Request) {
 				problem(catalog.ErrSelection)
 				return
 			}
+		} else if f.Focus != "" || f.PerSession != nil {
+			// Freeze the bounded focus/edit cohort with its metadata filters,
+			// while retaining administrator authority for destination lookup.
+			request.UIDs = []string{}
+			filter := f.Filter
+			filter.Limit = 200
+			for {
+				page, err := s.catalog.DiscoverSessions(ctx, scope, filter)
+				if err != nil {
+					problem(err)
+					return
+				}
+				for _, item := range page.Items {
+					request.UIDs = append(request.UIDs, item.UID)
+				}
+				if len(request.UIDs) > catalog.MigrationMaxSessions {
+					problem(catalog.ErrSelectionLimit)
+					return
+				}
+				if page.NextCursor == "" {
+					break
+				}
+				filter.Cursor = page.NextCursor
+			}
 		} else {
 			filter := f.Filter
 			request.Filter = &filter
 		}
-		report, err := baydoctor.Recommend(ctx, s.catalog, scope, request, s.now())
+		report, err := baydoctor.Recommend(ctx, s.catalog, catalog.AllBays(), request, s.now())
 		if err != nil {
 			problem(err)
 			return

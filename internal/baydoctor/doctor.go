@@ -45,7 +45,7 @@ type Policy struct {
 type Request struct {
 	Policy Policy                    `json:"policy"`
 	Filter *catalog.DiscoveryRequest `json:"filter,omitempty"`
-	UIDs   []string                  `json:"session_uids,omitempty"`
+	UIDs   []string                  `json:"session_uids,omitzero"`
 	Bays   string                    `json:"bays,omitempty"`
 }
 type Finding struct {
@@ -134,10 +134,13 @@ func Validate(p Policy) error {
 // explicit and never supplies a preview handoff. No content or device inventory
 // is read, and this report is never consumed by profiledoctor.ApplySafe.
 func Recommend(ctx context.Context, c *catalog.Catalog, scope catalog.Scope, req Request, now time.Time) (Report, error) {
+	// Keep credential authority separate from request-local cohort selectors.
+	// A session in the cohort need not already belong to its destination.
+	authorization := scope
 	if err := Validate(req.Policy); err != nil {
 		return Report{}, err
 	}
-	if req.Filter != nil && (req.Filter.Cursor != "" || req.Filter.Limit != 0 || len(req.UIDs) > 0) || len(req.UIDs) > catalog.MigrationMaxSessions {
+	if req.Filter != nil && (req.Filter.Cursor != "" || req.Filter.Limit != 0 || req.UIDs != nil) || len(req.UIDs) > catalog.MigrationMaxSessions {
 		return Report{}, ErrPolicy
 	}
 	if req.Bays != "" {
@@ -147,7 +150,7 @@ func Recommend(ctx context.Context, c *catalog.Catalog, scope catalog.Scope, req
 			return Report{}, err
 		}
 	}
-	if len(req.UIDs) > 0 {
+	if req.UIDs != nil {
 		for _, uid := range req.UIDs {
 			if uid == "" || len(uid) > 128 {
 				return Report{}, ErrPolicy
@@ -186,7 +189,7 @@ func Recommend(ctx context.Context, c *catalog.Catalog, scope catalog.Scope, req
 			if slices.Contains(m.Proposed, ref) {
 				continue
 			}
-			if _, err := c.SelectReadBays(ctx, scope, ref); err != nil {
+			if _, err := c.SelectReadBays(ctx, authorization, ref); err != nil {
 				if errors.Is(err, catalog.ErrBaySelection) {
 					continue
 				}

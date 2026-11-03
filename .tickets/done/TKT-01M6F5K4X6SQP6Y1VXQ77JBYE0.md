@@ -23,7 +23,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:33Z
-updated_at: 2026-11-02T23:37:50Z
+updated_at: 2026-11-03T00:20:26Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -61,6 +61,18 @@ Implement internal/baydoctor as a shared bounded metadata report. Expose read-on
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:37:50Z
 
 Final self-review added a destination_limit status when overlapping compatible mappings exceed the migration service total of 20 destinations. The report withholds an unusable preview request; a focused fixture verifies the combined limit.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:20:26Z
+
+### Review 3018 finding-1: separate cohort selection and destination authority
+
+Review 3018 on e5e7abd7abc621b1ff317777306b41ff71d69600 confirms browser paging normalization is resolved but identifies a real doctor bug: exact session selection was reused as credential authority when resolving destination bays. An unrestricted reader could not receive a recommendation to an existing bay unless a selected session was already there. Accepted. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37749.
+
+Recommend now retains the original credential scope for destination resolution and uses a separately narrowed scope for candidate enumeration and report fingerprinting. Both request-local bay selection and exact UIDs leave destination authority intact. Do not relax SelectReadBays itself: fixed-session credentials must still be unable to discover bays outside their authorized sessions, and bay-scoped readers still require destination access.
+
+The administrator dashboard also separates its focus/per-session candidate bounds from administrator authority. Exact selections are intersected with the current organization context; when no explicit selection exists, focused/per-session filters freeze that already-bounded cohort before recommendation. This preserves filtering without misrepresenting focus or imported edits as a credential restriction. An explicit empty session_uids array now means an empty inspected cohort and survives JSON serialization via omitzero; nil remains unspecified. This prevents an empty focused result from expanding to the whole lake. Documentation explains these distinctions.
+
+Regressions exercise HTTP/MCP with unrestricted, bay-scoped, source-only, fixed-session and multi-session credentials, including destination reach outside the selected cohort and refusal to broaden fixed-token session access. Dashboard tests cover exact, focus and retained per-session selection/filtering plus empty results. The executable CLI walkthrough now verifies host and remote exact reviewer recommendations to an existing empty learning bay alongside a hypothetical review bay. Focused tests pass; full normal, affected-package race, vet/build and store checks run before the final source/ticket push and fresh full review. No live lake state changed.
 
 ## Summary
 

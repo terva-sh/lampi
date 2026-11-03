@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T00:16:27Z
+updated_at: 2026-11-03T00:21:42Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -177,3 +177,13 @@ Review 3017 on afd210a1d425899f0e7923e9c42e75acf9afdb4d confirms per-session cor
 Merged current origin/main through 20220e85ec22dbef9fd49955912f2b9d5da95d46, retaining the newer project/folder/machine session filters and read-token pickers. On the resulting source, full go test -trimpath=false ./..., affected catalog/web/CLI race tests, go vet ./..., isolated build, gofmt and git diff --check pass. Logs are in the existing task scratch directory as paging-full.log and paging-race.log. Ticket validation has zero errors and the same two preexisting unrelated title warnings. Push all source/ticket records together, accept review 3017 finding-1 with the resulting commit SHA and request a fresh full model review on that stable head.
 
 Live prerequisite revalidation: installed CLI remains v0.11.1 (527d5c368339), new query bays refuses because no read token is configured, noninteractive service-account catalog access requires a password, and no lampi connector is exposed. No live configuration, memberships, routes, grants or service state changed. Backed-up deployment and authorized read/operator access remain the external prerequisites for the unchecked Vuoro exercise. Do not claim completion from synthetic tests or mark the live criteria complete.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:21:42Z
+
+### Review 3018 validation
+
+Review 3018 on e5e7abd7abc621b1ff317777306b41ff71d69600 confirms the browser paging fix and finds that exact doctor cohorts wrongly narrowed destination authorization. Accepted and fixed; TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0 (Doctor: suggest bay destinations with supporting evidence) records the authority/selection separation, dashboard focus/per-session handling, explicit-empty-cohort semantics, rejected alternative and regression matrix. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37749.
+
+Full go test -trimpath=false ./..., baydoctor/web/CLI race suites, go vet ./..., isolated build, gofmt and git diff --check pass on the resulting source. The host/remote CLI walkthrough now verifies exact reviewer recommendations to an existing empty destination as well as a proposed bay. HTTP/MCP and dashboard checks verify original destination authority without broadening session credentials or candidate context. Ticket validation has zero errors and the same two unrelated preexisting title warnings. Logs: doctor-authority-full.log and doctor-authority-race.log in the existing task scratch directory. Push all source/ticket records together, record the accepted review disposition with the final SHA, and request a fresh full review at that stable head.
+
+This turn made implementation and validation progress; the preceding two turns were verified waits on the same live review/CI handles, not repeated failed work or evidence that the objective is complete. Live deployment/read/operator access prerequisites remain unchanged. No service, capture policy, memberships, routes, grants or credentials changed, and the Vuoro live exercise remains unchecked.

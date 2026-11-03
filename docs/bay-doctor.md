@@ -112,6 +112,11 @@ MCP tool `recommend_bays` and POST `/api/read/v1/recommend-bays` take:
 Replace the empty mapping list with your reviewed policy. An empty policy
 returns no suggestions and explains that no destinations were guessed.
 Use `session_uids` instead of `filter` for an exact inspected cohort.
+An explicit empty `session_uids` array inspects no sessions. Cohort selectors
+restrict which sessions are inspected, while destination visibility uses the
+caller's original authorization. A selected reviewer need not already be in
+an existing destination bay. Fixed-session tokens still cannot discover bays
+outside their authorized sessions.
 The report reads only reachable sessions and visible memberships/destinations;
 it reveals no hidden co-memberships or profile/device-wide inventory.
 
