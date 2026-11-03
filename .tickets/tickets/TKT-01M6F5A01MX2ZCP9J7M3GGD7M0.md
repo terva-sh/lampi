@@ -20,7 +20,9 @@ dependencies:
   - TKT-01M6F5K429GX4TZFJB35TV3KC7
   - TKT-01M6F5K4X6SQP6Y1VXQ77JBYE0
 blocks_on: none
-references: []
+references:
+  - ref: artifact:vuoro-proposed-split-20261103
+    path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json
 claim:
   actor: agent:codex/t3-6387cc8a
   branch: dogfood/vuoro-live-preview
@@ -31,7 +33,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:20:31Z
+updated_at: 2026-11-03T21:28:53Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -43,37 +45,35 @@ extensions: {}
 
 ## Description
 
-### Owner goal
+### Owner goal and authority
 
-Use lampi's own agent interfaces to inspect the local lake and separate Vuoro code reviews from project-development sessions. The owner identified the newly ingested reviews as Vuoro running Claude Code. This is session grouping into a bay; creating a second capture profile is not required merely to separate already captured sessions.
+Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and prepare a reviewed split from development into one or more bays. A capture profile controls uploads; stored bays perform this organization without re-registration or re-import. This ticket does not authorize live membership, bay, grant, route, profile or service changes. Present the exact proposed split and intended readership for owner approval, then regenerate a complete administrator preview before any apply.
 
-### Verified evidence
+### Current verified state
 
-On 2026-11-02, all six existing MCP recall tools succeeded against the local lake. Search and read_events identify review sessions under /home/sothr/.local/state/vuoro/worktrees/<timestamp-id>. Sample reviewer sessions 01M6F532E20X2S9YFJQP9ZR4TR and 01M6F4Z4BV9SWF5TXE375T7XQ0 begin with a prompt to review local commits. Companion 01M6F55Q2DJCFV57PGW0WFE87W begins with a prompt to check findings and mark them with rate_draft, has no project_id, and shares the first reviewer's working-directory hash. Include both roles in a code-review bay. SDK origin and harness=claude alone also describe other sessions and are not sufficient selectors.
+The lake runs v0.12.0 and owner-provided events:read access succeeds through the deployed CLI and direct MCP. Complete reachable metadata traversal on 2026-11-03 found 2,319 unique sessions and one visible bay, default. Full administrator membership, reader-grant and installed routing inspection remains unavailable through that read interface. Historical notes below preserve earlier access blockers; they are resolved, not current prerequisites.
 
-The current agent consumes the default capture profile with 75 allow rules. Its cached profile already permits /home/sothr/.local/state/vuoro/worktrees. Other existing allow rules mention Vuoro paths on macOS, but their review purpose and current captured sessions have not been verified. Do not extrapolate one machine's directory layout to the whole lake.
+All 1,298 broad Vuoro directory/project candidates and controls received a bounded opening-event inspection. The verified Linux/macOS worktree cohort contains 1,287 sessions: 645 reviewers (including one change-scope opening), 640 finding raters and two draft mergers. Of these, 1,247 have no project ID. Fix-editor, development and synthetic controls are excluded. Purpose is based on visible opening templates, not trusted workflow provenance or proof of every later turn; 820 selected openings contain truncated diffs, with role evidence visible before truncation.
 
-### Proposed investigation and migration
+### Exact proposal and artifacts
 
-First obtain permitted metadata access to the current bay list, memberships, routing rules and working-directory evidence. The current events:read MCP surface cannot enumerate these; local lake data is protected by its service account. TKT-01M6F56Z6QP6C2P3M1T7J923BV (MCP and CLI: discover bays, projects and session metadata) records that tooling gap.
+The ticket-linked .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json records the exact frozen UIDs in three requests (500, 500 and 287), observed purpose counts, explicit exclusions, scope/cutoff, evidence digest and operator decisions. Related directory groups remain together. Each scoped MCP move preview changes every selected row with zero rejections; complete_memberships=false requires a fresh administrator preview. These are separate batches, not one atomic operation. Plan IDs/expiry in the artifact are observations, not persistent apply authority.
 
-Evaluate code-reviews as the target bay name and the verified Vuoro review working-directory prefix plus harness=claude as an initial selector. Check whether this folder holds only review workflows, enumerate other machines/layouts explicitly, and inspect controls before accepting that selector. Confirm intended readers because a bay is also an access boundary.
+The proposal adds a hypothetical code-reviews bay, removes default only, and creates no reader grants. Administrators and unrestricted/fixed-session tokens may retain access; default-only readers may lose it. Confirm intended readers and name availability during full administrator review. Add-only retains default. A six-session comparison also exercised two hypothetical destinations, code-reviews and project-history; the latter is not part of the proposed live split.
 
-For an operator with lake-host access, the existing CLI supports creating the target bay, adding an --add rule with --cwd-prefix and --harness claude, and moving existing sessions from default with the same filters and --dry-run first. Substitute only verified selectors. Adding a rule affects subsequent manifests; apply-rules only adds membership to existing sessions, so neither alone removes reviews from default. A move into a bay requires that bay to exist even in dry-run. A session-specific selection cannot currently be passed as a bulk UID list, and purpose matching is not implemented.
+### Future routing and remaining validation
 
-Use the existing metadata routing when validated. If review and development sessions share all available match fields, design explicit provenance/classification and a selection preview before attempting that subset. Leave the capture allowlist alone unless an independent capture-policy change is requested. Preserve session identities and artifacts; do not re-register devices or re-import sessions to regroup them.
+Future routing is separate from these exact historical UIDs. Candidate predicates are harness=claude plus each verified worktree prefix. No rule is installed. The Linux root predicate exceeds the 500-match preview cap; seven complete dated-glob catchment previews union exactly to all 1,281 inventoried root matches. The macOS worktree prefix previews all six. Neither dated subrules nor current purpose evidence predict all future runs. Current installed rules/manifest requests must be inspected before asserting that later uploads will preserve removal from default.
 
-### Limits and alternatives
-
-No live bays, memberships, grants, routing rules or profiles were changed. No complete move preview has been run. Searching for review or vuoro returned continuing pages and is not an exact inventory. Routing an entire repository or all Claude sessions would also capture development work. A separate capture profile would not reclassify stored sessions. Store only metadata and decisions in this ticket, never token values or raw transcript dumps.
+Doctor was exercised through CLI and MCP: complete exact reports cover the cohort; a broad Linux request correctly supplies no preview handoffs when incomplete. A deliberately broad macOS parent mapping includes the known fix editor; narrowing to worktrees excludes it. The synthetic CLI walkthrough passed apply/verify and later-manifest behavior, but no production move, receipt or post-move upload has been verified. Remaining work is owner approval, full administrator membership/readership/routing review, any separately approved live apply/routing and subsequent verification. Never use a search page, metadata heuristic, read token or this artifact as write authorization.
 
 ## Acceptance criteria
 
 - [ ] Inventory current bay membership and enumerate candidate review sessions, including finding-rating companions and sessions without project IDs.
-- [ ] Validate directory selectors against candidate prompts and representative development sessions, and produce a complete dry-run move list with exclusions.
+- [x] Validate directory selectors against candidate prompts and representative development sessions, and produce a complete dry-run move list with exclusions.
 - [ ] Specify future routing and existing-session moves separately, including required reader grants and behavior on later manifests.
 - [x] Record the approved split or the precise tooling still needed, without claiming a sampled search is a complete migration preview.
-- [ ] Exercise the new discovery/selection tools and doctor recommendations on the Vuoro case, recording false positives, companion coverage and any remaining UX/tool gaps.
+- [x] Exercise the new discovery/selection tools and doctor recommendations on the Vuoro case, recording false positives, companion coverage and any remaining UX/tool gaps.
 - [ ] Review add versus move and one versus multiple destinations explicitly, verify future manifests do not unexpectedly restore source memberships, and record any operator-approved live changes separately.
 
 ## Implementation plan
@@ -149,3 +149,25 @@ Complete reachable metadata pagination at cutoff 2026-11-03T21:10:40.365031Z ret
 Broad Vuoro directory/project matching produced 1,298 candidates/controls, not 1,298 proven reviews. The Linux worktree prefix has 1,281 Claude sessions, including 1,242 unlinked sessions across two provenance machines. The macOS worktree prefix has six Claude sessions, five unlinked; the separate macOS editor prefix has one. The other ten include development and synthetic test worktrees. Opening inspection verifies recent reviewer/rater pairs and the macOS reviewer, rater and draft-merger roles; the editor prompt requests fixing findings and is excluded from the initial review-only proposal. Full bounded opening inspection is in progress. The MCP limiter is 30-call burst then two calls/second; early burst errors are incomplete reads and must be retried with pacing, never counted as exclusions or successful classification.
 
 Next: finish per-session purpose evidence, freeze exact paired batches of at most 500, compare one/multiple destination add/move previews, run doctor with incomplete and bounded cases, and preview independent future routing. Full administrator membership, readership and current routing review remains necessary before any live apply. Do not mark live acceptance checks complete from this initial inventory alone.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:28:53Z
+
+### Complete live inspection and scoped previews
+
+Initial inventory cutoff: 2026-11-03T21:10:40.365031Z. A second complete traversal at 21:25:21.582739Z found the same 2,319 UIDs, with six changed heads outside the proposed review layouts. All 1,287 selected purpose-evidence heads match the second traversal. All rows are ready with no clipped metadata or machine lists. Scope remains reachable sessions and visible memberships only; no hidden grant principals or installed routing inventory were exposed.
+
+Inspected the first eight normalized events for every one of the 1,298 broad candidates, checkpointing successful reads and respecting two calls/second after retrying the initial rate-limit burst. No tool errors or unresolved openings remain inside either real review worktree layout. Linux: 1,281 sessions, comprising 641 reviewers, 639 finding raters and one draft merger; 1,242 unlinked. macOS: six, comprising three review-local/MR openings, one change-scope review opening, one rater and one merger; five unlinked. Combined: 645 reviewers, 640 raters, two mergers; 1,247 unlinked. The 820 clipped openings expose their role template before a large diff, so this proves opening purpose, not full transcript coverage or trusted workflow identity. No transcript text was copied into the repository.
+
+There are 642 related directory groups: Linux has 638 pairs, one four-session group and one reachable singleton; macOS has groups of five and one. No unseen companion is inferred for the singleton. All related groups remain within a batch. Broad exclusions are one fix editor, five synthetic captures and five development/unresolved controls. Two additional Claude development controls, 01M6F4ED0G4QTF54ZMV998YZQF and 01M6F8B0RB33WN5MKX3QCZTVZ9, run in the Renki worktrees referenced by review metadata and open with continued implementation work; both are outside the selectors. The artifact contains 13 explicit exclusions/controls and exact requests for the 1,287 selected UIDs.
+
+Direct MCP list_bays, list_projects, list_sessions, get_session, read_events, select_sessions, recommend_bays, preview_bay_migration and preview_bay_rule all succeeded; tools/list reports 14 shipped tools, correcting the reading guide's count. CLI pagination and recommend-bays succeeded. Exact batches 500/500/287 each return complete selection, complete doctor coverage with one preview handoff per UID, and move previews with every row changed, zero rejected, default visible before and code-reviews visible after. Every preview has complete_memberships=false. Read previews expire after 24 hours and are not apply artifacts.
+
+The macOS comparison explicitly excluded the fix editor and deduplicated a repeated reviewer. Add-one retains default; move-one removes default; move-multiple adds code-reviews and hypothetical project-history. The proposed split uses only code-reviews, creates no grants, and needs owner approval plus current complete administrator review. No extra category is necessary merely to separate review history from the inbox.
+
+Doctor's broad Linux request reports complete=false, inspected=500, 500 incomplete_inventory findings and zero preview handoffs. Exact macOS plus development/editor controls yields six suggestions and three unmatched. Deliberately widening to the macOS Vuoro parent yields seven suggestions, including the known fix editor: a concrete false positive avoided by the worktrees mapping. These observations validate this inspected case, not general classification accuracy or future purpose.
+
+The independent Linux root future-rule preview refuses selection_too_large. Complete dated partitions return 6/398/200/190/128/303/56 sessions for 20261028 through 20261103; their union equals all 1,281 initial root-prefix matches. The macOS worktree prefix returns six. No route is installed. Current rules, requested bays, destination availability and reader grants require operator inspection. The freshly run TestOrganizationWalkthroughCompanionsExclusionsAndLaterManifests passed: unchanged manifests retain the move, while a later matching add rule restores default. This is synthetic lifecycle evidence, not a live post-move assertion.
+
+Filed draft follow-ups TKT-01M6HMDAFCSN0N540295A4Y3FZ (Read bounded opening evidence for exact session cohorts) and TKT-01M6HMDAJG6AM55ZER5AG5Z9D4 (Preview large routing catchments without sampling), attached as children of this exercise. Their design/docs criteria preserve scope, bounds and explicit incomplete outcomes. They were not promoted.
+
+Acceptance audit: AC2 is satisfied for a complete inspected exact list and scoped dry-run; AC5 is satisfied for live discovery/selection/doctor use, companion coverage and observed false-positive/tool gaps. AC1 remains unchecked for full membership inventory, AC3 for approved readership/current future-routing review, and AC6 for live later-manifest/receipt verification. Existing AC4 remains satisfied by the precise tooling/access record; no approved live split is claimed. The epic's last criterion remains unchecked. No live bay, membership, route, grant, profile, credential, service or workstation-agent installation changed.

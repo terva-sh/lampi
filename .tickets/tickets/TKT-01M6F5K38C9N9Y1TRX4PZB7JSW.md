@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T21:16:24Z
+updated_at: 2026-11-03T21:28:53Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -238,3 +238,11 @@ The five remaining live acceptance checks remain unproven: complete candidate/me
 ### Live dogfood resumed with verified read access
 
 The deployment and read-access prerequisites are resolved, so this epic and TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) are in progress again. Complete reachable metadata traversal found 2,319 unique sessions and only default visible at the recorded cutoff. Direct MCP opening reads succeeded, including an unlinked finding rater and a distinct macOS fix-editor workflow that should not be silently included as a review. The live ticket records the inventory limits and ongoing full-cohort evidence pass. This is substantive live inspection, not another access-only revalidation. No live memberships, grants, routes, bays, profiles, credentials or services were changed; exact split and full operator review remain outstanding.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:28:53Z
+
+### Live exercise now has exact reviewed-scope evidence
+
+The live child TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) now records a complete 2,319-session reachable inventory, bounded opening inspection of 1,298 candidates/controls, and a 1,287-session exact proposal across 500/500/287 paired batches. All scoped move previews and per-batch doctor reports passed. Explicit editor/development/synthetic exclusions, 1,247 unlinked companions/reviewers, add/move/multiple-destination comparisons, a real broad-path doctor false positive, independent complete routing partitions and synthetic later-manifest validation are documented with a ticket-linked frozen-request artifact.
+
+Audited the original nine implementation/design/docs children: all are done and integrated through PR #253; the real exercise is the remaining in-progress child. Read authority is verified and no longer a blocker. The last epic criterion remains unchecked because full administrator memberships/readership/current routing and operator-approved live sorting plus later-upload verification remain unproven. Present the exact code-reviews move with no new grants for owner approval, then obtain the complete administrator preview before changing live state. The two newly filed tool-friction spikes remain drafts under the exercise, not automatic scope promotion or substitutes for completing the live work.
