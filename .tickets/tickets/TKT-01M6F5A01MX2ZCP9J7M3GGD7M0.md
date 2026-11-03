@@ -35,7 +35,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:55:20Z
+updated_at: 2026-11-03T21:56:55Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -231,3 +231,11 @@ The runner now hardcodes the approved original SHA256 and preserves/verifies the
 Also check grants/rules after each fresh batch preview, pin the first created destination ID, and require exactly one created bay in the first receipt and none later. A synthetic concurrent grant injected after the second plan stops before batch two: only the first 500 moved. This closes the inter-batch policy gap while retaining the CLI's transaction-level stale-plan checks.
 
 Added adjacent operator instructions and repeatable six-case isolated tests using the deployed CLI: full 1,287 move/follow-up, proposal tampering in every phase, incomplete preview, altered backup, committed batch with lost output and partial verification (500 moved, 787 remaining), and concurrent reader grant. Fixture approval digest and privilege transition are substituted only in the test process; actual host/service-account access and production effects remain unverified. Request a new full model review for this executable change, even though its path is under .tickets. The owner-approved live operation remains pending host access; the expired sudo card is not retried automatically and no production mutation has occurred.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:56:55Z
+
+### Clean full host-runner review
+
+PR #262 has a clean full code review at head 155adf94fdd8883f7d1ce4d0510a58cd0ffa1b48 against base 58d4127a5837e6e8f1cc60256809e2be948878fb: https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37922 . Run 2d7184ed-6cea-4551-b8e6-c7600dcad24e, Actions #2404 (database 30563), explicitly resolves all three findings from review 3023 and reports no additional findings. Their accepted technical dispositions are recorded at https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37920 . The reviewer did not run tests or prove production CLI/host behavior; the six executable isolated rehearsals are separate validation evidence.
+
+Current-head CI remains running at Actions #2400; do not merge until final-head checks pass. This commit records only the review, so carry the clean verdict across it without another model run. The previous goal turn made executable, documentation and test progress; this turn confirms clean review and resolves the next integration step. The exact approved production split is still pending host access: fresh sudo -n service-account readability again requires a password. The expired private card is not retried automatically. No production bay, membership, grant, route, profile or service changed, and the incomplete live acceptance criteria remain unchecked.
