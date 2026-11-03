@@ -23,6 +23,8 @@ blocks_on: none
 references:
   - ref: artifact:vuoro-proposed-split-20261103
     path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json
+  - ref: artifact:vuoro-approved-host-runner
+    path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro_approved_move.py
 claim:
   actor: agent:codex/t3-6387cc8a
   branch: dogfood/vuoro-live-preview
@@ -33,7 +35,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:30:56Z
+updated_at: 2026-11-03T21:56:55Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -47,7 +49,7 @@ extensions: {}
 
 ### Owner goal and authority
 
-Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and prepare a reviewed split from development into one or more bays. A capture profile controls uploads; stored bays perform this organization without re-registration or re-import. This ticket does not authorize live membership, bay, grant, route, profile or service changes. Present the exact proposed split and intended readership for owner approval, then regenerate a complete administrator preview before any apply.
+Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and prepare a reviewed split from development into one or more bays. A capture profile controls uploads; stored bays perform this organization without re-registration or re-import. The owner approved moving exactly the 1,287 frozen UIDs from default into a new code-reviews bay, with no new reader grants, after a fresh full administrator preview. Preserve unrelated memberships and all explicit exclusions. No future routing, profile or service change is authorized. Host execution access remains outstanding; do not ask for the same split approval again.
 
 ### Current verified state
 
@@ -59,13 +61,13 @@ All 1,298 broad Vuoro directory/project candidates and controls received a bound
 
 The ticket-linked .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json records the exact frozen UIDs in three requests (500, 500 and 287), observed purpose counts, explicit exclusions, scope/cutoff, evidence digest and operator decisions. Related directory groups remain together. Each scoped MCP move preview changes every selected row with zero rejections; complete_memberships=false requires a fresh administrator preview. These are separate batches, not one atomic operation. Plan IDs/expiry in the artifact are observations, not persistent apply authority.
 
-The proposal adds a hypothetical code-reviews bay, removes default only, and creates no reader grants. Administrators and unrestricted/fixed-session tokens may retain access; default-only readers may lose it. Confirm intended readers and name availability during full administrator review. Add-only retains default. A six-session comparison also exercised two hypothetical destinations, code-reviews and project-history; the latter is not part of the proposed live split.
+The proposal adds a hypothetical code-reviews bay, removes default only, and creates no reader grants. Administrators and unrestricted/fixed-session tokens may retain access; default-only readers may lose it. The owner confirmed no new reader grants; verify current readership and name availability during full administrator review. Add-only retains default. A six-session comparison also exercised two hypothetical destinations, code-reviews and project-history; the latter is not part of the proposed live split.
 
 ### Future routing and remaining validation
 
 Future routing is separate from these exact historical UIDs. Candidate predicates are harness=claude plus each verified worktree prefix. No rule is installed. The Linux root predicate exceeds the 500-match preview cap; seven complete dated-glob catchment previews union exactly to all 1,281 inventoried root matches. The macOS worktree prefix previews all six. Neither dated subrules nor current purpose evidence predict all future runs. Current installed rules/manifest requests must be inspected before asserting that later uploads will preserve removal from default.
 
-Doctor was exercised through CLI and MCP: complete exact reports cover the cohort; a broad Linux request correctly supplies no preview handoffs when incomplete. A deliberately broad macOS parent mapping includes the known fix editor; narrowing to worktrees excludes it. The synthetic CLI walkthrough passed apply/verify and later-manifest behavior, but no production move, receipt or post-move upload has been verified. Remaining work is owner approval, full administrator membership/readership/routing review, any separately approved live apply/routing and subsequent verification. Never use a search page, metadata heuristic, read token or this artifact as write authorization.
+Doctor was exercised through CLI and MCP: complete exact reports cover the cohort; a broad Linux request correctly supplies no preview handoffs when incomplete. A deliberately broad macOS parent mapping includes the known fix editor; narrowing to worktrees excludes it. The synthetic CLI walkthrough passed apply/verify and later-manifest behavior, but no production move, receipt or post-move upload has been verified. Owner approval is recorded. Remaining work is host execution access, full administrator membership/readership/routing review, any separately approved live apply/routing and subsequent verification. Never use a search page, metadata heuristic, read token or this artifact as write authorization.
 
 ## Acceptance criteria
 
@@ -183,3 +185,57 @@ Opened PR #261 (Dogfood Vuoro organization with exact inspected session batches)
 ### Clean source review
 
 PR #261 received a clean full code review for head daf82e97a51a5a53ee99cb6e317950c054b0d8aa against base a5e6954de885b78e716f6e69909dffd879372037. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/261#issuecomment-37901 ; run 920c9dcc-0516-4234-b9e2-9b38cf2ded4b in Actions #2391. No findings or dispositions. The reviewer explicitly limits its verdict to the supplied diff, not independent proof of live classifications or tests. Actual tool evidence remains the exercise record and private responses; administrator membership/readership/routing checks remain required. Carry this verdict over this ticket-only record, wait for final-head CI, then merge and sync both forges under the authorized repository workflow. No live apply is authorized by the clean review.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:38:24Z
+
+### Owner approved the exact historical move
+
+The owner answered the concrete proposal card: "Approve move; no new grants". This authorizes moving exactly the 1,287 ticket-artifact UIDs from default into a new code-reviews bay after a fresh full administrator preview, while preserving unrelated memberships and excluding editor/development/synthetic controls. It authorizes no new reader grants or future routing rules. This supersedes the description's earlier statement that no live membership/bay change is authorized; that statement now describes the pre-approval boundary. Do not ask the owner to approve this same operation again.
+
+The noninteractive host-access check still fails because sudo requires a password; the read token remains read-only. Opened a private sudo credential card for the approved preview/apply/verify operation. Credential delivery is not a new approval. While waiting, prepare a constrained service-account CLI runner with exact-UID/request checks, complete administrator plans, backup/receipt checks and no grant/rule writes. After the first batch creates code-reviews, later batches require fresh previews resolving that existing destination because bay creation changes the policy fingerprint. No live mutation has occurred yet.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:46:56Z
+
+### Integrated inspection record and rehearsed approved host runner
+
+PR #261 merged after all three final-head checks passed at e40830060c421528343899e477a1ee40d78355a6. Both forges are synced at 58d4127a5837e6e8f1cc60256809e2be948878fb; its watch is off. The owner approval is now recorded on the follow-up branch dogfood/vuoro-approved-move.
+
+Attached a constrained host runner at the new artifact reference. It accepts only the exact three approved requests, uses the deployed CLI under the documented terva-lampi service account for all mutations, obtains full administrator previews, checks effective before/after edits and every UID, backs up the catalog with an online SQLite backup and quick_check, preserves unselected membership, and checks receipts and unchanged grants/rules. It installs no route or grant. Batch one creates the new bay; later batches freshly resolve that destination after policy-state changes. Input plans stay private; no credential is embedded or read by the runner. Sudo credential delivery, if provided, is used only by sudo outside this script.
+
+Rehearsed all three phases against a separate synthetic schema-23 lake using the actual deployed CLI: 1,287 fixture sessions moved in 500/500/287, all receipts and follow-up verification match, and the development control and zero grants/rules are preserved. The rehearsal substitutes the current unprivileged account for service-account dropping; real service-account access is still verified during the first host preview. A fixture startup race initially stopped before schema 23; the rehearsal now waits for the correct schema, and the host runner refuses any other schema. No production mutation occurred during these checks.
+
+The private sudo card remains pending and sudo -n still requires a password. Approval is not missing; host execution access is. Do not request approval of the same split again or use the read token as write authority. After host access is delivered, run preview first and inspect current grants/rules/requested bays before apply; preserve the exact approved membership edits and separately verify later manifests.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:47:59Z
+
+### Host credential delivery timed out
+
+The single private sudo card timed out without delivery. No sudo credential file/value was received or read. Existing events:read access still works but cannot produce complete administrator previews or apply. Do not retry the card automatically. The owner already approved the exact move; the remaining requirement is host execution access (private sudo delivery when the owner requests a new card, or owner execution of the prepared preview). No live membership, bay, grant, route, profile or service change occurred. The complete runner rehearsal passed on the isolated schema-23 fixture; it is not a production move or post-move upload result.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:49:04Z
+
+### Approved execution preparation under review
+
+Opened PR #262 (Prepare host execution for the approved Vuoro review move), https://git.local.sothr.com/terva-sh/lampi/pulls/262. Request a full model review even though the artifact is under .tickets: it is executable host-operation code, not merely a note suitable for carry. The current runner passed another complete isolated CLI rehearsal after adding the schema-23 guard. Review and CI are pending; actual service-account transition, full production administrator preview and live apply are not yet verified.
+
+The owner-approved move remains authorized without a second approval. Host access remains missing: the single sudo card timed out and sudo -n requires a password. No secret was delivered. Do not retry automatically or substitute the read token. Once the owner supplies host access or runs the preview, inspect all full plans, grants, rules and manifest bay requests before invoking the approved apply phase. New grants and routes remain outside the approved operation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:55:20Z
+
+### Host runner review and constrained recovery
+
+PR #262 full review 3023 reviewed a5718b1f89a231699b6b43a57406770efb46fe45 against main 58d4127a5837e6e8f1cc60256809e2be948878fb: https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37913 . All three findings are accepted: pin the approved proposal in every phase (high), require successful full preview plus checked backup before apply (high), and preserve verifiable partial progress after interruption (medium).
+
+The runner now hardcodes the approved original SHA256 and preserves/verifies the exact original proposal bytes in preview, apply and verify. A completion manifest written last binds all preview plans, inventories and backup; apply rechecks those artifacts and backup integrity. CLI input files are flushed before applying. Each returned receipt is saved immediately. Partial verify reconstructs committed receipts from the catalog using plans persisted before mutation, including when CLI output was lost. It reports moved/remaining counts and never silently retries a partial operation. Automatic resume lost to explicit partial verification because an interruption or concurrent policy change requires inspection before fresh remaining-session plans; no extra move approval is needed for the same frozen scope.
+
+Also check grants/rules after each fresh batch preview, pin the first created destination ID, and require exactly one created bay in the first receipt and none later. A synthetic concurrent grant injected after the second plan stops before batch two: only the first 500 moved. This closes the inter-batch policy gap while retaining the CLI's transaction-level stale-plan checks.
+
+Added adjacent operator instructions and repeatable six-case isolated tests using the deployed CLI: full 1,287 move/follow-up, proposal tampering in every phase, incomplete preview, altered backup, committed batch with lost output and partial verification (500 moved, 787 remaining), and concurrent reader grant. Fixture approval digest and privilege transition are substituted only in the test process; actual host/service-account access and production effects remain unverified. Request a new full model review for this executable change, even though its path is under .tickets. The owner-approved live operation remains pending host access; the expired sudo card is not retried automatically and no production mutation has occurred.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:56:55Z
+
+### Clean full host-runner review
+
+PR #262 has a clean full code review at head 155adf94fdd8883f7d1ce4d0510a58cd0ffa1b48 against base 58d4127a5837e6e8f1cc60256809e2be948878fb: https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37922 . Run 2d7184ed-6cea-4551-b8e6-c7600dcad24e, Actions #2404 (database 30563), explicitly resolves all three findings from review 3023 and reports no additional findings. Their accepted technical dispositions are recorded at https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37920 . The reviewer did not run tests or prove production CLI/host behavior; the six executable isolated rehearsals are separate validation evidence.
+
+Current-head CI remains running at Actions #2400; do not merge until final-head checks pass. This commit records only the review, so carry the clean verdict across it without another model run. The previous goal turn made executable, documentation and test progress; this turn confirms clean review and resolves the next integration step. The exact approved production split is still pending host access: fresh sudo -n service-account readability again requires a password. The expired private card is not retried automatically. No production bay, membership, grant, route, profile or service changed, and the incomplete live acceptance criteria remain unchecked.
