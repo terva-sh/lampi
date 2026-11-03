@@ -23,6 +23,8 @@ blocks_on: none
 references:
   - ref: artifact:vuoro-proposed-split-20261103
     path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-proposed-split.json
+  - ref: artifact:vuoro-approved-host-runner
+    path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro_approved_move.py
 claim:
   actor: agent:codex/t3-6387cc8a
   branch: dogfood/vuoro-live-preview
@@ -33,7 +35,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:38:24Z
+updated_at: 2026-11-03T21:46:56Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -191,3 +193,15 @@ PR #261 received a clean full code review for head daf82e97a51a5a53ee99cb6e31795
 The owner answered the concrete proposal card: "Approve move; no new grants". This authorizes moving exactly the 1,287 ticket-artifact UIDs from default into a new code-reviews bay after a fresh full administrator preview, while preserving unrelated memberships and excluding editor/development/synthetic controls. It authorizes no new reader grants or future routing rules. This supersedes the description's earlier statement that no live membership/bay change is authorized; that statement now describes the pre-approval boundary. Do not ask the owner to approve this same operation again.
 
 The noninteractive host-access check still fails because sudo requires a password; the read token remains read-only. Opened a private sudo credential card for the approved preview/apply/verify operation. Credential delivery is not a new approval. While waiting, prepare a constrained service-account CLI runner with exact-UID/request checks, complete administrator plans, backup/receipt checks and no grant/rule writes. After the first batch creates code-reviews, later batches require fresh previews resolving that existing destination because bay creation changes the policy fingerprint. No live mutation has occurred yet.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:46:56Z
+
+### Integrated inspection record and rehearsed approved host runner
+
+PR #261 merged after all three final-head checks passed at e40830060c421528343899e477a1ee40d78355a6. Both forges are synced at 58d4127a5837e6e8f1cc60256809e2be948878fb; its watch is off. The owner approval is now recorded on the follow-up branch dogfood/vuoro-approved-move.
+
+Attached a constrained host runner at the new artifact reference. It accepts only the exact three approved requests, uses the deployed CLI under the documented terva-lampi service account for all mutations, obtains full administrator previews, checks effective before/after edits and every UID, backs up the catalog with an online SQLite backup and quick_check, preserves unselected membership, and checks receipts and unchanged grants/rules. It installs no route or grant. Batch one creates the new bay; later batches freshly resolve that destination after policy-state changes. Input plans stay private; no credential is embedded or read by the runner. Sudo credential delivery, if provided, is used only by sudo outside this script.
+
+Rehearsed all three phases against a separate synthetic schema-23 lake using the actual deployed CLI: 1,287 fixture sessions moved in 500/500/287, all receipts and follow-up verification match, and the development control and zero grants/rules are preserved. The rehearsal substitutes the current unprivileged account for service-account dropping; real service-account access is still verified during the first host preview. A fixture startup race initially stopped before schema 23; the rehearsal now waits for the correct schema, and the host runner refuses any other schema. No production mutation occurred during these checks.
+
+The private sudo card remains pending and sudo -n still requires a password. Approval is not missing; host execution access is. Do not request approval of the same split again or use the read token as write authority. After host access is delivered, run preview first and inspect current grants/rules/requested bays before apply; preserve the exact approved membership edits and separately verify later manifests.
