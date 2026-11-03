@@ -234,5 +234,8 @@ and separate Vuoro review sessions into a bay). Initial sampled prompt evidence
 identified reviewers and a rating companion; it is not a complete move list.
 The implementation session could not inventory the current production lake:
 no read token was available and the service-owned catalog was inaccessible.
-Deployment of the new server tools and read/operator access remain prerequisites.
+The live ticket records current deployment and read/operator access prerequisites.
+A deployed server does not give an agent read authority; use an existing
+`events:read` token rather than a device upload token. Keep the live exercise
+incomplete until the real cohort and migration previews have been verified.
 No live membership, grant, profile or routing change is claimed here.

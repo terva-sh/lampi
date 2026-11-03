@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T00:33:37Z
+updated_at: 2026-11-03T18:13:14Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -211,3 +211,17 @@ Post-integration access revalidation still finds installed CLI v0.11.1 (527d5c36
 **agent:codex/t3-6387cc8a** at 2026-11-03T00:33:37Z
 
 The final integration/access record is PR 256 (Tickets: record bay organization integration and live blocker), https://git.local.sothr.com/terva-sh/lampi/pulls/256. Its full model review passed for head 4434b9550549ee41479900e6c296dc9bef34ed0d against base 476a02c20abbe0f5a42a0f5a9b592aabb6a43f2f, with no findings: https://git.local.sothr.com/terva-sh/lampi/pulls/256#issuecomment-37759. Run 0ebe52c7-7309-4db7-b9ed-9eab76521139, Actions 2364 (database 30426). This follow-up records that published verdict; carry applies because every later path is .tickets/**. Required CI remains the gate before merging the record. The implementation already landed through PR 253; no further product changes or live completion are claimed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T18:13:14Z
+
+### Deployment prerequisite resolved; read access still unavailable
+
+Resumed the full epic TKT-01M6F5K38C9N9Y1TRX4PZB7JSW (Discover sessions and organize them into one or more bays) against current state on 2026-11-03. The immediately previous goal turn was a status restatement, not progress or a verified live wait. This turn changes the prerequisite assessment based on fresh evidence; it does not claim the live exercise is complete.
+
+TKT-01M6FRDB3NK7SJGFQCJ43WGXCT (Deploy v0.12.0 to the dogfooding lake) records the operator-run migration to schema 23, preserved session/membership counts and resumed capture. Fresh inspection confirms /usr/local/bin/terva-lampi reports v0.12.0 (ccb9e4cc5111), and the active lake unit runs that path. Loopback health returns 200 and the read bays/sessions routes return 401 without credentials. Thus deployment of the session discovery/organization tools is no longer outstanding. This supersedes prior notes claiming both deployment and access are unavailable. The recent prefix-hide feature in PR #259 is separate and does not need deployment for this exercise.
+
+The shell's terva-lampi still resolves to v0.11.1 (527d5c368339), the unchanged workstation agent installation. Calling the verified v0.12.0 binary directly reaches its new query bays command, but it refuses before a request because no read token is configured. LAMPI_READ_TOKEN_FILE is unset. sudo -n service-account readability still requires a password. No lampi tools are exposed in this turn's tool catalog. No credential/auth file was read or copied, and no device upload credential was repurposed.
+
+Because the deployment prerequisite had actually changed, requested an existing appropriately scoped events:read token once via a private T3 secret card. The 60-second request timed out with no delivery. No secret value/file was received. Do not retry automatically or treat the timeout as approval. Next independent progress requires authorized read access (existing private read-token file or an exposed authorized lampi connector); full membership/readership review additionally needs operator authority. No service, capture configuration, profile, credential, bay, grant, route or membership changed.
+
+The five remaining live acceptance checks remain unproven: complete candidate/membership inventory; opening-prompt and development-control validation with exclusions; reader grants and future routing; actual doctor/discovery coverage and false positives; and add/move/multiple destinations with later-manifest verification. Source and synthetic coverage are already integrated but cannot prove those live requirements. Keep this exercise and the epic incomplete. Updated the walkthrough to defer changing deployment/access facts to this ticket rather than preserve an obsolete deployment blocker in reference documentation.
