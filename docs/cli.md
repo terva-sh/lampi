@@ -122,6 +122,29 @@ not normalized yet is named on stderr and left out.
 
 ## Query a lake
 
+`query bays`, `query projects`, `query sessions` and `query session UID`
+discover catalog metadata with an `events:read` token. Each writes one
+JSON object; lists carry `items`, `next_cursor` and `as_of`. Continue with
+`--cursor` and the same filters and `--limit` until the cursor is empty.
+The default page is 50 items, maximum 200. Scope changes invalidate
+continuations. `query sessions --help` lists all metadata options.
+
+The list filters are `--harness`, `--project`, `--unlinked`,
+`--cwd-prefix`, `--cwd-hash` and `--machine`, combined with AND. Bays
+accepts only paging options. Projects cannot use `--unlinked`; find
+sessions without project IDs through `query sessions --unlinked`.
+`query session UID` takes no listing filters. Every metadata command
+accepts `--lake` or `--server`, `--token-file` and `--out` like the event
+queries below. `--out` is a mode 0600 file published after a complete
+valid JSON reply.
+
+Session metadata includes directory, directory hash, remote, harness,
+bounded machine provenance and visible bay membership. Unknown workflow
+provenance is null. Metadata and machine truncation are explicit. No raw
+manifest/artifact, grant principal or device configuration is returned.
+These queries work independently of transcript/index readiness. See
+[Discover before searching](reading-the-lake.md#discover-before-searching).
+
 `terva-lampi query events` reads the lake's
 [event stream](web-api.md#event-stream) from any machine. It needs a read
 token that holds `events:read`. The filters and `--fields` are export's
@@ -252,3 +275,33 @@ Restart the agent after you edit the `harnesses` map. The fields are in
 | `machines/<name>.json` | the config directory | The machine id for a lake other than `default` |
 | `lakes/<name>/` | the XDG state directory, `terva-lampi/` | Outbox, watermarks, last sync, cached profile |
 | `quarantine.jsonl`, `agent.pid` | the state directory | Redaction hits and the running agent's pid, shared by every lake |
+
+### Select bays for remote queries
+
+`query events`, `query tools`, `query diagnose`, `query sessions`,
+`query projects` and `query session UID` accept `--bays ID,NAME`.
+Choose any of up to 20 comma-separated bay IDs, names or aliases; results
+intersect current token access and other filters, counting shared sessions
+once. Omit for all reachable sessions. Single-session reads enforce the
+selected context. Continue with the same selection; unknown/inaccessible
+selectors fail identically. See [bay selection](reading-the-lake.md#focus-on-selected-bays)
+for examples and coverage limits.
+
+### Plan and apply multi-bay migrations on the lake host
+
+`serve bays select`, `plan`, `apply-plan`, `verify-plan`, `recover-plan` and
+`preview-rule` provide exact reviewed batches, multiple destinations, explicit
+new-bay proposals, state checks and recovery. `--help` on any command lists its
+contract. See [bay migrations](bay-migrations.md) for JSON fields and examples.
+
+### Advisory bay doctor
+
+`serve bays doctor --policy FILE [--json] [--data DIR]` reads host metadata.
+`query recommend-bays --policy FILE [--server URL | --lake NAME]
+[--token-file FILE] [--json]` reads the same scoped remote report. Both support
+exact `--session UID` or AND metadata filters and selected `--bays`; `--out`
+produces private atomic JSON. The policy maps verified directory/hash layouts
+to existing or proposed compatible destinations, with reasons and optional
+conflicting alternative groups. No content is read; purpose remains uncertain.
+There is no write/safe-fix mode. Incomplete inventories withhold preview requests.
+See [policy, feedback, limits and exact-preview handoffs](bay-doctor.md).

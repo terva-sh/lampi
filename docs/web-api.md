@@ -298,6 +298,130 @@ or revoked token is `401 not_authenticated` with a
 `WWW-Authenticate: Bearer realm="lampi-events"` header, and a token
 without `events:read` is `404 not_found`.
 
+### Session metadata discovery
+
+Read-token metadata discovery requires `events:read` and intersects the
+token's current bay and fixed-session scope. It returns catalog metadata
+without raw artifacts, manifests, grant principals or device configuration.
+It works independently of transcript normalization and index readiness.
+
+| GET route | Result |
+|---|---|
+| `/api/read/v1/bays` | Visible bay IDs, names, default marker and reachable-session counts |
+| `/api/read/v1/projects` | Linked project IDs, display labels and reachable-session counts |
+| `/api/read/v1/sessions` | Stored session metadata with explicit routing evidence |
+| `/api/read/v1/sessions/{uid}` | Metadata for one reachable session |
+
+Listings return `{items,next_cursor,as_of}`. `limit` defaults to 50, range
+1–200; pass `cursor` with exactly the same filters and limit to continue.
+Cursors are bound to the current scope. Pages are not snapshots across
+requests: sessions can update between pages; freeze exact IDs when a
+complete selection has been reviewed. Projects and sessions accept
+`harness`, `project`, `cwd_prefix`, `cwd_hash` and `machine`, combined with
+AND. `cwd_prefix` is an absolute directory and its descendants on a path
+boundary, including Unicode paths. Sessions also accepts `unlinked=true`.
+Bays accepts only paging parameters. Session/project discovery also
+accepts the `bays` selector below, including the single-session route. Unknown, repeated or invalid parameters are refused.
+
+Session metadata includes `session_uid`, native ID, harness, project ID
+and label, last head update, normalization state, `cwd`, `cwd_hash`,
+`git_remote`, `machines`, `machine_count`, visible `bays` and `workflow`.
+Unknown workflow is null; directory/remote values are empty when absent.
+Directory and remote fields are bounded to 4096 characters, directory
+hash to 128; `metadata_truncated` identifies clipping. At most five
+provenance machine IDs appear, with `machines_truncated` when more exist.
+No hidden co-membership is disclosed. Bay/project counts include only
+reachable sessions; session-scoped tokens enumerate only bays containing
+their sessions. Unknown and inaccessible sessions both return 404
+`not_found`. Invalid discovery filters or continuations return 400
+`invalid_filters_or_cursor`; malformed query arguments return 400
+`invalid_request`. Responses are `no-store` and every call is audited.
+
+Project discovery returns `project_id`, `id_truncated`, `label` and `sessions`.
+An ID over 4096 bytes is a 512-character preview with `id_truncated=true`;
+use session discovery and exact UIDs rather than a preview as a project filter.
+Project pages seek by an opaque representative session UID, so even oversized
+or multibyte project IDs have bounded continuations. Labels are capped at 512
+characters. As with session discovery, pages reflect current catalog state.
+
+MCP `list_bays`, `list_projects`, `list_sessions` and `get_session` use the
+same query functions and schemas. `get_session` takes `session_uid`.
+See [agent discovery](reading-the-lake.md#discover-before-searching).
+
+### Bay selection in reads
+
+Search, event pages, excerpts, tool statistics, diagnosis, the read-token
+event stream and project/session metadata discovery accept `bays`:
+one comma-separated string containing up to 20 authorized bay IDs, names
+or aliases (maximum 4096 bytes, no empty references). `list_bays` has no
+selector. Unknown and inaccessible references both return 400
+`invalid_bay_selection` without echoing a name. Repeated/empty `bays`
+parameters are 400 `invalid_request`.
+
+Multiple selected bays mean any-of, intersected with current access and
+other filters. Membership checks deduplicate sessions before counts and
+aggregates. Single-session reads return 404 `not_found` outside selected
+bays. Search, event and discovery continuations bind the resolved selection
+and access scope; a changed context requires restarting. Current membership
+is rechecked even with an unchanged cursor. Omitting `bays` preserves the
+full authorized scope. Whole-lake index coverage is omitted for a selected
+scope, while search cursors and diagnosis truncation retain their existing
+meaning. This selector changes neither membership nor authorization.
+
+Example: `/api/read/v1/tools?bays=code-reviews,shared&all=true`.
+MCP uses the same `bays` string; CLI uses `--bays code-reviews,shared`.
+
+### Read-only selection and migration previews
+
+These authenticated POST endpoints require `events:read` and use the same
+scope and implementations as their corresponding MCP tools:
+
+| POST route | MCP tool | JSON body |
+|---|---|---|
+| `/api/read/v1/select-sessions` | `select_sessions` | `session_uids` or `filter`, optional `exclude`, `bays` |
+| `/api/read/v1/preview-bay-migration` | `preview_bay_migration` | `session_uids`, `add`, optional `remove`, `exclude`, `proposed_bays`, `reason`, `bays` |
+| `/api/read/v1/preview-bay-rule` | `preview_bay_rule` | `match`, `action`, `bay`, optional `harness`, `proposed_bay`, `bays` |
+
+UID/exclusion fields are arrays of strings, at most 500 inputs per selection;
+bay arrays have at most 20 references. Metadata `filter` fields are `harness`,
+`project`, `unlinked`, `cwd_prefix`, `cwd_hash` and `machine`, combined with
+AND. A selector must be deliberate, with IDs, a metadata field or selected
+bays. `filter` cannot be combined with exact candidate IDs. The complete
+bounded metadata snapshot is frozen before migration; there is no silent
+sample or continuation to accidentally omit. Larger catchments return 400
+`selection_too_large`; use narrower explicit batches. Every preview includes
+the full bounded rows/UIDs, not a page of examples.
+
+Migration bodies use uniform add/remove edits for an exact cohort. IDs,
+names and aliases resolve before conflicting add/remove references are
+refused. Hypothetical names also appear in `add`; advisory name availability is
+left unresolved to avoid probing hidden bays. `reason` is bounded to 1024
+bytes and is evidence prose only. Future-rule `match` supports `cwd_prefix`,
+`cwd_hash`, `cwd_glob`, `git_remote` and `git_remote_prefix`; actions are
+`add`, `deny`, `hold`. The historical cohort never defines rule catchment.
+
+Bodies are limited to 64 KiB; malformed/unknown fields and query parameters
+are refused with 400 `invalid_request`. Invalid catalog filters return
+`invalid_filters_or_cursor`; unknown/inaccessible bay refs conflate as
+`invalid_bay_selection`. Plans over 8 MiB are `selection_too_large`.
+All read-token migration previews, including unrestricted tokens, return
+generic readership without grant principals or a lake-wide policy fingerprint.
+They set `complete_memberships` to false and require a fresh independently
+authorized administrator preview before apply. Removing every visible
+membership reports `needs_admin_review`: hidden memberships cannot determine
+observable status, default fallback deltas or session-state fingerprints.
+Responses are no-store, audited and annotated read-only in MCP. Audit records
+operation/counts/lengths, without copying nested filters or free-text reasons.
+No MCP/API mutation endpoint, grant, profile or routing write is introduced.
+
+Plan artifacts follow [the migration schema and lifecycle](bay-migrations.md).
+They are untrusted portable data with a checksum and 24-hour expiry, stored
+only by the caller until an independently authorized apply creates a receipt.
+Every read-token plan requires a complete administrator re-preview. Applying a full
+plan rechecks the exact reviewed request and current state inside one atomic
+transaction; generating a plan supplies no authority. Unknown/inaccessible
+UIDs are reported identically, and hidden co-memberships/policy remain hidden.
+
 ### MCP recall tools
 
 `POST /api/read/v1/mcp` is a Model Context Protocol server over the
@@ -1288,3 +1412,28 @@ Each write goes to `audit.jsonl` with the operator as actor. `profile.put`
 names the parts that changed (`projects.allow`, `projects.deny`, `harnesses`,
 `agent`), and the revisions hold both documents. A write whose audit line
 fails still stands, and answers `500 audit_failed`.
+
+## Advisory bay recommendations
+
+POST `/api/read/v1/recommend-bays` and read-only MCP `recommend_bays` share
+`internal/baydoctor`. Both require `events:read`, respect token/bay/session
+scope and return no hidden memberships or profile/device inventory. The body
+is `{policy, filter?, session_uids?, bays?}`; `filter` and exact `session_uids`
+are mutually exclusive. Policy mappings name `id`, `match`, optional `harness`,
+`destinations`, optional `proposed_bays`, `reason` and optional
+`alternative_group`. Directory/hash/glob evidence is required; remote/harness
+alone is refused. Unknown keys or invalid policies return `invalid_request`.
+Unknown and inaccessible destinations share a status. Proposals stay hypothetical.
+
+The versioned report contains evidence, uncertainty, visible current placement,
+compatible destinations, abstentions and eligible exact `preview_request`
+handoffs. At most 500 sessions are inspected; incomplete reports explicitly
+withhold handoffs. Matching alternative mappings abstain. Existing placement
+and request-local, scoped, versioned, expiring ignores suppress duplicate work.
+No content or search index is read. No profile fix, membership, route, grant
+or bay is written. See [the full policy/report contract](bay-doctor.md).
+
+Metadata discovery filters and nested exact-selection filters also accept
+`updated_since`/`updated_until`: UTC RFC3339 timestamps or dates. The lower
+bound is inclusive, an upper timestamp exclusive, and an upper date includes
+that whole UTC day. They describe lake head updates, not workflow start time.

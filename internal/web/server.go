@@ -95,6 +95,8 @@ func New(cfg webconfig.Config, cat *catalog.Catalog, reader *recall.Reader, inde
 	s.readEventRoutes(m)
 	s.readToolRoutes(m)
 	s.readDiagnosisRoutes(m)
+	s.readDiscoveryRoutes(m)
+	s.migrationPreviewRoutes(m)
 	s.mcpRoutes(m)
 	return webauth.Headers(withServer(s, m)), nil
 }
@@ -152,6 +154,12 @@ func failure(err error) (int, map[string]string) {
 		status, code = 503, "search_unavailable"
 	case errors.Is(err, recall.ErrGenerationChanged):
 		status, code = 409, "generation_changed"
+	case errors.Is(err, catalog.ErrSelectionLimit), errors.Is(err, catalog.ErrMigrationSize):
+		status, code = 400, "selection_too_large"
+	case errors.Is(err, catalog.ErrSelection), errors.Is(err, catalog.ErrMigrationInput), errors.Is(err, catalog.ErrSameBay), errors.Is(err, catalog.ErrBayName), errors.Is(err, catalog.ErrRuleEmpty):
+		status, code = 400, "invalid_request"
+	case errors.Is(err, catalog.ErrBaySelection):
+		status, code = 400, "invalid_bay_selection"
 	case errors.Is(err, recall.ErrInvalid):
 		status, code = 400, "invalid_request"
 	case errors.Is(err, recall.ErrTooManyValues):
@@ -474,6 +482,11 @@ func (s *Server) sessionEvents(w http.ResponseWriter, r *http.Request) {
 // eventPage is one events page for scope, as the browser route and
 // the MCP read_events tool ask for it with the same parameters.
 func (s *Server) eventPage(ctx context.Context, scope catalog.Scope, uid string, q url.Values) (recall.EventPage, error) {
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return recall.EventPage{}, selectErr
+	}
+	scope, q = selected, query
 	req, err := parseEvents(q)
 	if err != nil {
 		return recall.EventPage{}, err
@@ -564,6 +577,11 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 // runSearch is one search page for scope, as the browser route and the
 // MCP search tool ask for it with the same parameters.
 func (s *Server) runSearch(ctx context.Context, scope catalog.Scope, q url.Values) (recall.SearchPage, error) {
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return recall.SearchPage{}, selectErr
+	}
+	scope, q = selected, query
 	if s.index == nil {
 		return recall.SearchPage{}, errSearchOff
 	}
@@ -628,6 +646,11 @@ func (s *Server) sessionExcerpt(w http.ResponseWriter, r *http.Request) {
 // excerpt is a copy-out span for scope, as the browser route and the
 // MCP copy_excerpt tool ask for it with the same parameters.
 func (s *Server) excerpt(ctx context.Context, scope catalog.Scope, uid string, q url.Values) (recall.Excerpt, error) {
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return recall.Excerpt{}, selectErr
+	}
+	scope, q = selected, query
 	req, err := parseExcerpt(q)
 	if err != nil {
 		return recall.Excerpt{}, err

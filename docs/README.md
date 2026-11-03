@@ -13,6 +13,7 @@ first run. The pages below are grouped by what you are trying to do.
 | [The agent](agent.md) | You want to know when the agent pushes, how it retries, or which signals it answers |
 | [Registration and lakes](registration-and-lakes.md) | You are adding a machine, or sending sessions to more than one lake |
 | [Read the lake from an agent](reading-the-lake.md) | An agent searches past sessions over MCP, or reads their events, such as every tool call, from its own machine |
+| [Find sessions and organize their bays](bay-workflow.md) | You want the selection and preview contract for organizing sessions into one or more bays |
 
 ## Run a lake
 
@@ -45,3 +46,13 @@ first run. The pages below are grouped by what you are trying to do.
 | [Dashboard and retrieval plan](web-ui-plan.md) | The design record for the web releases |
 | [e2e/README.md](../e2e/README.md) | The synthetic container, the browser smoke, and the go-live drills |
 | [Why the command is terva-lampi](naming.md) | The name collision with a LAMP installer, and the optional `lampi` shortcut |
+
+- [Reviewed multi-bay migrations](bay-migrations.md): exact selections, apply receipts and recovery.
+
+## Organize and review stored sessions
+
+| Page | Read it when |
+|------|--------------|
+| [Organize reviews and development](organizing-sessions.md) | You want a complete agent-first discovery, doctor, migration and verification walkthrough |
+| [Review a migration](bay-migrations.md) | You want exact selections, complete multi-bay previews, apply receipts and correction |
+| [Bay destination doctor](bay-doctor.md) | You want advisory mapped-metadata recommendations, uncertainty and scoped feedback |

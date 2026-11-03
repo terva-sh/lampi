@@ -224,6 +224,7 @@ var migrations = []func(*sql.Tx) error{
 	migrateBayScopes,
 	migrateBayRules,
 	migrateProjectColumns,
+	migrateBayMigrations,
 }
 
 // upgrade runs each step above the file's user_version, one

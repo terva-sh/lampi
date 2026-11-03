@@ -94,6 +94,11 @@ func parseToolStats(q url.Values) (req recall.ToolStatsRequest, all bool, err er
 // since, until or bucket it reads the last seven days, unless all asks
 // for every recorded time.
 func (s *Server) toolStats(ctx context.Context, scope catalog.Scope, q url.Values) (recall.ToolStats, error) {
+	selected, query, selectErr := s.selectedReadScope(ctx, scope, q)
+	if selectErr != nil {
+		return recall.ToolStats{}, selectErr
+	}
+	scope, q = selected, query
 	if s.index == nil {
 		return recall.ToolStats{}, errSearchOff
 	}

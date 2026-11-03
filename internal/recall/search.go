@@ -137,7 +137,7 @@ type searchCursor struct {
 
 func (req SearchRequest) fingerprint() string {
 	req.Cursor = ""
-	b, _ := json.Marshal(req)
+	b, _ := json.Marshal([]any{req, req.Scope.Fingerprint()})
 	sum := sha256.Sum256(b)
 	return base64.RawURLEncoding.EncodeToString(sum[:12])
 }

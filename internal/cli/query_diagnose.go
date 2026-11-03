@@ -41,7 +41,7 @@ The output is JSONL, one object per line with one key:
 docs/web-api.md describes every field. A count is also written to
 stderr. No transcript content is read or written.
 
-The read token, the lake and --out are as for query events.
+The read token, the lake, --bays and --out are as for query events.
 
 One session:
   terva-lampi query diagnose --token-file read-token 01M61...
@@ -50,7 +50,7 @@ The last day's sessions, grouped:
 `
 
 func runQueryDiagnose(env Env, args []string) error {
-	var lake, server, tokenFile, outPath, since, harness, project string
+	var lake, server, tokenFile, outPath, since, harness, project, bays string
 	var limit int
 	// Flag parsing stops at the uid, so the flags after it are parsed
 	// again, each defaulting to the value already read.
@@ -61,6 +61,7 @@ func runQueryDiagnose(env Env, args []string) error {
 			fs.StringVar(&server, "server", server, "the lake URL")
 			fs.StringVar(&tokenFile, "token-file", tokenFile, "file holding the read token (or LAMPI_READ_TOKEN_FILE)")
 			fs.StringVar(&outPath, "out", outPath, "JSONL path (default: stdout)")
+			fs.StringVar(&bays, "bays", bays, "any selected bay IDs, names or aliases, comma-separated")
 			fs.StringVar(&since, "since", since, "lake-wide: only sessions updated at or after this UTC time")
 			fs.IntVar(&limit, "limit", limit, "lake-wide: read at most this many sessions")
 			fs.StringVar(&harness, "harness", harness, "lake-wide: only sessions from this harness")
@@ -90,13 +91,16 @@ func runQueryDiagnose(env Env, args []string) error {
 	if uid != "" && len(q) > 0 {
 		return fmt.Errorf("--since, --limit, --harness and --project are for the lake-wide view; drop them or the session uid")
 	}
+	if bays != "" {
+		q.Set("bays", bays)
+	}
 	server, token, err := queryTarget(env, lake, server, tokenFile)
 	if err != nil {
 		return err
 	}
 	var out bytes.Buffer
 	if uid != "" {
-		body, err := fetchRead(server, token, "/api/read/v1/sessions/"+url.PathEscape(uid)+"/diagnosis", nil, diagnoseHint)
+		body, err := fetchRead(server, token, "/api/read/v1/sessions/"+url.PathEscape(uid)+"/diagnosis", q, diagnoseHint)
 		if err != nil {
 			return err
 		}

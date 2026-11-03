@@ -191,6 +191,7 @@ type pageData struct {
 	ReadTokens readTokensView
 	// Bays is the admin's bays page, and SessionBays the bays a session
 	// is in that the reader may read.
+	Organize    organizeView
 	Bays        baysView
 	SessionBays []string
 	Codes       codesView
@@ -588,7 +589,7 @@ var wideViews = map[string]bool{
 	"overview": true, "sessions": true, "detail": true, "search": true, "activity": true,
 	"usage": true, "operations": true, "devices": true, "device": true, "review": true,
 	"profiles": true, "profile": true, "profile-edit": true, "bays": true, "conflicts": true,
-	"registrations": true, "read-tokens": true, "minted": true, "raw": true,
+	"registrations": true, "read-tokens": true, "minted": true, "raw": true, "organize": true,
 }
 
 // namedItems hands a table template its rows and the device names to

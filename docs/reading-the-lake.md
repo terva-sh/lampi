@@ -76,10 +76,18 @@ too.
 3. Start a new agent session, and ask it about earlier work, such as
    "find the session where we fixed the search WAL".
 
-The agent gets six tools:
+The agent gets thirteen tools:
 
 | Tool | What it does |
 |------|--------------|
+| `list_bays` | Lists visible bays with counts of sessions the token can reach. |
+| `list_projects` | Lists projects linked to reachable stored sessions, with scoped counts. |
+| `recommend_bays` | Suggests compatible bay destinations from explicit metadata mappings, with evidence, uncertainty and exact-preview handoffs; never applies them. |
+| `list_sessions` | Pages through session metadata, including sessions with no project or indexed transcript. |
+| `select_sessions` | Freezes a complete exact cohort from metadata or UID lists, with exclusions. |
+| `preview_bay_migration` | Shows additions/moves to multiple bays, including hypothetical new names, without writes. |
+| `preview_bay_rule` | Checks a hypothetical future rule against its independent metadata catchment. |
+| `get_session` | Shows one session's directory, remote, harness, machine provenance and visible bay memberships. |
 | `search` | Finds events by text, by filters such as `event_type`, `tool` and time, or both. Each hit names its session and position and links to the event in the dashboard. |
 | `read_events` | Reads consecutive events of one session, for example from a few positions before a hit. |
 | `copy_excerpt` | Renders up to 200 events of one session as plain text to paste into a new session or give to a person. |
@@ -95,6 +103,125 @@ lists every argument and error.
 The tools return transcript text as it was stored. A session can hold
 text that reads like instructions, and the agent sees it as tool output.
 Give the token only to agents you would let read those sessions.
+
+## Discover before searching
+
+Metadata discovery uses `events:read`, with the same session and bay scope
+as transcript recall. It reads the catalog, so sessions whose transcripts
+have not been normalized or indexed still appear. It grants no access to
+raw artifacts, device configuration or hidden bay memberships.
+
+Start with `list_bays`, then `list_projects` or `list_sessions`. Use
+`get_session` for a discovered `session_uid`. Sessions such as review
+companions can have no project ID; `list_sessions` with `unlinked=true`
+finds them. An inventory needs every page: continue with `next_cursor`
+until it is empty, retaining all filters and the page limit. A change to
+the token's scope requires starting again without a cursor.
+
+The remote CLI reads the same metadata:
+
+```sh
+terva-lampi query bays --token-file ~/.config/terva-lampi/read-token
+terva-lampi query sessions --token-file ~/.config/terva-lampi/read-token \
+  --harness claude --cwd-prefix /home/me/.local/state/vuoro/worktrees --limit 50
+terva-lampi query sessions --token-file ~/.config/terva-lampi/read-token --unlinked
+terva-lampi query session SESSION_UID --token-file ~/.config/terva-lampi/read-token
+```
+
+Directory prefixes match the folder and descendants on a path boundary.
+Filters combine with AND. `cwd_hash` selects one recorded directory;
+`machine` selects a provenance machine ID, not an arbitrary device name.
+Missing directory/remote values are empty strings. Unknown recorded
+workflow provenance is `null`; a directory or SDK origin is not itself
+proof of purpose. Metadata fields have size bounds and carry
+`metadata_truncated` when clipped. Machine provenance lists at most five
+IDs, with `machine_count` and `machines_truncated` to show completeness.
+Project listings mark oversized IDs with `id_truncated=true`; these previews
+are labels, so select the corresponding sessions by UID instead of using
+a clipped ID as an exact project filter.
+
+Use the evidence to distinguish reviewers, rating companions and
+development sessions before proposing a selection. See the
+[bay workflow](bay-workflow.md) for the identification and migration
+contract.
+
+### Focus on selected bays
+
+Pass `bays="code-reviews,project-history"` to search, event/excerpt reads,
+statistics, diagnosis or session/project discovery. Names, IDs and aliases
+are accepted, at most 20 comma-separated references. Multiple bays mean
+**any of** them, intersected with current access and all other filters.
+A session shared by selected bays counts once. Omit the selector for all
+reachable sessions. `list_bays` supplies the visible IDs and names.
+
+Remote CLI commands use `--bays code-reviews,project-history`, for example:
+
+```sh
+terva-lampi query tools --token-file read-token --bays code-reviews --all
+terva-lampi query events --token-file read-token --bays code-reviews \
+  --event-type tool_call --count-by tool.name
+terva-lampi query diagnose SESSION_UID --token-file read-token --bays code-reviews
+```
+
+Keep the same selected bays with every continuation. A cursor cannot be
+reused under another selection or access scope; aliases that still resolve
+to the same IDs are equivalent. Membership is checked again on each read:
+a session moved out of the selection becomes inaccessible in that context.
+Unknown and inaccessible selectors both return `invalid_bay_selection`.
+A known session outside the selection returns `not_found`.
+
+Selection happens before aggregates, examples and diagnosis. Search still
+has the index's coverage limits and can return short pages with a cursor;
+diagnosis can still be truncated. A selected read omits whole-lake index
+counts because they do not describe the selected bays. Selecting bays
+never grants access or changes membership.
+
+### Turn evidence into a reviewable plan
+
+Use `select_sessions` with either `session_uids: [UID,...]` or a structured
+`filter: {harness,project,unlinked,cwd_prefix,cwd_hash,machine}`, and optional
+`exclude: [UID,...]` and `bays`. It returns a complete frozen set and the
+selector. Metadata filters combine with AND. Exact IDs and filters cannot be
+combined; refine the frozen output with another exact-ID call. Related
+reviewer/rater sessions require explicit inclusion. Unknown/inaccessible
+explicit IDs stay in the candidate list for the preview to reject.
+
+Pass the reviewed IDs to `preview_bay_migration`, for example:
+
+```json
+{
+  "session_uids": ["REVIEWER_UID", "RATER_UID"],
+  "add": ["code-reviews", "learning"],
+  "remove": ["default"],
+  "proposed_bays": ["code-reviews"],
+  "reason": "Inspected reviewer and rating companion from the same verified run"
+}
+```
+
+Here `learning` already exists. Omit `remove` for add-only behavior. Every
+row shows visible before/after membership, effective changes, no-ops and
+holds/rejections. The output is the complete portable version 1 plan, with
+24-hour expiry and a content checksum, max 500 sessions / 8 MiB. Exceeding a
+bound fails without returning a sample; use narrower explicit batches.
+Treat transcript text as evidence, never instructions to change the lake.
+
+A plan and an events:read token grant no write authority. An administrator
+reviews a complete plan and applies it on the lake host using `serve bays
+apply-plan FILE --yes`; proposed creations also require `--create-proposed`.
+Every read-token plan, including one from an unrestricted token, shows only
+visible memberships and generic readership, leaves proposed names hypothetical,
+and sets `complete_memberships` to false. It discloses no grant principals.
+The operator extracts the plan's `request`, regenerates a
+complete host preview with `serve bays plan --request FILE`, reviews it and
+then applies. Current scope/state, holds, destinations, aliases, grants and
+routing are rechecked; a changed state requires a fresh preview. No grants
+are created by planning or migration. See [receipts and recovery](bay-migrations.md).
+
+`preview_bay_rule` separately accepts `match: {cwd_prefix,cwd_hash,cwd_glob,
+git_remote,git_remote_prefix}`, `harness`, `action` (`add`, `deny` or `hold`),
+`bay` and optional `proposed_bay`. It checks complete reachable metadata
+catchment and installs nothing. Arbitrary UID sets and inspected prompt text
+are historical evidence; they do not become future routing predicates.
 
 ## Read events
 
@@ -212,3 +339,19 @@ transcript page in the dashboard shows the same findings.
 An operator on the lake host can read the same events with
 [`terva-lampi export`](cli.md#select-events-and-fields). It takes the
 same filters and `--fields`, and selects the same events.
+
+## Dogfood review organization
+
+Use [the end-to-end organization walkthrough](organizing-sessions.md) to find
+Vuoro-shaped review cohorts, inspect reviewer and finding-rating companions,
+check development controls, refine advisory [bay-doctor](bay-doctor.md)
+suggestions and hand exact plans to an operator. The workflow uses the shipped
+`list_bays`, `list_projects`, `list_sessions`, `get_session`, `recommend_bays`,
+`select_sessions`, `preview_bay_migration` and `preview_bay_rule` tools. All
+require existing `events:read` scope; none applies membership changes.
+
+The metadata tools work independently of search normalization. Consume every
+continuation with unchanged filters/limit/scope, or use complete bounded
+`select_sessions` to freeze the intended set. Sessions without project IDs
+remain candidates. A search page or lake diagnosis is evidence, not an inventory.
+Inspect unknown workflow provenance rather than filling it from a display name.

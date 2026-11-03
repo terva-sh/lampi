@@ -220,7 +220,7 @@ func TestQueryEventsRefusesAShortStream(t *testing.T) {
 		{[]string{"query", "events", "--server", "http://lake.example", "--token-file", token, "--tool", "x"}, "plain http"},
 		{[]string{"query", "events", "--server", srv.URL, "--token-file", filepath.Join(t.TempDir(), "none"), "--tool", "x"}, "read token"},
 		{[]string{"query", "events", "--lake", "a", "--server", srv.URL, "--tool", "x"}, "pass one"},
-		{[]string{"query", "sessions"}, `unknown query "sessions"`},
+		{[]string{"query", "unknown"}, `unknown query "unknown"`},
 		{[]string{"query", "events", "--server", srv.URL, "--token-file", token, "--tool", "x", "--count-by", "content_text"}, "free text"},
 		{[]string{"query", "events", "--server", srv.URL, "--token-file", token, "--tool", "x", "--count-by", "tool.name", "--fields", "harness"}, "leave out --fields"},
 	} {
