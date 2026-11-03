@@ -151,9 +151,9 @@ type readTokensView struct {
 	// read. They ride in hidden fields, so a redisplayed form never
 	// mints a token wider than the one asked for.
 	KeptBays []string
-	Form    readTokenForm
-	Attempt string
-	Problem string
+	Form     readTokenForm
+	Attempt  string
+	Problem  string
 	// Minted is the token just minted, and Secret its value. Secret is
 	// set on this one response and nowhere else.
 	Minted *readTokenView
