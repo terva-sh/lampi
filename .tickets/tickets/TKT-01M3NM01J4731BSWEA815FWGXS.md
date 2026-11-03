@@ -28,7 +28,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-11-03T17:36:51Z
+updated_at: 2026-11-03T17:38:26Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
@@ -111,3 +111,13 @@ Kept capture deny-wins semantics rather than overloading deny: making narrower a
 Automatic allow insertion and doctor cleanup preserve review exceptions, including otherwise capture-redundant rules. Folder folds involving exceptions are not offered. The doctor excludes prefix-hidden sightings from pending suggestions. Review-only saves can conservatively keep an already-allowed refusal pending until another inventory arrives, since the existing caught-up check uses the latest save time; no permission inference was weakened.
 
 Regression coverage exercises the 21-rule `/tmp` scenario via actual rendered editor forms, preview without mutation, later inventories, directory boundaries, Show/deeper-Hide exceptions, separate profile/device sightings, mixed checkouts, manual hides, stale saves, rollback, protected cleanup, and signed device schema/version stability. Documented editor usage and CLI/API JSON. Focused regression tests and vet pass; full suite, affected race suites and build are being completed before PR submission. No live profile, capture setup or service was changed. The existing live consolidation child remains independent.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T17:38:26Z
+
+### PR and local validation
+
+Opened https://git.local.sothr.com/terva-sh/lampi/pulls/259 with implementation head d66aba1 and requested terva-review (`profile-hide-prefix-d66aba1`). The dispatch command reported an empty-JSON response error, but the workflow dispatch appeared as running in Actions, so it was not duplicated.
+
+Passed full `mise exec -- go test -trimpath=false ./...`, vet, gofmt, diff checks, and build (`-buildvcs=false`, output under agent scratch). Passed race tests for config, catalog, profiledoctor, web and API. CLI coverage verifies doctor-write/set/show preserve policy and protected exceptions. `git ticket check` reports zero errors and two pre-existing long-title warnings in unrelated completed tickets; regenerated the epic index to reflect the claimed epic.
+
+This final ticket-only commit will be newer than the requested implementation review. Once that review completes, carry its verdict to the ticket-only head before merging. Continue with CI and finding dispositions; no live deployment or profile editing is part of this increment.
