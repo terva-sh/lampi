@@ -3,8 +3,8 @@ schema: 3
 id: TKT-01M6F5K38C9N9Y1TRX4PZB7JSW
 title: Discover sessions and organize them into one or more bays
 type: epic
-status: blocked
-status_reason: Implementation is complete; live Vuoro dogfood remains blocked on deployment and authorized read/operator access. See TKT-01M6F5A01MX2ZCP9J7M3GGD7M0.
+status: in-progress
+status_reason: null
 priority: normal
 due_on: null
 labels:
@@ -19,10 +19,17 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim: null
+claim:
+  actor: agent:codex/t3-6387cc8a
+  branch: dogfood/vuoro-live-preview
+  worktree: /home/sothr/.t3/worktrees/lampi/t3-6387cc8a
+  commit: a5e6954de885b78e716f6e69909dffd879372037
+  session: null
+  claimed_at: 2026-11-03T21:16:08Z
+  expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T18:13:14Z
+updated_at: 2026-11-03T21:28:53Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -225,3 +232,17 @@ The shell's terva-lampi still resolves to v0.11.1 (527d5c368339), the unchanged 
 Because the deployment prerequisite had actually changed, requested an existing appropriately scoped events:read token once via a private T3 secret card. The 60-second request timed out with no delivery. No secret value/file was received. Do not retry automatically or treat the timeout as approval. Next independent progress requires authorized read access (existing private read-token file or an exposed authorized lampi connector); full membership/readership review additionally needs operator authority. No service, capture configuration, profile, credential, bay, grant, route or membership changed.
 
 The five remaining live acceptance checks remain unproven: complete candidate/membership inventory; opening-prompt and development-control validation with exclusions; reader grants and future routing; actual doctor/discovery coverage and false positives; and add/move/multiple destinations with later-manifest verification. Source and synthetic coverage are already integrated but cannot prove those live requirements. Keep this exercise and the epic incomplete. Updated the walkthrough to defer changing deployment/access facts to this ticket rather than preserve an obsolete deployment blocker in reference documentation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:16:24Z
+
+### Live dogfood resumed with verified read access
+
+The deployment and read-access prerequisites are resolved, so this epic and TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) are in progress again. Complete reachable metadata traversal found 2,319 unique sessions and only default visible at the recorded cutoff. Direct MCP opening reads succeeded, including an unlinked finding rater and a distinct macOS fix-editor workflow that should not be silently included as a review. The live ticket records the inventory limits and ongoing full-cohort evidence pass. This is substantive live inspection, not another access-only revalidation. No live memberships, grants, routes, bays, profiles, credentials or services were changed; exact split and full operator review remain outstanding.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:28:53Z
+
+### Live exercise now has exact reviewed-scope evidence
+
+The live child TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) now records a complete 2,319-session reachable inventory, bounded opening inspection of 1,298 candidates/controls, and a 1,287-session exact proposal across 500/500/287 paired batches. All scoped move previews and per-batch doctor reports passed. Explicit editor/development/synthetic exclusions, 1,247 unlinked companions/reviewers, add/move/multiple-destination comparisons, a real broad-path doctor false positive, independent complete routing partitions and synthetic later-manifest validation are documented with a ticket-linked frozen-request artifact.
+
+Audited the original nine implementation/design/docs children: all are done and integrated through PR #253; the real exercise is the remaining in-progress child. Read authority is verified and no longer a blocker. The last epic criterion remains unchecked because full administrator memberships/readership/current routing and operator-approved live sorting plus later-upload verification remain unproven. Present the exact code-reviews move with no new grants for owner approval, then obtain the complete administrator preview before changing live state. The two newly filed tool-friction spikes remain drafts under the exercise, not automatic scope promotion or substitutes for completing the live work.
