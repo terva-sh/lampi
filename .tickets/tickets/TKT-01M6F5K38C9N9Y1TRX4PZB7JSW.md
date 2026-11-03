@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T00:02:21Z
+updated_at: 2026-11-03T00:11:14Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -155,3 +155,15 @@ Restoration now resolves existing source/destination references to IDs and keeps
 Full go test -trimpath=false ./..., web race tests, go vet ./..., isolated build, gofmt and git diff --check passed. Catalog and CLI race suites passed on the preceding privacy fix; this change touches dashboard code only. Ticket validation retains zero errors and the same two preexisting unrelated long-title warnings. All notes will be pushed with the code before requesting a new full review at a stable final head.
 
 The acceptance audit found executable implementations/tests for the nine completed design/software/docs children. The live Vuoro criteria remain unchecked: complete bay/session inventory, inspected candidate/control prompts, precise live move and future-route previews, doctor coverage and later-manifest verification still require deployment and authorized access. Synthetic coverage is not a substitute for that exercise. No live state changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:11:14Z
+
+### Review 3016 and per-session correction preservation
+
+Published review 3016 at 2bbe0822915add18508af8aeaa27ae8212cab63b confirms name/alias restoration is resolved and raises medium finding-1 for lossy restoration of imported/recovery request.edits. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37738. Accepted and fixed in b0bd784ac5ff03e569e52b6d65ee98ea35f8188e. Detailed rationale and interaction evidence are recorded in TKT-01M3NNF2NNAETK0YG9WVBQW21G (Bays: guided selection, multi-bay migration and inbox triage).
+
+The dedicated retained-edits form preserves per-session additions/removals, original cohort, recovery provenance and refinements through selection, exclusions, filtering and re-preview. It rejects missing retained state and sessions without edits, and omits unused proposals when narrowing. The regression creates heterogeneous operations, previews/refines and applies only one inverse, verifies other sessions remain unchanged, and checks imported alias/proposed edits.
+
+The associated recovery audit also found that refreshed inverse requests could previously adopt a later remove/re-add. TKT-01M6F5K45WCQKE37JN4CC0WEY7 (Bays: plan and apply selected sessions to multiple destinations) records moving receipt-state and exact-inverse validation into the common planner. Every recovery import/re-preview now repeats those checks; a valid unchanged subset can still be selected. Refused refreshes retain the old exact request in the dashboard.
+
+Full go test -trimpath=false ./..., catalog/web/CLI race suites, go vet ./..., isolated build, gofmt and git diff --check passed. Ticket validation has zero errors and the same two preexisting unrelated title warnings. Push all source/ticket records together, record the accepted disposition, and request a new full review at the resulting stable head. No live lake state changed; production deployment/read/operator access remain the external prerequisites for the unchecked Vuoro exercise.
