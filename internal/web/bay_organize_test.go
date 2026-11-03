@@ -72,13 +72,20 @@ func organizationForm(t *testing.T, body, id string) url.Values {
 	if len(values) == 0 {
 		t.Fatalf("form %s missing", id)
 	}
+	// URL-encoded browser submissions normalize every value's newlines to
+	// CRLF, including hidden input attributes and textarea contents.
+	for name, entries := range values {
+		for i, value := range entries {
+			values[name][i] = strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\n", "\r\n")
+		}
+	}
 	return values
 }
 
 func TestOrganizeSelectionPagingAndRelated(t *testing.T) {
 	lake, idp, h, _ := rawLake(t, nil)
 	var ids []string
-	for i := 0; i < 53; i++ {
+	for i := 0; i < 103; i++ {
 		ids = append(ids, ingestHead(t, lake, fmt.Sprintf("run-%02d", i), strings.Repeat("ab", 32), 4))
 	}
 	admin := signInAs(t, idp, h, "owners")
@@ -102,15 +109,29 @@ func TestOrganizeSelectionPagingAndRelated(t *testing.T) {
 	f.Set("next", next)
 	page = postForm(h, organizePath, f, admin)
 	f = organizationForm(t, page.Body.String(), "organize-form")
-	if f.Get("selected") != selected || len(f["page_uid"]) != 3 {
+	if f.Get("selected") != selected || len(f["page_uid"]) != 50 {
 		t.Fatal("selection lost on next page", f)
 	}
 	other := f["page_uid"][0]
 	f.Set("selected_page", other)
+	f.Set("next", between(page.Body.String(), `name="next" value="`, `"`))
+	page = postForm(h, organizePath, f, admin)
+	f = organizationForm(t, page.Body.String(), "organize-form")
+	if page.Code != 200 || len(f["page_uid"]) != 3 {
+		t.Fatal("third page", page.Code, len(f["page_uid"]))
+	}
+	third := f["page_uid"][0]
+	f.Set("selected_page", third)
 	f.Set("action", "previous")
 	page = postForm(h, organizePath, f, admin)
 	f = organizationForm(t, page.Body.String(), "organize-form")
-	if !strings.Contains(f.Get("selected"), selected) || !strings.Contains(f.Get("selected"), other) {
+	f.Set("action", "previous")
+	page = postForm(h, organizePath, f, admin)
+	f = organizationForm(t, page.Body.String(), "organize-form")
+	if page.Code != 200 || f.Get("cursor") != "" || f.Get("history") != "" || !slices.Contains(f["page_uid"], selected) {
+		t.Fatal("return to first page", page.Code, f.Get("cursor"), f.Get("history"))
+	}
+	if !strings.Contains(f.Get("selected"), selected) || !strings.Contains(f.Get("selected"), other) || !strings.Contains(f.Get("selected"), third) {
 		t.Fatal("selection lost on previous page")
 	}
 	f.Set("action", "preview") // invalid destination retains exact selection
@@ -123,7 +144,7 @@ func TestOrganizeSelectionPagingAndRelated(t *testing.T) {
 	f.Set("exclude", ids[0])
 	page = postForm(h, organizePath, f, admin)
 	f = organizationForm(t, page.Body.String(), "organize-form")
-	if len(splitSessionText(f.Get("selected"))) != 52 || strings.Contains(f.Get("selected"), ids[0]) {
+	if len(splitSessionText(f.Get("selected"))) != 102 || strings.Contains(f.Get("selected"), ids[0]) {
 		t.Fatal("all filtered selection", f.Get("selected"))
 	}
 	// A related inspection clears project and bay restrictions, retaining UIDs.
@@ -132,7 +153,7 @@ func TestOrganizeSelectionPagingAndRelated(t *testing.T) {
 	f.Del("action")
 	page = postForm(h, organizePath, f, admin)
 	f = organizationForm(t, page.Body.String(), "organize-form")
-	if f.Get("project") != "" || f.Get("bays") != "" || f.Get("cwd_hash") != "shared-hash" || len(splitSessionText(f.Get("selected"))) != 52 {
+	if f.Get("project") != "" || f.Get("bays") != "" || f.Get("cwd_hash") != "shared-hash" || len(splitSessionText(f.Get("selected"))) != 102 {
 		t.Fatal("related inspection lost state")
 	}
 }

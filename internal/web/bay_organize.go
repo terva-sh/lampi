@@ -117,7 +117,10 @@ func uniqueIDs(ids []string) []string {
 }
 
 func parseOrganizeForm(v url.Values) (organizeForm, error) {
-	f := organizeForm{DoctorPolicy: v.Get("doctor_policy"), Filter: catalog.DiscoveryRequest{Harness: v.Get("harness"), Project: v.Get("project"), Unlinked: v.Get("unlinked") == "true", CWDPrefix: v.Get("cwd_prefix"), CWDHash: v.Get("cwd_hash"), Machine: v.Get("machine"), UpdatedSince: v.Get("updated_since"), UpdatedUntil: v.Get("updated_until")}, Bays: v.Get("bays"), Focus: v.Get("focus"), Selected: v.Get("selected"), Exclude: v.Get("exclude"), Mode: v.Get("mode"), Add: v["add"], Remove: v["remove"], Proposed: v.Get("proposed"), Reason: v.Get("reason"), Cursor: v.Get("cursor"), History: strings.Split(v.Get("history"), "\n"), RuleBay: v.Get("rule_bay"), RuleAction: v.Get("rule_action"), RuleProposed: v.Get("rule_proposed") == "true"}
+	// Browsers normalize hidden form values to CRLF on submission. Restore
+	// the history delimiters before using any entry as a discovery cursor.
+	history := strings.ReplaceAll(v.Get("history"), "\r\n", "\n")
+	f := organizeForm{DoctorPolicy: v.Get("doctor_policy"), Filter: catalog.DiscoveryRequest{Harness: v.Get("harness"), Project: v.Get("project"), Unlinked: v.Get("unlinked") == "true", CWDPrefix: v.Get("cwd_prefix"), CWDHash: v.Get("cwd_hash"), Machine: v.Get("machine"), UpdatedSince: v.Get("updated_since"), UpdatedUntil: v.Get("updated_until")}, Bays: v.Get("bays"), Focus: v.Get("focus"), Selected: v.Get("selected"), Exclude: v.Get("exclude"), Mode: v.Get("mode"), Add: v["add"], Remove: v["remove"], Proposed: v.Get("proposed"), Reason: v.Get("reason"), Cursor: v.Get("cursor"), History: strings.Split(history, "\n"), RuleBay: v.Get("rule_bay"), RuleAction: v.Get("rule_action"), RuleProposed: v.Get("rule_proposed") == "true"}
 	if raw := v.Get("per_session_request"); raw != "" {
 		if len(raw) > 8<<20 {
 			return f, catalog.ErrMigrationSize
@@ -136,7 +139,7 @@ func parseOrganizeForm(v url.Values) (organizeForm, error) {
 			return f, catalog.ErrMigrationInput
 		}
 	}
-	if v.Get("history") == "" {
+	if history == "" {
 		f.History = nil
 	}
 	selected := splitSessionText(f.Selected)

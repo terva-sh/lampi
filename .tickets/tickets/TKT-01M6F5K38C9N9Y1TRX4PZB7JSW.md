@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T00:11:14Z
+updated_at: 2026-11-03T00:16:27Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -167,3 +167,13 @@ The dedicated retained-edits form preserves per-session additions/removals, orig
 The associated recovery audit also found that refreshed inverse requests could previously adopt a later remove/re-add. TKT-01M6F5K45WCQKE37JN4CC0WEY7 (Bays: plan and apply selected sessions to multiple destinations) records moving receipt-state and exact-inverse validation into the common planner. Every recovery import/re-preview now repeats those checks; a valid unchanged subset can still be selected. Refused refreshes retain the old exact request in the dashboard.
 
 Full go test -trimpath=false ./..., catalog/web/CLI race suites, go vet ./..., isolated build, gofmt and git diff --check passed. Ticket validation has zero errors and the same two preexisting unrelated title warnings. Push all source/ticket records together, record the accepted disposition, and request a new full review at the resulting stable head. No live lake state changed; production deployment/read/operator access remain the external prerequisites for the unchecked Vuoro exercise.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:16:27Z
+
+### Review 3017 and integration validation
+
+Review 3017 on afd210a1d425899f0e7923e9c42e75acf9afdb4d confirms per-session correction preservation is resolved and finds a browser newline normalization bug in backward paging. Accepted; fix rationale and the failing-then-passing three-page browser-form regression are recorded under TKT-01M3NNF2NNAETK0YG9WVBQW21G (Bays: guided selection, multi-bay migration and inbox triage). Review link: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37746.
+
+Merged current origin/main through 20220e85ec22dbef9fd49955912f2b9d5da95d46, retaining the newer project/folder/machine session filters and read-token pickers. On the resulting source, full go test -trimpath=false ./..., affected catalog/web/CLI race tests, go vet ./..., isolated build, gofmt and git diff --check pass. Logs are in the existing task scratch directory as paging-full.log and paging-race.log. Ticket validation has zero errors and the same two preexisting unrelated title warnings. Push all source/ticket records together, accept review 3017 finding-1 with the resulting commit SHA and request a fresh full model review on that stable head.
+
+Live prerequisite revalidation: installed CLI remains v0.11.1 (527d5c368339), new query bays refuses because no read token is configured, noninteractive service-account catalog access requires a password, and no lampi connector is exposed. No live configuration, memberships, routes, grants or service state changed. Backed-up deployment and authorized read/operator access remain the external prerequisites for the unchecked Vuoro exercise. Do not claim completion from synthetic tests or mark the live criteria complete.

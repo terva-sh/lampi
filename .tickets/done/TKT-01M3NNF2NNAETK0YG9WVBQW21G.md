@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T04:06:18Z
-updated_at: 2026-11-03T00:09:39Z
+updated_at: 2026-11-03T00:14:46Z
 created_by:
   id: agent:claude-code/7859b064
   name: ""
@@ -84,6 +84,16 @@ A union/intersection of per-session sources/destinations was rejected because it
 Rendered-form tests create a heterogeneous original migration and recovery, refine exclusions/exact/filtered selection, re-preview and apply only the selected inverse; unselected and unrelated sessions remain unchanged. They reject newly selected sessions and missing retained state. Another imported-edit test retains alias-based edits while dropping an excluded session's unused proposed bay. Refreshing an old correction after a receipt-touched change is refused while retaining the per-session request in the form. The shared planner now checks that receipt on every recovery preview; the catalog ticket records this related audit fix.
 
 Focused catalog/web migration/recovery/organization tests pass. Full normal tests, catalog/web/CLI race checks, vet/build and formatting checks are running before the single final push and fresh full review. No live lake state changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:14:46Z
+
+### Review 3017 finding-1: normalize browser paging history
+
+Review 3017 on afd210a1d425899f0e7923e9c42e75acf9afdb4d confirms the retained per-session edit fix and identifies CRLF normalization of hidden form values as a backward-navigation bug. Accepted. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37746.
+
+Normalize CRLF to LF before splitting submitted history into discovery cursors. This preserves the existing history representation and fixes the input boundary; replacing the format with JSON was unnecessary. The rendered-form helper now models browser URL-encoded newline normalization for every value. The selection interaction test visits three pages, selects sessions on each, returns twice to the first page, verifies empty cursor/history and the actual first-page rows, then checks retained selections, errors, all-filtered exclusions and related-session inspection. The enhanced regression failed before the parser fix and passes afterward. Other organization/import/recovery tests now use the same browser submission behavior.
+
+Integrated origin/main through 20220e85ec22dbef9fd49955912f2b9d5da95d46, preserving its project/folder/machine session pickers and read-token controls together with the organization page help/admin label. Focused organization, session-picker and read-token checks pass; broader validation follows before pushing the source/ticket records and requesting a fresh full model review. No live state changed.
 
 ## Summary
 
