@@ -97,6 +97,7 @@ type profileView struct {
 	// The document's fields as the page lays them out.
 	Allow       []config.ProjectMatch `json:"-"`
 	Deny        []config.ProjectMatch `json:"-"`
+	Review      []config.ReviewRule   `json:"-"`
 	Harnesses   []profileHarness      `json:"harnesses"`
 	Debounce    string                `json:"-"`
 	DebounceMax string                `json:"-"`
@@ -217,7 +218,7 @@ func (s *Server) readProfile(ctx context.Context, name string, now time.Time) (p
 	}
 	v := profileView{
 		profileSummary: sum, AsOf: now.UTC().Format(time.RFC3339Nano), Document: doc,
-		Allow: prof.Projects.Allow, Deny: prof.Projects.Deny,
+		Allow: prof.Projects.Allow, Deny: prof.Projects.Deny, Review: prof.Review.Rules,
 		Debounce: prof.Agent.Debounce, DebounceMax: prof.Agent.DebounceMax,
 		DeviceList: users[name], Revisions: []profileRevisionView{}, Ignored: s.ignoredProfiles(),
 	}
@@ -351,7 +352,7 @@ func (s *Server) renderProfile(w http.ResponseWriter, r *http.Request, name, pro
 func (s *Server) showProfile(w http.ResponseWriter, r *http.Request, v profileView, problem string, status int) {
 	v.Actions, v.CSRF = s.operatorForms(r)
 	v.Problem = problem
-	v.Health = s.health(r, v.Name, config.Projects{Allow: v.Allow, Deny: v.Deny}, false)
+	v.Health = s.health(r, v.Name, config.Projects{Allow: v.Allow, Deny: v.Deny}, false, config.ReviewConfig{Rules: v.Review})
 	renderStatus(w, r, pageData{Title: "Profile " + v.Name, View: "profile", AsOf: v.AsOf, Profile: v}, status)
 }
 

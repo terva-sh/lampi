@@ -38,6 +38,7 @@ type allowProfile struct {
 	// cover, which the plan drops.
 	Removed    []config.ProjectMatch `json:"removed"`
 	Reach      *profileReach         `json:"reach"`
+	Visibility *profileVisibility    `json:"visibility,omitempty"`
 	Document   string                `json:"-"`
 	Doc        json.RawMessage       `json:"document"`
 	Devices    []profileDevice       `json:"devices"`
@@ -158,7 +159,7 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 		for _, rv := range ap.Rules {
 			add = append(add, rv.Rule)
 		}
-		next.Projects.Allow, ap.Removed = withRules(cur.Projects.Allow, add)
+		next.Projects.Allow, ap.Removed = withRules(cur.Projects.Allow, add, cur.Review)
 		if ap.Removed == nil {
 			ap.Removed = []config.ProjectMatch{}
 		}
@@ -174,6 +175,7 @@ func (s *Server) planAllow(r *http.Request, keys []catalog.ProjectKey, f reviewF
 			return v, err
 		}
 		ap.Base, ap.Stored, ap.Document, ap.Doc = rev, stored, string(doc), doc
+		ap.Visibility = pv.Visibility
 		ap.Devices, ap.LocalAllow, ap.Diff, ap.Reach = pv.Devices, 0, pv.Diff, pv.Reach
 		for _, d := range pv.Devices {
 			if d.AllowSource == config.OriginLocal {

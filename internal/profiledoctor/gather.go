@@ -2,6 +2,7 @@ package profiledoctor
 
 import (
 	"context"
+	"errors"
 
 	"terva.sh/lampi/internal/catalog"
 	"terva.sh/lampi/internal/config"
@@ -13,6 +14,11 @@ import (
 // projects. p may be an edit not saved yet.
 func Gather(ctx context.Context, cat *catalog.Catalog, name string, p config.Projects) (Input, error) {
 	in := Input{Projects: p, Hidden: map[catalog.ProjectKey]bool{}}
+	profile, err := cat.ProfileByName(ctx, name)
+	if err != nil && !errors.Is(err, catalog.ErrNoProfile) {
+		return in, err
+	}
+	in.Review = profile.Config.Review
 	devices, err := cat.Devices(ctx)
 	if err != nil {
 		return in, err

@@ -29,6 +29,7 @@ type Device struct {
 // and the projects the operator hid from review.
 type Input struct {
 	Projects config.Projects
+	Review   config.ReviewConfig
 	Devices  []Device
 	Hidden   map[catalog.ProjectKey]bool
 }
@@ -172,6 +173,10 @@ func Diagnose(in Input) Report {
 	covered := CoveredBy(allow)
 	var temporary []int
 	for i, r := range allow {
+		// A capture-redundant allow can still be a review visibility exception.
+		if in.Review.ProtectsAllow(r) {
+			continue
+		}
 		f := Finding{Index: i, Rule: &allow[i], Admits: admits[i]}
 		if len(f.Admits) > maxAdmitsPerRule {
 			f.Admits = f.Admits[:maxAdmitsPerRule]
@@ -220,6 +225,13 @@ func Diagnose(in Input) Report {
 			Message: fmt.Sprintf("%d git_remote rules name repositories under %s. One git_remote_prefix would cover them, and any other repository there.", o.Count, o.Owner)})
 	}
 	for _, o := range FolderFolds(allow) {
+		// Folding an explicit review exception into a broader capture rule
+		// could hide it. Leave these rules for the operator to edit.
+		if slices.ContainsFunc(allow, func(r config.ProjectMatch) bool {
+			return in.Review.ProtectsAllow(r) && config.Covers(config.ProjectMatch{CWDPrefix: o.Folder}, r)
+		}) {
+			continue
+		}
 		rep.Findings = append(rep.Findings, Finding{Code: CodeFolderFold, Level: LevelOffer, Fix: FixWiden, Index: -1, Group: o.Folder, Count: o.Count,
 			Message: fmt.Sprintf("%d cwd_prefix rules name folders under %s. One cwd_prefix would cover them, and anything else there.", o.Count, o.Folder)})
 	}
@@ -457,6 +469,11 @@ func pending(in Input, rep *Report) []Finding {
 			k, ok := catalog.ProjectKeyOf(p)
 			if !ok || p.Allowed || keys[k] || in.Hidden[k] || p.Reason == config.RefusedByDeny || p.Reason == config.RefusedNoCWD {
 				continue
+			}
+			if p.CWDs <= 1 {
+				if _, hidden := in.Review.HiddenBy(config.ProjectID{CWD: p.CWD, CWDHash: p.CWDHash, GitRemote: p.GitRemote}, in.Projects.Allow); hidden {
+					continue
+				}
 			}
 			keys[k] = true
 			if g, ok := GroupOf(p.GitRemote, p.CWD); ok {

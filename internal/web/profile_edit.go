@@ -59,6 +59,7 @@ type profileForm struct {
 	Base        int64
 	Allow       []config.ProjectMatch
 	Deny        []config.ProjectMatch
+	Review      []config.ReviewRule
 	Harnesses   []harnessChoice
 	Debounce    string
 	DebounceMax string
@@ -100,7 +101,8 @@ type profilePreview struct {
 	LocalAllow int
 	// Reach is what the change does to the devices' projects, set when
 	// the project rules change.
-	Reach *profileReach
+	Reach      *profileReach
+	Visibility *profileVisibility
 }
 
 type profileEditView struct {
@@ -159,6 +161,7 @@ func normalizeRules(in []config.ProjectMatch) []config.ProjectMatch {
 func normalizeProfile(p config.Profile) config.Profile {
 	p.Projects.Allow = normalizeRules(p.Projects.Allow)
 	p.Projects.Deny = normalizeRules(p.Projects.Deny)
+	p.Review.Rules = normalizeReview(p.Review.Rules)
 	p.Agent.Debounce = strings.TrimSpace(p.Agent.Debounce)
 	p.Agent.DebounceMax = strings.TrimSpace(p.Agent.DebounceMax)
 	return p
@@ -198,6 +201,7 @@ func withBlanks(rules []config.ProjectMatch) []config.ProjectMatch {
 func formOf(p config.Profile, base int64) profileForm {
 	f := profileForm{Base: base, Debounce: p.Agent.Debounce, DebounceMax: p.Agent.DebounceMax}
 	f.Allow, f.Deny = withBlanks(p.Projects.Allow), withBlanks(p.Projects.Deny)
+	f.Review = reviewBlanks(p.Review.Rules)
 	for _, id := range profileHarnessIDs {
 		c := harnessChoice{ID: id}
 		if h, ok := p.Harnesses[id]; ok {
@@ -258,10 +262,11 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 	if f.Base, err = strconv.ParseInt(v.Get("base"), 10, 64); err != nil || f.Base < 0 {
 		return f, p, errors.New("the form's revision is not valid; reload the editor")
 	}
-	var allowErr, denyErr error
+	var allowErr, denyErr, reviewErr error
+	f.Review, reviewErr = readReviewRules(v)
 	f.Allow, f.AllowRaw, f.Picked, allowErr = readRules(v, "allow")
 	f.Deny, f.DenyRaw, _, denyErr = readRules(v, "deny")
-	if err := cmp.Or(allowErr, denyErr); err != nil {
+	if err := cmp.Or(allowErr, denyErr, reviewErr); err != nil {
 		f.Note, f.Debounce, f.DebounceMax = v.Get("note"), v.Get("debounce"), v.Get("debounce_max")
 		for _, id := range profileHarnessIDs {
 			f.Harnesses = append(f.Harnesses, harnessChoice{ID: id, Value: v.Get("harness." + id)})
@@ -274,6 +279,7 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 		return f, p, err
 	}
 	p.Projects = config.Projects{Allow: f.Allow, Deny: f.Deny}
+	p.Review.Rules = f.Review
 	p.Agent = config.AgentConfig{Debounce: f.Debounce, DebounceMax: f.DebounceMax}
 	for _, id := range profileHarnessIDs {
 		c := harnessChoice{ID: id, Value: v.Get("harness." + id)}
@@ -292,6 +298,7 @@ func readProfileForm(v url.Values) (profileForm, config.Profile, error) {
 	p = normalizeProfile(p)
 	// Show the rules as they will be saved, with room to add more.
 	f.Allow, f.Deny = withBlanks(p.Projects.Allow), withBlanks(p.Projects.Deny)
+	f.Review = reviewBlanks(p.Review.Rules)
 	return f, p, nil
 }
 
@@ -396,7 +403,7 @@ func (s *Server) currentProfile(r *http.Request, name string) (config.Profile, i
 
 func (s *Server) renderEditor(w http.ResponseWriter, r *http.Request, v profileEditView, status int) {
 	_, v.CSRF = webauth.Current(r)
-	v.Health = s.health(r, v.Name, config.Projects{Allow: normalizeRules(v.Form.Allow), Deny: normalizeRules(v.Form.Deny)}, true)
+	v.Health = s.health(r, v.Name, config.Projects{Allow: normalizeRules(v.Form.Allow), Deny: normalizeRules(v.Form.Deny)}, true, config.ReviewConfig{Rules: normalizeReview(v.Form.Review)})
 	v.Health.offerDeny(v.Form.Hide, normalizeRules(v.Form.Deny))
 	v.AllowRows, v.DenyRows = ruleRows("allow", v.Form.Allow, v.Form.AllowRaw, v.Health), ruleRows("deny", v.Form.Deny, v.Form.DenyRaw, nil)
 	for i := range v.AllowRows {
@@ -475,7 +482,7 @@ func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profi
 		}
 	}
 	if slices.ContainsFunc(pv.Changed, func(c string) bool { return c == "projects.allow" || c == "projects.deny" }) {
-		st := storedProfile{Version: cur.Version()}
+		st := storedProfile{Version: cur.DeviceProfile().Version()}
 		if stored {
 			sp, err := s.catalog.ProfileByName(r.Context(), name)
 			if err != nil {
@@ -488,6 +495,13 @@ func (s *Server) preview(r *http.Request, name string, p config.Profile) (*profi
 			return nil, err
 		}
 		pv.Reach = &reach
+	}
+	if slices.ContainsFunc(pv.Changed, func(c string) bool { return c == "review" || c == "projects.allow" }) {
+		visibility, err := s.reviewVisibilityReach(r.Context(), cur, p, pv.Devices)
+		if err != nil {
+			return nil, err
+		}
+		pv.Visibility = &visibility
 	}
 	return pv, nil
 }

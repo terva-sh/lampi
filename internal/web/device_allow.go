@@ -99,7 +99,7 @@ func (s *Server) deviceAllowPage(w http.ResponseWriter, r *http.Request) {
 	}
 	next := cur
 	var removed []config.ProjectMatch
-	next.Projects.Allow, removed = withRules(cur.Projects.Allow, []config.ProjectMatch{rule})
+	next.Projects.Allow, removed = withRules(cur.Projects.Allow, []config.ProjectMatch{rule}, cur.Review)
 	raw, _ := json.Marshal(next)
 	p, _, err := checkProfile(raw)
 	if err != nil {

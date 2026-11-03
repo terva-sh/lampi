@@ -21,12 +21,12 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-09-29T06:17:57Z
+updated_at: 2026-11-03T17:52:37Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
 updated_by:
-  id: agent:claude-code/58fb7d84
+  id: agent:codex/t3-6387cc8a
   name: ""
 extensions: {}
 ---
@@ -60,6 +60,10 @@ An operator can describe the sessions they care about in a handful of rules, and
 - **No named rule sets or rule sharing between profiles.** Several profiles hold the same list only when several profiles exist. The problem today is one profile that is too long.
 - **Widening stays an operator decision.** The tools suggest and preview. Nothing widens a profile without a save the operator makes.
 
+## Implementation plan
+
+Implement the owner-requested prefix hide increment: consolidate selected temporary allow rules into a profile-local review hide prefix, with narrower show rules or structurally narrower allow rules as exceptions. Keep deny-wins capture matching unchanged. Store review policy in profile revisions for atomic saves and rollback, but strip it from resolved device profiles so older agents receive the same capture schema and versions. Match directory boundaries using inventoried paths, never lake-host filesystem resolution. Preserve explicit per-project hides and mixed temporary/non-temporary copies. Add editor rules, merge-to-hide preview including dropped capture reach and visibility changes, API/CLI document support, and docs. Validate boundary/tie/exception behavior, future inventories, filtered queues, round trips, stale saves, rollback and device profile compatibility. No live profile or capture changes are authorized by this implementation. The existing live consolidation child remains independent.
+
 ## Notes
 
 **agent:claude-code/58fb7d84** at 2026-09-29T06:17:57Z
@@ -88,3 +92,33 @@ TKT-01M3NM01T (Consolidate the internal lake's default profile) is blocked on tw
 - `git_remote_glob`: no user yet.
 - Coverage between deny rules: a redundant deny rule is harmless.
 - Glob-contains-glob in `Covers`: only identical patterns count.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T17:36:51Z
+
+### Prefix hiding increment
+
+Implemented the owner's requested alternative to the refused broad `/tmp` allow merge. Profiles now retain `review.rules` with directory Hide/Show actions. The deepest matching prefix wins, Hide wins a tie, and a matching structurally narrower capture allow (or exact cwd_hash) is an exception. Conversion removes only selected covered folder allow rules, preserving unticked exceptions and existing Show rules. Preview separates stopped uploads from review visibility changes; saving and rollback treat both as one profile document.
+
+Kept capture deny-wins semantics rather than overloading deny: making narrower allows override denies would change the upload privacy boundary. Review policy stays on the lake and is stripped from signed device documents before versioning, keeping existing agents compatible. Manual per-project hides remain authoritative and lake-wide. Prefix matching uses inventoried path boundaries without resolving paths on the lake host. Mixed-checkout inventories remain visible because one representative path cannot prove all copies match. Hiding one sighting never hides another profile/device's visible copy.
+
+Automatic allow insertion and doctor cleanup preserve review exceptions, including otherwise capture-redundant rules. Folder folds involving exceptions are not offered. The doctor excludes prefix-hidden sightings from pending suggestions. Review-only saves can conservatively keep an already-allowed refusal pending until another inventory arrives, since the existing caught-up check uses the latest save time; no permission inference was weakened.
+
+Regression coverage exercises the 21-rule `/tmp` scenario via actual rendered editor forms, preview without mutation, later inventories, directory boundaries, Show/deeper-Hide exceptions, separate profile/device sightings, mixed checkouts, manual hides, stale saves, rollback, protected cleanup, and signed device schema/version stability. Documented editor usage and CLI/API JSON. Focused regression tests and vet pass; full suite, affected race suites and build are being completed before PR submission. No live profile, capture setup or service was changed. The existing live consolidation child remains independent.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T17:38:26Z
+
+### PR and local validation
+
+Opened https://git.local.sothr.com/terva-sh/lampi/pulls/259 with implementation head d66aba1 and requested terva-review (`profile-hide-prefix-d66aba1`). The dispatch command reported an empty-JSON response error, but the workflow dispatch appeared as running in Actions, so it was not duplicated.
+
+Passed full `mise exec -- go test -trimpath=false ./...`, vet, gofmt, diff checks, and build (`-buildvcs=false`, output under agent scratch). Passed race tests for config, catalog, profiledoctor, web and API. CLI coverage verifies doctor-write/set/show preserve policy and protected exceptions. `git ticket check` reports zero errors and two pre-existing long-title warnings in unrelated completed tickets; regenerated the epic index to reflect the claimed epic.
+
+This final ticket-only commit will be newer than the requested implementation review. Once that review completes, carry its verdict to the ticket-only head before merging. Continue with CI and finding dispositions; no live deployment or profile editing is part of this increment.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T17:52:17Z
+
+### Clean model review and final merge gate
+
+PR #259 received a clean full code review of implementation head d66aba174651091607684176e05adbded3726470 against base 20e91767d34ae7037d2f8011b0c613254429ca39. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/259#issuecomment-37789 ; run 8e2e97b7-016d-4a12-884b-735859b7718f in Actions #2376. No findings or dispositions were needed. The review was limited to the supplied diff, with local regression/race tests and CI covering execution.
+
+Both CI checks passed on 454b6fac9799cf7a88d56b5fbb6fb0479665375f. All commits after the reviewed implementation touch only this ticket. Carry the clean verdict to the final ticket head, wait for that head's CI, then merge #259 and sync the two main branches. The prefix-hide implementation is complete; the epic remains open for its separate live consolidation child. No live service, release or profile change was made.

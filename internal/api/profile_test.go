@@ -123,6 +123,27 @@ func TestAgentConfigWithNoProfilesIsAnEmptyDefault(t *testing.T) {
 	}
 }
 
+func TestReviewPolicyStaysOnLakeAndDoesNotChangeSignedDeviceVersion(t *testing.T) {
+	s, dir, _, _, _ := devicesLake(t)
+	if _, err := s.EnsureIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	p := config.Profile{Projects: config.Projects{Allow: []config.ProjectMatch{{CWDPrefix: "/srv"}}}}
+	putProfiles(t, s, map[string]config.Profile{config.DefaultProfile: p})
+	_, before := getAgentConfig(t, s, laptopToken)
+	storedBefore, _ := s.Catalog.ProfileByName(t.Context(), config.DefaultProfile)
+	p.Review.Rules = []config.ReviewRule{{CWDPrefix: "/tmp", Action: "hide"}}
+	putProfiles(t, s, map[string]config.Profile{config.DefaultProfile: p})
+	rr, after := getAgentConfig(t, s, laptopToken)
+	if rr.Code != http.StatusOK || after.Version != before.Version || string(after.Config) != string(before.Config) || strings.Contains(string(after.Config), "review") {
+		t.Fatalf("review-only edit changed device configuration: before=%+v after=%+v", before, after)
+	}
+	storedAfter, _ := s.Catalog.ProfileByName(t.Context(), config.DefaultProfile)
+	if storedAfter.Version == storedBefore.Version || storedAfter.Revision == storedBefore.Revision || len(storedAfter.Config.Review.Rules) != 1 {
+		t.Fatal("stored profile did not retain and version lake policy")
+	}
+}
+
 func TestAgentConfigWithoutIdentityIs404(t *testing.T) {
 	s, _, _, _, _ := devicesLake(t)
 	if rr, _ := getAgentConfig(t, s, laptopToken); rr.Code != http.StatusNotFound {

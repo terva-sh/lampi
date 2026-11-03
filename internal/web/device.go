@@ -34,7 +34,8 @@ type deviceView struct {
 	Notice string `json:"-"`
 	// Hidden holds the keys, as ProjectKey.String writes them, of the
 	// projects hidden from review.
-	Hidden map[string]bool `json:"-"`
+	Hidden       map[string]bool   `json:"-"`
+	HiddenByRule map[string]string `json:"-"`
 }
 
 // inventoryView is a device's newest inventory. Allowed and Refused
@@ -141,6 +142,24 @@ func (s *Server) renderDeviceSaved(w http.ResponseWriter, r *http.Request, id st
 	v.Hidden = map[string]bool{}
 	for _, h := range hides {
 		v.Hidden[h.Key.String()] = true
+	}
+	profile, err := s.catalog.ProfileByName(ctx, v.Device.Profile)
+	if err != nil && !isNoProfile(err) {
+		pageError(w, r, err)
+		return
+	}
+	v.HiddenByRule = map[string]string{}
+	if v.Inventory != nil {
+		for _, project := range v.Inventory.Projects {
+			key, ok := catalog.ProjectKeyOf(project)
+			if !ok || v.Hidden[key.String()] {
+				continue
+			}
+			if rule, hidden := hiddenByProfile(profile.Config, project); hidden {
+				v.Hidden[key.String()] = true
+				v.HiddenByRule[key.String()] = rule.CWDPrefix
+			}
+		}
 	}
 	if ident, csrf := webauth.Current(r); ident.Operator && s.reg != nil {
 		v.Actions, v.CSRF = true, csrf
