@@ -115,6 +115,9 @@ var pages = template.Must(template.New("page").Funcs(template.FuncMap{
 	"conflictURL":     conflictURL,
 	"when":            when,
 	"wideView":        func(view string) bool { return wideViews[view] },
+	"machineListed": func(ms []machineOption, id string) bool {
+		return slices.ContainsFunc(ms, func(m machineOption) bool { return m.ID == id })
+	},
 	"named": func(items any, names map[string]string) namedItems {
 		return namedItems{Items: items, Names: names}
 	},
@@ -140,7 +143,9 @@ type pageData struct {
 	Session                    catalog.SessionSummary
 	// MachineNames names the machines the sessions and records tables
 	// list, by machine ID.
-	MachineNames     map[string]string
+	MachineNames map[string]string
+	// Pickers are the sessions filters' choices.
+	Pickers          sessionPickers
 	Records          catalog.Page[catalog.Record]
 	Filters          catalog.PageRequest
 	Collection, AsOf string
@@ -321,7 +326,7 @@ func (s *Server) sessionsPage(w http.ResponseWriter, r *http.Request) {
 		pageError(w, r, err)
 		return
 	}
-	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, MachineNames: s.machineNames(ctx), Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor), Poll: p.Cursor == ""})
+	render(w, r, pageData{Title: "Sessions", View: "sessions", Sessions: v, MachineNames: s.machineNames(ctx), Pickers: s.sessionPickers(r), Filters: p, AsOf: v.AsOf, Pager: pager(r, nav, nil, v.NextCursor), Poll: p.Cursor == ""})
 }
 func (s *Server) detailPage(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

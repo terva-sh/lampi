@@ -179,6 +179,15 @@ ID on hover; a machine no device names shows its ID shortened. Times read as
 UTC to the second, such as `2026-11-02 22:21:00Z`, with the full stored value
 on hover.
 
+The **Sessions** filters narrow by harness, normalization state, project and
+machine. The Project box suggests the repositories and folders your sessions
+come from. It first suggests the owners that hold two or more repositories,
+and the folders where two or more project folders branch, such as
+`/home/me/.t3/worktrees`. Type a repository or owner in any form a remote
+takes, or a folder, and the list shows the sessions in it and under it. The
+Machine list names each machine by its device. The suggestions are read
+again once a minute at most.
+
 Overview and the first session page refresh every 25 seconds while visible.
 Other pages stay still. Refresh pauses on failures, expired login, hidden tabs or
 keyboard focus inside the updated table. Manual refresh retries. Forms, navigation
@@ -327,6 +336,15 @@ working if that admin's role changes. Revoke it to stop it.
   reads nothing. A token minted without bays is not limited by bay. Minting
   needs a sign-in in the last 10 minutes, as minting a registration code
   does.
+- **Choosing the scope.** The form lists the bays as checkboxes. To limit
+  the token to a project's sessions, type the project, owner or folder in
+  **Project**, or pick a **Machine**, and press **List matching sessions**.
+  The suggestions are the same as on Sessions. The form fills **Session UIDs**
+  with the newest matching sessions, up to the 100 a token can name, and
+  mints nothing. When more than 100 match, it says so: limit the token by bay
+  instead. When none match, it leaves the list as it was, because an empty
+  list reads every session. The token stores the listed UIDs, so a session
+  the project starts later is out of its reach.
 - **The token is shown once.** The lake keeps only its SHA-256. A token
   starts with `lrt_`, so a leaked one is easy to find in a log or with a
   secret scanner.

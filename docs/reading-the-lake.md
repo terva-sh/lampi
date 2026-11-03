@@ -25,8 +25,10 @@ tools a port or an emulation has to support.
    - **Label**: what it is for, such as `agent recall on laptop`.
    - **What the token is for**: tick **Agent recall: search, query and
      MCP** (`events:read`) only.
-   - **Sessions** or **Bays**: limit the token to the sessions the agent
-     needs. Leave both empty only when it needs the whole lake.
+   - **Bays** or **Sessions**: limit the token to the sessions the agent
+     needs. Tick bays, or type a project in **Project** and press **List
+     matching sessions** to fill the session list. Leave both empty only
+     when it needs the whole lake.
    - **Expires after**: the shortest time that covers the work.
 3. Copy the token. The dashboard shows it once.
 4. On the agent's machine, write the token to a file that only you can

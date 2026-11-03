@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M6F7JMM85DPVQ88YSC24TENC
 title: "Catalog 22: indexed git remote and cwd on sessions, machine index"
 type: task
-status: in-progress
+status: done
 status_reason: null
 priority: normal
 due_on: null
@@ -16,17 +16,10 @@ origin: null
 dependencies: []
 blocks_on: none
 references: []
-claim:
-  actor: agent:claude-code/t3-43103b81
-  branch: t3/catalog-project-columns
-  worktree: /home/sothr/.t3/worktrees/lampi/t3-43103b81
-  commit: 05b9765e4514c17fcc3425e1138563085a56fee1
-  session: null
-  claimed_at: 2026-11-02T23:11:12Z
-  expires_at: null
+claim: null
 archive: null
 created_at: 2026-11-02T22:55:13Z
-updated_at: 2026-11-02T23:14:00Z
+updated_at: 2026-11-02T23:57:13Z
 created_by:
   id: agent:claude-code/t3-43103b81
   name: ""
@@ -69,3 +62,7 @@ Plain columns, not generated: SQLite cannot run protocol.NormalizeRemote, and th
 **agent:claude-code/t3-43103b81** at 2026-11-02T23:14:00Z
 
 Rehearsal (temporary test, removed): a schema-21 catalog with 50,000 synthetic sessions and provenance rows migrated in 0.67s including the pre-migration backup, and all 50,000 rows were filled. TestProjectColumns checks ingest, the migration from 21 (with an unreadable manifest), and that EXPLAIN QUERY PLAN uses each new index. Three rollback tests (bays, head updates, project review) now undo migration 22 too via dropProjectColumns. GOFLAGS=-mod=mod just ci passes. The binary-to-binary upgrade rehearsal belongs to the release that ships this.
+
+## Summary
+
+Merged in #251. Catalog migration 22 adds sessions.project_remote (protocol.NormalizeRemote) and project_cwd, filled in Go from manifest_json, indexed with web_updated_ns, plus provenance_by_machine. Ingest writes both wherever it writes manifest_json. On 50,000 synthetic sessions the migration took 0.67s including the backup. Release notes must say: schema 21 to 22, a backup in migration-backups/, and rollback by restoring it.

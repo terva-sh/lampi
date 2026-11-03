@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -86,4 +87,55 @@ func migrateProjectColumns(tx *sql.Tx) error {
 	CREATE INDEX sessions_by_cwd ON sessions(project_cwd, web_updated_ns);
 	CREATE INDEX provenance_by_machine ON provenance(machine_id, session_uid);`)
 	return err
+}
+
+// ProjectChoice is a remote or a folder that sessions in scope hold, and
+// how many.
+type ProjectChoice struct {
+	Remote, Folder string
+	Sessions       int
+}
+
+// ProjectChoices lists the distinct remotes, and the folders of
+// sessions that have no remote, among the sessions scope reads, and the
+// machines that posted them. It reads the project and machine indexes
+// once; the dashboard caches the answer.
+func (c *Catalog) ProjectChoices(ctx context.Context, scope Scope) (projects []ProjectChoice, machines []string, err error) {
+	cond, args := scope.where("s.session_uid")
+	rows, err := c.db.QueryContext(ctx, `SELECT s.project_remote, CASE WHEN s.project_remote='' THEN s.project_cwd ELSE '' END f, COUNT(*)
+		FROM sessions s WHERE `+cond+` AND (s.project_remote<>'' OR s.project_cwd<>'') GROUP BY 1, 2`, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for rows.Next() {
+		var p ProjectChoice
+		if err := rows.Scan(&p.Remote, &p.Folder, &p.Sessions); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
+		projects = append(projects, p)
+	}
+	// Next stops on an execution error too: a partial list must not pass
+	// for a whole one, since the dashboard caches it.
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, nil, err
+	}
+	pcond, pargs := scope.where("p.session_uid")
+	rows, err = c.db.QueryContext(ctx, `SELECT DISTINCT p.machine_id FROM provenance p WHERE `+pcond+` ORDER BY 1`, pargs...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, nil, err
+		}
+		machines = append(machines, m)
+	}
+	return projects, machines, rows.Err()
 }

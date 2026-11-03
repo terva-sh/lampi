@@ -9,10 +9,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"terva.sh/lampi/internal/catalog"
+	"terva.sh/lampi/internal/config"
 	"terva.sh/lampi/internal/recall"
 	"terva.sh/lampi/internal/reqlog"
 	"terva.sh/lampi/internal/webauth"
@@ -37,6 +40,8 @@ type Server struct {
 	mints mintLimit
 	// attempts recognises a mint form sent twice.
 	attempts mintAttempts
+	// pickers caches the sessions filters' choices by scope.
+	pickers pickerCache
 	// clock replaces time.Now in tests.
 	clock func() time.Time
 	log   *slog.Logger
@@ -185,7 +190,7 @@ func parsePage(q url.Values, sessionFilters bool, collection string) (catalog.Pa
 		}
 		switch k {
 		case "limit", "cursor":
-		case "harness", "project", "unlinked", "state":
+		case "harness", "project", "unlinked", "state", "remote", "folder", "machine", "match":
 			if !sessionFilters {
 				return p, catalog.ErrPage
 			}
@@ -203,6 +208,31 @@ func parsePage(q url.Values, sessionFilters bool, collection string) (catalog.Pa
 	}
 	p.Harness = q.Get("harness")
 	p.Project = q.Get("project")
+	p.Machine = q.Get("machine")
+	// remote and folder name a prefix each; match is the dashboard's one
+	// Project box, a folder when it starts with / and a remote otherwise
+	// (TKT-01M6F7JMQYGY3WGGV55H0M3FR5). A remote is compared as allow
+	// rules compare it, so git@host:owner and https://host/owner agree.
+	remote, folder := q.Get("remote"), q.Get("folder")
+	// A typed match replaces both, so a form that carries remote and
+	// folder in hidden fields can be narrowed again from its box.
+	if m := strings.TrimSpace(q.Get("match")); m != "" {
+		remote, folder = "", ""
+		if strings.HasPrefix(m, "/") {
+			folder = m
+		} else {
+			remote = m
+		}
+	}
+	if remote != "" {
+		p.Remote = config.NormalizeRemote(remote)
+		if p.Remote == "" {
+			return p, catalog.ErrPage
+		}
+	}
+	if folder != "" {
+		p.Folder = path.Clean(folder)
+	}
 	p.State = q.Get("state")
 	p.Cursor = q.Get("cursor")
 	if q.Has("limit") {
