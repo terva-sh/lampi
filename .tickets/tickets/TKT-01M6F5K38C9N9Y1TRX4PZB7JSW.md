@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T21:28:53Z
+updated_at: 2026-11-03T21:49:04Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -246,3 +246,11 @@ The deployment and read-access prerequisites are resolved, so this epic and TKT-
 The live child TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay) now records a complete 2,319-session reachable inventory, bounded opening inspection of 1,298 candidates/controls, and a 1,287-session exact proposal across 500/500/287 paired batches. All scoped move previews and per-batch doctor reports passed. Explicit editor/development/synthetic exclusions, 1,247 unlinked companions/reviewers, add/move/multiple-destination comparisons, a real broad-path doctor false positive, independent complete routing partitions and synthetic later-manifest validation are documented with a ticket-linked frozen-request artifact.
 
 Audited the original nine implementation/design/docs children: all are done and integrated through PR #253; the real exercise is the remaining in-progress child. Read authority is verified and no longer a blocker. The last epic criterion remains unchecked because full administrator memberships/readership/current routing and operator-approved live sorting plus later-upload verification remain unproven. Present the exact code-reviews move with no new grants for owner approval, then obtain the complete administrator preview before changing live state. The two newly filed tool-friction spikes remain drafts under the exercise, not automatic scope promotion or substitutes for completing the live work.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:49:04Z
+
+### Exact split approved; host execution access outstanding
+
+The owner explicitly approved the frozen 1,287-session historical move from default into new code-reviews, with no new reader grants, after a fresh full administrator preview. Approval is no longer outstanding; do not ask for it again. PR #261 merged and both mains are synced at 58d4127a5837e6e8f1cc60256809e2be948878fb. The approved host runner and updated authorization/access record are under full review in PR #262, https://git.local.sothr.com/terva-sh/lampi/pulls/262.
+
+The runner's full 500/500/287 synthetic CLI rehearsal verifies complete previews, backup, fresh later-batch plans, exact apply, receipts, unselected preservation and unchanged grants/rules. This is preparation, not live completion. The private sudo card timed out without delivery, while the host requires a password and the working events:read token cannot apply. The remaining prerequisite is host execution access for full administrator inspection and the approved move, followed by real membership/receipt/later-manifest verification. Keep the last epic criterion and unsatisfied live criteria open. No live mutations have occurred.

@@ -35,7 +35,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:47:59Z
+updated_at: 2026-11-03T21:49:04Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -211,3 +211,11 @@ The private sudo card remains pending and sudo -n still requires a password. App
 ### Host credential delivery timed out
 
 The single private sudo card timed out without delivery. No sudo credential file/value was received or read. Existing events:read access still works but cannot produce complete administrator previews or apply. Do not retry the card automatically. The owner already approved the exact move; the remaining requirement is host execution access (private sudo delivery when the owner requests a new card, or owner execution of the prepared preview). No live membership, bay, grant, route, profile or service change occurred. The complete runner rehearsal passed on the isolated schema-23 fixture; it is not a production move or post-move upload result.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:49:04Z
+
+### Approved execution preparation under review
+
+Opened PR #262 (Prepare host execution for the approved Vuoro review move), https://git.local.sothr.com/terva-sh/lampi/pulls/262. Request a full model review even though the artifact is under .tickets: it is executable host-operation code, not merely a note suitable for carry. The current runner passed another complete isolated CLI rehearsal after adding the schema-23 guard. Review and CI are pending; actual service-account transition, full production administrator preview and live apply are not yet verified.
+
+The owner-approved move remains authorized without a second approval. Host access remains missing: the single sudo card timed out and sudo -n requires a password. No secret was delivered. Do not retry automatically or substitute the read token. Once the owner supplies host access or runs the preview, inspect all full plans, grants, rules and manifest bay requests before invoking the approved apply phase. New grants and routes remain outside the approved operation.
