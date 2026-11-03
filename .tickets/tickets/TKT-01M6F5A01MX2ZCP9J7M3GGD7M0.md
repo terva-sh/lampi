@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T18:13:14Z
+updated_at: 2026-11-03T18:14:22Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -122,3 +122,11 @@ The shell's terva-lampi still resolves to v0.11.1 (527d5c368339), the unchanged 
 Because the deployment prerequisite had actually changed, requested an existing appropriately scoped events:read token once via a private T3 secret card. The 60-second request timed out with no delivery. No secret value/file was received. Do not retry automatically or treat the timeout as approval. Next independent progress requires authorized read access (existing private read-token file or an exposed authorized lampi connector); full membership/readership review additionally needs operator authority. No service, capture configuration, profile, credential, bay, grant, route or membership changed.
 
 The five remaining live acceptance checks remain unproven: complete candidate/membership inventory; opening-prompt and development-control validation with exclusions; reader grants and future routing; actual doctor/discovery coverage and false positives; and add/move/multiple destinations with later-manifest verification. Source and synthetic coverage are already integrated but cannot prove those live requirements. Keep this exercise and the epic incomplete. Updated the walkthrough to defer changing deployment/access facts to this ticket rather than preserve an obsolete deployment blocker in reference documentation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T18:14:22Z
+
+### Revalidation record reviewed
+
+PR #260 (Record deployed discovery tools and remaining Vuoro access blocker), https://git.local.sothr.com/terva-sh/lampi/pulls/260, has a clean full code review for head 1d892fe66614d1bb833d35b7a8117159f60778c7 against base 9e1ae278b4e590390d93b38fadc391d4bf553a35. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/260#issuecomment-37801 ; run f5ec29b5-3128-44fb-bc41-4aa5ac7d29ea in Actions #2385. No findings or dispositions. This is a documentation review and does not independently establish live completion. Carry the verdict over this ticket-only review record and merge only after final-head CI passes, then sync both forges.
+
+The next resumed goal turn revalidated that no read-token environment configuration or exposed lampi tools are available, query bays still refuses for missing read-token access, and service-account sudo still requires a password. No new secret request was made and no live state changed. The original implementation remains complete, while all five live dogfood checks remain unproven. Do not manufacture further implementation work or repeated documentation PRs to stand in for the missing live inspection; the next substantive exercise step requires authorized access.
