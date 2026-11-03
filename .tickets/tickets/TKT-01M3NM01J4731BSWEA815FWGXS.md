@@ -3,7 +3,7 @@ schema: 3
 id: TKT-01M3NM01J4731BSWEA815FWGXS
 title: "Concise profile rules: wider matches and fewer rules"
 type: epic
-status: in-progress
+status: ready
 status_reason: null
 priority: normal
 due_on: null
@@ -21,7 +21,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-09-29T03:40:36Z
-updated_at: 2026-11-03T17:52:22Z
+updated_at: 2026-11-03T17:52:37Z
 created_by:
   id: agent:claude-code/58fb7d84
   name: ""
