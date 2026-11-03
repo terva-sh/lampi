@@ -20,6 +20,7 @@ BINARY = '/usr/local/bin/terva-lampi'
 DATA = Path('/var/lib/terva-lampi')
 SCRATCH = Path('/home/sothr/.cache/agent-scratch/lampi')
 SERVICE = 'terva-lampi'
+APPROVED_SHA256 = '1c93128d1c84225ecf59bc740ee714e72f9c4a2543b62fc2be0d5ddb6eae6b4f'
 
 
 def digest(value):
@@ -44,6 +45,8 @@ def main():
     def write(path, value, raw=False):
         with path.open('x') as f:
             f.write(value if raw else json.dumps(value, indent=2) + '\n')
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(path, 0o600)
         cli_input = path.name.endswith('-request.json') or path.name.endswith('-plan.json')
         os.chown(path, service.pw_uid if cli_input else caller_uid,
@@ -51,18 +54,21 @@ def main():
 
     if a.action == 'preview':
         raw = a.proposal.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != a.sha256:
+        if a.sha256 != APPROVED_SHA256 or hashlib.sha256(raw).hexdigest() != APPROVED_SHA256:
             raise RuntimeError('proposal checksum changed')
         proposal = json.loads(raw)
         work = Path(tempfile.mkdtemp(prefix='vuoro-approved-', dir=SCRATCH))
         os.chown(work, service.pw_uid, caller_gid)
         os.chmod(work, 0o770)
-        write(work / 'proposal.json', proposal)
+        write(work / 'proposal.json', raw.decode(), raw=True)
     else:
         work = a.work.resolve(strict=True)
         if work.parent != SCRATCH or not work.name.startswith('vuoro-approved-'):
             raise RuntimeError('unexpected operator work directory')
-        proposal = json.loads((work / 'proposal.json').read_text())
+        raw = (work / 'proposal.json').read_bytes()
+        if hashlib.sha256(raw).hexdigest() != APPROVED_SHA256:
+            raise RuntimeError('work proposal differs from owner-approved frozen proposal')
+        proposal = json.loads(raw)
 
     batches = proposal['batches']
     uids = [u for b in batches for u in b['request']['session_uids']]
@@ -143,6 +149,29 @@ def main():
         write(work / (label + '-plan.json'), plan)
         return plan, summary
 
+    def preview_artifacts():
+        return ['proposal.json', 'before.json', 'catalog-before.db', 'preview-summary.json'] + [
+            f'preview-{n}{suffix}' for n in range(1, len(batches) + 1)
+            for suffix in ['-request.json', '-plan.json', '.stdout']
+        ] + [f'before-{command}.stdout' for command in ['list', 'grants', 'rules']]
+
+    def artifact_digests():
+        return {name: hashlib.sha256((work / name).read_bytes()).hexdigest()
+                for name in preview_artifacts()}
+
+    def require_preview():
+        completion = json.loads((work / 'preview-complete.json').read_text())
+        if completion != {'proposal_sha256': APPROVED_SHA256, 'artifacts': artifact_digests()}:
+            raise RuntimeError('completed preview artifacts changed; regenerate and inspect')
+        for n, batch in enumerate(batches, 1):
+            check_plan(json.loads((work / f'preview-{n}-plan.json').read_text()), batch, True)
+        backup = sqlite3.connect('file:' + str(work / 'catalog-before.db') + '?mode=ro', uri=True)
+        try:
+            if backup.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+                raise RuntimeError('completed preview backup is invalid')
+        finally:
+            backup.close()
+
     if a.action == 'preview':
         before = state()
         if before['schema_version'] != 23:
@@ -176,28 +205,48 @@ def main():
                   'batches': summaries, 'backup_quick_check': 'ok',
                   'grants_sha256': digest(before['bay_grants']), 'rules_sha256': digest(before['bay_rules'])}
         write(work / 'preview-summary.json', report)
+        # Written last: failed/incomplete previews cannot authorize apply.
+        write(work / 'preview-complete.json', {'proposal_sha256': APPROVED_SHA256,
+                                             'artifacts': artifact_digests()})
         print(json.dumps(report), flush=True)
         return
 
+    require_preview()
     before = json.loads((work / 'before.json').read_text())
     if a.action == 'apply':
+        # A partial apply is inspected with verify, never replayed blindly.
+        if any(work.glob('apply-*-plan.json')):
+            raise RuntimeError('apply already attempted; run verify for partial progress before recovery')
         current = state()
         if current['bay_grants'] != before['bay_grants'] or current['bay_rules'] != before['bay_rules'] or current['bays'] != before['bays'] or current['bay_aliases'] != before['bay_aliases']:
             raise RuntimeError('policy changed since reviewed preview; regenerate and inspect')
         receipts = []
+        created_target_id = None
         for n, batch in enumerate(batches, 1):
             # Creation in batch one changes policy state. Later batches
             # freshly resolve the now-existing destination and are reviewed
             # against the same approved exact membership delta.
             plan, summary = preview_batch(batch, n == 1, f'apply-{n}')
+            policy = state()
+            if policy['bay_grants'] != before['bay_grants'] or policy['bay_rules'] != before['bay_rules']:
+                raise RuntimeError('grants/rules changed before batch apply; stop and inspect')
+            if created_target_id is not None and plan['destinations'][0]['id'] != created_target_id:
+                raise RuntimeError('destination identity changed between batches')
             args = ['apply-plan', f'apply-{n}-plan.json', '--yes']
             if n == 1:
                 args.append('--create-proposed')
             receipt = cli(args, f'receipt-{n}')
+            write(work / f'batch-{n}-receipt.json', receipt)
             if not receipt['complete'] or len(receipt['items']) != len(batch['request']['session_uids']):
                 raise RuntimeError('unexpected receipt; inspect before continuing')
             if {i['session_uid'] for i in receipt['items']} != set(batch['request']['session_uids']):
                 raise RuntimeError('receipt UID set differs from approved batch')
+            if n == 1:
+                if len(receipt['created_bays']) != 1 or receipt['created_bays'][0]['name'] != 'code-reviews':
+                    raise RuntimeError('unexpected bay creation receipt')
+                created_target_id = receipt['created_bays'][0]['id']
+            elif receipt['created_bays']:
+                raise RuntimeError('later batch unexpectedly created a bay')
             receipts.append(receipt['plan_id'])
             verification = cli(['verify-plan', receipt['plan_id']], f'verify-{n}')
             if not verification['matches_receipt']:
@@ -205,7 +254,30 @@ def main():
             print(json.dumps({'batch': n, 'applied': len(receipt['items']), 'plan_id': receipt['plan_id'], 'matches_receipt': True}), flush=True)
         write(work / 'receipt-ids.json', receipts)
     else:
-        receipts = json.loads((work / 'receipt-ids.json').read_text())
+        # The CLI commits its receipt in the same catalog transaction as the
+        # membership edit. Recover it even if this process died before saving
+        # stdout or verifying a batch. Plans are durable before apply starts.
+        receipts = []
+        completed_uids = set()
+        db = sqlite3.connect('file:' + str(DATA / 'catalog.db') + '?mode=ro', uri=True)
+        try:
+            for n, batch in enumerate(batches, 1):
+                path = work / f'apply-{n}-plan.json'
+                if not path.exists():
+                    continue
+                plan = json.loads(path.read_text())
+                check_plan(plan, batch, n == 1)
+                row = db.execute('SELECT result_json FROM bay_migrations WHERE id=?', (plan['plan_id'],)).fetchone()
+                if row is None:
+                    continue
+                receipt = json.loads(row[0])
+                if not receipt['complete'] or {i['session_uid'] for i in receipt['items']} != set(batch['request']['session_uids']):
+                    raise RuntimeError('stored receipt differs from approved batch')
+                write(work / f'followup-{verify_tag}-receipt-{n}.json', receipt)
+                receipts.append(receipt['plan_id'])
+                completed_uids.update(batch['request']['session_uids'])
+        finally:
+            db.close()
         for n, plan_id in enumerate(receipts, 1):
             verification = cli(['verify-plan', plan_id], f'followup-{verify_tag}-verify-{n}')
             if not verification['matches_receipt']:
@@ -215,7 +287,7 @@ def main():
     write(work / ('after.json' if a.action == 'apply' else f'followup-{verify_tag}-state.json'), after)
     if after['bay_grants'] != before['bay_grants'] or after['bay_rules'] != before['bay_rules']:
         raise RuntimeError('grant/rule inventory changed; inspect immediately')
-    ids = set(uids)
+    ids = set(uids) if a.action == 'apply' else completed_uids
     original_other = {(u, b, t) for u, b, t in before['memberships'] if u not in ids}
     after_other = {(u, b, t) for u, b, t in after['memberships'] if u not in ids}
     # New sessions may arrive; pre-existing unselected memberships must remain.
@@ -223,13 +295,14 @@ def main():
     if original_other != {x for x in after_other if x[0] in before_uids}:
         raise RuntimeError('unselected membership changed; inspect immediately')
     target_ids = {b[0] for b in after['bays'] if b[1] == 'code-reviews'}
-    if len(target_ids) != 1:
+    if ids and len(target_ids) != 1:
         raise RuntimeError('target bay missing or ambiguous')
-    target_id = next(iter(target_ids))
+    target_id = next(iter(target_ids), None)
     member = {(u, b) for u, b, _ in after['memberships']}
     if any((u, target_id) not in member or (u, 'bay_default') in member for u in ids):
         raise RuntimeError('approved split does not match actual membership')
-    report = {'work': str(work), 'phase': a.action, 'moved': len(ids), 'target_id': target_id,
+    report = {'work': str(work), 'phase': a.action, 'moved': len(ids), 'remaining': len(uids) - len(ids),
+              'complete': len(ids) == len(uids), 'target_id': target_id,
               'no_new_grants': True, 'rules_unchanged': True, 'unselected_memberships_preserved': True,
               'all_receipts_match': True, 'later_selected_manifest_posts': sum(after['selected_ingested_at'].get(u) != before['selected_ingested_at'].get(u) for u in ids),
               'receipt_ids': receipts}

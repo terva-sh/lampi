@@ -35,7 +35,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T21:49:04Z
+updated_at: 2026-11-03T21:55:20Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -219,3 +219,15 @@ The single private sudo card timed out without delivery. No sudo credential file
 Opened PR #262 (Prepare host execution for the approved Vuoro review move), https://git.local.sothr.com/terva-sh/lampi/pulls/262. Request a full model review even though the artifact is under .tickets: it is executable host-operation code, not merely a note suitable for carry. The current runner passed another complete isolated CLI rehearsal after adding the schema-23 guard. Review and CI are pending; actual service-account transition, full production administrator preview and live apply are not yet verified.
 
 The owner-approved move remains authorized without a second approval. Host access remains missing: the single sudo card timed out and sudo -n requires a password. No secret was delivered. Do not retry automatically or substitute the read token. Once the owner supplies host access or runs the preview, inspect all full plans, grants, rules and manifest bay requests before invoking the approved apply phase. New grants and routes remain outside the approved operation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T21:55:20Z
+
+### Host runner review and constrained recovery
+
+PR #262 full review 3023 reviewed a5718b1f89a231699b6b43a57406770efb46fe45 against main 58d4127a5837e6e8f1cc60256809e2be948878fb: https://git.local.sothr.com/terva-sh/lampi/pulls/262#issuecomment-37913 . All three findings are accepted: pin the approved proposal in every phase (high), require successful full preview plus checked backup before apply (high), and preserve verifiable partial progress after interruption (medium).
+
+The runner now hardcodes the approved original SHA256 and preserves/verifies the exact original proposal bytes in preview, apply and verify. A completion manifest written last binds all preview plans, inventories and backup; apply rechecks those artifacts and backup integrity. CLI input files are flushed before applying. Each returned receipt is saved immediately. Partial verify reconstructs committed receipts from the catalog using plans persisted before mutation, including when CLI output was lost. It reports moved/remaining counts and never silently retries a partial operation. Automatic resume lost to explicit partial verification because an interruption or concurrent policy change requires inspection before fresh remaining-session plans; no extra move approval is needed for the same frozen scope.
+
+Also check grants/rules after each fresh batch preview, pin the first created destination ID, and require exactly one created bay in the first receipt and none later. A synthetic concurrent grant injected after the second plan stops before batch two: only the first 500 moved. This closes the inter-batch policy gap while retaining the CLI's transaction-level stale-plan checks.
+
+Added adjacent operator instructions and repeatable six-case isolated tests using the deployed CLI: full 1,287 move/follow-up, proposal tampering in every phase, incomplete preview, altered backup, committed batch with lost output and partial verification (500 moved, 787 remaining), and concurrent reader grant. Fixture approval digest and privilege transition are substituted only in the test process; actual host/service-account access and production effects remain unverified. Request a new full model review for this executable change, even though its path is under .tickets. The owner-approved live operation remains pending host access; the expired sudo card is not retried automatically and no production mutation has occurred.
