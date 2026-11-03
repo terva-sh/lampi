@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-02T23:57:01Z
+updated_at: 2026-11-03T00:02:21Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -143,3 +143,15 @@ Advisory outcomes now use only visible memberships and holds, omit full state fi
 Full go test -trimpath=false ./..., catalog/web/CLI race checks, go vet ./..., isolated build, gofmt and git diff --check passed after the fix. Ticket validation has zero errors and only the same two preexisting unrelated title warnings. Record the accepted disposition while the PR is open, push all source/ticket records together, then request a fresh full review at that stable final head. No ticket-only push should supersede a running review again.
 
 Live dogfood remains incomplete: the private read-token request timed out without delivery, as recorded in TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay). Deployment and authorized live read/operator access are still required. Do not check off live requirements from synthetic tests or sampled evidence.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:02:21Z
+
+### Review 3014 and editable dashboard intent
+
+Published review 3014 at 96b9d88f0a595e3fc2148bc9b40e5798ca55906c confirms the previous hidden-membership inference is resolved, and raises medium finding-1 for lost name/alias-based bay selections on dashboard import/re-preview and later refinement. Review: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37729. Accepted and fixed in aa91fafc55d2f37344a5046d9ffad620720f0703. Rationale and interaction tests are recorded in TKT-01M3NNF2NNAETK0YG9WVBQW21G (Bays: guided selection, multi-bay migration and inbox triage).
+
+Restoration now resolves existing source/destination references to IDs and keeps hypothetical names separate. Missing references remain checked and explicitly unavailable, preserving intent and receipt retry behavior. Rendered-form regressions cover imported names/aliases, add/move, multiple existing/proposed destinations, re-preview, doctor handoff, selection exclusions and a second preview. A deleted-destination test verifies an idempotent receipt retry still succeeds while a new invalid preview remains refused.
+
+Full go test -trimpath=false ./..., web race tests, go vet ./..., isolated build, gofmt and git diff --check passed. Catalog and CLI race suites passed on the preceding privacy fix; this change touches dashboard code only. Ticket validation retains zero errors and the same two preexisting unrelated long-title warnings. All notes will be pushed with the code before requesting a new full review at a stable final head.
+
+The acceptance audit found executable implementations/tests for the nine completed design/software/docs children. The live Vuoro criteria remain unchecked: complete bay/session inventory, inspected candidate/control prompts, precise live move and future-route previews, doctor coverage and later-manifest verification still require deployment and authorized access. Synthetic coverage is not a substitute for that exercise. No live state changed.
