@@ -336,6 +336,15 @@ working if that admin's role changes. Revoke it to stop it.
   reads nothing. A token minted without bays is not limited by bay. Minting
   needs a sign-in in the last 10 minutes, as minting a registration code
   does.
+- **Choosing the scope.** The form lists the bays as checkboxes. To limit
+  the token to a project's sessions, type the project, owner or folder in
+  **Project**, or pick a **Machine**, and press **List matching sessions**.
+  The suggestions are the same as on Sessions. The form fills **Session UIDs**
+  with the newest matching sessions, up to the 100 a token can name, and
+  mints nothing. When more than 100 match, it says so: limit the token by bay
+  instead. When none match, it leaves the list as it was, because an empty
+  list reads every session. The token stores the listed UIDs, so a session
+  the project starts later is out of its reach.
 - **The token is shown once.** The lake keeps only its SHA-256. A token
   starts with `lrt_`, so a leaked one is easy to find in a log or with a
   secret scanner.

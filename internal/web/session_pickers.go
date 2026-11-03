@@ -49,7 +49,12 @@ type pickerEntry struct {
 // sessionPickers is the filters' choices for the request's scope. A
 // catalog error leaves them empty: the filters still take typed values.
 func (s *Server) sessionPickers(r *http.Request) sessionPickers {
-	scope := scopeOf(r)
+	return s.sessionPickersIn(r, scopeOf(r))
+}
+
+// sessionPickersIn is sessionPickers for scope, for a page whose guard
+// sets none, such as an admin's.
+func (s *Server) sessionPickersIn(r *http.Request, scope catalog.Scope) sessionPickers {
 	key := fmt.Sprintf("%#v", scope)
 	now := s.now()
 	s.pickers.mu.Lock()
