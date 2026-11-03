@@ -24,7 +24,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-02T23:56:03Z
+updated_at: 2026-11-03T00:32:16Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -98,3 +98,13 @@ in-progress to blocked: Live lake inventory requires read-token or service-accou
 **agent:codex/t3-6387cc8a** at 2026-11-02T23:56:03Z
 
 A private T3 secret-card request for an existing events:read token timed out without delivery during the review wait. No secret value or credential file was received, read or persisted by this agent. Authorized read access and deployment of the new tools therefore remain outstanding. The request timeout is not permission to create credentials or repurpose the device upload token. No live memberships, routes, grants, capture configuration or service state changed.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:32:16Z
+
+### Tooling is merged; production prerequisites still outstanding
+
+The complete discovery, selection, migration-preview/apply/receipts, dashboard organization and advisory doctor implementation landed in PR 253 (Organize sessions across bays with exact plans and advisory doctor): https://git.local.sothr.com/terva-sh/lampi/pulls/253. Both forges' main branches are synced at merge 476a02c20abbe0f5a42a0f5a9b592aabb6a43f2f. Final PR head efc0c6fb228222602aa059f39138dd85896567a2 passed complete Forgejo CI and a carried clean model review. docs/organizing-sessions.md, docs/bay-doctor.md and docs/bay-migrations.md contain the end-to-end workflow, access boundary and backup/upgrade procedure.
+
+Revalidated after integration: the live installation is still v0.11.1 (527d5c368339); query bays from the built implementation refuses before any request because no read token is configured; sudo -n service-account access requires a password; no lampi connector is exposed. The earlier private token request received no delivery. Do not retry it repeatedly, repurpose device credentials, register/adopt devices or infer that merging deploys the live service.
+
+This ticket remains blocked pending backed-up deployment and authorized read/operator access. Its five live acceptance checks stay unchecked: complete candidate/membership inventory; prompt/control and selector validation with exclusions; reader/future-routing decisions; actual doctor/discovery usage and error assessment; and add/move/multiple-destination plus later-manifest verification. Synthetic fixtures and the clean source review prove tooling behavior, not the production inventory or an approved split. No live service, profile, credentials, grants, rules or memberships were changed.

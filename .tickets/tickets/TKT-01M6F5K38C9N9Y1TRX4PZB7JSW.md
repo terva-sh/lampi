@@ -22,7 +22,7 @@ references: []
 claim: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T00:23:18Z
+updated_at: 2026-11-03T00:33:37Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -197,3 +197,17 @@ Full model review passed for source head 8b27d62c1b155304f5d010d6b0ddfdb2fd1a0be
 All six published findings have accepted agent technical dispositions in the maintained record: https://git.local.sothr.com/terva-sh/lampi/pulls/253#issuecomment-37715. They cover independent administrator authority, hidden membership invariance, imported bay reference restoration, retained per-session correction intent, browser paging line endings and doctor destination authority. The passing review is evidence, not a claim of human merge approval or completed live dogfood.
 
 The current implementation has already passed full normal tests, affected-package race suites, vet, build and formatting checks locally. Current-head Forgejo CI is still running at https://git.local.sothr.com/terva-sh/lampi/actions/runs/2356. This follow-up changes only ticket records; carry the published verdict using the documented carry workflow and keep monitoring the final pushed head before integration. Live deployment and read/operator access prerequisites remain unresolved, so the epic's live acceptance criterion stays unchecked.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:32:16Z
+
+### Implementation integrated; live exercise remains blocked
+
+PR 253 (Organize sessions across bays with exact plans and advisory doctor) merged on Forgejo at 2026-11-03T00:30:52Z: https://git.local.sothr.com/terva-sh/lampi/pulls/253. Merge commit: 476a02c20abbe0f5a42a0f5a9b592aabb6a43f2f. Final PR head efc0c6fb228222602aa059f39138dd85896567a2 passed both ci / Lint and Test and ci / Build Image: https://git.local.sothr.com/terva-sh/lampi/actions/runs/2360. The former includes vet, formatting, the complete race suite and build. The clean model verdict for source head 8b27d62c1b155304f5d010d6b0ddfdb2fd1a0bef carried successfully through the ticket-only final record, via run 2361. All six findings have accepted dispositions in the linked maintained record above.
+
+Ran the repository's just sync-github --yes recipe after merge. Both origin/main and github/main resolve to 476a02c20abbe0f5a42a0f5a9b592aabb6a43f2f. The implementation, source tests, documentation and nine completed child tickets are integrated. A fresh child-ticket audit confirms all nine implementation/design/docs checklists are checked, while the real Vuoro exercise remains 1/6 with five live checks unproven. This is not full epic completion, and AC4 stays unchecked.
+
+Post-integration access revalidation still finds installed CLI v0.11.1 (527d5c368339), no configured events:read token for the new discovery CLI, password-required noninteractive service-account catalog access, and no lampi connector exposed to this agent. No installed binary, running service, catalog, capture profile, route, grant, credential or live membership was changed. To resume the remaining exercise, deploy the merged server/CLI with the documented backups under host authority and supply an existing appropriately scoped read token or authorized catalog access; full membership/access review and apply additionally require operator authority. Preserve the sampled real reviewer/rater evidence in the live ticket, then enumerate and validate the actual cohort before reviewing any live add/move operation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-03T00:33:37Z
+
+The final integration/access record is PR 256 (Tickets: record bay organization integration and live blocker), https://git.local.sothr.com/terva-sh/lampi/pulls/256. Its full model review passed for head 4434b9550549ee41479900e6c296dc9bef34ed0d against base 476a02c20abbe0f5a42a0f5a9b592aabb6a43f2f, with no findings: https://git.local.sothr.com/terva-sh/lampi/pulls/256#issuecomment-37759. Run 0ebe52c7-7309-4db7-b9ed-9eab76521139, Actions 2364 (database 30426). This follow-up records that published verdict; carry applies because every later path is .tickets/**. Required CI remains the gate before merging the record. The implementation already landed through PR 253; no further product changes or live completion are claimed.
