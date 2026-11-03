@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "ticket": "TKT-01M6F5A01MX2ZCP9J7M3GGD7M0",
+  "recorded_at": "2026-11-03T23:05:15.242513+00:00",
+  "approved_proposal_sha256": "1c93128d1c84225ecf59bc740ee714e72f9c4a2543b62fc2be0d5ddb6eae6b4f",
+  "operator_preparation": {
+    "pr": 262,
+    "merge_commit": "bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae",
+    "all_three_checks_passed": true,
+    "clean_full_review_head": "155adf94fdd8883f7d1ce4d0510a58cd0ffa1b48"
+  },
+  "deployment": {
+    "binary": "/usr/local/bin/terva-lampi",
+    "version": "v0.12.0 (ccb9e4cc5111)",
+    "catalog_schema": 23
+  },
+  "administrator_preview": {
+    "sessions_in_catalog": 2321,
+    "bays_before": 1,
+    "batches": [
+      {
+        "sessions": 500,
+        "plan_id": "1e0444c98beb564a4d54277fde42e79a5ffa561d94712f41d58676f3faf4e0f2",
+        "complete_memberships": true,
+        "changed": 500,
+        "rejected": 0,
+        "other_memberships": 0
+      },
+      {
+        "sessions": 500,
+        "plan_id": "74b936f7a1bf3972026adfb55d7cd73160f4689ec3d73c4248377aa757ee6de4",
+        "complete_memberships": true,
+        "changed": 500,
+        "rejected": 0,
+        "other_memberships": 0
+      },
+      {
+        "sessions": 287,
+        "plan_id": "eb2731dff29425f0eb11e43c43f7e100a2b1a83f2cdc57f4de443fe1042098af",
+        "complete_memberships": true,
+        "changed": 287,
+        "rejected": 0,
+        "other_memberships": 0
+      }
+    ],
+    "backup_quick_check": "ok",
+    "selected_other_memberships": 0,
+    "existing_grants": 12,
+    "source_explicit_read_grants": 2,
+    "installed_rules": 0,
+    "selected_manifest_requested_bays": [],
+    "selected_stored_bay_requests": 0,
+    "grants_sha256": "d97c1cd0f497cb210f8d3e5d07510556dadef89a54007fe7fc4b32628b2a8440",
+    "rules_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "operation": {
+    "type": "move",
+    "from": "default",
+    "to": "code-reviews",
+    "target_id": "bay_6ikhsnvjtdcshjxgn2zj4wdd6a",
+    "approved_sessions": 1287,
+    "role_counts": {
+      "reviewers": 645,
+      "finding_raters": 640,
+      "draft_mergers": 2
+    },
+    "new_reader_grants": 0,
+    "routing_changes": 0,
+    "receipts": [
+      {
+        "batch": 1,
+        "plan_id": "1b21b51f51b9904d845cdc5769f6150ecef38409f202b72e2493159322db5630",
+        "applied_at": "2026-11-03T23:03:14.996174822Z",
+        "sessions": 500,
+        "complete": true,
+        "verified_matches_receipt": true
+      },
+      {
+        "batch": 2,
+        "plan_id": "a75b0d657105de6028835f2bac4c8b5adce7c11b7e9bd699f3f2ba4388d1c419",
+        "applied_at": "2026-11-03T23:03:17.414269393Z",
+        "sessions": 500,
+        "complete": true,
+        "verified_matches_receipt": true
+      },
+      {
+        "batch": 3,
+        "plan_id": "731c2cf16161999be508cbe5ea8b045036d5b108ebf046fc8ebee1a7527e3673",
+        "applied_at": "2026-11-03T23:03:19.732881048Z",
+        "sessions": 287,
+        "complete": true,
+        "verified_matches_receipt": true
+      }
+    ]
+  },
+  "verification": {
+    "complete": true,
+    "moved": 1287,
+    "remaining": 0,
+    "all_receipts_match": true,
+    "followup_all_receipts_match": true,
+    "all_selected_only_in_target": true,
+    "excluded_controls": 13,
+    "excluded_controls_unchanged_in_default": true,
+    "unselected_sessions": 1034,
+    "unselected_memberships_unchanged": true,
+    "grants_unchanged": true,
+    "rules_unchanged": true,
+    "sessions_in_catalog": 2321,
+    "memberships_by_bay": {
+      "default": 1034,
+      "code-reviews": 1287
+    },
+    "read_interface": {
+      "pages": 7,
+      "sessions": 1287,
+      "exact_frozen_UID_match": true,
+      "uid_set_sha256": "9519bb3dc95da453f42830c064ccead142cb6defdb5f80d9948a89ffaddaee04"
+    }
+  },
+  "access_effect": "Default-only readers lose reach to the moved sessions. Administrators and unrestricted/session-scoped tokens may retain it. No destination reader grants were created.",
+  "future_manifests": {
+    "production_later_upload_confirmation": "pending; no later manifest request independently confirmed",
+    "current_policy": "No installed rules or selected explicit bay requests. Existing synthetic walkthrough verifies unchanged manifests preserve the move and an explicit later source add rule can restore default.",
+    "future_routing_installed": false,
+    "selected_ingested_at_changes_since_preview": 0,
+    "observation_limit": "ingested_at advances for changed session heads, not every manifest request. Zero timestamp changes cannot confirm or rule out unchanged reposts."
+  },
+  "limits": [
+    "This changes only the frozen historical cohort, not future session routing.",
+    "No capture profile, agent, service or credential configuration was changed.",
+    "The existing scope/evidence limitations in the approved proposal still apply."
+  ]
+}
