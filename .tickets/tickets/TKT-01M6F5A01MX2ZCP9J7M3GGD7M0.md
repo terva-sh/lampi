@@ -39,7 +39,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-04T07:01:14Z
+updated_at: 2026-11-04T07:10:49Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -309,3 +309,11 @@ The linked vuoro-future-routing-result.json preserves sanitized current catchmen
 ### Routing installation record submitted
 
 Opened PR #264 (Record installed Vuoro review routing rules), https://git.local.sothr.com/terva-sh/lampi/pulls/264. The two live rules are already installed and verified under the owner's explicit authorization; this PR preserves their result, metadata catchment coverage and operational documentation rather than deploying code. A first full model review and final-head CI are required before merging the record and syncing both forges. No outstanding rule-installation permission is needed, and no rule should be installed again. The original production later-manifest criterion remains open and is independent of review of this record.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T07:10:49Z
+
+### Clean routing-record review
+
+PR #264 (Record installed Vuoro review routing rules) has a clean full code review at head 43b1c23d19647defb73e211f27127e3d15857c41 against base 9ec5ade286ed298f9d0e43be2c78b1a1f092bed5: https://git.local.sothr.com/terva-sh/lampi/pulls/264#issuecomment-38087 . Run 06164718-3bb9-43c5-9f7b-d5aa498524ce, Actions #2418 (database 30727), reports no findings. The review establishes internal consistency of the supplied record; it does not independently verify the private production installation, inventory, authorization or reported fixture outcomes. Those operational observations remain separately recorded evidence.
+
+All three checks passed at that reviewed head, including lint/race tests and image build in Actions #2419. This ticket-only commit records the required review evidence; carry the clean verdict to it and require final-head CI before merging and syncing both forges. No further live mutation is needed for the two installed rules. The original natural production later-manifest observation remains unverified, so AC6 and the epic's final criterion remain open.
