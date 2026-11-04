@@ -37,7 +37,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T23:16:56Z
+updated_at: 2026-11-04T06:52:41Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -88,7 +88,7 @@ Only production later-upload observation remains unverified: no selected ingeste
 
 ## Implementation plan
 
-Use the verified deployed CLI and owner-provided read token for a complete paginated metadata inventory; record scope, cutoff and non-snapshot limits. Inspect bounded opening evidence for every real Vuoro worktree candidate and representative same-repository/harness development, editor and synthetic controls, with per-session generation/head and explicit unknown states. Freeze exact historical batches of at most 500 without splitting related directory groups; preserve all unlinked companions and explicit exclusions. Compare MCP add/move and multiple hypothetical destinations, and run CLI/MCP doctor reports including incomplete inventory and broad-path false-positive controls. Preview future predicates independently; compare complete dated Linux catchment partitions to the original root-prefix inventory without claiming a single oversized server preview passed. Keep exact request/evidence metadata as a ticket-linked artifact, never transcript or credentials. Record source/destination readership limits and current-rule visibility gaps, present a concrete split for owner approval, then require a fresh full administrator preview before any live creation/move/grant/route. Verify later manifests and receipts only after an authorized apply; synthetic lifecycle checks remain separate evidence. Publish substantive exercise/docs/ticket changes through the required PR review and sync workflow.
+Inspect the deployed rule semantics and current complete administrator metadata/policy snapshot. Back up the catalog, preview the macOS root and a complete bounded partition of the Linux root, verify their union and all controls, and inspect newly matched candidates. Recheck destination identity and grant/rule baseline, then install only the two authorized Claude/worktree add rules using the deployed service-account CLI. Verify the exact installed selectors, unchanged grants and immediate memberships, original migration receipts, and isolated new/unchanged-manifest routing behavior. Record precise current catchments, any unhandled historical backlog and limits in sanitized artifacts/tickets/docs; submit the record through the normal review/CI workflow. Keep the original live later-manifest criterion honest if still unobserved.
 
 ## Notes
 
@@ -279,3 +279,11 @@ For continuation, observe an independently confirmed later manifest request or a
 PR #263 (Record the verified live Vuoro review split) has a clean full code review for head 590552a50019d6ffc76242f42dd15328647b2d2b against bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae: https://git.local.sothr.com/terva-sh/lampi/pulls/263#issuecomment-37973 . Run 40ab4023-7b05-45c2-b16a-ed8d29ee79a9, Actions #2412 (database 30623), reports no findings. It is a static review of the supplied diff, not independent access to private live receipts or proof of a later manifest. No dispositions are needed. All three checks passed at that source head: review, Lint and Test, and Build Image (CI #2411).
 
 A new administrator verify on this update still matches all three stored receipts, all 1,287 moved sessions, zero remaining, unchanged grants/rules and preserved unselected memberships. The corrected timestamp-change counter remains zero. That cannot rule out unchanged reposts; no later selected manifest has been independently confirmed. AC6 remains open. This commit records only ticket evidence, so carry the clean review over it and wait for final-head CI before merging/syncing. Do not rerun the historical move or alter routing/capture to force the remaining observation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T06:52:41Z
+
+### Owner authorized future routing
+
+After confirming that the live lake has zero routing rules and that new review sessions still fall into default, the owner said: "Let's do that so that we do not continue the bleed." This authorizes previewing and installing two add rules targeting the existing code-reviews bay, each restricted to harness=claude and one verified Linux/macOS Vuoro worktrees prefix. It supersedes the earlier no-future-routing authorization boundary for these two rules only. Editor/development/synthetic controls must remain outside their catchments. Reader grants, capture profiles, agents and services remain unchanged. Do not run apply-rules or retroactively move newly discovered default sessions under this rule-installation authorization.
+
+Use a fresh complete administrator inventory and backup, compare bounded CLI catchment previews with the full root-match sets (partition the large Linux catchment rather than sample), and inspect any candidates outside the already reviewed cohort before installation. New matching sessions will be placed on ingest; existing matching sessions can gain the destination on a later manifest, and an explicit accepted request for default can still retain/add default. Do not pretend an add rule removes historical source memberships.
