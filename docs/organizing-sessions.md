@@ -280,7 +280,17 @@ The approved historical split moved exactly 1,287 inspected sessions into
 membership. Complete administrator previews, three applied batches, matching
 receipts and a full read-interface traversal are recorded in the
 [live result artifact](../.tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-live-split-result.json).
-No grants or future routing rules were added. New review sessions are not
-automatically routed by this historical move. Production later-upload
-observation remains open in the ticket; synthetic manifest tests do not prove
-that a moved production session has uploaded again.
+The historical move added no grants or routing rules. The owner subsequently
+authorized two add rules matching Claude sessions under the verified Linux and
+macOS Vuoro `worktrees` prefixes. Those rules are installed into `code-reviews`;
+the editor paths remain outside their catchments. The
+[routing result artifact](../.tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-future-routing-result.json)
+records their selectors, complete preview coverage and verification.
+
+New matches with no explicit source request now enter `code-reviews` without
+the default fallback. Add rules do not remove an existing `default` membership,
+and an accepted explicit request for `default` can still produce both
+memberships. No grants, capture settings or bulk historical memberships were
+changed by rule installation. Production later-upload observation remains open
+in the ticket; the isolated deployed-binary HTTP tests do not prove that a moved
+production session has uploaded again.

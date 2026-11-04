@@ -29,7 +29,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:20:31Z
-updated_at: 2026-11-03T23:08:24Z
+updated_at: 2026-11-04T06:59:54Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -268,3 +268,11 @@ Host access is resolved; the approved runner landed through PR #262 and both for
 ### Clarify the remaining production observation
 
 The previous live-result note's claim that no selected session uploaded again is too strong. Zero selected ingested_at changes confirms no observed head-ingestion timestamp change; unchanged reposts need not update it. No later manifest request has been independently confirmed. PR #263 (Record the verified live Vuoro review split), https://git.local.sothr.com/terva-sh/lampi/pulls/263, corrects that metric label and documents the limit alongside the verified live move. The actual 1,287-session split, unchanged grants/rules, preserved controls and matching receipts are established. Keep the final live criterion open for independently confirmed subsequent-request evidence; the lack of timestamp changes does not satisfy it.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T06:59:54Z
+
+### Forward routing now installed
+
+For TKT-01M6F5A01MX2ZCP9J7M3GGD7M0 (Preview and separate Vuoro review sessions into a bay), the owner separately authorized the two verified Claude/Vuoro worktree routing rules to stop new reviews falling into default. Installed add rules 1 and 2 for the Linux and macOS worktree prefixes into code-reviews, after complete current administrator catchment review and a checked backup. The full 1,281+6 catchment is exactly the previously inspected cohort, with all 13 controls excluded and no matching historical backlog outside the target. Grants and existing memberships are unchanged; the original move receipts still match. No bulk apply-rules sweep, profile, agent or service change occurred.
+
+The deployed-binary isolated HTTP smoke verifies new matches route solely to code-reviews, controls stay in default, moved-session appends preserve the destination, and explicit default requests can still produce shared membership. The linked vuoro-future-routing-result.json records the evidence and limits. This resolves the formerly separate future-routing decision under new owner authorization. The only original lifecycle evidence gap remains a natural later production manifest from a moved UID; leave the final epic/live criterion open until independently observed.
