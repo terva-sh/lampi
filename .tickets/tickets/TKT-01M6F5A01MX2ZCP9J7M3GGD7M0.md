@@ -39,7 +39,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-04T06:59:54Z
+updated_at: 2026-11-04T07:01:14Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -303,3 +303,9 @@ The deployed service-account CLI installed rule 1 (add code-reviews; harness=cla
 An isolated lake running the actual deployed binary verified fresh Linux reviewer/rater and macOS matches enter code-reviews only. Linux/macOS editor paths, development, a prefix sibling and a non-Claude harness stay in default. A stored default session's repost adds code-reviews but retains default; a previously moved session's real synthetic head append stays only in code-reviews. An explicit accepted default request produces both memberships, as expected for additive routing. No fixture grant or production transcript was used. The first fixture request used the JSON content type for raw blob bytes and was rejected before ingest; corrected to application/octet-stream and the full deployed HTTP smoke passed. This was a fixture error, not a production routing failure.
 
 The linked vuoro-future-routing-result.json preserves sanitized current catchments, rule IDs, policy invariants and the isolated test outcomes. Current selected manifest requests remain empty. Directory rules classify by verified path/harness rather than trusted role provenance. This installation solves forward routing under current capture behavior, not removal of arbitrary explicit source requests or historical memberships. The original live AC6 stays open: there is still no independently confirmed natural subsequent production manifest for a moved UID. Isolated HTTP posts and quiet ingested_at timestamps do not prove that live lifecycle observation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T07:01:14Z
+
+### Routing installation record submitted
+
+Opened PR #264 (Record installed Vuoro review routing rules), https://git.local.sothr.com/terva-sh/lampi/pulls/264. The two live rules are already installed and verified under the owner's explicit authorization; this PR preserves their result, metadata catchment coverage and operational documentation rather than deploying code. A first full model review and final-head CI are required before merging the record and syncing both forges. No outstanding rule-installation permission is needed, and no rule should be installed again. The original production later-manifest criterion remains open and is independent of review of this record.
