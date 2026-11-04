@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "ticket": "TKT-01M6F5A01MX2ZCP9J7M3GGD7M0",
+  "recorded_at": "2026-11-04T06:58:57.454125+00:00",
+  "authorization": "Owner requested previewing and installing both verified Claude/Vuoro worktree add rules so new sessions stop falling into default. No grant, profile, agent, service or bulk historical membership change authorized.",
+  "binary": {
+    "path": "/usr/local/bin/terva-lampi",
+    "version": "v0.12.0 (ccb9e4cc5111)"
+  },
+  "target": {
+    "name": "code-reviews",
+    "id": "bay_6ikhsnvjtdcshjxgn2zj4wdd6a"
+  },
+  "preflight": {
+    "catalog_sessions": 2333,
+    "existing_rules": 0,
+    "grants": 12,
+    "online_catalog_backup_quick_check": "ok",
+    "controls_checked": 13,
+    "controls_in_catchment": 0,
+    "full_catchment_exactly_matches_inspected_frozen_UIDs": true,
+    "new_uninspected_matches": 0,
+    "matching_sessions_outside_target": 0,
+    "selected_explicit_requested_bays": [
+      "[]"
+    ],
+    "selected_stored_bay_requests": 0
+  },
+  "complete_catchments": [
+    {
+      "platform": "linux",
+      "root": "/home/sothr/.local/state/vuoro/worktrees",
+      "sessions": 1281,
+      "uid_set_sha256": "93ac73f0fa0e29f25e8b0981eec0e480d375cef6b29a30b92466b552e49c94c6",
+      "preview_partitions": [
+        {
+          "partition": "20261028",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261028*"
+          ],
+          "count": 6,
+          "complete": true
+        },
+        {
+          "partition": "20261029",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261029*"
+          ],
+          "count": 398,
+          "complete": true
+        },
+        {
+          "partition": "20261030",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261030*"
+          ],
+          "count": 200,
+          "complete": true
+        },
+        {
+          "partition": "20261031",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261031*"
+          ],
+          "count": 190,
+          "complete": true
+        },
+        {
+          "partition": "20261101",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261101*"
+          ],
+          "count": 128,
+          "complete": true
+        },
+        {
+          "partition": "20261102",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261102*"
+          ],
+          "count": 303,
+          "complete": true
+        },
+        {
+          "partition": "20261103",
+          "selector": [
+            "--cwd-glob",
+            "/home/sothr/.local/state/vuoro/worktrees/20261103*"
+          ],
+          "count": 56,
+          "complete": true
+        }
+      ]
+    },
+    {
+      "platform": "macos",
+      "root": "/Users/drewshort/Library/Application Support/vuoro/worktrees",
+      "sessions": 6,
+      "uid_set_sha256": "dee2a522af1bd5ecbeb90cdaa295406ceb7507f9a14dcf9d7d82cd4153402cd2",
+      "preview_partitions": [
+        {
+          "partition": "root",
+          "selector": [
+            "--cwd-prefix",
+            "/Users/drewshort/Library/Application Support/vuoro/worktrees"
+          ],
+          "count": 6,
+          "complete": true
+        }
+      ]
+    }
+  ],
+  "installation": {
+    "installed_at": "2026-11-04T06:55:50.328705+00:00",
+    "rules": [
+      {
+        "id": 1,
+        "match": {
+          "cwd_prefix": "/home/sothr/.local/state/vuoro/worktrees"
+        },
+        "harness": "claude",
+        "action": "add",
+        "bay_id": "bay_6ikhsnvjtdcshjxgn2zj4wdd6a",
+        "created_at": "2026-11-04T06:55:50.10753643Z"
+      },
+      {
+        "id": 2,
+        "match": {
+          "cwd_prefix": "/Users/drewshort/Library/Application Support/vuoro/worktrees"
+        },
+        "harness": "claude",
+        "action": "add",
+        "bay_id": "bay_6ikhsnvjtdcshjxgn2zj4wdd6a",
+        "created_at": "2026-11-04T06:55:50.151131379Z"
+      }
+    ],
+    "grants_unchanged": true,
+    "existing_memberships_unchanged": true,
+    "original_three_receipts_match": true,
+    "bulk_apply_rules_run": false
+  },
+  "post_installation": {
+    "rules_count": 2,
+    "grants_count": 12,
+    "grants_unchanged": true,
+    "grants_sha256": "d97c1cd0f497cb210f8d3e5d07510556dadef89a54007fe7fc4b32628b2a8440",
+    "existing_memberships_unchanged": true,
+    "memberships_by_bay": {
+      "code-reviews": 1287,
+      "default": 1046
+    },
+    "original_three_migration_receipts_match": true
+  },
+  "isolated_deployed_binary_http_verification": {
+    "deployed_binary": "/usr/local/bin/terva-lampi",
+    "isolated": true,
+    "production_transcripts_used": false,
+    "fresh_ingest_cases": [
+      {
+        "case": "linux-review",
+        "expected": "code-reviews-only",
+        "passed": true
+      },
+      {
+        "case": "linux-rater",
+        "expected": "code-reviews-only",
+        "passed": true
+      },
+      {
+        "case": "macos-review",
+        "expected": "code-reviews-only",
+        "passed": true
+      },
+      {
+        "case": "linux-editor",
+        "expected": "default-only",
+        "passed": true
+      },
+      {
+        "case": "macos-editor",
+        "expected": "default-only",
+        "passed": true
+      },
+      {
+        "case": "same-repo-development",
+        "expected": "default-only",
+        "passed": true
+      },
+      {
+        "case": "prefix-boundary",
+        "expected": "default-only",
+        "passed": true
+      },
+      {
+        "case": "other-harness",
+        "expected": "default-only",
+        "passed": true
+      }
+    ],
+    "existing_default_session_repost_adds_target_retains_default": true,
+    "previously_moved_session_append_keeps_target_only": true,
+    "explicit_default_request_can_retain_default": true,
+    "grants_created": 0,
+    "live_later_manifest_observed": false
+  },
+  "semantics": [
+    "New matching manifests with no explicit source request are placed in code-reviews without the default fallback.",
+    "Previously stored default sessions receive additional membership only when they post again; an add rule does not remove default.",
+    "An accepted explicit default request can produce both memberships. No matching current stored manifest requested default.",
+    "Matching is based on harness and verified worktree path, not trusted workflow-role provenance. A future non-review workflow placed there would also match.",
+    "No apply-rules sweep or historical cleanup was performed; the complete current catchment was already in code-reviews."
+  ],
+  "remaining_production_lifecycle_evidence": {
+    "selected_ingested_at_changes_since_original_move_preview": 0,
+    "later_manifest_request_independently_confirmed": false,
+    "criterion_remains_open": true,
+    "limit": "Unchanged reposts may not advance ingested_at; the isolated HTTP tests are not production later-upload evidence."
+  }
+}

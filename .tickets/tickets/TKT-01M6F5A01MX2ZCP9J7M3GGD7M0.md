@@ -27,6 +27,8 @@ references:
     path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro_approved_move.py
   - ref: artifact:vuoro-live-split-20261103
     path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-live-split-result.json
+  - ref: artifact:vuoro-future-routing-20261104
+    path: .tickets/artifacts/TKT-01M6F5A01MX2ZCP9J7M3GGD7M0/vuoro-future-routing-result.json
 claim:
   actor: agent:codex/t3-6387cc8a
   branch: dogfood/vuoro-live-preview
@@ -37,7 +39,7 @@ claim:
   expires_at: null
 archive: null
 created_at: 2026-11-02T22:15:33Z
-updated_at: 2026-11-03T23:16:56Z
+updated_at: 2026-11-04T07:10:49Z
 created_by:
   id: agent:codex/t3-6387cc8a
   name: ""
@@ -51,7 +53,7 @@ extensions: {}
 
 ### Owner goal and authority
 
-Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and separate the reviewed historical cohort from development. A capture profile controls uploads; stored bays perform organization without re-registration or re-import. The owner approved exactly 1,287 frozen UIDs moving from default to a new code-reviews bay, preserving unrelated memberships and exclusions, with no new reader grants, after fresh complete administrator previews. That approved operation is now applied and receipt-verified. Do not replay it or request the same approval again. No future routing, profile, agent or service change was authorized or performed.
+Dogfood Lampi's MCP/CLI interfaces on the actual local lake, identify Vuoro reviews running Claude Code, and separate the reviewed historical cohort from development. A capture profile controls uploads; stored bays perform organization without re-registration or re-import. The owner approved exactly 1,287 frozen UIDs moving from default to a new code-reviews bay, preserving unrelated memberships and exclusions, with no new reader grants, after fresh complete administrator previews. That approved operation is now applied and receipt-verified. Do not replay it or request the same approval again. The owner subsequently authorized the two verified Claude/Vuoro worktree routing rules to stop new reviews entering default. Those add rules are installed as IDs 1 and 2; no profile, agent, service or reader-grant configuration changed.
 
 ### Verified cohort and evidence limits
 
@@ -69,9 +71,9 @@ Default-only readers lose reach to the moved sessions. Source readership had two
 
 ### Future routing and remaining validation
 
-No routing rule is installed. The selected stored manifests have no requested bays, and the administrator backup contains no stored bay requests for them. Current policy therefore matches the integrated synthetic walkthrough where unchanged later manifests preserve the move; an explicit later source add rule or newly accepted source request can restore default. The walkthrough is synthetic evidence, not a claim that a moved production session has uploaded again.
+Two add rules now target code-reviews: harness=claude plus the verified Linux worktrees prefix (rule 1) or macOS worktrees prefix (rule 2). The adjacent vuoro-future-routing-result.json records fresh complete catchments, a checked backup, installed IDs/selectors, unchanged grants/memberships and isolated deployed-binary HTTP verification. The complete current catchment equals the same inspected 1,287 UIDs; all 13 controls are excluded and no matching backlog remains outside code-reviews. No apply-rules sweep was run. The selected stored manifests and request table have no explicit bay requests. New matching sessions with no explicit source request now enter code-reviews without default fallback. An accepted explicit default request can still share membership; existing default memberships are not removed by an add rule. These semantics are verified in an isolated lake, not claimed as natural production later-upload evidence.
 
-Future selection remains separate from these historical UIDs. Candidate predicates are harness=claude plus verified worktree prefixes. The Linux root exceeds the 500-match preview cap; seven complete dated-glob previews covered all 1,281 inventoried root matches. The macOS worktree prefix covered six. Those partitions and opening-role evidence do not predict all future workflows or authorize installation.
+Future selection remains separate from these historical UIDs. Candidate predicates are harness=claude plus verified worktree prefixes. The Linux root exceeds the 500-match preview cap; seven complete dated-glob previews covered all 1,281 inventoried root matches. The macOS worktree prefix covered six. Fresh current previews revalidated the full union before the separately owner-authorized installation. The installed rules use full prefixes, not dated partitions. Directory/harness matching does not predict every future workflow role; explicit workflow provenance remains a draft follow-up.
 
 Doctor was exercised through CLI and MCP: complete exact reports covered the cohort, an incomplete broad Linux report supplied no preview handoffs, and a broad macOS parent mapping included the fix editor until narrowed to worktrees. Add-only, move-one and multiple-destination comparisons were inspected separately; project-history was illustrative and was not created live.
 
@@ -88,7 +90,7 @@ Only production later-upload observation remains unverified: no selected ingeste
 
 ## Implementation plan
 
-Use the verified deployed CLI and owner-provided read token for a complete paginated metadata inventory; record scope, cutoff and non-snapshot limits. Inspect bounded opening evidence for every real Vuoro worktree candidate and representative same-repository/harness development, editor and synthetic controls, with per-session generation/head and explicit unknown states. Freeze exact historical batches of at most 500 without splitting related directory groups; preserve all unlinked companions and explicit exclusions. Compare MCP add/move and multiple hypothetical destinations, and run CLI/MCP doctor reports including incomplete inventory and broad-path false-positive controls. Preview future predicates independently; compare complete dated Linux catchment partitions to the original root-prefix inventory without claiming a single oversized server preview passed. Keep exact request/evidence metadata as a ticket-linked artifact, never transcript or credentials. Record source/destination readership limits and current-rule visibility gaps, present a concrete split for owner approval, then require a fresh full administrator preview before any live creation/move/grant/route. Verify later manifests and receipts only after an authorized apply; synthetic lifecycle checks remain separate evidence. Publish substantive exercise/docs/ticket changes through the required PR review and sync workflow.
+Inspect the deployed rule semantics and current complete administrator metadata/policy snapshot. Back up the catalog, preview the macOS root and a complete bounded partition of the Linux root, verify their union and all controls, and inspect newly matched candidates. Recheck destination identity and grant/rule baseline, then install only the two authorized Claude/worktree add rules using the deployed service-account CLI. Verify the exact installed selectors, unchanged grants and immediate memberships, original migration receipts, and isolated new/unchanged-manifest routing behavior. Record precise current catchments, any unhandled historical backlog and limits in sanitized artifacts/tickets/docs; submit the record through the normal review/CI workflow. Keep the original live later-manifest criterion honest if still unobserved.
 
 ## Notes
 
@@ -279,3 +281,39 @@ For continuation, observe an independently confirmed later manifest request or a
 PR #263 (Record the verified live Vuoro review split) has a clean full code review for head 590552a50019d6ffc76242f42dd15328647b2d2b against bd3ccb4ed8a3e2410d90dfca7c26bfe9dc3529ae: https://git.local.sothr.com/terva-sh/lampi/pulls/263#issuecomment-37973 . Run 40ab4023-7b05-45c2-b16a-ed8d29ee79a9, Actions #2412 (database 30623), reports no findings. It is a static review of the supplied diff, not independent access to private live receipts or proof of a later manifest. No dispositions are needed. All three checks passed at that source head: review, Lint and Test, and Build Image (CI #2411).
 
 A new administrator verify on this update still matches all three stored receipts, all 1,287 moved sessions, zero remaining, unchanged grants/rules and preserved unselected memberships. The corrected timestamp-change counter remains zero. That cannot rule out unchanged reposts; no later selected manifest has been independently confirmed. AC6 remains open. This commit records only ticket evidence, so carry the clean review over it and wait for final-head CI before merging/syncing. Do not rerun the historical move or alter routing/capture to force the remaining observation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T06:52:41Z
+
+### Owner authorized future routing
+
+After confirming that the live lake has zero routing rules and that new review sessions still fall into default, the owner said: "Let's do that so that we do not continue the bleed." This authorizes previewing and installing two add rules targeting the existing code-reviews bay, each restricted to harness=claude and one verified Linux/macOS Vuoro worktrees prefix. It supersedes the earlier no-future-routing authorization boundary for these two rules only. Editor/development/synthetic controls must remain outside their catchments. Reader grants, capture profiles, agents and services remain unchanged. Do not run apply-rules or retroactively move newly discovered default sessions under this rule-installation authorization.
+
+Use a fresh complete administrator inventory and backup, compare bounded CLI catchment previews with the full root-match sets (partition the large Linux catchment rather than sample), and inspect any candidates outside the already reviewed cohort before installation. New matching sessions will be placed on ingest; existing matching sessions can gain the destination on a later manifest, and an explicit accepted request for default can still retain/add default. Do not pretend an add rule removes historical source memberships.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T06:59:54Z
+
+### Future routing installed under the new owner authorization
+
+The owner requested installing the two proposed routing rules to prevent continued default-bay bleed. This is a separate authorization from the already applied historical move; it supersedes earlier no-future-routing statements for these exact selectors. PR #263 (Record the verified live Vuoro review split) is merged and both forges were synced at 9ec5ade286ed298f9d0e43be2c78b1a1f092bed5 before this work.
+
+Fresh administrator backup/quick_check and complete metadata inventory found 2,333 sessions, zero rules and the same 12 grants. The macOS prefix preview covered all six matches. Seven complete bounded Linux dated-glob previews covered 1,281 matches; their disjoint union equals the full administrator root-match set and exactly the previously inspected frozen cohort. All 13 controls are outside both catchments. There are zero newly uninspected matches and no matching sessions outside code-reviews, so no additional historical move or apply-rules sweep was needed. Dated partitions are preview evidence only; the installed selectors are enduring full worktree prefixes.
+
+The deployed service-account CLI installed rule 1 (add code-reviews; harness=claude; cwd_prefix=/home/sothr/.local/state/vuoro/worktrees) and rule 2 (same action/harness/destination; cwd_prefix=/Users/drewshort/Library/Application Support/vuoro/worktrees) at 2026-11-04T06:55:50Z. Destination ID is bay_6ikhsnvjtdcshjxgn2zj4wdd6a. Rechecked the policy before each write and verified exactly these two rules afterward. All original grants, bays/aliases and existing memberships are unchanged. All three historical migration receipts still match. No capture profile, agent, service, credential configuration or new grant was changed.
+
+An isolated lake running the actual deployed binary verified fresh Linux reviewer/rater and macOS matches enter code-reviews only. Linux/macOS editor paths, development, a prefix sibling and a non-Claude harness stay in default. A stored default session's repost adds code-reviews but retains default; a previously moved session's real synthetic head append stays only in code-reviews. An explicit accepted default request produces both memberships, as expected for additive routing. No fixture grant or production transcript was used. The first fixture request used the JSON content type for raw blob bytes and was rejected before ingest; corrected to application/octet-stream and the full deployed HTTP smoke passed. This was a fixture error, not a production routing failure.
+
+The linked vuoro-future-routing-result.json preserves sanitized current catchments, rule IDs, policy invariants and the isolated test outcomes. Current selected manifest requests remain empty. Directory rules classify by verified path/harness rather than trusted role provenance. This installation solves forward routing under current capture behavior, not removal of arbitrary explicit source requests or historical memberships. The original live AC6 stays open: there is still no independently confirmed natural subsequent production manifest for a moved UID. Isolated HTTP posts and quiet ingested_at timestamps do not prove that live lifecycle observation.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T07:01:14Z
+
+### Routing installation record submitted
+
+Opened PR #264 (Record installed Vuoro review routing rules), https://git.local.sothr.com/terva-sh/lampi/pulls/264. The two live rules are already installed and verified under the owner's explicit authorization; this PR preserves their result, metadata catchment coverage and operational documentation rather than deploying code. A first full model review and final-head CI are required before merging the record and syncing both forges. No outstanding rule-installation permission is needed, and no rule should be installed again. The original production later-manifest criterion remains open and is independent of review of this record.
+
+**agent:codex/t3-6387cc8a** at 2026-11-04T07:10:49Z
+
+### Clean routing-record review
+
+PR #264 (Record installed Vuoro review routing rules) has a clean full code review at head 43b1c23d19647defb73e211f27127e3d15857c41 against base 9ec5ade286ed298f9d0e43be2c78b1a1f092bed5: https://git.local.sothr.com/terva-sh/lampi/pulls/264#issuecomment-38087 . Run 06164718-3bb9-43c5-9f7b-d5aa498524ce, Actions #2418 (database 30727), reports no findings. The review establishes internal consistency of the supplied record; it does not independently verify the private production installation, inventory, authorization or reported fixture outcomes. Those operational observations remain separately recorded evidence.
+
+All three checks passed at that reviewed head, including lint/race tests and image build in Actions #2419. This ticket-only commit records the required review evidence; carry the clean verdict to it and require final-head CI before merging and syncing both forges. No further live mutation is needed for the two installed rules. The original natural production later-manifest observation remains unverified, so AC6 and the epic's final criterion remain open.
